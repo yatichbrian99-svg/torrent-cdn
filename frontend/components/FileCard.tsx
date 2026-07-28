@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Trash2, Copy, Check } from 'lucide-react'
+import { Trash2, Copy, Check, Loader2 } from 'lucide-react'
 import EmbedCode from './EmbedCode'
 
 interface FileItem {
@@ -12,8 +12,15 @@ interface FileItem {
 export default function FileCard({ file, onDelete }: { file: FileItem; onDelete: (id: string) => void }) {
   const [showEmbed, setShowEmbed] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [copied, setCopied] = useState(false)
-  const createdDate = new Date(file.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+
+  const handleConfirmDelete = async () => {
+    setDeleting(true)
+    await onDelete(file.id)
+    setDeleting(false)
+    setConfirmDelete(false)
+  }
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(`<div data-torrent-cdn="${file.id}"></div>`)
@@ -42,8 +49,12 @@ export default function FileCard({ file, onDelete }: { file: FileItem; onDelete:
             <button onClick={() => setShowEmbed(true)} className="border px-2 py-1 text-xs" style={{ borderColor: '#333', color: '#555' }}>Embed</button>
             {confirmDelete ? (
               <div className="flex items-center gap-1">
-                <button onClick={() => { onDelete(file.id); setConfirmDelete(false) }} className="border px-2 py-1 text-xs" style={{ borderColor: '#fff', color: '#fff' }}>Confirm</button>
-                <button onClick={() => setConfirmDelete(false)} className="border px-2 py-1 text-xs" style={{ borderColor: '#333', color: '#555' }}>No</button>
+                <button onClick={handleConfirmDelete} disabled={deleting} className="border px-2 py-1 text-xs disabled:opacity-50" style={{ borderColor: '#fff', color: '#fff' }}>
+                  {deleting ? <Loader2 size={12} className="animate-spin" /> : 'Confirm'}
+                </button>
+                {!deleting && (
+                  <button onClick={() => setConfirmDelete(false)} className="border px-2 py-1 text-xs" style={{ borderColor: '#333', color: '#555' }}>No</button>
+                )}
               </div>
             ) : (
               <button onClick={() => setConfirmDelete(true)} className="border px-2 py-1 text-xs transition-opacity hover:opacity-80" style={{ borderColor: '#333', color: '#555' }}>

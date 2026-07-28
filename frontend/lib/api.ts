@@ -1,8 +1,9 @@
 import axios from 'axios'
-import { getToken } from './auth'
+import { getToken, removeToken } from './auth'
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+  timeout: 15000,
 })
 
 api.interceptors.request.use((config) => {
@@ -10,6 +11,19 @@ api.interceptors.request.use((config) => {
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      removeToken()
+      if (typeof window !== 'undefined') {
+        window.location.href = '/'
+      }
+    }
+    return Promise.reject(error)
+  }
+)
 
 export default {
   register: (email: string, password: string) =>
@@ -48,6 +62,12 @@ export default {
 
   getBillingStatus: () => api.get('/billing/status').then((r) => r.data),
 
-  createCheckout: (plan: string) =>
-    api.post('/billing/create-checkout', { plan }).then((r) => r.data),
+  createCheckout: async (plan: string) => {
+    try {
+      const res = await api.post('/billing/create-checkout', { plan })
+      return res.data
+    } catch {
+      throw new Error('Checkout failed. Please try again.')
+    }
+  },
 }

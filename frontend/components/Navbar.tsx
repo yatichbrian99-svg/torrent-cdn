@@ -10,7 +10,11 @@ export default function Navbar() {
   const router = useRouter()
   const [showAuth, setShowAuth] = useState(false)
   const [user, setUser] = useState<{ email: string; plan: string } | null>(null)
-  const loggedIn = isLoggedIn()
+  const [loggedIn, setLoggedIn] = useState(false)
+
+  useEffect(() => {
+    setLoggedIn(isLoggedIn())
+  }, [])
 
   useEffect(() => {
     if (loggedIn && !user) api.getMe().then(setUser).catch(() => removeToken())

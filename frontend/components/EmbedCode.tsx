@@ -5,7 +5,9 @@ import { Copy, Check } from 'lucide-react'
 
 export default function EmbedCode({ fileId }: { fileId: string }) {
   const [copied, setCopied] = useState(false)
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const appUrl = typeof window !== 'undefined'
+    ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin)
+    : process.env.NEXT_PUBLIC_APP_URL || 'https://torrentcdn.com'
   const code = `<script src="${appUrl}/sdk.js"></script>\n<div data-torrent-cdn="${fileId}"></div>`
 
   const handleCopy = async () => { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2000) }

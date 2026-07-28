@@ -11,6 +11,19 @@
   }
 
   function createPlayer(el, fileData, apiUrl) {
+    if (!fileData.magnet_link) {
+      // No magnet link, fall back to direct URL immediately
+      var directMedia = document.createElement('video');
+      directMedia.controls = true;
+      directMedia.style.width = '100%';
+      directMedia.style.aspectRatio = '16 / 9';
+      directMedia.style.backgroundColor = '#000';
+      directMedia.src = fileData.minio_url;
+      directMedia.play().catch(function () {});
+      el.appendChild(directMedia);
+      return;
+    }
+
     var isVideo = /\.(mp4|webm|ogv|mov|mkv)$/i.test(fileData.filename);
     var media = document.createElement(isVideo ? 'video' : 'audio');
     media.controls = true;
@@ -27,9 +40,16 @@
       }
     }, 5000);
 
-    // Load WebTorrent
+    // Track peer_left on unload
+    window.addEventListener('beforeunload', function () {
+      navigator.sendBeacon(apiUrl + '/analytics/event', JSON.stringify({
+        file_id: fileData.id, event_type: 'peer_left', bytes_p2p: 0, bytes_origin: 0
+      }));
+    });
+
+    // Load WebTorrent from unpkg
     var script = document.createElement('script');
-    script.src = 'https://esm.sh/webtorrent/dist/webtorrent.min.js';
+    script.src = 'https://unpkg.com/webtorrent@latest/webtorrent.min.js';
     script.onload = function () {
       try {
         var client = new WebTorrent();
@@ -54,7 +74,7 @@
     };
     document.head.appendChild(script);
 
-    // Track event
+    // Track peer_joined
     var txhr = new XMLHttpRequest();
     txhr.open('POST', apiUrl + '/analytics/event', true);
     txhr.setRequestHeader('Content-Type', 'application/json');
@@ -76,7 +96,24 @@
         if (xhr.status === 200) {
           var fileData = JSON.parse(xhr.responseText);
           createPlayer(el, fileData, config.apiUrl);
+        } else {
+          var errDiv = document.createElement('div');
+          errDiv.textContent = 'Failed to load file. Please try again later.';
+          errDiv.style.padding = '20px';
+          errDiv.style.color = '#555';
+          errDiv.style.textAlign = 'center';
+          errDiv.style.border = '1px solid #222';
+          el.appendChild(errDiv);
         }
+      };
+      xhr.onerror = function () {
+        var errDiv = document.createElement('div');
+        errDiv.textContent = 'Failed to load file. Please try again later.';
+        errDiv.style.padding = '20px';
+        errDiv.style.color = '#555';
+        errDiv.style.textAlign = 'center';
+        errDiv.style.border = '1px solid #222';
+        el.appendChild(errDiv);
       };
       xhr.send();
     });

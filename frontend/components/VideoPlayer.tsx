@@ -13,6 +13,7 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
   const [error, setError] = useState('')
   const [peers, setPeers] = useState(0)
   const [status, setStatus] = useState<'connecting' | 'p2p' | 'direct' | 'error'>('connecting')
+  const statusRef = useRef<string>('connecting')
   const clientRef = useRef<any>(null)
   const fallbackTimer = useRef<NodeJS.Timeout>()
   const pollTimer = useRef<NodeJS.Timeout>()
@@ -25,33 +26,55 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
   const fallbackToDirect = useCallback(() => {
     if (!videoRef.current || !fileData?.minio_url) return
     videoRef.current.src = fileData.minio_url; videoRef.current.play().catch(() => {})
-    setStatus('direct')
+    setStatus('direct'); statusRef.current = 'direct'
     api.trackEvent(fileData.id, 'chunk_downloaded', 0, Math.round(fileData.file_size_mb * 1024 * 1024)).catch(() => {})
   }, [fileData])
 
   useEffect(() => {
     if (!fileData || fileId === 'demo' || !fileData.magnet_link) return
     let mounted = true
+
     const init = async () => {
       try {
         const WebTorrent = (await import('webtorrent')).default
         if (!mounted) return
-        const client = new WebTorrent(); clientRef.current = client; setStatus('connecting')
+        const client = new WebTorrent(); clientRef.current = client
+        setStatus('connecting'); statusRef.current = 'connecting'
         api.trackEvent(fileData.id, 'peer_joined').catch(() => {})
-        fallbackTimer.current = setTimeout(() => { if (mounted && status === 'connecting') fallbackToDirect() }, 5000)
+
+        fallbackTimer.current = setTimeout(() => {
+          if (mounted && statusRef.current === 'connecting') fallbackToDirect()
+        }, 5000)
+
         const torrent = client.add(fileData.magnet_link)
         torrent.on('wire', () => { if (!mounted) return; setPeers(torrent.numPeers) })
-        torrent.on('download', (bytes: number) => { if (!mounted) return; clearTimeout(fallbackTimer.current); setStatus('p2p'); setPeers(torrent.numPeers); api.trackEvent(fileData.id, 'chunk_downloaded', bytes, 0).catch(() => {}) })
+        torrent.on('download', (bytes: number) => {
+          if (!mounted) return
+          clearTimeout(fallbackTimer.current)
+          setStatus('p2p'); statusRef.current = 'p2p'
+          setPeers(torrent.numPeers)
+          api.trackEvent(fileData.id, 'chunk_downloaded', bytes, 0).catch(() => {})
+        })
         torrent.on('ready', () => {
           if (!mounted) return
           const f = torrent.files.find((f: any) => f.name.match(/\.(mp4|webm|ogv|mov|mkv|mp3|ogg|wav)$/i)) || torrent.files[0]
-          if (f && videoRef.current) { f.renderTo(videoRef.current, { autoplay: true }); setStatus('p2p') }
+          if (f && videoRef.current) { f.renderTo(videoRef.current, { autoplay: true }); setStatus('p2p'); statusRef.current = 'p2p' }
         })
         pollTimer.current = setInterval(() => { if (!mounted) return; setPeers(torrent.numPeers || peers) }, 2000)
       } catch { if (mounted) fallbackToDirect() }
     }
     init()
-    return () => { mounted = false; clearTimeout(fallbackTimer.current); clearInterval(pollTimer.current); if (clientRef.current) clientRef.current.destroy(); if (fileData) api.trackEvent(fileData.id, 'peer_left').catch(() => {}) }
+
+    return () => {
+      mounted = false
+      clearTimeout(fallbackTimer.current)
+      clearInterval(pollTimer.current)
+      if (clientRef.current) {
+        try { clientRef.current.destroy() } catch {}
+        clientRef.current = null
+      }
+      if (fileData) api.trackEvent(fileData.id, 'peer_left').catch(() => {})
+    }
   }, [fileData, fallbackToDirect, fileId])
 
   if (loading) return <div className="flex aspect-video items-center justify-center border" style={{ borderColor: '#222', backgroundColor: '#111' }}><Loader2 size={20} className="animate-spin" style={{ color: '#555' }} /></div>

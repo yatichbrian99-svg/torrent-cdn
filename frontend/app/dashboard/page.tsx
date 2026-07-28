@@ -20,7 +20,10 @@ export default function DashboardPage() {
     api.listFiles().then(setFiles).catch((err) => setError(err.response?.data?.detail || 'Failed to load')).finally(() => setLoading(false))
   }, [router])
 
-  const handleDelete = async (id: string) => { try { await api.deleteFile(id); setFiles((p) => p.filter((f) => f.id !== id)) } catch {} }
+  const handleDelete = async (id: string) => {
+    try { await api.deleteFile(id); setFiles((p) => p.filter((f) => f.id !== id)) }
+    catch { alert('Failed to delete file. Please try again.') }
+  }
 
   const totalFiles = files.length
   const totalBW = files.reduce((s, f) => s + f.bandwidth_saved_gb, 0)
