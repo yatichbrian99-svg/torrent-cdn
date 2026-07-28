@@ -1,29 +1,24 @@
 export default function UsageBar({ used, limit }: { used: number; limit: number }) {
-  const percentage = limit === Infinity ? 0 : Math.min((used / limit) * 100, 100);
-  const isUnlimited = limit === Infinity;
+  const isUnlimited = limit === Infinity
+  const pct = isUnlimited ? 0 : Math.min((used / limit) * 100, 100)
 
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-sm text-gray-400">Bandwidth Usage</span>
-        <span className="text-sm text-gray-500">
+      <div className="mb-2 flex items-center justify-between text-sm">
+        <span style={{ color: '#666' }}>Bandwidth usage</span>
+        <span style={{ color: '#666' }}>
           {used.toFixed(2)} GB{isUnlimited ? '' : ` / ${limit} GB`}
         </span>
       </div>
-      <div className="h-2.5 rounded-full bg-surface-border">
+      <div className="h-1 w-full" style={{ backgroundColor: '#222' }}>
         <div
-          className={`h-full rounded-full transition-all duration-500 ${
-            isUnlimited
-              ? 'bg-gradient-to-r from-brand-500 to-brand-400 opacity-60'
-              : percentage > 80
-              ? 'bg-red-500'
-              : percentage > 50
-              ? 'bg-yellow-500'
-              : 'bg-brand-500'
-          }`}
-          style={{ width: isUnlimited ? '100%' : `${Math.min(percentage, 100)}%` }}
+          className="h-full transition-all duration-500"
+          style={{
+            width: isUnlimited ? '100%' : `${pct}%`,
+            backgroundColor: pct > 80 ? '#ff2d6b' : pct > 50 ? '#f5a623' : 'var(--accent)',
+          }}
         />
       </div>
     </div>
-  );
+  )
 }

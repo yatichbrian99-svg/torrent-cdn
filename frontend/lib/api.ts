@@ -1,125 +1,53 @@
-import axios, { AxiosInstance } from 'axios';
-import { getToken, removeToken } from './auth';
+import axios from 'axios'
+import { getToken } from './auth'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const api = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+})
 
-class ApiClient {
-  private client: AxiosInstance;
+api.interceptors.request.use((config) => {
+  const token = getToken()
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
 
-  constructor() {
-    this.client = axios.create({
-      baseURL: API_BASE,
-      headers: { 'Content-Type': 'application/json' },
-    });
+export default {
+  register: (email: string, password: string) =>
+    api.post('/auth/register', { email, password }).then((r) => r.data),
 
-    this.client.interceptors.request.use((config) => {
-      const token = getToken();
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-      return config;
-    });
+  login: (email: string, password: string) =>
+    api.post('/auth/login', { email, password }).then((r) => r.data),
 
-    this.client.interceptors.response.use(
-      (response) => response,
-      (error) => {
-        if (error.response?.status === 401 && typeof window !== 'undefined') {
-          removeToken();
-          window.location.href = '/';
-        }
-        return Promise.reject(error);
-      }
-    );
-  }
+  getMe: () => api.get('/auth/me').then((r) => r.data),
 
-  // Auth
-  async register(email: string, password: string) {
-    const res = await this.client.post('/auth/register', { email, password });
-    return res.data;
-  }
+  uploadFile: (file: File, onProgress?: (pct: number) => void) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api
+      .post('/upload', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (e) => {
+          if (e.total && onProgress) onProgress(Math.round((e.loaded / e.total) * 100))
+        },
+      })
+      .then((r) => r.data)
+  },
 
-  async login(email: string, password: string) {
-    const res = await this.client.post('/auth/login', { email, password });
-    return res.data;
-  }
+  listFiles: () => api.get('/files').then((r) => r.data),
 
-  async getMe() {
-    const res = await this.client.get('/auth/me');
-    return res.data;
-  }
+  getFile: (file_id: string) => api.get(`/files/${file_id}`).then((r) => r.data),
 
-  // Files
-  async listFiles() {
-    const res = await this.client.get('/files');
-    return res.data;
-  }
+  deleteFile: (file_id: string) => api.delete(`/files/${file_id}`).then((r) => r.data),
 
-  async getFile(fileId: string) {
-    const res = await this.client.get(`/files/${fileId}`);
-    return res.data;
-  }
+  getPublicFile: (file_id: string) => api.get(`/files/public/${file_id}`).then((r) => r.data),
 
-  async getPublicFile(fileId: string) {
-    const res = await this.client.get(`/files/public/${fileId}`);
-    return res.data;
-  }
+  trackEvent: (file_id: string, event_type: string, bytes_p2p?: number, bytes_origin?: number) =>
+    api.post('/analytics/event', { file_id, event_type, bytes_p2p: bytes_p2p || 0, bytes_origin: bytes_origin || 0 }).then((r) => r.data),
 
-  async deleteFile(fileId: string) {
-    const res = await this.client.delete(`/files/${fileId}`);
-    return res.data;
-  }
+  getAnalytics: (file_id: string) => api.get(`/analytics/${file_id}`).then((r) => r.data),
 
-  async uploadFile(file: File, onProgress?: (percent: number) => void) {
-    const formData = new FormData();
-    formData.append('file', file);
+  getBillingStatus: () => api.get('/billing/status').then((r) => r.data),
 
-    const res = await this.client.post('/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      onUploadProgress: (progressEvent) => {
-        if (onProgress && progressEvent.total) {
-          const percent = Math.round(
-            (progressEvent.loaded * 100) / progressEvent.total
-          );
-          onProgress(percent);
-        }
-      },
-    });
-
-    return res.data;
-  }
-
-  // Analytics
-  async trackEvent(
-    fileId: string,
-    eventType: string,
-    bytesP2p = 0,
-    bytesOrigin = 0
-  ) {
-    const res = await this.client.post('/analytics/event', {
-      file_id: fileId,
-      event_type: eventType,
-      bytes_p2p: bytesP2p,
-      bytes_origin: bytesOrigin,
-    });
-    return res.data;
-  }
-
-  async getAnalytics(fileId: string) {
-    const res = await this.client.get(`/analytics/${fileId}`);
-    return res.data;
-  }
-
-  // Billing
-  async getBillingStatus() {
-    const res = await this.client.get('/billing/status');
-    return res.data;
-  }
-
-  async createCheckout(plan: string) {
-    const res = await this.client.post('/billing/create-checkout', { plan });
-    return res.data;
-  }
+  createCheckout: (plan: string) =>
+    api.post('/billing/create-checkout', { plan }).then((r) => r.data),
 }
-
-export const api = new ApiClient();
-export default api;

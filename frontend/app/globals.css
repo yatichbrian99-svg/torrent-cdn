@@ -4,40 +4,52 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+:root {
+  --bg-primary: #000000;
+  --bg-secondary: #0c0c0c;
+  --bg-card: #111111;
+  --border: #222222;
+  --text-primary: #ffffff;
+  --text-muted: #666666;
+  --accent: #ff2d6b;
+  --accent-hover: #e0265e;
+  --success: #00e599;
 }
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  background-color: #0a0a0a;
-  color: #f8fafc;
+  background-color: #000;
+  color: #fff;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  letter-spacing: -0.01em;
 }
 
 ::selection {
-  background: rgba(37, 99, 235, 0.3);
+  background: rgba(255, 45, 107, 0.3);
   color: #fff;
 }
 
-::-webkit-scrollbar {
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #000; }
+::-webkit-scrollbar-thumb { background: #222; }
+
+/* Grid background for hero */
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Terminal dots */
+.terminal-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+.terminal-dots span {
   width: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: #0a0a0a;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #1f1f1f;
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #333;
+  height: 8px;
+  border: 1px solid #333;
 }

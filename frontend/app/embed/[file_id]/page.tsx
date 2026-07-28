@@ -1,23 +1,26 @@
-'use client';
+'use client'
 
-import { Suspense } from 'react';
-import { Loader2 } from 'lucide-react';
-import VideoPlayer from '@/components/VideoPlayer';
+import { Suspense } from 'react'
+import { Loader2 } from 'lucide-react'
+import VideoPlayer from '@/components/VideoPlayer'
 
 export default function EmbedPage({ params }: { params: { file_id: string } }) {
   return (
-    <div className="mx-auto max-w-4xl px-6 py-10 lg:px-8">
-      <Suspense fallback={<div className="flex aspect-video items-center justify-center rounded-xl border border-surface-border bg-surface-card"><Loader2 size={24} className="animate-spin text-gray-500" /></div>}>
-        <VideoPlayer fileId={params.file_id} />
-      </Suspense>
-
-      {params.file_id !== 'demo' && (
-        <div className="mt-4 text-center">
-          <p className="text-sm text-gray-600">
-            Powered by <a href="/" className="font-medium text-brand-400 transition-colors hover:text-brand-300">TorrentCDN</a>
-          </p>
-        </div>
-      )}
+    <div className="min-h-screen" style={{ backgroundColor: '#000' }}>
+      <div className="mx-auto max-w-5xl px-6 py-4">
+        <a href="/" className="font-mono text-sm font-medium text-white">TorrentCDN</a>
+      </div>
+      <div className="mx-auto max-w-[900px] px-6">
+        <Suspense
+          fallback={
+            <div className="flex aspect-video items-center justify-center border" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+              <Loader2 size={24} className="animate-spin" style={{ color: '#666' }} />
+            </div>
+          }
+        >
+          <VideoPlayer fileId={params.file_id} />
+        </Suspense>
+      </div>
     </div>
-  );
+  )
 }
