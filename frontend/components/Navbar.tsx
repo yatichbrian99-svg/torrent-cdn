@@ -2,15 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  LogOut,
-  LayoutDashboard,
-  CreditCard,
-  Menu,
-  X,
-  Loader2,
-} from 'lucide-react';
-import { isLoggedIn, getToken, saveToken, removeToken } from '@/lib/auth';
+import { LogOut, LayoutDashboard, CreditCard, Menu, X, Loader2 } from 'lucide-react';
+import { isLoggedIn, saveToken, removeToken } from '@/lib/auth';
 import api from '@/lib/api';
 
 interface User {
@@ -33,10 +26,7 @@ export default function Navbar() {
 
   useEffect(() => {
     if (loggedIn && !user) {
-      api
-        .getMe()
-        .then(setUser)
-        .catch(() => removeToken());
+      api.getMe().then(setUser).catch(() => removeToken());
     }
   }, [loggedIn, user]);
 
@@ -71,48 +61,21 @@ export default function Navbar() {
 
   return (
     <>
-      <nav className="fixed top-0 z-50 w-full border-b border-[#1f1f1f] bg-[#0a0a0a]/90 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
-          {/* Logo */}
-          <a
-            href="/"
-            className="flex items-center gap-2.5 group"
-          >
-            <div className="flex h-8 w-8 items-center justify-center bg-accent-500/10 border border-accent-500/30">
-              <svg
-                className="h-4 w-4 text-accent-500"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M13 10V3L4 14h7v7l9-11h-7z"
-                />
-              </svg>
-            </div>
-            <span className="text-base font-bold tracking-tight text-white">
-              Torrent<span className="text-accent-500">CDN</span>
-            </span>
+      <nav className="fixed top-0 z-50 w-full border-b border-[#1f1f1f] bg-[#0a0a0a]">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
+          <a href="/" className="text-base font-bold text-white">
+            TorrentCDN
           </a>
 
-          {/* Desktop Nav */}
+          {/* Desktop */}
           <div className="hidden items-center gap-6 md:flex">
             {loggedIn && (
               <>
-                <a
-                  href="/dashboard"
-                  className="flex items-center gap-1.5 text-sm text-gray-400 transition-colors hover:text-white"
-                >
+                <a href="/dashboard" className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-white">
                   <LayoutDashboard size={15} />
                   Dashboard
                 </a>
-                <a
-                  href="/billing"
-                  className="flex items-center gap-1.5 text-sm text-gray-400 transition-colors hover:text-white"
-                >
+                <a href="/billing" className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-white">
                   <CreditCard size={15} />
                   Billing
                 </a>
@@ -122,12 +85,12 @@ export default function Navbar() {
             {loggedIn && user ? (
               <div className="flex items-center gap-3">
                 <span className="text-xs text-gray-500">{user.email}</span>
-                <span className="rounded border border-[#1f1f1f] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-gray-500">
+                <span className="rounded border border-[#1f1f1f] px-2 py-0.5 text-[10px] uppercase text-gray-500">
                   {user.plan}
                 </span>
                 <button
                   onClick={handleLogout}
-                  className="flex items-center gap-1.5 rounded border border-[#1f1f1f] px-3 py-1.5 text-xs text-gray-400 transition-colors hover:border-gray-700 hover:text-white"
+                  className="flex items-center gap-1.5 rounded border border-[#1f1f1f] px-3 py-1.5 text-xs text-gray-400 hover:border-gray-700 hover:text-white"
                 >
                   <LogOut size={13} />
                   Logout
@@ -135,66 +98,37 @@ export default function Navbar() {
               </div>
             ) : (
               <button
-                onClick={() => {
-                  setIsLogin(true);
-                  setShowAuthModal(true);
-                }}
-                className="rounded bg-accent-500 px-4 py-1.5 text-xs font-medium text-black transition-all hover:bg-accent-400"
+                onClick={() => { setIsLogin(true); setShowAuthModal(true); }}
+                className="rounded border border-gray-700 bg-gray-800 px-4 py-1.5 text-xs text-white hover:bg-gray-700"
               >
                 Sign In
               </button>
             )}
           </div>
 
-          {/* Mobile hamburger */}
-          <button
-            onClick={() => setMobileOpen(!mobileOpen)}
-            className="text-gray-400 md:hidden"
-          >
+          {/* Mobile */}
+          <button onClick={() => setMobileOpen(!mobileOpen)} className="text-gray-400 md:hidden">
             {mobileOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
         </div>
 
-        {/* Mobile nav */}
         {mobileOpen && (
           <div className="border-t border-[#1f1f1f] bg-[#0a0a0a] px-4 py-4 md:hidden">
             <div className="flex flex-col gap-3">
               {loggedIn && (
                 <>
-                  <a
-                    href="/dashboard"
-                    className="text-sm text-gray-400"
-                    onClick={() => setMobileOpen(false)}
-                  >
-                    Dashboard
-                  </a>
-                  <a
-                    href="/billing"
-                    className="text-sm text-gray-400"
-                    onClick={() => setMobileOpen(false)}
-                  >
-                    Billing
-                  </a>
+                  <a href="/dashboard" className="text-sm text-gray-400" onClick={() => setMobileOpen(false)}>Dashboard</a>
+                  <a href="/billing" className="text-sm text-gray-400" onClick={() => setMobileOpen(false)}>Billing</a>
                 </>
               )}
               {loggedIn ? (
-                <button
-                  onClick={() => {
-                    handleLogout();
-                    setMobileOpen(false);
-                  }}
-                  className="flex items-center gap-1.5 text-sm text-gray-400"
-                >
+                <button onClick={() => { handleLogout(); setMobileOpen(false); }} className="flex items-center gap-1.5 text-sm text-gray-400">
                   <LogOut size={14} /> Logout
                 </button>
               ) : (
                 <button
-                  onClick={() => {
-                    setIsLogin(true);
-                    setShowAuthModal(true);
-                    setMobileOpen(false);
-                  }}
-                  className="rounded bg-accent-500 px-4 py-1.5 text-xs font-medium text-black"
+                  onClick={() => { setIsLogin(true); setShowAuthModal(true); setMobileOpen(false); }}
+                  className="rounded border border-gray-700 bg-gray-800 px-4 py-1.5 text-xs text-white"
                 >
                   Sign In
                 </button>
@@ -206,57 +140,46 @@ export default function Navbar() {
 
       {/* Auth Modal */}
       {showAuthModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80">
           <div className="w-full max-w-sm border border-[#1f1f1f] bg-[#111] p-6">
             <div className="mb-6 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-white">
-                {isLogin ? 'Sign In' : 'Create Account'}
-              </h2>
-              <button
-                onClick={() => setShowAuthModal(false)}
-                className="text-gray-500 hover:text-white"
-              >
+              <h2 className="text-sm font-semibold text-white">{isLogin ? 'Sign In' : 'Create Account'}</h2>
+              <button onClick={() => setShowAuthModal(false)} className="text-gray-500 hover:text-white">
                 <X size={16} />
               </button>
             </div>
 
             <form onSubmit={handleAuth} className="flex flex-col gap-4">
               <div>
-                <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-gray-500">
-                  Email
-                </label>
+                <label className="mb-1 block text-xs text-gray-500">Email</label>
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="w-full border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-accent-500 focus:outline-none"
+                  className="w-full border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-gray-500 focus:outline-none"
                   placeholder="you@example.com"
                 />
               </div>
               <div>
-                <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-gray-500">
-                  Password
-                </label>
+                <label className="mb-1 block text-xs text-gray-500">Password</label>
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   minLength={6}
-                  className="w-full border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-accent-500 focus:outline-none"
-                  placeholder="••••••••"
+                  className="w-full border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-gray-500 focus:outline-none"
+                  placeholder="password"
                 />
               </div>
 
-              {error && (
-                <p className="text-xs text-red-500">{error}</p>
-              )}
+              {error && <p className="text-xs text-red-500">{error}</p>}
 
               <button
                 type="submit"
                 disabled={loading}
-                className="flex items-center justify-center gap-2 border border-accent-500 bg-accent-500/10 px-4 py-2 text-sm font-medium text-accent-500 transition-colors hover:bg-accent-500/20 disabled:opacity-50"
+                className="flex items-center justify-center gap-2 rounded border border-gray-700 bg-gray-800 px-4 py-2 text-sm text-white hover:bg-gray-700 disabled:opacity-50"
               >
                 {loading && <Loader2 size={14} className="animate-spin" />}
                 {isLogin ? 'Sign In' : 'Create Account'}
@@ -264,14 +187,7 @@ export default function Navbar() {
 
               <p className="text-center text-xs text-gray-600">
                 {isLogin ? "Don't have an account?" : 'Already have an account?'}{' '}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsLogin(!isLogin);
-                    setError('');
-                  }}
-                  className="text-accent-500 hover:underline"
-                >
+                <button type="button" onClick={() => { setIsLogin(!isLogin); setError(''); }} className="text-gray-400 hover:text-white">
                   {isLogin ? 'Register' : 'Sign In'}
                 </button>
               </p>

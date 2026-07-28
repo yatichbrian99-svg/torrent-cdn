@@ -27,34 +27,26 @@ export default function UploadForm() {
     setProgress(0);
     setError('');
     setResult(null);
-
     try {
-      const data = await api.uploadFile(file, (percent) => {
-        setProgress(percent);
-      });
+      const data = await api.uploadFile(file, (percent) => setProgress(percent));
       setResult(data);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Upload failed. Please try again.');
+      setError(err.response?.data?.detail || 'Upload failed.');
     } finally {
       setUploading(false);
     }
   }, []);
 
-  const onDrop = useCallback(
-    (acceptedFiles: File[]) => {
-      const file = acceptedFiles[0];
-      if (!file) return;
-      setSelectedFile(file);
-      handleUpload(file);
-    },
-    [handleUpload]
-  );
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) { setSelectedFile(file); handleUpload(file); }
+  }, [handleUpload]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-    setSelectedFile(file);
-    handleUpload(file);
+    if (file) { setSelectedFile(file); handleUpload(file); }
   };
 
   const formatSize = (bytes: number) => {
@@ -64,54 +56,30 @@ export default function UploadForm() {
 
   if (result) {
     return (
-      <div className="border border-accent-500/30 bg-accent-500/5 p-6">
+      <div className="border border-gray-800 bg-[#111] p-6">
         <div className="mb-4 flex items-center gap-2">
           <CheckCircle size={18} className="text-green-500" />
-          <span className="text-sm font-medium text-white">
-            Upload successful!
-          </span>
+          <span className="text-sm font-medium text-white">Upload successful!</span>
         </div>
-
-        <div className="mb-4 space-y-1.5 text-sm text-gray-400">
-          <p>
-            <span className="text-gray-600">File:</span> {result.filename}
-          </p>
-          <p>
-            <span className="text-gray-600">Size:</span>{' '}
-            {result.file_size_mb.toFixed(1)} MB
-          </p>
+        <div className="mb-4 space-y-1 text-sm text-gray-400">
+          <p><span className="text-gray-600">File:</span> {result.filename}</p>
+          <p><span className="text-gray-600">Size:</span> {result.file_size_mb.toFixed(1)} MB</p>
         </div>
-
         <div className="mb-4">
           <EmbedCode fileId={result.file_id} />
         </div>
-
         <div className="mb-6">
-          <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-gray-600">
-            Magnet Link
-          </p>
+          <p className="mb-1 text-xs text-gray-500">Magnet Link</p>
           <div className="flex gap-2">
-            <input
-              readOnly
-              value={result.magnet_link}
-              className="flex-1 border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2 text-xs text-gray-400"
-            />
-            <button
-              onClick={() => navigator.clipboard.writeText(result.magnet_link)}
-              className="border border-[#1f1f1f] px-3 py-2 text-xs text-gray-400 transition-colors hover:border-gray-700 hover:text-white"
-            >
+            <input readOnly value={result.magnet_link} className="flex-1 border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2 text-xs text-gray-400" />
+            <button onClick={() => navigator.clipboard.writeText(result.magnet_link)} className="rounded border border-[#1f1f1f] px-3 py-2 text-xs text-gray-400 hover:border-gray-700 hover:text-white">
               Copy
             </button>
           </div>
         </div>
-
         <button
-          onClick={() => {
-            setResult(null);
-            setSelectedFile(null);
-            setProgress(0);
-          }}
-          className="border border-accent-500 bg-accent-500/10 px-4 py-2 text-xs font-medium text-accent-500 transition-colors hover:bg-accent-500/20"
+          onClick={() => { setResult(null); setSelectedFile(null); setProgress(0); }}
+          className="rounded border border-gray-700 bg-gray-800 px-4 py-2 text-xs text-white hover:bg-gray-700"
         >
           Upload Another
         </button>
@@ -122,43 +90,21 @@ export default function UploadForm() {
   return (
     <div>
       <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragOver(false);
-          const file = e.dataTransfer.files[0];
-          if (file) {
-            setSelectedFile(file);
-            handleUpload(file);
-          }
-        }}
+        onDrop={onDrop}
         className={`relative cursor-pointer border border-dashed p-12 text-center transition-colors ${
-          dragOver
-            ? 'border-accent-500 bg-accent-500/5'
-            : 'border-[#1f1f1f] bg-[#111] hover:border-gray-700'
+          dragOver ? 'border-gray-500 bg-gray-800' : 'border-[#1f1f1f] bg-[#111] hover:border-gray-700'
         }`}
       >
-        <input
-          type="file"
-          accept="video/*,audio/*"
-          onChange={handleInputChange}
-          className="absolute inset-0 cursor-pointer opacity-0"
-        />
+        <input type="file" accept="video/*,audio/*" onChange={handleInputChange} className="absolute inset-0 cursor-pointer opacity-0" />
 
         {selectedFile && !uploading ? (
           <div className="flex items-center justify-center gap-3">
             <File size={20} className="text-gray-500" />
             <div className="text-left">
-              <p className="text-sm font-medium text-white">
-                {selectedFile.name}
-              </p>
-              <p className="text-xs text-gray-500">
-                {formatSize(selectedFile.size)}
-              </p>
+              <p className="text-sm font-medium text-white">{selectedFile.name}</p>
+              <p className="text-xs text-gray-500">{formatSize(selectedFile.size)}</p>
             </div>
           </div>
         ) : (
@@ -166,13 +112,8 @@ export default function UploadForm() {
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center border border-[#1f1f1f] bg-[#0a0a0a]">
               <Upload size={20} className="text-gray-500" />
             </div>
-            <p className="text-sm text-gray-400">
-              <span className="text-accent-500">Click to upload</span> or drag
-              and drop
-            </p>
-            <p className="mt-1 text-xs text-gray-600">
-              Video or audio files up to your plan limit
-            </p>
+            <p className="text-sm text-gray-400">Click to upload or drag and drop</p>
+            <p className="mt-1 text-xs text-gray-600">Video or audio files</p>
           </div>
         )}
 
@@ -180,13 +121,10 @@ export default function UploadForm() {
           <div className="mt-4">
             <div className="mb-2 flex items-center justify-center gap-2 text-sm text-gray-400">
               <Loader2 size={14} className="animate-spin" />
-              Uploading... {progress}%
+              {progress}%
             </div>
             <div className="mx-auto h-1.5 w-full max-w-xs bg-[#1f1f1f]">
-              <div
-                className="h-full progress-glow transition-all duration-300"
-                style={{ width: `${progress}%` }}
-              />
+              <div className="h-full bg-gray-600 transition-all duration-300" style={{ width: `${progress}%` }} />
             </div>
           </div>
         )}
