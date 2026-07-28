@@ -1,5 +1,5 @@
 import asyncpg
-import aioredis
+from redis.asyncio import Redis
 import logging
 from typing import Optional
 from .config import get_settings
@@ -10,7 +10,7 @@ settings = get_settings()
 
 # Connection pools
 pg_pool: Optional[asyncpg.Pool] = None
-redis_client: Optional[aioredis.Redis] = None
+redis_client: Optional[Redis] = None
 
 
 async def get_db_pool() -> asyncpg.Pool:
@@ -24,10 +24,10 @@ async def get_db_pool() -> asyncpg.Pool:
     return pg_pool
 
 
-async def get_redis() -> aioredis.Redis:
+async def get_redis() -> Redis:
     global redis_client
     if redis_client is None:
-        redis_client = await aioredis.from_url(
+        redis_client = await Redis.from_url(
             settings.redis_url,
             decode_responses=True,
         )
