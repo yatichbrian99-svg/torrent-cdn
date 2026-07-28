@@ -1,366 +1,257 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Zap, Shield, Download, BarChart3, Globe, Users, Check } from 'lucide-react';
+import {
+  ArrowRight,
+  Upload,
+  Code,
+  Share2,
+  TrendingDown,
+  Zap,
+  Shield,
+  Github,
+  ChevronRight,
+} from 'lucide-react';
+import PricingTable from '@/components/PricingTable';
 
-export default function Home() {
-  const [mounted, setMounted] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [isLogin, setIsLogin] = useState(false);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+function AnimatedPeerCounter() {
+  const [count, setCount] = useState(0);
 
   useEffect(() => {
-    setMounted(true);
+    const interval = setInterval(() => {
+      setCount((prev) => {
+        const increment = Math.floor(Math.random() * 3) + 1;
+        return prev + increment;
+      });
+    }, 2000);
+    return () => clearInterval(interval);
   }, []);
 
-  if (!mounted) return null;
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded border border-green-500/20 bg-green-500/5 px-3 py-1 text-xs text-green-500">
+      <span className="relative flex h-2 w-2">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500/40" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+      </span>
+      {count.toLocaleString()} live peers
+    </span>
+  );
+}
 
-  const handleAuth = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-
-    try {
-      const { default: api } = await import('@/lib/api');
-      if (isLogin) {
-        await api.login(email, password);
-      } else {
-        await api.register(email, password);
-      }
-      window.location.href = '/dashboard';
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Authentication failed');
-    } finally {
-      setLoading(false);
-    }
-  };
+function CostTable() {
+  const rows = [
+    { viewers: '1,000', traditional: '~$50', torrentCdn: '~$2' },
+    { viewers: '10,000', traditional: '~$500', torrentCdn: '~$8' },
+    { viewers: '100,000', traditional: '~$5,000', torrentCdn: '~$25' },
+    { viewers: '1,000,000', traditional: '~$50,000', torrentCdn: '~$100' },
+  ];
 
   return (
-    <div className="relative overflow-hidden">
-      {/* Hero Section */}
-      <section className="relative px-4 pb-20 pt-20 sm:px-6 lg:px-8">
-        <div className="absolute inset-0 bg-gradient-to-b from-primary-500/10 via-transparent to-transparent" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary-900/20 via-transparent to-transparent" />
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-left text-sm">
+        <thead>
+          <tr className="border-b border-[#1f1f1f]">
+            <th className="pb-3 pr-4 text-[11px] font-medium uppercase tracking-wider text-gray-500">
+              Monthly Viewers
+            </th>
+            <th className="pb-3 pr-4 text-[11px] font-medium uppercase tracking-wider text-gray-500">
+              Traditional CDN
+            </th>
+            <th className="pb-3 text-[11px] font-medium uppercase tracking-wider text-accent-500">
+              TorrentCDN
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr
+              key={row.viewers}
+              className="border-b border-[#1f1f1f] last:border-0"
+            >
+              <td className="py-3 pr-4 text-white">{row.viewers}</td>
+              <td className="py-3 pr-4 text-red-500/70">{row.traditional}</td>
+              <td className="py-3 text-green-500">
+                {row.torrentCdn}
+                {i < rows.length - 1 && (
+                  <span className="ml-2 text-[10px] text-green-500/60">
+                    Save{' '}
+                    {['96%', '98.4%', '99.5%', '99.8%'][i]}
+                  </span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
-        <div className="relative mx-auto max-w-7xl">
-          <div className="grid gap-12 lg:grid-cols-2 lg:gap-16">
-            {/* Left Column - Hero Content */}
-            <div className="flex flex-col justify-center">
-              <div className="inline-flex items-center rounded-full border border-primary-500/20 bg-primary-500/10 px-3 py-1 text-sm text-primary-400">
-                <Zap className="mr-1 h-3 w-3" />
-                Now in Public Beta
+export default function LandingPage() {
+  return (
+    <div>
+      {/* Hero */}
+      <section className="relative overflow-hidden border-b border-[#1f1f1f]">
+        <div className="absolute inset-0 bg-gradient-to-b from-accent-500/5 via-transparent to-transparent" />
+        <div className="relative mx-auto max-w-5xl px-4 pb-20 pt-20 text-center sm:px-6 lg:px-8 lg:pb-28 lg:pt-28">
+          <div className="mb-6 flex items-center justify-center gap-3">
+            <AnimatedPeerCounter />
+          </div>
+          <h1 className="mx-auto max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl lg:text-5xl">
+            Deliver Video{' '}
+            <span className="gradient-text">Cheaper</span> As You{' '}
+            <span className="gradient-text">Scale</span>
+          </h1>
+          <p className="mx-auto mt-4 max-w-2xl text-sm text-gray-500 sm:text-base">
+            P2P CDN powered by WebTorrent. The more viewers you have, the less
+            you pay. Your audience shares bandwidth automatically.
+          </p>
+          <div className="mt-8 flex items-center justify-center gap-3">
+            <a
+              href="/dashboard"
+              className="inline-flex items-center gap-2 border border-accent-500 bg-accent-500 px-5 py-2.5 text-sm font-medium text-black transition-all hover:bg-accent-400"
+            >
+              Get Started Free
+              <ArrowRight size={15} />
+            </a>
+            <a
+              href="/embed/demo"
+              className="inline-flex items-center gap-2 border border-[#1f1f1f] px-5 py-2.5 text-sm font-medium text-gray-300 transition-colors hover:border-gray-700 hover:text-white"
+            >
+              View Demo
+              <ChevronRight size={15} />
+            </a>
+          </div>
+        </div>
+      </section>
+
+      {/* How It Works */}
+      <section className="border-b border-[#1f1f1f] py-20">
+        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+          <h2 className="mb-12 text-center text-lg font-semibold text-white">
+            How It Works
+          </h2>
+          <div className="grid gap-6 md:grid-cols-3">
+            {[
+              {
+                icon: Upload,
+                title: 'Upload Your File',
+                desc: 'Upload your video or audio file. We store it securely and generate a magnet link.',
+              },
+              {
+                icon: Code,
+                title: 'Get Embed Code',
+                desc: 'Copy a simple script tag. Paste it on your website like any other embed.',
+              },
+              {
+                icon: Share2,
+                title: 'Viewers Share Bandwidth',
+                desc: 'As more people watch, they automatically seed to others. Your bandwidth costs drop.',
+              },
+            ].map((step, i) => (
+              <div key={step.title} className="border border-[#1f1f1f] bg-[#111] p-6">
+                <div className="mb-3 flex h-10 w-10 items-center justify-center border border-accent-500/30 bg-accent-500/5">
+                  <step.icon size={18} className="text-accent-500" />
+                </div>
+                <div className="mb-1 text-[11px] font-medium uppercase tracking-wider text-gray-600">
+                  Step {i + 1}
+                </div>
+                <h3 className="mb-1.5 text-sm font-semibold text-white">
+                  {step.title}
+                </h3>
+                <p className="text-xs leading-relaxed text-gray-500">{step.desc}</p>
               </div>
-              <h1 className="mt-6 text-4xl font-bold tracking-tight text-white sm:text-5xl lg:text-6xl">
-                P2P CDN —
-                <span className="block bg-gradient-to-r from-primary-400 to-purple-400 bg-clip-text text-transparent">
-                  Deliver content cheaper with WebTorrent
-                </span>
-              </h1>
-              <p className="mt-6 text-lg leading-8 text-slate-400">
-                Slash your bandwidth costs by up to 90%. Torrent CDN uses WebTorrent to
-                distribute your video and audio content peer-to-peer, automatically
-                offloading traffic from your origin servers.
-              </p>
+            ))}
+          </div>
+        </div>
+      </section>
 
-              <div className="mt-8 grid grid-cols-2 gap-4">
-                {[
-                  { icon: Zap, text: 'Up to 90% bandwidth savings' },
-                  { icon: Shield, text: 'Encrypted P2P connections' },
-                  { icon: Download, text: 'Auto-fallback to origin' },
-                  { icon: BarChart3, text: 'Real-time analytics' },
-                ].map((feature) => (
-                  <div key={feature.text} className="flex items-center gap-2 text-sm text-slate-300">
-                    <feature.icon className="h-4 w-4 text-primary-400" />
-                    {feature.text}
-                  </div>
-                ))}
-              </div>
-            </div>
+      {/* Cost Comparison */}
+      <section className="border-b border-[#1f1f1f] py-20">
+        <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
+          <h2 className="mb-2 text-center text-lg font-semibold text-white">
+            Compare Costs
+          </h2>
+          <p className="mb-10 text-center text-xs text-gray-500">
+            See how much you save with P2P delivery
+          </p>
+          <CostTable />
+          <div className="mt-6 flex items-center justify-center gap-2 text-xs text-gray-600">
+            <TrendingDown size={14} className="text-green-500" />
+            Average savings of 98% compared to traditional CDNs
+          </div>
+        </div>
+      </section>
 
-            {/* Right Column - Auth Form */}
-            <div className="flex items-center justify-center">
-              <div className="w-full max-w-md rounded-2xl border border-slate-700/50 bg-slate-800/50 p-8 backdrop-blur-xl">
-                <h2 className="text-2xl font-bold text-white">
-                  {isLogin ? 'Welcome back' : 'Get started free'}
-                </h2>
-                <p className="mt-2 text-sm text-slate-400">
-                  {isLogin ? 'Sign in to your account' : 'No credit card required. 100GB/month free.'}
+      {/* Pricing */}
+      <section className="border-b border-[#1f1f1f] py-20">
+        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+          <h2 className="mb-2 text-center text-lg font-semibold text-white">
+            Simple Pricing
+          </h2>
+          <p className="mb-10 text-center text-xs text-gray-500">
+            Start free. Upgrade as you grow.
+          </p>
+          <PricingTable />
+        </div>
+      </section>
+
+      {/* Features */}
+      <section className="border-b border-[#1f1f1f] py-20">
+        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+          <h2 className="mb-12 text-center text-lg font-semibold text-white">
+            Why TorrentCDN?
+          </h2>
+          <div className="grid gap-4 md:grid-cols-3">
+            {[
+              {
+                icon: Zap,
+                title: 'Blazing Fast',
+                desc: 'P2P delivery means faster load times as more viewers join. No more buffering.',
+              },
+              {
+                icon: Shield,
+                title: 'Secure by Design',
+                desc: 'All content is served over HTTPS. Your files are encrypted in transit and at rest.',
+              },
+              {
+                icon: TrendingDown,
+                title: 'Drops to Zero',
+                desc: 'With enough peers, your origin bandwidth can drop to near zero. Viral traffic is free.',
+              },
+            ].map((feature) => (
+              <div
+                key={feature.title}
+                className="border border-[#1f1f1f] bg-[#111] p-6"
+              >
+                <feature.icon size={20} className="mb-3 text-accent-500" />
+                <h3 className="mb-1 text-sm font-semibold text-white">
+                  {feature.title}
+                </h3>
+                <p className="text-xs leading-relaxed text-gray-500">
+                  {feature.desc}
                 </p>
-
-                <form onSubmit={handleAuth} className="mt-8 space-y-4">
-                  {error && (
-                    <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-400">
-                      {error}
-                    </div>
-                  )}
-
-                  <div>
-                    <label htmlFor="email" className="block text-sm font-medium text-slate-300">
-                      Email
-                    </label>
-                    <input
-                      id="email"
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="mt-1 block w-full rounded-lg border border-slate-600 bg-slate-700/50 px-4 py-2.5 text-white placeholder-slate-400 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                      placeholder="you@example.com"
-                    />
-                  </div>
-
-                  <div>
-                    <label htmlFor="password" className="block text-sm font-medium text-slate-300">
-                      Password
-                    </label>
-                    <input
-                      id="password"
-                      type="password"
-                      required
-                      minLength={8}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="mt-1 block w-full rounded-lg border border-slate-600 bg-slate-700/50 px-4 py-2.5 text-white placeholder-slate-400 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                      placeholder="Min. 8 characters"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full rounded-lg bg-gradient-to-r from-primary-600 to-purple-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition-all hover:from-primary-500 hover:to-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {loading ? (
-                      <span className="flex items-center justify-center gap-2">
-                        <span className="spinner h-4 w-4" />
-                        {isLogin ? 'Signing in...' : 'Creating account...'}
-                      </span>
-                    ) : (
-                      isLogin ? 'Sign in' : 'Create free account'
-                    )}
-                  </button>
-                </form>
-
-                <div className="mt-6 text-center">
-                  <button
-                    onClick={() => { setIsLogin(!isLogin); setError(''); }}
-                    className="text-sm text-primary-400 transition-colors hover:text-primary-300"
-                  >
-                    {isLogin ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Stats Section */}
-      <section className="relative border-y border-slate-800/50 py-16">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
-            {[
-              { value: '10M+', label: 'Files served', icon: Globe },
-              { value: '90%', label: 'Max P2P offload', icon: Zap },
-              { value: '50K+', label: 'Active users', icon: Users },
-              { value: '99.9%', label: 'Uptime SLA', icon: Shield },
-            ].map((stat) => (
-              <div key={stat.label} className="text-center">
-                <stat.icon className="mx-auto h-6 w-6 text-primary-400" />
-                <div className="mt-2 text-3xl font-bold text-white">{stat.value}</div>
-                <div className="mt-1 text-sm text-slate-400">{stat.label}</div>
               </div>
             ))}
           </div>
-        </div>
-      </section>
-
-      {/* Pricing Section */}
-      <section className="px-4 py-20 sm:px-6 lg:px-8" id="pricing">
-        <div className="mx-auto max-w-7xl">
-          <div className="text-center">
-            <h2 className="text-3xl font-bold text-white sm:text-4xl">
-              Simple, transparent pricing
-            </h2>
-            <p className="mt-4 text-lg text-slate-400">
-              Start free, scale as you grow. No hidden fees.
-            </p>
-          </div>
-
-          <div className="mt-12 grid gap-8 md:grid-cols-3">
-            {/* Free Plan */}
-            <div className="relative rounded-2xl border border-slate-700/50 bg-slate-800/30 p-8 backdrop-blur-xl transition-all hover:border-slate-600/50">
-              <h3 className="text-xl font-semibold text-white">Free</h3>
-              <div className="mt-4">
-                <span className="text-4xl font-bold text-white">$0</span>
-                <span className="text-slate-400">/month</span>
-              </div>
-              <p className="mt-2 text-sm text-slate-400">Perfect for getting started</p>
-              <ul className="mt-6 space-y-3">
-                {[
-                  '100GB bandwidth / month',
-                  'Basic analytics',
-                  'Community support',
-                  '1 concurrent upload',
-                ].map((feature) => (
-                  <li key={feature} className="flex items-center gap-2 text-sm text-slate-300">
-                    <Check className="h-4 w-4 text-green-400" />
-                    {feature}
-                  </li>
-                ))}
-              </ul>
-              <button
-                onClick={() => document.getElementById('auth-form')?.scrollIntoView({ behavior: 'smooth' })}
-                className="mt-8 w-full rounded-lg border border-slate-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-700"
-              >
-                Get started
-              </button>
-            </div>
-
-            {/* Pro Plan */}
-            <div className="relative rounded-2xl border-2 border-primary-500/50 bg-slate-800/50 p-8 shadow-xl shadow-primary-500/10 backdrop-blur-xl transition-all hover:border-primary-500">
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                <span className="rounded-full bg-gradient-to-r from-primary-600 to-purple-600 px-4 py-1 text-xs font-semibold text-white">
-                  Most popular
-                </span>
-              </div>
-              <h3 className="text-xl font-semibold text-white">Pro</h3>
-              <div className="mt-4">
-                <span className="text-4xl font-bold text-white">$29</span>
-                <span className="text-slate-400">/month</span>
-              </div>
-              <p className="mt-2 text-sm text-slate-400">For growing projects</p>
-              <ul className="mt-6 space-y-3">
-                {[
-                  '1TB bandwidth / month',
-                  'Advanced analytics',
-                  'Priority support',
-                  'Unlimited concurrent uploads',
-                  'Custom embed domain',
-                ].map((feature) => (
-                  <li key={feature} className="flex items-center gap-2 text-sm text-slate-300">
-                    <Check className="h-4 w-4 text-green-400" />
-                    {feature}
-                  </li>
-                ))}
-              </ul>
-              <button
-                onClick={() => document.getElementById('auth-form')?.scrollIntoView({ behavior: 'smooth' })}
-                className="mt-8 w-full rounded-lg bg-gradient-to-r from-primary-600 to-purple-600 px-4 py-2.5 text-sm font-medium text-white shadow-lg transition-all hover:from-primary-500 hover:to-purple-500"
-              >
-                Start free trial
-              </button>
-            </div>
-
-            {/* Business Plan */}
-            <div className="relative rounded-2xl border border-slate-700/50 bg-slate-800/30 p-8 backdrop-blur-xl transition-all hover:border-slate-600/50">
-              <h3 className="text-xl font-semibold text-white">Business</h3>
-              <div className="mt-4">
-                <span className="text-4xl font-bold text-white">$99</span>
-                <span className="text-slate-400">/month</span>
-              </div>
-              <p className="mt-2 text-sm text-slate-400">For high-volume platforms</p>
-              <ul className="mt-6 space-y-3">
-                {[
-                  'Unlimited bandwidth',
-                  'Real-time analytics & insights',
-                  '24/7 dedicated support',
-                  'Custom embed domain',
-                  'SSO & team accounts',
-                  'SLA guarantee',
-                ].map((feature) => (
-                  <li key={feature} className="flex items-center gap-2 text-sm text-slate-300">
-                    <Check className="h-4 w-4 text-green-400" />
-                    {feature}
-                  </li>
-                ))}
-              </ul>
-              <button
-                onClick={() => document.getElementById('auth-form')?.scrollIntoView({ behavior: 'smooth' })}
-                className="mt-8 w-full rounded-lg border border-slate-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-700"
-              >
-                Contact sales
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* How it Works */}
-      <section className="border-t border-slate-800/50 px-4 py-20 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <h2 className="text-center text-3xl font-bold text-white sm:text-4xl">
-            How it works
-          </h2>
-          <p className="mx-auto mt-4 max-w-2xl text-center text-lg text-slate-400">
-            Upload once, deliver everywhere. Our P2P network does the heavy lifting.
-          </p>
-
-          <div className="mt-12 grid gap-8 md:grid-cols-3">
-            {[
-              {
-                step: '01',
-                title: 'Upload your content',
-                description: 'Upload video or audio files through our dashboard or API. We store them securely in our distributed storage.',
-              },
-              {
-                step: '02',
-                title: 'Get your embed code',
-                description: 'We generate a magnet link and embed code. Drop our SDK snippet into any website to start serving content.',
-              },
-              {
-                step: '03',
-                title: 'Deliver via P2P',
-                description: 'Viewers stream from each other in real-time. Our origin servers only kick in when no peers are available.',
-              },
-            ].map((step) => (
-              <div key={step.step} className="relative rounded-2xl border border-slate-700/50 bg-slate-800/30 p-8 backdrop-blur-xl transition-all hover:border-slate-600/50">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary-500/10 text-lg font-bold text-primary-400">
-                  {step.step}
-                </div>
-                <h3 className="mt-4 text-lg font-semibold text-white">{step.title}</h3>
-                <p className="mt-2 text-sm text-slate-400">{step.description}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="border-t border-slate-800/50 px-4 py-20 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-4xl text-center">
-          <h2 className="text-3xl font-bold text-white sm:text-4xl">
-            Ready to slash your bandwidth costs?
-          </h2>
-          <p className="mt-4 text-lg text-slate-400">
-            Join thousands of creators and businesses already using Torrent CDN to deliver content efficiently.
-          </p>
-          <button
-            onClick={() => document.getElementById('auth-form')?.scrollIntoView({ behavior: 'smooth' })}
-            className="mt-8 inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-primary-600 to-purple-600 px-8 py-3 text-base font-semibold text-white shadow-lg transition-all hover:from-primary-500 hover:to-purple-500"
-          >
-            <Zap className="h-5 w-5" />
-            Get started for free
-          </button>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-slate-800/50 px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
-            <div className="flex items-center gap-2">
-              <div className="flex h-6 w-6 items-center justify-center rounded-md bg-gradient-to-br from-primary-500 to-purple-600">
-                <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-              </div>
-              <span className="text-sm font-medium text-slate-400">Torrent CDN</span>
-            </div>
-            <p className="text-sm text-slate-500">&copy; 2024 Torrent CDN. All rights reserved.</p>
-          </div>
+      <footer className="py-8">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 sm:px-6 lg:px-8">
+          <p className="text-xs text-gray-600">
+            Built with WebTorrent &middot; Open source
+          </p>
+          <a
+            href="https://github.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs text-gray-600 transition-colors hover:text-white"
+          >
+            <Github size={14} />
+            GitHub
+          </a>
         </div>
       </footer>
     </div>

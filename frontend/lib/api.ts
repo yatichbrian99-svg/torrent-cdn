@@ -1,33 +1,30 @@
 import axios, { AxiosInstance } from 'axios';
+import { getToken, removeToken } from './auth';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 class ApiClient {
   private client: AxiosInstance;
-  private token: string | null = null;
 
   constructor() {
     this.client = axios.create({
       baseURL: API_BASE,
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
     });
 
-    // Request interceptor to add auth header
     this.client.interceptors.request.use((config) => {
-      if (this.token) {
-        config.headers.Authorization = `Bearer ${this.token}`;
+      const token = getToken();
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
       }
       return config;
     });
 
-    // Response interceptor for error handling
     this.client.interceptors.response.use(
       (response) => response,
       (error) => {
         if (error.response?.status === 401 && typeof window !== 'undefined') {
-          localStorage.removeItem('token');
+          removeToken();
           window.location.href = '/';
         }
         return Promise.reject(error);
@@ -35,58 +32,41 @@ class ApiClient {
     );
   }
 
-  setToken(token: string | null) {
-    this.token = token;
-    if (token) {
-      localStorage.setItem('token', token);
-    } else {
-      localStorage.removeItem('token');
-    }
-  }
-
-  getToken(): string | null {
-    if (!this.token) {
-      this.token = localStorage.getItem('token');
-    }
-    return this.token;
-  }
-
-  isAuthenticated(): boolean {
-    return !!this.getToken();
-  }
-
   // Auth
   async register(email: string, password: string) {
     const res = await this.client.post('/auth/register', { email, password });
-    this.setToken(res.data.access_token);
     return res.data;
   }
 
   async login(email: string, password: string) {
     const res = await this.client.post('/auth/login', { email, password });
-    this.setToken(res.data.access_token);
     return res.data;
   }
 
   async getMe() {
-    return this.client.get('/auth/me');
+    const res = await this.client.get('/auth/me');
+    return res.data;
   }
 
   // Files
   async listFiles() {
-    return this.client.get('/files');
+    const res = await this.client.get('/files');
+    return res.data;
   }
 
   async getFile(fileId: string) {
-    return this.client.get(`/files/${fileId}`);
+    const res = await this.client.get(`/files/${fileId}`);
+    return res.data;
   }
 
   async getPublicFile(fileId: string) {
-    return this.client.get(`/files/public/${fileId}`);
+    const res = await this.client.get(`/files/public/${fileId}`);
+    return res.data;
   }
 
   async deleteFile(fileId: string) {
-    return this.client.delete(`/files/${fileId}`);
+    const res = await this.client.delete(`/files/${fileId}`);
+    return res.data;
   }
 
   async uploadFile(file: File, onProgress?: (percent: number) => void) {
@@ -97,36 +77,47 @@ class ApiClient {
       headers: { 'Content-Type': 'multipart/form-data' },
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
-          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          const percent = Math.round(
+            (progressEvent.loaded * 100) / progressEvent.total
+          );
           onProgress(percent);
         }
       },
     });
 
-    return res;
+    return res.data;
   }
 
   // Analytics
-  async trackEvent(fileId: string, eventType: string, bytesP2p = 0, bytesOrigin = 0) {
-    return this.client.post('/analytics/event', {
+  async trackEvent(
+    fileId: string,
+    eventType: string,
+    bytesP2p = 0,
+    bytesOrigin = 0
+  ) {
+    const res = await this.client.post('/analytics/event', {
       file_id: fileId,
       event_type: eventType,
       bytes_p2p: bytesP2p,
       bytes_origin: bytesOrigin,
     });
+    return res.data;
   }
 
   async getAnalytics(fileId: string) {
-    return this.client.get(`/analytics/${fileId}`);
+    const res = await this.client.get(`/analytics/${fileId}`);
+    return res.data;
   }
 
   // Billing
   async getBillingStatus() {
-    return this.client.get('/billing/status');
+    const res = await this.client.get('/billing/status');
+    return res.data;
   }
 
   async createCheckout(plan: string) {
-    return this.client.post('/billing/create-checkout', { plan });
+    const res = await this.client.post('/billing/create-checkout', { plan });
+    return res.data;
   }
 }
 

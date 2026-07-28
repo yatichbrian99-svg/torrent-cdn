@@ -18,7 +18,7 @@
 (function () {
   'use strict';
 
-  const API_BASE = window.TORRENT_CDN_API || 'http://localhost:8000';
+  const API_BASE = window.TORRENT_CDN_API || 'https://api.torrentcdn.com';
   const FALLBACK_TIMEOUT = 5000; // 5 seconds before falling back to direct URL
 
   // Load WebTorrent from CDN

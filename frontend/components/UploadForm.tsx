@@ -1,160 +1,201 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Upload, FileVideo, X, CheckCircle2, Loader2 } from 'lucide-react';
-import { useDropzone } from 'react-dropzone';
+import { Upload, File, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
+import EmbedCode from './EmbedCode';
 
-interface UploadFormProps {
-  onSuccess?: (result: { file_id: string; filename: string; magnet_link: string; embed_url: string }) => void;
-  maxSizeMB?: number;
+interface UploadResult {
+  file_id: string;
+  filename: string;
+  minio_url: string;
+  magnet_link: string;
+  file_size_mb: number;
+  embed_url: string;
 }
 
-export default function UploadForm({ onSuccess, maxSizeMB = 1024 }: UploadFormProps) {
-  const [file, setFile] = useState<File | null>(null);
+export default function UploadForm() {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    if (acceptedFiles.length === 0) return;
-
-    const selectedFile = acceptedFiles[0];
-    const fileSizeMB = selectedFile.size / (1024 * 1024);
-
-    if (fileSizeMB > maxSizeMB) {
-      setError(`File exceeds maximum size of ${maxSizeMB}MB`);
-      return;
-    }
-
-    setFile(selectedFile);
-    setError('');
-    setSuccess(false);
-  }, [maxSizeMB]);
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      'video/*': ['.mp4', '.webm', '.ogv', '.mov', '.avi', '.mkv'],
-      'audio/*': ['.mp3', '.ogg', '.wav', '.m4a', '.aac'],
-    },
-    maxFiles: 1,
-    disabled: uploading,
-  });
-
-  const handleUpload = async () => {
-    if (!file) return;
-
+  const handleUpload = useCallback(async (file: File) => {
     setUploading(true);
-    setError('');
     setProgress(0);
+    setError('');
+    setResult(null);
 
     try {
-      const res = await api.uploadFile(file, (percent) => {
+      const data = await api.uploadFile(file, (percent) => {
         setProgress(percent);
       });
-
-      setSuccess(true);
-      onSuccess?.({
-        file_id: res.data.file_id,
-        filename: res.data.filename,
-        magnet_link: res.data.magnet_link,
-        embed_url: res.data.embed_url,
-      });
+      setResult(data);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Upload failed');
+      setError(err.response?.data?.detail || 'Upload failed. Please try again.');
     } finally {
       setUploading(false);
     }
+  }, []);
+
+  const onDrop = useCallback(
+    (acceptedFiles: File[]) => {
+      const file = acceptedFiles[0];
+      if (!file) return;
+      setSelectedFile(file);
+      handleUpload(file);
+    },
+    [handleUpload]
+  );
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSelectedFile(file);
+    handleUpload(file);
   };
 
-  const reset = () => {
-    setFile(null);
-    setProgress(0);
-    setError('');
-    setSuccess(false);
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
+
+  if (result) {
+    return (
+      <div className="border border-accent-500/30 bg-accent-500/5 p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <CheckCircle size={18} className="text-green-500" />
+          <span className="text-sm font-medium text-white">
+            Upload successful!
+          </span>
+        </div>
+
+        <div className="mb-4 space-y-1.5 text-sm text-gray-400">
+          <p>
+            <span className="text-gray-600">File:</span> {result.filename}
+          </p>
+          <p>
+            <span className="text-gray-600">Size:</span>{' '}
+            {result.file_size_mb.toFixed(1)} MB
+          </p>
+        </div>
+
+        <div className="mb-4">
+          <EmbedCode fileId={result.file_id} />
+        </div>
+
+        <div className="mb-6">
+          <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-gray-600">
+            Magnet Link
+          </p>
+          <div className="flex gap-2">
+            <input
+              readOnly
+              value={result.magnet_link}
+              className="flex-1 border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2 text-xs text-gray-400"
+            />
+            <button
+              onClick={() => navigator.clipboard.writeText(result.magnet_link)}
+              className="border border-[#1f1f1f] px-3 py-2 text-xs text-gray-400 transition-colors hover:border-gray-700 hover:text-white"
+            >
+              Copy
+            </button>
+          </div>
+        </div>
+
+        <button
+          onClick={() => {
+            setResult(null);
+            setSelectedFile(null);
+            setProgress(0);
+          }}
+          className="border border-accent-500 bg-accent-500/10 px-4 py-2 text-xs font-medium text-accent-500 transition-colors hover:bg-accent-500/20"
+        >
+          Upload Another
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className="w-full">
-      {!file && !success && (
-        <div
-          {...getRootProps()}
-          className={`relative cursor-pointer rounded-xl border-2 border-dashed p-8 text-center transition-all ${
-            isDragActive
-              ? 'border-primary-500 bg-primary-500/10'
-              : 'border-slate-600 hover:border-slate-500 hover:bg-slate-800/30'
-          }`}
-        >
-          <input {...getInputProps()} />
-          <Upload className={`mx-auto h-10 w-10 ${isDragActive ? 'text-primary-400' : 'text-slate-500'}`} />
-          <p className={`mt-3 text-sm font-medium ${isDragActive ? 'text-primary-400' : 'text-slate-300'}`}>
-            {isDragActive ? 'Drop your file here' : 'Drag & drop or click to upload'}
-          </p>
-          <p className="mt-1 text-xs text-slate-500">Video and audio files up to {maxSizeMB}MB</p>
-        </div>
-      )}
+    <div>
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          const file = e.dataTransfer.files[0];
+          if (file) {
+            setSelectedFile(file);
+            handleUpload(file);
+          }
+        }}
+        className={`relative cursor-pointer border border-dashed p-12 text-center transition-colors ${
+          dragOver
+            ? 'border-accent-500 bg-accent-500/5'
+            : 'border-[#1f1f1f] bg-[#111] hover:border-gray-700'
+        }`}
+      >
+        <input
+          type="file"
+          accept="video/*,audio/*"
+          onChange={handleInputChange}
+          className="absolute inset-0 cursor-pointer opacity-0"
+        />
 
-      {file && !success && (
-        <div className="rounded-xl border border-slate-700/50 bg-slate-800/30 p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <FileVideo className="h-8 w-8 text-primary-400" />
-              <div>
-                <p className="text-sm font-medium text-white">{file.name}</p>
-                <p className="text-xs text-slate-400">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
-              </div>
+        {selectedFile && !uploading ? (
+          <div className="flex items-center justify-center gap-3">
+            <File size={20} className="text-gray-500" />
+            <div className="text-left">
+              <p className="text-sm font-medium text-white">
+                {selectedFile.name}
+              </p>
+              <p className="text-xs text-gray-500">
+                {formatSize(selectedFile.size)}
+              </p>
             </div>
-            {!uploading && (
-              <button onClick={reset} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-700">
-                <X className="h-4 w-4" />
-              </button>
-            )}
           </div>
-
-          {uploading && (
-            <div className="mt-4">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-400">Uploading...</span>
-                <span className="text-white">{progress}%</span>
-              </div>
-              <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-700">
-                <div
-                  className="progress-bar h-full rounded-full transition-all"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-            </div>
-          )}
-
-          {!uploading && (
-            <button
-              onClick={handleUpload}
-              className="mt-4 w-full rounded-lg bg-gradient-to-r from-primary-600 to-purple-600 px-4 py-2 text-sm font-medium text-white transition-all hover:from-primary-500 hover:to-purple-500"
-            >
-              Upload to Torrent CDN
-            </button>
-          )}
-        </div>
-      )}
-
-      {success && (
-        <div className="flex items-center gap-3 rounded-xl border border-green-500/30 bg-green-500/10 p-4">
-          <CheckCircle2 className="h-6 w-6 text-green-400" />
+        ) : (
           <div>
-            <p className="text-sm font-medium text-green-400">Upload complete!</p>
-            <button onClick={reset} className="text-xs text-green-400/70 underline hover:text-green-400">
-              Upload another file
-            </button>
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center border border-[#1f1f1f] bg-[#0a0a0a]">
+              <Upload size={20} className="text-gray-500" />
+            </div>
+            <p className="text-sm text-gray-400">
+              <span className="text-accent-500">Click to upload</span> or drag
+              and drop
+            </p>
+            <p className="mt-1 text-xs text-gray-600">
+              Video or audio files up to your plan limit
+            </p>
           </div>
-        </div>
-      )}
+        )}
+
+        {uploading && (
+          <div className="mt-4">
+            <div className="mb-2 flex items-center justify-center gap-2 text-sm text-gray-400">
+              <Loader2 size={14} className="animate-spin" />
+              Uploading... {progress}%
+            </div>
+            <div className="mx-auto h-1.5 w-full max-w-xs bg-[#1f1f1f]">
+              <div
+                className="h-full progress-glow transition-all duration-300"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
 
       {error && (
-        <div className="mt-4 flex items-center justify-between rounded-lg bg-red-500/10 p-3 text-sm text-red-400">
-          <span>{error}</span>
-          <button onClick={() => setError('')} className="ml-2 underline">Dismiss</button>
+        <div className="mt-3 flex items-center gap-2 text-xs text-red-500">
+          <AlertCircle size={13} />
+          {error}
         </div>
       )}
     </div>
