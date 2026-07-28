@@ -19,24 +19,37 @@ async def list_files(user_id: UUID = Depends(get_current_user_id)):
             user_id,
         )
 
+        file_ids = [row["id"] for row in rows]
+
+        # Single batch query for all analytics
+        analytics_by_file: dict[UUID, dict] = {}
+        if file_ids:
+            analytics_rows = await conn.fetch(
+                """SELECT file_id,
+                           COUNT(*) FILTER (WHERE event_type = 'peer_joined') as views,
+                           COALESCE(SUM(bytes_p2p), 0) as total_p2p,
+                           COALESCE(SUM(bytes_origin), 0) as total_origin
+                      FROM analytics
+                     WHERE file_id = ANY($1::uuid[])
+                     GROUP BY file_id""",
+                file_ids,
+            )
+            for a in analytics_rows:
+                analytics_by_file[a["file_id"]] = {
+                    "views": a["views"],
+                    "total_p2p": a["total_p2p"],
+                    "total_origin": a["total_origin"],
+                }
+
         results = []
         for row in rows:
-            # Aggregate analytics for each file
-            analytics = await conn.fetchrow(
-                """SELECT
-                       COUNT(*) FILTER (WHERE event_type = 'peer_joined') as views,
-                       COALESCE(SUM(bytes_p2p), 0) as total_p2p,
-                       COALESCE(SUM(bytes_origin), 0) as total_origin
-                   FROM analytics WHERE file_id = $1""",
-                row["id"],
-            )
-
-            total_bytes = (analytics["total_p2p"] or 0) + (analytics["total_origin"] or 0)
+            a = analytics_by_file.get(row["id"], {"views": 0, "total_p2p": 0, "total_origin": 0})
+            total_bytes = (a["total_p2p"] or 0) + (a["total_origin"] or 0)
             p2p_offload = 0
             bandwidth_saved = 0
             if total_bytes > 0:
-                p2p_offload = (analytics["total_p2p"] / total_bytes) * 100
-                bandwidth_saved = analytics["total_p2p"] / (1024 * 1024 * 1024)
+                p2p_offload = (a["total_p2p"] / total_bytes) * 100
+                bandwidth_saved = a["total_p2p"] / (1024 * 1024 * 1024)
 
             results.append(FileDetail(
                 id=row["id"],
@@ -45,7 +58,7 @@ async def list_files(user_id: UUID = Depends(get_current_user_id)):
                 torrent_magnet=row["torrent_magnet"],
                 file_size_mb=row["file_size_mb"],
                 created_at=row["created_at"],
-                views=analytics["views"] or 0,
+                views=a["views"] or 0,
                 p2p_offload_percent=round(p2p_offload, 1),
                 bandwidth_saved_gb=round(bandwidth_saved, 3),
                 active_peers=0,

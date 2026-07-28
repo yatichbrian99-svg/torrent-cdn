@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     minio_secret_key: str = "minioadmin"
     minio_bucket: str = "torrent-cdn-files"
     minio_secure: bool = False
+    minio_public_url: str = "http://localhost:9000"
 
     # JWT
     jwt_secret: str = "changeme"
@@ -25,6 +26,8 @@ class Settings(BaseSettings):
     # Stripe
     stripe_secret_key: str = "sk_test_xxx"
     stripe_webhook_secret: str = "whsec_xxx"
+    stripe_price_pro: str = "price_pro_monthly"
+    stripe_price_business: str = "price_business_monthly"
 
     # App
     app_url: str = "http://localhost:3000"

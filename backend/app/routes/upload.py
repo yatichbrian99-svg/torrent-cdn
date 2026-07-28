@@ -1,5 +1,6 @@
 import uuid
 import os
+import tempfile
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from uuid import UUID
@@ -11,6 +12,8 @@ from ..config import get_settings
 from ..database import get_db_pool
 from ..auth import get_current_user_id
 from ..models import UploadResponse
+
+CHUNK_SIZE = 5 * 1024 * 1024  # 5 MB per multipart chunk
 
 settings = get_settings()
 router = APIRouter(prefix="/upload", tags=["upload"])
@@ -39,18 +42,22 @@ async def upload_file(
         "video/mp4", "video/webm", "video/ogg", "video/quicktime",
         "audio/mpeg", "audio/mp3", "audio/ogg", "audio/wav", "audio/webm",
     ]
-    # Allow more types by checking extension
     ext = os.path.splitext(file.filename)[1].lower()
     allowed_exts = {".mp4", ".webm", ".ogv", ".mov", ".mp3", ".ogg", ".wav", ".m4a", ".avi", ".mkv"}
     if file.content_type not in allowed_types and ext not in allowed_exts:
         raise HTTPException(status_code=400, detail="Unsupported file type")
 
-    # Read file content
-    file_content = await file.read()
-    file_size_mb = len(file_content) / (1024 * 1024)
-
-    # Check usage limits
+    # --- Check usage limit (requires Content-Length or stream size) ---
     pool = await get_db_pool()
+    file_size_mb = 0
+    month = datetime.utcnow().strftime("%Y-%m")
+
+    # Read file size first without reading content
+    file.file.seek(0, 2)
+    total_size = file.file.tell()
+    file.file.seek(0)
+    file_size_mb = total_size / (1024 * 1024)
+
     async with pool.acquire() as conn:
         user = await conn.fetchrow(
             "SELECT plan FROM users WHERE id = $1", user_id
@@ -61,7 +68,6 @@ async def upload_file(
         plan_limits = {"free": 100, "pro": 1024, "business": float("inf")}
         limit_gb = plan_limits.get(user["plan"], 100)
 
-        month = datetime.utcnow().strftime("%Y-%m")
         usage = await conn.fetchrow(
             "SELECT total_gb_used FROM usage_records WHERE user_id = $1 AND month = $2",
             user_id, month,
@@ -73,7 +79,7 @@ async def upload_file(
                 detail=f"Usage limit exceeded ({limit_gb}GB/month). Please upgrade your plan.",
             )
 
-    # Upload to MinIO
+    # --- Chunked multipart upload to MinIO ---
     file_id = str(uuid.uuid4())
     minio_key = f"{user_id}/{file_id}/{file.filename}"
 
@@ -85,43 +91,75 @@ async def upload_file(
         except Exception:
             s3.create_bucket(Bucket=settings.minio_bucket)
 
-        s3.put_object(
+        # Initiate multipart upload
+        mpu = s3.create_multipart_upload(
             Bucket=settings.minio_bucket,
             Key=minio_key,
-            Body=file_content,
             ContentType=file.content_type or "application/octet-stream",
         )
+        upload_id = mpu["UploadId"]
 
-        # Use localhost:9000 for browser-accessible MinIO URL
-        # (minio:9000 only resolves inside Docker network)
-        minio_http_url = f"http://localhost:9000/{settings.minio_bucket}/{minio_key}"
+        parts = []
+        part_number = 1
+        while True:
+            chunk = await file.read(CHUNK_SIZE)
+            if not chunk:
+                break
+            part = s3.upload_part(
+                Bucket=settings.minio_bucket,
+                Key=minio_key,
+                PartNumber=part_number,
+                UploadId=upload_id,
+                Body=chunk,
+            )
+            parts.append({"PartNumber": part_number, "ETag": part["ETag"]})
+            part_number += 1
+
+        # Complete multipart upload
+        s3.complete_multipart_upload(
+            Bucket=settings.minio_bucket,
+            Key=minio_key,
+            UploadId=upload_id,
+            MultipartUpload={"Parts": parts},
+        )
+
+        minio_http_url = f"{settings.minio_public_url}/{settings.minio_bucket}/{minio_key}"
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"MinIO upload failed: {str(e)}")        # Generate .torrent and magnet link
+        raise HTTPException(status_code=500, detail=f"MinIO upload failed: {str(e)}")
+
+    # --- Generate .torrent and magnet link ---
     try:
-        # Save file temporarily to create torrent
-        temp_path = f"/tmp/{file_id}_{file.filename}"
-        with open(temp_path, "wb") as f:
-            f.write(file_content)
+        # Write content to temp file for torrent creation
+        temp_fd, temp_path = tempfile.mkstemp(suffix=f"_{file.filename}")
+        os.close(temp_fd)
+        file.file.seek(0)
+        with open(temp_path, "wb") as tf:
+            while True:
+                chunk = file.file.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                tf.write(chunk)
 
         torrent = Torrent.create(temp_path)
-        torrent.announce_urls = [f"{settings.app_url}/announce"]
+        torrent.announce_urls = [
+            "wss://tracker.openwebtorrent.com",
+            "wss://tracker.btorrent.xyz",
+            "wss://tracker.fastcast.nz",
+        ]
         torrent_file_path = f"/tmp/{file_id}.torrent"
         torrent.to_file(torrent_file_path)
 
-        # Generate magnet link from info hash
         info_hash = str(torrent.info_hash)
         magnet_link = f"magnet:?xt=urn:btih:{info_hash}&dn={file.filename}"
 
-        # Cleanup temp files
         os.remove(temp_path)
         os.remove(torrent_file_path)
     except Exception:
-        # Fallback: use file_id as pseudo-info-hash if torrent generation fails
         magnet_link = f"magnet:?xt=urn:btih:{file_id}&dn={file.filename}"
 
-    # Save to database
+    # --- Save to database ---
     async with pool.acquire() as conn:
-        db_file = await conn.fetchrow(
+        await conn.fetchrow(
             """INSERT INTO uploads (id, user_id, filename, minio_url, torrent_magnet, file_size_mb)
                VALUES ($1, $2, $3, $4, $5, $6)
                RETURNING id""",
@@ -133,7 +171,6 @@ async def upload_file(
             round(file_size_mb, 2),
         )
 
-        # Update usage record
         await conn.execute(
             """INSERT INTO usage_records (user_id, month, total_gb_used)
                VALUES ($1, $2, $3)

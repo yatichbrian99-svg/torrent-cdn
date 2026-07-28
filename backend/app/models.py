@@ -91,5 +91,9 @@ class BillingStatus(BaseModel):
     can_upgrade: bool
 
 
+class CheckoutRequest(BaseModel):
+    plan: str
+
+
 class CheckoutResponse(BaseModel):
     url: str

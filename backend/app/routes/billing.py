@@ -6,7 +6,7 @@ from uuid import UUID
 from ..config import get_settings
 from ..database import get_db_pool
 from ..auth import get_current_user_id
-from ..models import BillingStatus, CheckoutResponse
+from ..models import BillingStatus, CheckoutRequest, CheckoutResponse
 
 settings = get_settings()
 stripe.api_key = settings.stripe_secret_key
@@ -19,10 +19,9 @@ PLANS = {
     "business": {"name": "Business", "limit_gb": float("inf")},
 }
 
-# Stripe price IDs — set these in your .env or update here
 STRIPE_PRICES = {
-    "pro": "price_pro_monthly",         # $29/month
-    "business": "price_business_monthly", # $99/month
+    "pro": settings.stripe_price_pro,
+    "business": settings.stripe_price_business,
 }
 
 
@@ -56,11 +55,11 @@ async def get_billing_status(user_id: UUID = Depends(get_current_user_id)):
 
 @router.post("/create-checkout", response_model=CheckoutResponse)
 async def create_checkout(
-    data: dict,
+    data: CheckoutRequest,
     user_id: UUID = Depends(get_current_user_id),
 ):
     """Create a Stripe checkout session."""
-    plan = data.get("plan", "pro")
+    plan = data.plan
     if plan not in STRIPE_PRICES:
         raise HTTPException(status_code=400, detail="Invalid plan")
 

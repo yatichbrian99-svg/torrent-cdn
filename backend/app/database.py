@@ -1,7 +1,10 @@
 import asyncpg
 import aioredis
+import logging
 from typing import Optional
 from .config import get_settings
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -28,6 +31,12 @@ async def get_redis() -> aioredis.Redis:
             settings.redis_url,
             decode_responses=True,
         )
+        try:
+            await redis_client.ping()
+        except Exception as e:
+            logger.error("Redis ping failed: %s", e)
+            redis_client = None
+            raise RuntimeError("Redis connection failed") from e
     return redis_client
 
 
