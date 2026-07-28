@@ -39,70 +39,51 @@ export default function DashboardPage() {
   const totalBandwidthSaved = files.reduce((sum, f) => sum + f.bandwidth_saved_gb, 0);
   const avgP2pOffload = totalFiles > 0 ? files.reduce((sum, f) => sum + f.p2p_offload_percent, 0) / totalFiles : 0;
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <Loader2 size={20} className="animate-spin text-gray-500" />
-      </div>
-    );
-  }
+  if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 size={24} className="animate-spin text-gray-500" /></div>;
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
-      <div className="mb-8 flex items-center justify-between">
+    <div className="mx-auto max-w-5xl px-6 py-10 lg:px-8">
+      <div className="mb-10 flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-white">Dashboard</h1>
-          <p className="mt-0.5 text-xs text-gray-500">Manage your files and view P2P analytics</p>
+          <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+          <p className="mt-1 text-sm text-gray-500">Manage your files and view P2P analytics</p>
         </div>
-        <a href="/dashboard/upload" className="rounded border border-gray-700 bg-gray-800 px-4 py-2 text-xs text-white hover:bg-gray-700 inline-flex items-center gap-2">
-          <Upload size={14} />
-          Upload New File
+        <a href="/dashboard/upload" className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-brand-600/20 transition-all hover:bg-brand-500">
+          <Upload size={16} /> Upload New File
         </a>
       </div>
 
-      {error && (
-        <div className="mb-6 flex items-center gap-2 border border-red-500/20 bg-red-500/5 px-4 py-3 text-xs text-red-500">
-          <AlertCircle size={14} /> {error}
-        </div>
-      )}
+      {error && <div className="mb-6 flex items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-400"><AlertCircle size={16} /> {error}</div>}
 
-      <div className="mb-8 grid gap-3 sm:grid-cols-3">
-        <div className="border border-[#1f1f1f] bg-[#111] p-4">
-          <div className="mb-1 flex items-center gap-2">
-            <FileText size={14} className="text-gray-500" />
-            <span className="text-xs text-gray-500">Total Files</span>
+      <div className="mb-10 grid gap-4 sm:grid-cols-3">
+        {[
+          { icon: FileText, label: 'Total Files', value: totalFiles, color: 'text-brand-400' },
+          { icon: TrendingUp, label: 'Bandwidth Saved', value: `${totalBandwidthSaved.toFixed(2)} GB`, color: 'text-green-500' },
+          { icon: HardDrive, label: 'Avg P2P Offload', value: `${avgP2pOffload.toFixed(1)}%`, color: 'text-yellow-500' },
+        ].map((stat) => (
+          <div key={stat.label} className="rounded-xl border border-surface-border bg-surface-card p-5">
+            <div className="mb-2 flex items-center gap-2">
+              <stat.icon size={16} className={stat.color} />
+              <span className="text-sm text-gray-500">{stat.label}</span>
+            </div>
+            <p className="text-2xl font-bold text-white">{stat.value}</p>
           </div>
-          <p className="text-xl font-bold text-white">{totalFiles}</p>
-        </div>
-        <div className="border border-[#1f1f1f] bg-[#111] p-4">
-          <div className="mb-1 flex items-center gap-2">
-            <TrendingUp size={14} className="text-gray-500" />
-            <span className="text-xs text-gray-500">Bandwidth Saved</span>
-          </div>
-          <p className="text-xl font-bold text-white">{totalBandwidthSaved.toFixed(2)} <span className="text-xs font-normal text-gray-500">GB</span></p>
-        </div>
-        <div className="border border-[#1f1f1f] bg-[#111] p-4">
-          <div className="mb-1 flex items-center gap-2">
-            <HardDrive size={14} className="text-gray-500" />
-            <span className="text-xs text-gray-500">Avg P2P Offload</span>
-          </div>
-          <p className="text-xl font-bold text-white">{avgP2pOffload.toFixed(1)}<span className="text-xs font-normal text-gray-500">%</span></p>
-        </div>
+        ))}
       </div>
 
       {files.length === 0 ? (
-        <div className="border border-[#1f1f1f] bg-[#111] p-12 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center border border-[#1f1f1f] bg-[#0a0a0a]">
-            <Upload size={20} className="text-gray-500" />
+        <div className="rounded-xl border border-surface-border bg-surface-card p-16 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl border border-surface-border bg-surface">
+            <Upload size={24} className="text-gray-500" />
           </div>
-          <p className="text-sm text-gray-400">No files uploaded yet</p>
-          <p className="mt-1 text-xs text-gray-600">Upload your first file to get started</p>
-          <a href="/dashboard/upload" className="mt-4 inline-flex items-center gap-2 rounded border border-gray-700 bg-gray-800 px-4 py-2 text-xs text-white hover:bg-gray-700">
-            <Upload size={14} /> Upload File
+          <p className="text-base text-gray-400">No files uploaded yet</p>
+          <p className="mt-1 text-sm text-gray-600">Upload your first file to get started</p>
+          <a href="/dashboard/upload" className="mt-6 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-brand-600/20 transition-all hover:bg-brand-500">
+            <Upload size={16} /> Upload File
           </a>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {files.map((file) => <FileCard key={file.id} file={file} onDelete={handleDelete} />)}
         </div>
       )}
