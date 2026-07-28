@@ -27,47 +27,21 @@ export default function Navbar() {
     <>
       <nav className="fixed top-0 z-50 flex h-12 w-full items-center border-b" style={{ borderColor: '#222', backgroundColor: '#000' }}>
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4">
-          <a href="/" className="font-mono text-sm font-medium text-white">
-            TorrentCDN
-          </a>
+          <a href="/" className="font-mono text-sm font-medium text-white">TorrentCDN</a>
 
           <div className="flex items-center gap-4">
             {loggedIn && (
               <>
-                <a href="/dashboard" className="text-sm" style={{ color: '#666' }}>
-                  Dashboard
-                </a>
-                <a href="/billing" className="text-sm" style={{ color: '#666' }}>
-                  Billing
-                </a>
-                <span className="text-sm" style={{ color: '#666' }}>
-                  {user?.email}
-                </span>
-                <button
-                  onClick={handleLogout}
-                  className="border px-3 py-1 text-sm"
-                  style={{ borderColor: '#222', color: '#666' }}
-                >
-                  Logout
-                </button>
+                <a href="/dashboard" className="text-sm" style={{ color: '#555' }}>Dashboard</a>
+                <a href="/billing" className="text-sm" style={{ color: '#555' }}>Billing</a>
+                <span className="text-sm" style={{ color: '#555' }}>{user?.email}</span>
+                <button onClick={handleLogout} className="border px-3 py-1 text-sm" style={{ borderColor: '#222', color: '#555' }}>Logout</button>
               </>
             )}
             {!loggedIn && (
               <>
-                <button
-                  onClick={() => setShowAuth(true)}
-                  className="text-sm"
-                  style={{ color: '#666' }}
-                >
-                  Login
-                </button>
-                <button
-                  onClick={() => setShowAuth(true)}
-                  className="border px-3 py-1 text-sm"
-                  style={{ borderColor: 'var(--accent)', color: '#fff', backgroundColor: 'var(--accent)' }}
-                >
-                  Sign up
-                </button>
+                <button onClick={() => setShowAuth(true)} className="text-sm" style={{ color: '#555' }}>Login</button>
+                <button onClick={() => setShowAuth(true)} className="border px-3 py-1 text-sm font-medium" style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000' }}>Sign up</button>
               </>
             )}
           </div>
@@ -75,12 +49,7 @@ export default function Navbar() {
       </nav>
 
       {showAuth && (
-        <AuthModal
-          onClose={() => {
-            setShowAuth(false)
-            api.getMe().then(setUser).catch(() => {})
-          }}
-        />
+        <AuthModal onClose={() => { setShowAuth(false); api.getMe().then(setUser).catch(() => {}) }} />
       )}
     </>
   )

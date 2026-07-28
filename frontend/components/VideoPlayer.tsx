@@ -4,13 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { Users, Loader2 } from 'lucide-react'
 import api from '@/lib/api'
 
-interface FileData {
-  id: string
-  filename: string
-  minio_url: string
-  magnet_link: string
-  file_size_mb: number
-}
+interface FileData { id: string; filename: string; minio_url: string; magnet_link: string; file_size_mb: number }
 
 export default function VideoPlayer({ fileId }: { fileId: string }) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -24,18 +18,13 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
   const pollTimer = useRef<NodeJS.Timeout>()
 
   useEffect(() => {
-    if (fileId === 'demo') {
-      setFileData({ id: 'demo', filename: 'Demo Video.mp4', minio_url: '', magnet_link: '', file_size_mb: 0 })
-      setLoading(false)
-      return
-    }
+    if (fileId === 'demo') { setFileData({ id: 'demo', filename: 'Demo Video.mp4', minio_url: '', magnet_link: '', file_size_mb: 0 }); setLoading(false); return }
     api.getPublicFile(fileId).then((data: FileData) => { setFileData(data); setLoading(false) }).catch(() => { setError('File not found'); setLoading(false) })
   }, [fileId])
 
   const fallbackToDirect = useCallback(() => {
     if (!videoRef.current || !fileData?.minio_url) return
-    videoRef.current.src = fileData.minio_url
-    videoRef.current.play().catch(() => {})
+    videoRef.current.src = fileData.minio_url; videoRef.current.play().catch(() => {})
     setStatus('direct')
     api.trackEvent(fileData.id, 'chunk_downloaded', 0, Math.round(fileData.file_size_mb * 1024 * 1024)).catch(() => {})
   }, [fileData])
@@ -43,27 +32,16 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
   useEffect(() => {
     if (!fileData || fileId === 'demo' || !fileData.magnet_link) return
     let mounted = true
-
     const init = async () => {
       try {
         const WebTorrent = (await import('webtorrent')).default
         if (!mounted) return
-        const client = new WebTorrent()
-        clientRef.current = client
-        setStatus('connecting')
+        const client = new WebTorrent(); clientRef.current = client; setStatus('connecting')
         api.trackEvent(fileData.id, 'peer_joined').catch(() => {})
-
         fallbackTimer.current = setTimeout(() => { if (mounted && status === 'connecting') fallbackToDirect() }, 5000)
-
         const torrent = client.add(fileData.magnet_link)
         torrent.on('wire', () => { if (!mounted) return; setPeers(torrent.numPeers) })
-        torrent.on('download', (bytes: number) => {
-          if (!mounted) return
-          clearTimeout(fallbackTimer.current)
-          setStatus('p2p')
-          setPeers(torrent.numPeers)
-          api.trackEvent(fileData.id, 'chunk_downloaded', bytes, 0).catch(() => {})
-        })
+        torrent.on('download', (bytes: number) => { if (!mounted) return; clearTimeout(fallbackTimer.current); setStatus('p2p'); setPeers(torrent.numPeers); api.trackEvent(fileData.id, 'chunk_downloaded', bytes, 0).catch(() => {}) })
         torrent.on('ready', () => {
           if (!mounted) return
           const f = torrent.files.find((f: any) => f.name.match(/\.(mp4|webm|ogv|mov|mkv|mp3|ogg|wav)$/i)) || torrent.files[0]
@@ -73,17 +51,11 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
       } catch { if (mounted) fallbackToDirect() }
     }
     init()
-    return () => {
-      mounted = false
-      clearTimeout(fallbackTimer.current)
-      clearInterval(pollTimer.current)
-      if (clientRef.current) clientRef.current.destroy()
-      if (fileData) api.trackEvent(fileData.id, 'peer_left').catch(() => {})
-    }
+    return () => { mounted = false; clearTimeout(fallbackTimer.current); clearInterval(pollTimer.current); if (clientRef.current) clientRef.current.destroy(); if (fileData) api.trackEvent(fileData.id, 'peer_left').catch(() => {}) }
   }, [fileData, fallbackToDirect, fileId])
 
-  if (loading) return <div className="flex aspect-video items-center justify-center border" style={{ borderColor: '#222', backgroundColor: '#111' }}><Loader2 size={20} className="animate-spin" style={{ color: '#666' }} /></div>
-  if (error || !fileData) return <div className="flex aspect-video items-center justify-center border" style={{ borderColor: '#222', backgroundColor: '#111' }}><p className="text-sm" style={{ color: '#666' }}>{error || 'Not found'}</p></div>
+  if (loading) return <div className="flex aspect-video items-center justify-center border" style={{ borderColor: '#222', backgroundColor: '#111' }}><Loader2 size={20} className="animate-spin" style={{ color: '#555' }} /></div>
+  if (error || !fileData) return <div className="flex aspect-video items-center justify-center border" style={{ borderColor: '#222', backgroundColor: '#111' }}><p className="text-sm" style={{ color: '#555' }}>{error || 'Not found'}</p></div>
 
   if (fileId === 'demo') {
     return (
@@ -91,14 +63,12 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
         <div className="flex aspect-video items-center justify-center">
           <div className="text-center">
             <p className="text-sm font-medium text-white">Demo Player</p>
-            <p className="mt-1 text-xs" style={{ color: '#666' }}>Upload a file to see the real P2P player</p>
+            <p className="mt-1 text-xs" style={{ color: '#555' }}>Upload a file to see the real P2P player</p>
           </div>
         </div>
         <div className="flex items-center justify-between border-t px-4 py-2" style={{ borderColor: '#222' }}>
-          <span className="font-mono text-xs" style={{ color: '#666' }}>preview mode</span>
-          <span className="flex items-center gap-1 font-mono text-xs" style={{ color: 'var(--success)' }}>
-            <Users size={12} /> 0 peers
-          </span>
+          <span className="font-mono text-xs" style={{ color: '#555' }}>preview mode</span>
+          <span className="flex items-center gap-1 font-mono text-xs" style={{ color: '#555' }}><Users size={12} /> 0 peers</span>
         </div>
       </div>
     )
@@ -110,14 +80,14 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
         <video ref={videoRef} className="aspect-video w-full" controls playsInline crossOrigin="anonymous" />
         {status === 'connecting' && (
           <div className="absolute inset-0 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}>
-            <p className="font-mono text-sm" style={{ color: 'var(--success)' }}>connecting to peers...</p>
+            <p className="font-mono text-sm text-white">connecting to peers...</p>
           </div>
         )}
       </div>
       <div className="flex items-center justify-between border-t px-4 py-2" style={{ borderColor: '#222' }}>
-        <span className="text-sm" style={{ color: '#666' }}>{fileData.filename}</span>
-        <span className="flex items-center gap-1 font-mono text-sm" style={{ color: peers > 0 ? 'var(--success)' : '#666' }}>
-          <span className="h-2 w-2" style={{ backgroundColor: peers > 0 ? 'var(--accent)' : '#333' }} />
+        <span className="text-sm" style={{ color: '#555' }}>{fileData.filename}</span>
+        <span className="flex items-center gap-1 font-mono text-sm" style={{ color: '#555' }}>
+          <span className="h-2 w-2" style={{ backgroundColor: peers > 0 ? '#fff' : '#333' }} />
           {peers} {peers === 1 ? 'peer' : 'peers'} {status === 'p2p' ? 'connected' : status === 'direct' ? '(direct)' : ''}
         </span>
       </div>

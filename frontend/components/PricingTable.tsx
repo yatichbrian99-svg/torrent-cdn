@@ -5,31 +5,9 @@ import { Loader2 } from 'lucide-react'
 import api from '@/lib/api'
 
 const TIERS = [
-  {
-    name: 'Free',
-    price: '$0',
-    period: '/month',
-    limit: '100GB bandwidth',
-    features: ['1 seat', 'Community support'],
-    plan: 'free',
-  },
-  {
-    name: 'Pro',
-    price: '$29',
-    period: '/month',
-    limit: '1TB bandwidth',
-    features: ['Unlimited files', 'Analytics dashboard', 'Email support'],
-    plan: 'pro',
-    popular: true,
-  },
-  {
-    name: 'Business',
-    price: '$99',
-    period: '/month',
-    limit: 'Unlimited bandwidth',
-    features: ['Priority support', 'Custom domain', 'SLA guarantee'],
-    plan: 'business',
-  },
+  { name: 'Free', price: '$0', period: '/month', limit: '100GB bandwidth', features: ['1 seat', 'Community support'], plan: 'free' },
+  { name: 'Pro', price: '$29', period: '/month', limit: '1TB bandwidth', features: ['Unlimited files', 'Analytics dashboard', 'Email support'], plan: 'pro', popular: true },
+  { name: 'Business', price: '$99', period: '/month', limit: 'Unlimited bandwidth', features: ['Priority support', 'Custom domain', 'SLA guarantee'], plan: 'business' },
 ]
 
 export default function PricingTable({ currentPlan }: { currentPlan?: string }) {
@@ -38,10 +16,7 @@ export default function PricingTable({ currentPlan }: { currentPlan?: string }) 
   const handleClick = async (plan: string) => {
     if (plan === 'free') { window.location.href = '/dashboard/upload'; return }
     setLoading(plan)
-    try {
-      const data = await api.createCheckout(plan)
-      if (data.url) window.location.href = data.url
-    } catch { setLoading(null) }
+    try { const data = await api.createCheckout(plan); if (data.url) window.location.href = data.url } catch { setLoading(null) }
   }
 
   return (
@@ -49,33 +24,21 @@ export default function PricingTable({ currentPlan }: { currentPlan?: string }) 
       {TIERS.map((tier) => {
         const isCurrent = currentPlan === tier.plan
         return (
-          <div
-            key={tier.plan}
-            className="relative border p-6"
-            style={{
-              borderColor: tier.popular ? 'var(--accent)' : '#222',
-              backgroundColor: '#111',
-            }}
-          >
+          <div key={tier.plan} className="relative border p-6" style={{ borderColor: tier.popular ? '#fff' : '#222', backgroundColor: '#111' }}>
             {tier.popular && (
-              <div
-                className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 text-[10px] font-bold uppercase tracking-widest"
-                style={{ backgroundColor: 'var(--accent)', color: '#fff', fontFamily: 'monospace' }}
-              >
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2 border px-3 py-0.5 text-[10px] font-bold uppercase tracking-widest" style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000', fontFamily: 'monospace' }}>
                 Most popular
               </div>
             )}
             <h3 className="text-sm font-bold uppercase tracking-wide text-white">{tier.name}</h3>
             <div className="my-4">
               <span className="text-3xl font-bold text-white">{tier.price}</span>
-              <span className="text-sm" style={{ color: '#666' }}>{tier.period}</span>
+              <span className="text-sm" style={{ color: '#555' }}>{tier.period}</span>
             </div>
-            <p className="mb-4 text-sm" style={{ color: '#666' }}>{tier.limit}</p>
+            <p className="mb-4 text-sm" style={{ color: '#555' }}>{tier.limit}</p>
             <ul className="mb-6 space-y-2">
               {tier.features.map((f) => (
-                <li key={f} className="flex items-start gap-2 text-sm" style={{ color: '#666' }}>
-                  <span className="text-white">&ndash;</span> {f}
-                </li>
+                <li key={f} className="flex items-start gap-2 text-sm" style={{ color: '#555' }}><span className="text-white">&ndash;</span> {f}</li>
               ))}
             </ul>
             <button
@@ -83,20 +46,12 @@ export default function PricingTable({ currentPlan }: { currentPlan?: string }) 
               disabled={isCurrent || loading === tier.plan}
               className="w-full border py-2 text-sm font-medium transition-opacity hover:opacity-80 disabled:opacity-40"
               style={{
-                borderColor: isCurrent ? '#333' : tier.popular ? 'var(--accent)' : '#fff',
-                backgroundColor: isCurrent ? 'transparent' : tier.popular ? 'var(--accent)' : 'transparent',
-                color: isCurrent ? '#666' : tier.popular ? '#fff' : '#fff',
+                borderColor: isCurrent ? '#333' : '#fff',
+                backgroundColor: isCurrent ? 'transparent' : tier.popular ? '#fff' : 'transparent',
+                color: isCurrent ? '#555' : tier.popular ? '#000' : '#fff',
               }}
             >
-              {loading === tier.plan ? (
-                <Loader2 size={14} className="mx-auto animate-spin" />
-              ) : isCurrent ? (
-                'Current plan'
-              ) : tier.plan === 'business' ? (
-                'Contact us'
-              ) : (
-                'Get started'
-              )}
+              {loading === tier.plan ? <Loader2 size={14} className="mx-auto animate-spin" /> : isCurrent ? 'Current plan' : tier.plan === 'business' ? 'Contact us' : 'Get started'}
             </button>
           </div>
         )

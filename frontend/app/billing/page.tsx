@@ -23,18 +23,18 @@ function BillingContent() {
     api.getBillingStatus().then(setStatus).catch(() => {}).finally(() => setLoading(false))
   }, [router])
 
-  if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 size={20} className="animate-spin" style={{ color: '#666' }} /></div>
-  if (!status) return <div className="flex min-h-[60vh] items-center justify-center"><p className="text-sm" style={{ color: '#666' }}>Failed to load</p></div>
+  if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 size={20} className="animate-spin" style={{ color: '#555' }} /></div>
+  if (!status) return <div className="flex min-h-[60vh] items-center justify-center"><p className="text-sm" style={{ color: '#555' }}>Failed to load</p></div>
 
   return (
     <>
       {success && (
-        <div className="mb-6 flex items-center gap-2 border px-4 py-3 text-sm" style={{ borderColor: 'var(--success)', color: 'var(--success)' }}>
+        <div className="mb-6 flex items-center gap-2 border px-4 py-3 text-sm text-white" style={{ borderColor: '#fff' }}>
           <CheckCircle size={16} /> Plan upgraded successfully!
         </div>
       )}
       {canceled && (
-        <div className="mb-6 flex items-center gap-2 border px-4 py-3 text-sm" style={{ borderColor: '#f5a623', color: '#f5a623' }}>
+        <div className="mb-6 flex items-center gap-2 border px-4 py-3 text-sm text-white" style={{ borderColor: '#fff' }}>
           <XCircle size={16} /> Checkout canceled.
         </div>
       )}
@@ -42,7 +42,7 @@ function BillingContent() {
       <h1 className="text-xl font-bold tracking-[-0.02em] text-white">Billing</h1>
       <div className="mt-8 grid gap-6 md:grid-cols-2">
         <div className="border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
-          <p className="mb-1 text-xs font-bold uppercase tracking-widest" style={{ color: '#666', fontFamily: 'monospace' }}>Current Plan</p>
+          <p className="mb-1 text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Current Plan</p>
           <p className="text-lg font-bold capitalize text-white">{status.plan}</p>
         </div>
         <div className="border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
@@ -60,7 +60,7 @@ function BillingContent() {
       {!status.can_upgrade && (
         <div className="mt-10 border p-6 text-center" style={{ borderColor: '#222', backgroundColor: '#111' }}>
           <p className="text-sm font-medium text-white">You&apos;re on the Business plan</p>
-          <p className="mt-1 text-sm" style={{ color: '#666' }}>Unlimited bandwidth with all features.</p>
+          <p className="mt-1 text-sm" style={{ color: '#555' }}>Unlimited bandwidth with all features.</p>
         </div>
       )}
     </>
@@ -70,7 +70,7 @@ function BillingContent() {
 export default function BillingPage() {
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
-      <Suspense fallback={<div className="flex min-h-[60vh] items-center justify-center"><Loader2 size={20} className="animate-spin" style={{ color: '#666' }} /></div>}>
+      <Suspense fallback={<div className="flex min-h-[60vh] items-center justify-center"><Loader2 size={20} className="animate-spin" style={{ color: '#555' }} /></div>}>
         <BillingContent />
       </Suspense>
     </div>
