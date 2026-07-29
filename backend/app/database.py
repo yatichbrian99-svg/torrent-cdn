@@ -20,6 +20,8 @@ async def get_db_pool() -> asyncpg.Pool:
             settings.database_url,
             min_size=2,
             max_size=10,
+            # Required for Supabase/PgBouncer which doesn't support prepared statements
+            statement_cache_size=0,
         )
     return pg_pool
 
