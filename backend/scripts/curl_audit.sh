@@ -75,6 +75,16 @@ if [ -n "$TOKEN" ]; then
   echo "$ME" | grep -q "$EMAIL" && check 0 "Auth/me → correct user" || check 1 "Auth/me failed"
   BILL=$(curl -s "$API/billing/status" -H "Authorization: Bearer $TOKEN" 2>/dev/null || echo "")
   echo "$BILL" | grep -q "free" && check 0 "Billing → free plan" || check 1 "Billing failed"
+
+  # Duplicate registration should return 400
+  DUPE_CODE=$(curl -so /dev/null -w '%{http_code}' -X POST "$API/auth/register" \
+    -H "Content-Type: application/json" \
+    -d "{\"email\":\"$EMAIL\",\"password\":\"testpass123\"}" 2>/dev/null || echo "000")
+  [ "$DUPE_CODE" = "400" ] && check 0 "Duplicate registration → $DUPE_CODE" || check 1 "Duplicate registration → $DUPE_CODE"
+  DUPE_BODY=$(curl -s -X POST "$API/auth/register" \
+    -H "Content-Type: application/json" \
+    -d "{\"email\":\"$EMAIL\",\"password\":\"testpass123\"}" 2>/dev/null || echo "")
+  echo "$DUPE_BODY" | grep -q "Email already registered" && check 0 "Duplicate registration body correct" || check 1 "Duplicate registration body wrong"
 else
   check 1 "Registration — failed: $(echo "$REG" | head -c 100)"
 fi
