@@ -23,13 +23,14 @@ ALLOWED_EXTS = {".mp4", ".webm", ".ogv", ".mov", ".mp3", ".ogg", ".wav", ".m4a",
 
 
 def get_minio_client():
+    protocol = "https" if settings.minio_secure else "http"
     return boto3.client(
         "s3",
-        endpoint_url=f"http://{settings.minio_endpoint}",
+        endpoint_url=f"{protocol}://{settings.minio_endpoint}",
         aws_access_key_id=settings.minio_access_key,
         aws_secret_access_key=settings.minio_secret_key,
         config=BotoConfig(signature_version="s3v4"),
-        region_name="us-east-1",
+        region_name=settings.minio_region,
     )
 
 

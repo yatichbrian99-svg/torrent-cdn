@@ -9,18 +9,24 @@ class Settings(BaseSettings):
     app_url: str = "http://localhost:3000"
 
     # Database
+    # For Supabase: postgresql://postgres.xxxxx:password@aws-0-xxx.pooler.supabase.com:6543/postgres
     database_url: str = "postgresql://user:password@postgres:5432/torrentcdn"
 
     # Redis
+    # For Upstash/Redis Cloud, set the full redis:// URL
     redis_url: str = "redis://redis:6379"
 
-    # MinIO
+    # S3-compatible Storage (MinIO for local, Supabase Storage / AWS S3 / Backblaze B2 for production)
+    # For Supabase Storage: endpoint is project-ref.supabase.co:443
     minio_endpoint: str = "minio:9000"
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"
     minio_bucket: str = "torrent-cdn-files"
     minio_secure: bool = False
+    # Public URL for direct file access (e.g., Supabase Storage: https://project-ref.supabase.co/storage/v1/object/public/bucket/
     minio_public_url: str = "http://localhost:9000"
+    # Region for S3-compatible storage (required by some providers like AWS S3)
+    minio_region: str = "us-east-1"
 
     # JWT
     jwt_secret: str = "changeme"
@@ -34,12 +40,12 @@ class Settings(BaseSettings):
     stripe_price_business: str = "price_business_monthly"
 
     # CSP
-    csp_report_url: str = "/api/csp-report"
+    csp_report_url: str = "/csp-report"
     csp_report_only: bool = False  # If True, use Content-Security-Policy-Report-Only instead of enforcing
 
     # CORS
     cors_origins: str = "http://localhost:3000,http://frontend:3000"
-    trusted_hosts: str = "localhost,127.0.0.1,frontend"
+    trusted_hosts: str = "localhost,127.0.0.1,frontend,.onrender.com,.vercel.app"
 
     # Limits
     max_upload_size_mb: int = 2048

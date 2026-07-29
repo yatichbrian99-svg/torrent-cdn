@@ -9,9 +9,13 @@
         reverse_proxy backend:8000
     }
 
-    # ── Health check ──
-    # Also proxy /health to backend so it's accessible through Caddy
+    # ── Health check & CSP report ──
+    # Proxy /health and /csp-report to backend (used by Docker dev)
     handle /health {
+        reverse_proxy backend:8000
+    }
+
+    handle /csp-report {
         reverse_proxy backend:8000
     }
 

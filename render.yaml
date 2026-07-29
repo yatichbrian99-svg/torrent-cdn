@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: torrentcdn-backend
+    env: docker
+    region: oregon
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_URL
+        value: https://your-app.vercel.app
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: "https://your-app.vercel.app"
+      - key: TRUSTED_HOSTS
+        value: ".onrender.com,.vercel.app,localhost"
+      - key: CSP_REPORT_URL
+        value: "/api/csp-report"
+      - key: MINIO_SECURE
+        value: "true"
+      # Set these in Render dashboard:
+      # - DATABASE_URL (Supabase PostgreSQL connection string)
+      # - REDIS_URL (Upstash or Redis Cloud URL)
+      # - MINIO_ENDPOINT (Supabase Storage endpoint: project-ref.supabase.co)
+      # - MINIO_ACCESS_KEY (Supabase S3 access key)
+      # - MINIO_SECRET_KEY (Supabase S3 secret key)
+      # - MINIO_BUCKET (Supabase storage bucket name)
+      # - MINIO_PUBLIC_URL (Supabase Storage public URL)
+      # - STRIPE_SECRET_KEY (if using Stripe)
+      # - STRIPE_WEBHOOK_SECRET (if using Stripe)
+      # - STRIPE_PRICE_PRO (if using Stripe)
+      # - STRIPE_PRICE_BUSINESS (if using Stripe)

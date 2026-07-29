@@ -143,19 +143,8 @@ async def delete_file(file_id: UUID, user_id: UUID = Depends(get_current_user_id
 
         # Delete from MinIO
         try:
-            import boto3
-            from botocore.config import Config as BotoConfig
-            from ..config import get_settings
-            settings = get_settings()
-
-            s3 = boto3.client(
-                "s3",
-                endpoint_url=f"http://{settings.minio_endpoint}",
-                aws_access_key_id=settings.minio_access_key,
-                aws_secret_access_key=settings.minio_secret_key,
-                config=BotoConfig(signature_version="s3v4"),
-                region_name="us-east-1",
-            )
+            from ..routes.upload import get_minio_client
+            s3 = get_minio_client()
             # Extract key from URL
             minio_url = row["minio_url"]
             key = minio_url.split(f"{settings.minio_bucket}/")[-1]
