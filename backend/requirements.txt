@@ -12,5 +12,7 @@ bcrypt>=3.2,<4.1
 stripe>=7.4.0
 torrentool>=1.2.0
 httpx>=0.25.2
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
 pydantic>=2.5.2,<3
 pydantic-settings>=2.1.0,<3
