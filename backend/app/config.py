@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     csp_report_url: str = "/api/csp-report"
     csp_report_only: bool = False  # If True, use Content-Security-Policy-Report-Only instead of enforcing
 
+    # CORS
+    cors_origins: str = "http://localhost:3000,http://frontend:3000"
+    trusted_hosts: str = "localhost,127.0.0.1,frontend"
+
     # Limits
     max_upload_size_mb: int = 2048
     rate_limit_analytics: int = 60  # max events per minute per IP

@@ -62,6 +62,8 @@ services:
       STRIPE_PRICE_PRO: ${STRIPE_PRICE_PRO:-price_pro_monthly}
       STRIPE_PRICE_BUSINESS: ${STRIPE_PRICE_BUSINESS:-price_business_monthly}
       APP_URL: http://localhost:3000
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://frontend:3000}
+      TRUSTED_HOSTS: ${TRUSTED_HOSTS:-localhost,127.0.0.1,frontend}
     ports:
       - "8000:8000"
     depends_on:

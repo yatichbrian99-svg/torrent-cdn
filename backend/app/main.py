@@ -29,21 +29,26 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS
+# CORS — parse comma-separated origins from config
+cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+if settings.app_url not in cors_origins:
+    cors_origins.append(settings.app_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://frontend:3000",
-        settings.app_url,
-    ],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Trusted host middleware
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
+# Trusted host middleware — restrict in production, allow all in development
+if settings.app_env == "production":
+    trusted_hosts = [h.strip() for h in settings.trusted_hosts.split(",") if h.strip()]
+else:
+    trusted_hosts = ["*"]
+
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=trusted_hosts)
 
 
 # Content Security Policy middleware
