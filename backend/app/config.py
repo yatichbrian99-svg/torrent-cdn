@@ -25,7 +25,10 @@ class Settings(BaseSettings):
     minio_bucket: str = "torrent-cdn-files"
     minio_secure: bool = False
     # Public URL for direct file access (e.g., Supabase Storage: https://project-ref.supabase.co/storage/v1/object/public/bucket/
-    minio_public_url: str = "http://localhost:9000"
+    # MinIO public URL (should include bucket path for both local and Supabase)
+    # Local: http://localhost:9000/torrent-cdn-files
+    # Supabase: https://project-ref.supabase.co/storage/v1/object/public/torrent-cdn-files
+    minio_public_url: str = "http://localhost:9000/torrent-cdn-files"
     # Region for S3-compatible storage (required by some providers like AWS S3)
     minio_region: str = "us-east-1"
 
