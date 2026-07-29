@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379"
 
     # S3-compatible Storage (MinIO for local, Supabase Storage / AWS S3 / Backblaze B2 for production)
-    # For Supabase Storage: endpoint is project-ref.supabase.co:443
+    # For Supabase Storage: endpoint is project-ref.supabase.co/storage/v1/s3
     minio_endpoint: str = "minio:9000"
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"
