@@ -35,6 +35,8 @@ cors_origins = [
     "http://localhost:3000",
     "http://frontend:3000",
     "https://torrent-cdn.vercel.app",
+    "https://torrentcdn.com",
+    "https://api.torrentcdn.com",
 ]
 
 extra = os.getenv("CORS_ORIGINS", "")

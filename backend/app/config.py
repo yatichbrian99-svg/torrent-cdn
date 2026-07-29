@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     # App
     app_env: str = "development"
     app_url: str = "http://localhost:3000"
+    # Custom domain for production (e.g. https://torrentcdn.com)
 
     # Database
     # For Supabase: postgresql://postgres.xxxxx:password@aws-0-xxx.pooler.supabase.com:6543/postgres
