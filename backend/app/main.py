@@ -89,6 +89,16 @@ class CSPMiddleware(BaseHTTPMiddleware):
         response.headers[header_name] = csp
         response.headers["Reporting-Endpoints"] = self._reporting_endpoint
 
+        # Additional security headers
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+
+        # HSTS — only in production to avoid issues over HTTP during development
+        if settings.app_env == "production":
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains; preload"
+            )
+
         return response
 
 
