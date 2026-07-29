@@ -45,6 +45,34 @@ app.add_middleware(
 # Trusted host middleware
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 
+
+# Content Security Policy middleware
+class CSPMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' unpkg.com cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' fonts.googleapis.com; "
+            "font-src 'self' fonts.gstatic.com; "
+            "img-src 'self' data: blob:; "
+            "media-src 'self' blob: http://localhost:9000 https://*.torrentcdn.com; "
+            "connect-src 'self' "
+            "wss://tracker.openwebtorrent.com "
+            "wss://tracker.btorrent.xyz "
+            "wss://tracker.fastcast.nz "
+            "http://localhost:9000 "
+            "https://*.torrentcdn.com; "
+            "frame-src 'self'; "
+            "worker-src 'self' blob:; "
+            "base-uri 'self'"
+        )
+        return response
+
+
+app.add_middleware(CSPMiddleware)
+
+
 # Request size limit middleware
 class MaxBodySizeMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -52,6 +80,7 @@ class MaxBodySizeMiddleware(BaseHTTPMiddleware):
             if int(request.headers["content-length"]) > 2 * 1024 * 1024 * 1024:  # 2GB
                 return JSONResponse({"detail": "Request too large"}, status_code=413)
         return await call_next(request)
+
 
 app.add_middleware(MaxBodySizeMiddleware)
 
