@@ -1,4 +1,7 @@
-{$DOMAIN:localhost} {
+# ── Site Address ──
+# For local dev: SITE_ADDR=http://localhost (default, plain HTTP, no redirect)
+# For production: SITE_ADDR=example.com (no scheme = Caddy auto-HTTPS)
+{$SITE_ADDR:-http://localhost} {
     # ── API proxy ──
     # Strips /api prefix before forwarding to backend
     # e.g. /api/auth/register → /auth/register
