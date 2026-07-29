@@ -103,6 +103,30 @@ class CSPMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Permissions-Policy"] = (
+            "accelerometer=(), "
+            "ambient-light-sensor=(), "
+            "autoplay=(), "
+            "camera=(), "
+            "display-capture=(), "
+            "document-domain=(), "
+            "encrypted-media=(), "
+            "fullscreen=(), "
+            "gamepad=(), "
+            "geolocation=(), "
+            "gyroscope=(), "
+            "interest-cohort=(), "
+            "magnetometer=(), "
+            "microphone=(), "
+            "midi=(), "
+            "payment=(), "
+            "picture-in-picture=(), "
+            "publickey-credentials-get=(), "
+            "screen-wake-lock=(), "
+            "speaker-selection=(), "
+            "usb=(), "
+            "web-share=()"
+        )
 
         # HSTS — only in production
         if self._is_production:
