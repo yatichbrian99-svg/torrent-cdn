@@ -24,19 +24,20 @@ async def get_db_pool() -> asyncpg.Pool:
     return pg_pool
 
 
-async def get_redis() -> Redis:
+async def get_redis() -> Optional[Redis]:
+    """Get Redis client. Returns None if Redis is unavailable (optional dependency)."""
     global redis_client
     if redis_client is None:
-        redis_client = await Redis.from_url(
-            settings.redis_url,
-            decode_responses=True,
-        )
         try:
+            redis_client = await Redis.from_url(
+                settings.redis_url,
+                decode_responses=True,
+            )
             await redis_client.ping()
         except Exception as e:
-            logger.error("Redis ping failed: %s", e)
+            logger.warning("Redis unavailable — skipping (optional dependency): %s", e)
             redis_client = None
-            raise RuntimeError("Redis connection failed") from e
+            return None
     return redis_client
 
 

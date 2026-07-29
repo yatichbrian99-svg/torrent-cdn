@@ -116,11 +116,12 @@ async def stripe_webhook(request: Request):
     event_id = event["id"]
     redis = await get_redis()
 
-    # Idempotency check — skip if already processed
-    already_processed = await redis.get(f"webhook:{event_id}")
-    if already_processed:
-        return {"detail": "Already processed"}
-    await redis.setex(f"webhook:{event_id}", 86400, "1")  # 24h TTL
+    # Idempotency check — skip if already processed (skip if Redis unavailable)
+    if redis is not None:
+        already_processed = await redis.get(f"webhook:{event_id}")
+        if already_processed:
+            return {"detail": "Already processed"}
+        await redis.setex(f"webhook:{event_id}", 86400, "1")  # 24h TTL
 
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]

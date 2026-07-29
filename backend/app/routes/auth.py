@@ -105,14 +105,15 @@ async def login(data: UserLogin):
     pool = await get_db_pool()
     redis = await get_redis()
 
-    # Rate limiting: check login attempts
-    rate_key = f"login_attempts:{data.email}"
-    attempts = await redis.get(rate_key)
-    if attempts and int(attempts) >= 5:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many login attempts. Try again in 15 minutes.",
-        )
+    # Rate limiting: check login attempts (skip if Redis unavailable)
+    if redis is not None:
+        rate_key = f"login_attempts:{data.email}"
+        attempts = await redis.get(rate_key)
+        if attempts and int(attempts) >= 5:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many login attempts. Try again in 15 minutes.",
+            )
 
     async with pool.acquire() as conn:
         user = await conn.fetchrow(
@@ -120,16 +121,18 @@ async def login(data: UserLogin):
             data.email,
         )
         if not user or not verify_password(data.password, user["password_hash"]):
-            # Increment failed attempt counter
-            await redis.incr(rate_key)
-            await redis.expire(rate_key, 900)  # 15 minutes
+            # Increment failed attempt counter (skip if Redis unavailable)
+            if redis is not None:
+                await redis.incr(rate_key)
+                await redis.expire(rate_key, 900)  # 15 minutes
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password",
             )
 
     # Reset rate limit on success
-    await redis.delete(rate_key)
+    if redis is not None:
+        await redis.delete(rate_key)
 
     token = create_access_token({"sub": str(user["id"])})
     return TokenResponse(access_token=token)

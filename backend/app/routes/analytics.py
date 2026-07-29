@@ -21,15 +21,16 @@ async def track_event(
     if event.event_type not in VALID_EVENTS:
         raise HTTPException(status_code=400, detail="Invalid event type")
 
-    # IP-based rate limiting
+    # IP-based rate limiting (skip if Redis unavailable)
     redis = await get_redis()
-    ip = request.client.host if request.client else "unknown"
-    rate_key = f"analytics_rate:{ip}"
-    count = await redis.get(rate_key)
-    if count and int(count) >= settings.rate_limit_analytics:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
-    await redis.incr(rate_key)
-    await redis.expire(rate_key, 60)
+    if redis is not None:
+        ip = request.client.host if request.client else "unknown"
+        rate_key = f"analytics_rate:{ip}"
+        count = await redis.get(rate_key)
+        if count and int(count) >= settings.rate_limit_analytics:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        await redis.incr(rate_key)
+        await redis.expire(rate_key, 60)
 
     pool = await get_db_pool()
     async with pool.acquire() as conn:
