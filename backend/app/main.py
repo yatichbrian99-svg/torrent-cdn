@@ -1,6 +1,9 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .config import get_settings
 from .database import init_db, close_db, close_redis
@@ -38,6 +41,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Trusted host middleware
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
+
+# Request size limit middleware
+class MaxBodySizeMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.headers.get("content-length"):
+            if int(request.headers["content-length"]) > 2 * 1024 * 1024 * 1024:  # 2GB
+                return JSONResponse({"detail": "Request too large"}, status_code=413)
+        return await call_next(request)
+
+app.add_middleware(MaxBodySizeMiddleware)
 
 # Routes
 app.include_router(auth.router)

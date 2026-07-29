@@ -1,18 +1,38 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from uuid import UUID
 
-from ..database import get_db_pool
+from ..config import get_settings
+from ..database import get_db_pool, get_redis
 from ..models import AnalyticsEventCreate
 
+VALID_EVENTS = {"peer_joined", "peer_left", "chunk_downloaded"}
+
+settings = get_settings()
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
 @router.post("/event")
-async def track_event(event: AnalyticsEventCreate):
+async def track_event(
+    event: AnalyticsEventCreate,
+    request: Request,
+):
     """Track an analytics event. Public endpoint — no auth required."""
+    # Validate event type
+    if event.event_type not in VALID_EVENTS:
+        raise HTTPException(status_code=400, detail="Invalid event type")
+
+    # IP-based rate limiting
+    redis = await get_redis()
+    ip = request.client.host if request.client else "unknown"
+    rate_key = f"analytics_rate:{ip}"
+    count = await redis.get(rate_key)
+    if count and int(count) >= settings.rate_limit_analytics:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    await redis.incr(rate_key)
+    await redis.expire(rate_key, 60)
+
     pool = await get_db_pool()
     async with pool.acquire() as conn:
-        # Verify file exists
         file_exists = await conn.fetchval(
             "SELECT id FROM uploads WHERE id = $1", event.file_id
         )
@@ -59,7 +79,6 @@ async def get_analytics(file_id: UUID):
             p2p_offload_percent = (result["total_p2p"] / total_bytes) * 100
             bandwidth_saved_gb = result["total_p2p"] / (1024 * 1024 * 1024)
 
-        # Count active peers (joined - left)
         active_peers = (result["total_views"] or 0) - (result["total_leaves"] or 0)
         if active_peers < 0:
             active_peers = 0

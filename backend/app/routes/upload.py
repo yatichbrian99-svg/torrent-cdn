@@ -1,5 +1,6 @@
 import uuid
 import os
+import re
 import tempfile
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
@@ -17,6 +18,8 @@ CHUNK_SIZE = 5 * 1024 * 1024  # 5 MB per multipart chunk
 
 settings = get_settings()
 router = APIRouter(prefix="/upload", tags=["upload"])
+
+ALLOWED_EXTS = {".mp4", ".webm", ".ogv", ".mov", ".mp3", ".ogg", ".wav", ".m4a", ".avi", ".mkv"}
 
 
 def get_minio_client():
@@ -38,26 +41,31 @@ async def upload_file(
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
 
-    allowed_types = [
-        "video/mp4", "video/webm", "video/ogg", "video/quicktime",
-        "audio/mpeg", "audio/mp3", "audio/ogg", "audio/wav", "audio/webm",
-    ]
-    ext = os.path.splitext(file.filename)[1].lower()
-    allowed_exts = {".mp4", ".webm", ".ogv", ".mov", ".mp3", ".ogg", ".wav", ".m4a", ".avi", ".mkv"}
-    if file.content_type not in allowed_types and ext not in allowed_exts:
+    # Sanitize filename — replace dangerous characters
+    safe_filename = re.sub(r'[^a-zA-Z0-9._-]', '_', os.path.basename(file.filename))
+
+    # Validate by file extension only (ignore Content-Type from client)
+    ext = os.path.splitext(safe_filename)[1].lower()
+    if ext not in ALLOWED_EXTS:
         raise HTTPException(status_code=400, detail="Unsupported file type")
 
-    # --- Check usage limit (requires Content-Length or stream size) ---
-    pool = await get_db_pool()
-    file_size_mb = 0
-    month = datetime.utcnow().strftime("%Y-%m")
-
-    # Read file size first without reading content
+    # --- Check file size ---
     file.file.seek(0, 2)
     total_size = file.file.tell()
     file.file.seek(0)
-    file_size_mb = total_size / (1024 * 1024)
 
+    max_bytes = settings.max_upload_size_mb * 1024 * 1024
+    if total_size > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Max size is {settings.max_upload_size_mb}MB",
+        )
+
+    file_size_mb = total_size / (1024 * 1024)
+    month = datetime.utcnow().strftime("%Y-%m")
+
+    # --- Check usage limit ---
+    pool = await get_db_pool()
     async with pool.acquire() as conn:
         user = await conn.fetchrow(
             "SELECT plan FROM users WHERE id = $1", user_id
@@ -81,21 +89,26 @@ async def upload_file(
 
     # --- Chunked multipart upload to MinIO ---
     file_id = str(uuid.uuid4())
-    minio_key = f"{user_id}/{file_id}/{file.filename}"
+    minio_key = f"{user_id}/{file_id}/{safe_filename}"
 
     try:
         s3 = get_minio_client()
-        # Ensure bucket exists
+        # Ensure bucket exists with private policy
         try:
             s3.head_bucket(Bucket=settings.minio_bucket)
         except Exception:
             s3.create_bucket(Bucket=settings.minio_bucket)
 
+        # Set bucket policy to private (deny all public access)
+        s3.put_bucket_policy(
+            Bucket=settings.minio_bucket,
+            Policy='{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::' + settings.minio_bucket + '/*","Condition":{"StringNotEquals":{"aws:PrincipalArn":"arn:aws:iam:::root"}}}]}'
+        )
+
         # Initiate multipart upload
         mpu = s3.create_multipart_upload(
             Bucket=settings.minio_bucket,
             Key=minio_key,
-            ContentType=file.content_type or "application/octet-stream",
         )
         upload_id = mpu["UploadId"]
 
@@ -128,9 +141,12 @@ async def upload_file(
         raise HTTPException(status_code=500, detail=f"MinIO upload failed: {str(e)}")
 
     # --- Generate .torrent and magnet link ---
+    temp_path = None
+    torrent_file_path = None
+    magnet_link = None
     try:
         # Write content to temp file for torrent creation
-        temp_fd, temp_path = tempfile.mkstemp(suffix=f"_{file.filename}")
+        temp_fd, temp_path = tempfile.mkstemp(suffix=f"_{safe_filename}")
         os.close(temp_fd)
         file.file.seek(0)
         with open(temp_path, "wb") as tf:
@@ -150,12 +166,14 @@ async def upload_file(
         torrent.to_file(torrent_file_path)
 
         info_hash = str(torrent.info_hash)
-        magnet_link = f"magnet:?xt=urn:btih:{info_hash}&dn={file.filename}"
-
-        os.remove(temp_path)
-        os.remove(torrent_file_path)
+        magnet_link = f"magnet:?xt=urn:btih:{info_hash}&dn={safe_filename}"
     except Exception:
-        magnet_link = f"magnet:?xt=urn:btih:{file_id}&dn={file.filename}"
+        magnet_link = f"magnet:?xt=urn:btih:{file_id}&dn={safe_filename}"
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+        if torrent_file_path and os.path.exists(torrent_file_path):
+            os.remove(torrent_file_path)
 
     # --- Save to database ---
     async with pool.acquire() as conn:
@@ -165,7 +183,7 @@ async def upload_file(
                RETURNING id""",
             uuid.UUID(file_id),
             user_id,
-            file.filename,
+            safe_filename,
             minio_http_url,
             magnet_link,
             round(file_size_mb, 2),
@@ -185,7 +203,7 @@ async def upload_file(
 
     return UploadResponse(
         file_id=uuid.UUID(file_id),
-        filename=file.filename,
+        filename=safe_filename,
         minio_url=minio_http_url,
         magnet_link=magnet_link,
         file_size_mb=round(file_size_mb, 2),

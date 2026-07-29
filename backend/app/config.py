@@ -4,6 +4,10 @@ import os
 
 
 class Settings(BaseSettings):
+    # App
+    app_env: str = "development"
+    app_url: str = "http://localhost:3000"
+
     # Database
     database_url: str = "postgresql://user:password@postgres:5432/torrentcdn"
 
@@ -29,8 +33,9 @@ class Settings(BaseSettings):
     stripe_price_pro: str = "price_pro_monthly"
     stripe_price_business: str = "price_business_monthly"
 
-    # App
-    app_url: str = "http://localhost:3000"
+    # Limits
+    max_upload_size_mb: int = 2048
+    rate_limit_analytics: int = 60  # max events per minute per IP
 
     class Config:
         env_file = ".env"
@@ -39,4 +44,10 @@ class Settings(BaseSettings):
 
 @lru_cache()
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    if settings.app_env == "production":
+        if settings.jwt_secret == "changeme" or len(settings.jwt_secret) < 32:
+            raise ValueError(
+                "JWT_SECRET must be at least 32 characters and not equal to 'changeme' in production"
+            )
+    return settings

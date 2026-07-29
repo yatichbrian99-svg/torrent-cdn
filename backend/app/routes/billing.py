@@ -4,9 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from uuid import UUID
 
 from ..config import get_settings
-from ..database import get_db_pool
+from ..database import get_db_pool, get_redis
 from ..auth import get_current_user_id
 from ..models import BillingStatus, CheckoutRequest, CheckoutResponse
+
+VALID_PLANS = {"free", "pro", "business"}
 
 settings = get_settings()
 stripe.api_key = settings.stripe_secret_key
@@ -111,10 +113,23 @@ async def stripe_webhook(request: Request):
     except (ValueError, stripe.error.SignatureVerificationError):
         raise HTTPException(status_code=400, detail="Invalid webhook signature")
 
+    event_id = event["id"]
+    redis = await get_redis()
+
+    # Idempotency check — skip if already processed
+    already_processed = await redis.get(f"webhook:{event_id}")
+    if already_processed:
+        return {"detail": "Already processed"}
+    await redis.setex(f"webhook:{event_id}", 86400, "1")  # 24h TTL
+
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
         user_id = session["metadata"]["user_id"]
         plan = session["metadata"]["plan"]
+
+        # Validate plan before writing
+        if plan not in VALID_PLANS:
+            return {"detail": "Unknown plan, ignoring"}
 
         pool = await get_db_pool()
         async with pool.acquire() as conn:
