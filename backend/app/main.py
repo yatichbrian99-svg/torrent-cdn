@@ -7,7 +7,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .config import get_settings
 from .database import init_db, close_db, close_redis
-from .routes import auth, upload, files, analytics, billing
+from .routes import auth, upload, files, analytics, billing, csp
 
 settings = get_settings()
 
@@ -48,9 +48,16 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 
 # Content Security Policy middleware
 class CSPMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        response.headers["Content-Security-Policy"] = (
+    def __init__(self, app):
+        super().__init__(app)
+        self._csp_directives = self._build_csp()
+        self._csp_report_only = settings.csp_report_only
+        self._report_uri = settings.csp_report_url
+        self._reporting_endpoint = f"csp-endpoint=\"{self._report_uri}\""
+
+    @staticmethod
+    def _build_csp() -> str:
+        return (
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline' unpkg.com cdn.jsdelivr.net; "
             "style-src 'self' 'unsafe-inline' fonts.googleapis.com; "
@@ -67,6 +74,21 @@ class CSPMiddleware(BaseHTTPMiddleware):
             "worker-src 'self' blob:; "
             "base-uri 'self'"
         )
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+
+        # Skip report endpoint itself to avoid loops (handle trailing slash)
+        if request.url.path.rstrip("/") == self._report_uri.rstrip("/"):
+            return response
+
+        # Build CSP with reporting directives
+        csp = self._csp_directives + f"; report-uri {self._report_uri}; report-to csp-endpoint"
+
+        header_name = "Content-Security-Policy-Report-Only" if self._csp_report_only else "Content-Security-Policy"
+        response.headers[header_name] = csp
+        response.headers["Reporting-Endpoints"] = self._reporting_endpoint
+
         return response
 
 
@@ -90,6 +112,7 @@ app.include_router(upload.router)
 app.include_router(files.router)
 app.include_router(analytics.router)
 app.include_router(billing.router)
+app.include_router(csp.router)
 
 
 @app.get("/health")
