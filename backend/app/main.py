@@ -20,6 +20,11 @@ async def lifespan(app: FastAPI):
     await close_redis()
 
 
+@app.on_event("startup")
+async def startup():
+    pass
+
+
 app = FastAPI(
     title="Torrent CDN API",
     description="P2P CDN platform powered by WebTorrent",
