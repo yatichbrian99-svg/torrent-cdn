@@ -134,7 +134,8 @@ async def upload_file(
             MultipartUpload={"Parts": parts},
         )
 
-        minio_http_url = f"{settings.minio_public_url}/{settings.minio_bucket}/{minio_key}"
+        # MINIO_PUBLIC_URL already includes the bucket path for Supabase Storage
+        minio_http_url = f"{settings.minio_public_url}/{minio_key}"
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"MinIO upload failed: {str(e)}")
 
