@@ -25,6 +25,42 @@ async def register(data: UserRegister):
 
     pool = await get_db_pool()
     async with pool.acquire() as conn:
+        # Ensure tables exist (lazy creation on first request)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                email VARCHAR(255) UNIQUE NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                plan VARCHAR(50) DEFAULT 'free',
+                stripe_customer_id VARCHAR(255),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS uploads (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                filename VARCHAR(255) NOT NULL,
+                minio_url TEXT NOT NULL,
+                torrent_magnet TEXT NOT NULL,
+                file_size_mb FLOAT NOT NULL DEFAULT 0,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS analytics (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                file_id UUID NOT NULL REFERENCES uploads(id) ON DELETE CASCADE,
+                event_type VARCHAR(50) NOT NULL,
+                bytes_p2p BIGINT DEFAULT 0,
+                bytes_origin BIGINT DEFAULT 0,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS usage_records (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                month VARCHAR(7) NOT NULL,
+                total_gb_used FLOAT DEFAULT 0,
+                UNIQUE(user_id, month)
+            );
+        """)
+
         existing = await conn.fetchrow(
             "SELECT id FROM users WHERE email = $1", data.email
         )

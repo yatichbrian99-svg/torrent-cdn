@@ -6,7 +6,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .config import get_settings
-from .database import init_db, close_db, close_redis
+from .database import close_db, close_redis
 from .routes import auth, upload, files, analytics, billing, csp
 
 settings = get_settings()
@@ -14,8 +14,6 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    await init_db()
     yield
     # Shutdown
     await close_db()
