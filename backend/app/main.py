@@ -7,6 +7,8 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .config import get_settings
 from .database import close_db, close_redis
+import os
+
 from .routes import auth, upload, files, analytics, billing, csp
 
 settings = get_settings()
@@ -27,14 +29,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — parse comma-separated origins from config
-cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
-if settings.app_url not in cors_origins:
-    cors_origins.append(settings.app_url)
+# CORS
+cors_origins = [
+    "http://localhost:3000",
+    "http://frontend:3000",
+    "https://torrent-cdn.vercel.app",
+]
+
+extra = os.getenv("CORS_ORIGINS", "")
+if extra:
+    cors_origins.extend([o.strip() for o in extra.split(",")])
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
