@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from urllib.parse import urlparse
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -50,7 +51,16 @@ app.add_middleware(
 
 # Trusted host middleware — restrict in production, allow all in development
 if settings.app_env == "production":
+    # Build trusted hosts from env var + auto-detect common platforms
     trusted_hosts = [h.strip() for h in settings.trusted_hosts.split(",") if h.strip()]
+    # Auto-add the hostname from APP_URL (frontend domain, e.g. torrent-cdn.vercel.app)
+    parsed = urlparse(settings.app_url)
+    if parsed.hostname:
+        trusted_hosts.append(parsed.hostname)
+        if not parsed.hostname.startswith("."):
+            trusted_hosts.append(f".{parsed.hostname}")
+    # Always allow Render's onrender.com domain (where this backend runs)
+    trusted_hosts.extend(["onrender.com", ".onrender.com"])
 else:
     trusted_hosts = ["*"]
 
