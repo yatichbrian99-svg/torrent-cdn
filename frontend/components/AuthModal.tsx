@@ -43,7 +43,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
           </div>
           <div>
             <label className="mb-1 block text-xs uppercase tracking-widest" style={{ color: '#555' }}>Password</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6}
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8}
               className="w-full border px-3 py-2 text-sm text-white" style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}
               placeholder="password" />
           </div>

@@ -9,7 +9,13 @@
         reverse_proxy backend:8000
     }
 
-    # ── Frontend (falls through after /api/*) ──
+    # ── Health check ──
+    # Also proxy /health to backend so it's accessible through Caddy
+    handle /health {
+        reverse_proxy backend:8000
+    }
+
+    # ── Frontend (falls through after /api/* and /health) ──
     handle {
         reverse_proxy frontend:3000
     }

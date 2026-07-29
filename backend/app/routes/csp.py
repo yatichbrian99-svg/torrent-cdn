@@ -8,7 +8,9 @@ from ..database import get_redis
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
-router = APIRouter(prefix="/api", tags=["security"])
+# Note: Caddy strips the /api prefix (/api/csp-report → /csp-report),
+# so the route is defined without a prefix.
+router = APIRouter(tags=["security"])
 
 
 @router.post("/csp-report")
