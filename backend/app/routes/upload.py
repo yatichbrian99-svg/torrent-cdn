@@ -99,11 +99,8 @@ async def upload_file(
         except Exception:
             s3.create_bucket(Bucket=settings.minio_bucket)
 
-        # Set bucket policy to private (deny all public access)
-        s3.put_bucket_policy(
-            Bucket=settings.minio_bucket,
-            Policy='{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::' + settings.minio_bucket + '/*","Condition":{"StringNotEquals":{"aws:PrincipalArn":"arn:aws:iam:::root"}}}]}'
-        )
+        # MinIO buckets are private by default — no public access without explicit presigned URLs
+        # The bucket policy with aws:PrincipalArn is not supported by MinIO, so we skip it.
 
         # Initiate multipart upload
         mpu = s3.create_multipart_upload(
