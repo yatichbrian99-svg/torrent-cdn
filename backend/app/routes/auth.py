@@ -59,6 +59,10 @@ async def register(data: UserRegister):
                 total_gb_used FLOAT DEFAULT 0,
                 UNIQUE(user_id, month)
             );
+
+            CREATE INDEX IF NOT EXISTS idx_uploads_user_id ON uploads(user_id);
+            CREATE INDEX IF NOT EXISTS idx_analytics_file_id ON analytics(file_id);
+            CREATE INDEX IF NOT EXISTS idx_usage_user_month ON usage_records(user_id, month);
         """)
 
         existing = await conn.fetchrow(
