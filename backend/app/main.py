@@ -50,26 +50,35 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 class CSPMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
-        self._csp_directives = self._build_csp()
+        self._is_production = settings.app_env == "production"
+        self._csp = self._build_csp(self._is_production)
         self._csp_report_only = settings.csp_report_only
         self._report_uri = settings.csp_report_url
         self._reporting_endpoint = f"csp-endpoint=\"{self._report_uri}\""
 
     @staticmethod
-    def _build_csp() -> str:
+    def _build_csp(is_production: bool) -> str:
+        # Script sources — only unpkg is used by sdk.js
+        script_src = "'self' 'unsafe-inline' unpkg.com"
+
+        # Media and connect sources — strip dev origins in production
+        if is_production:
+            minio_src = "https://*.torrentcdn.com"
+        else:
+            minio_src = "http://localhost:9000 https://*.torrentcdn.com"
+
         return (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' unpkg.com cdn.jsdelivr.net; "
+            f"script-src {script_src}; "
             "style-src 'self' 'unsafe-inline' fonts.googleapis.com; "
             "font-src 'self' fonts.gstatic.com; "
             "img-src 'self' data: blob:; "
-            "media-src 'self' blob: http://localhost:9000 https://*.torrentcdn.com; "
+            f"media-src 'self' blob: {minio_src}; "
             "connect-src 'self' "
             "wss://tracker.openwebtorrent.com "
             "wss://tracker.btorrent.xyz "
             "wss://tracker.fastcast.nz "
-            "http://localhost:9000 "
-            "https://*.torrentcdn.com; "
+            f"{minio_src}; "
             "frame-src 'self'; "
             "worker-src 'self' blob:; "
             "base-uri 'self'"
@@ -82,8 +91,8 @@ class CSPMiddleware(BaseHTTPMiddleware):
         if request.url.path.rstrip("/") == self._report_uri.rstrip("/"):
             return response
 
-        # Build CSP with reporting directives
-        csp = self._csp_directives + f"; report-uri {self._report_uri}; report-to csp-endpoint"
+        # Base CSP directives (built once at startup) + reporting directives appended per-request
+        csp = self._csp + f"; report-uri {self._report_uri}; report-to csp-endpoint"
 
         header_name = "Content-Security-Policy-Report-Only" if self._csp_report_only else "Content-Security-Policy"
         response.headers[header_name] = csp
@@ -93,8 +102,8 @@ class CSPMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
 
-        # HSTS — only in production to avoid issues over HTTP during development
-        if settings.app_env == "production":
+        # HSTS — only in production
+        if self._is_production:
             response.headers["Strict-Transport-Security"] = (
                 "max-age=31536000; includeSubDomains; preload"
             )
