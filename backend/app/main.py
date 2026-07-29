@@ -60,7 +60,7 @@ if settings.app_env == "production":
         if not parsed.hostname.startswith("."):
             trusted_hosts.append(f".{parsed.hostname}")
     # Always allow Render's onrender.com domain (where this backend runs)
-    trusted_hosts.extend(["onrender.com", ".onrender.com"])
+    trusted_hosts.extend(["onrender.com", "*.onrender.com"])
 else:
     trusted_hosts = ["*"]
 

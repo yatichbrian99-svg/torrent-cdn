@@ -45,7 +45,7 @@ class Settings(BaseSettings):
 
     # CORS
     cors_origins: str = "http://localhost:3000,http://frontend:3000"
-    trusted_hosts: str = "localhost,127.0.0.1,frontend,.onrender.com,.vercel.app"
+    trusted_hosts: str = "localhost,127.0.0.1,frontend,*.onrender.com,*.vercel.app"
 
     # Limits
     max_upload_size_mb: int = 2048
