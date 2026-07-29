@@ -164,6 +164,6 @@ async def delete_file(file_id: UUID, user_id: UUID = Depends(get_current_user_id
             pass  # Non-critical failure
 
         # Delete from DB
-        await conn.execute("DELETE FROM uploads WHERE id = $1", file_id)
+        await conn.execute("DELETE FROM uploads WHERE id = $1 AND user_id = $2", file_id, user_id)
 
     return {"detail": "File deleted successfully"}
