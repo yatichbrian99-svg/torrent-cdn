@@ -49,23 +49,24 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     environment:
+      APP_ENV: ${APP_ENV:-development}
+      APP_URL: ${APP_URL:-http://localhost:3000}
       DATABASE_URL: postgresql://user:password@postgres:5432/torrentcdn
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: torrent-cdn-files
-      MINIO_PUBLIC_URL: http://localhost:9000
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
       JWT_SECRET: ${JWT_SECRET:-changeme}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_xxx}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_xxx}
       STRIPE_PRICE_PRO: ${STRIPE_PRICE_PRO:-price_pro_monthly}
       STRIPE_PRICE_BUSINESS: ${STRIPE_PRICE_BUSINESS:-price_business_monthly}
-      APP_URL: http://localhost:3000
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://frontend:3000}
       TRUSTED_HOSTS: ${TRUSTED_HOSTS:-localhost,127.0.0.1,frontend}
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -82,11 +83,29 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-      NEXT_PUBLIC_APP_URL: http://localhost:3000
-    ports:
-      - "3000:3000"
+      APP_ENV: ${APP_ENV:-development}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_APP_URL: ${APP_URL:-http://localhost:3000}
+    expose:
+      - "3000"
     depends_on:
+      - backend
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      ACME_AGREE: "true"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
       - backend
 
 volumes:
@@ -94,3 +113,5 @@ volumes:
   redis_data:
   minio_data:
   torrent_temp:
+  caddy_data:
+  caddy_config:

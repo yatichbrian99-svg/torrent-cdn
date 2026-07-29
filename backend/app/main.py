@@ -61,16 +61,17 @@ class CSPMiddleware(BaseHTTPMiddleware):
         self._report_uri = settings.csp_report_url
         self._reporting_endpoint = f"csp-endpoint=\"{self._report_uri}\""
 
-    @staticmethod
-    def _build_csp(is_production: bool) -> str:
+    def _build_csp(self, is_production: bool) -> str:
         # Script sources — only unpkg is used by sdk.js
         script_src = "'self' 'unsafe-inline' unpkg.com"
 
-        # Media and connect sources — strip dev origins in production
+        # Derive media/connect sources from the configured app_url
         if is_production:
-            minio_src = "https://*.torrentcdn.com"
+            # In production, allow the app's own domain + protocol for media/connect
+            app_origin = settings.app_url.rstrip("/")
+            minio_src = app_origin
         else:
-            minio_src = "http://localhost:9000 https://*.torrentcdn.com"
+            minio_src = "http://localhost:9000"
 
         return (
             "default-src 'self'; "
