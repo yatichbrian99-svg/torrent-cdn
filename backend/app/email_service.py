@@ -228,4 +228,6 @@ async def send_verification_email(email: str, user_id: UUID) -> bool:
         return True
     except Exception as e:
         logger.error("Failed to send verification email to %s: %s", email, e)
+        # Print the verification link so it appears in Render logs for admin use
+        print(f"\n\n🔐 VERIFICATION LINK (email delivery failed): {verify_url}\n\n")
         return False
