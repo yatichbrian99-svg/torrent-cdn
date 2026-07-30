@@ -10,7 +10,7 @@ from .config import get_settings
 from .database import close_db, close_redis
 import os
 
-from .routes import auth, upload, files, analytics, billing, csp
+from .routes import auth, upload, files, analytics, billing, csp, admin
 
 settings = get_settings()
 
@@ -182,6 +182,7 @@ app.include_router(files.router)
 app.include_router(analytics.router)
 app.include_router(billing.router)
 app.include_router(csp.router)
+app.include_router(admin.router)
 
 
 @app.get("/health")

@@ -50,6 +50,34 @@ class UserLogin(BaseModel):
     password: str
 
 
+class UserAdminResponse(BaseModel):
+    id: UUID
+    email: str
+    plan: str
+    verified: bool = False
+    is_admin: bool = False
+    created_at: datetime
+    usage_gb: float = 0
+    file_count: int = 0
+
+
+class UpdateUserPlanRequest(BaseModel):
+    plan: str
+
+
+class EmailVerifyRequest(BaseModel):
+    token: str
+
+
+class AdminAnalyticsResponse(BaseModel):
+    total_users: int
+    total_files: int
+    total_storage_gb: float
+    free_users: int
+    pro_users: int
+    business_users: int
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

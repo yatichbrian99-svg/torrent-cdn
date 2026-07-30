@@ -38,6 +38,7 @@ export default function Navbar() {
               <>
                 <a href="/dashboard" className="text-sm" style={{ color: '#555' }}>Dashboard</a>
                 <a href="/billing" className="text-sm" style={{ color: '#555' }}>Billing</a>
+                <a href="/admin" className="text-sm" style={{ color: '#555' }}>Admin</a>
                 <span className="text-sm" style={{ color: '#555' }}>{user?.email}</span>
                 <button onClick={handleLogout} className="border px-3 py-1 text-sm" style={{ borderColor: '#222', color: '#555' }}>Logout</button>
               </>

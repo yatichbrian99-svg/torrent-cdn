@@ -32,6 +32,8 @@ async def register(data: UserRegister):
                 email VARCHAR(255) UNIQUE NOT NULL,
                 password_hash VARCHAR(255) NOT NULL,
                 plan VARCHAR(50) DEFAULT 'free',
+                verified BOOLEAN DEFAULT FALSE,
+                is_admin BOOLEAN DEFAULT FALSE,
                 stripe_customer_id VARCHAR(255),
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             );
@@ -143,7 +145,7 @@ async def get_me(user_id: UUID = Depends(get_current_user_id)):
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         user = await conn.fetchrow(
-            "SELECT id, email, plan, created_at FROM users WHERE id = $1",
+            "SELECT id, email, plan, verified, created_at FROM users WHERE id = $1",
             user_id,
         )
         if not user:
