@@ -1,10 +1,10 @@
 import axios from 'axios'
 import { getToken, removeToken } from './auth'
 
-// API calls go directly to the Render backend via CORS.
+// API calls route through Vercel proxy (our domain) for reliable connectivity.
 // Override via NEXT_PUBLIC_API_URL env var.
 // For local dev, set NEXT_PUBLIC_API_URL=http://localhost:8000 in .env.local
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://torrent-cdn.onrender.com'
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://www.torrentcdn.store'
 
 const api = axios.create({
   baseURL: API_BASE,

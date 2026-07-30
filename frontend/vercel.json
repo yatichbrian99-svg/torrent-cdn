@@ -9,12 +9,28 @@
       "destination": "https://torrent-cdn.onrender.com/$1"
     },
     {
+      "source": "/auth/(.*)",
+      "destination": "https://torrent-cdn.onrender.com/auth/$1"
+    },
+    {
+      "source": "/upload",
+      "destination": "https://torrent-cdn.onrender.com/upload"
+    },
+    {
       "source": "/files/(.*)",
       "destination": "https://torrent-cdn.onrender.com/files/$1"
     },
     {
       "source": "/analytics/(.*)",
       "destination": "https://torrent-cdn.onrender.com/analytics/$1"
+    },
+    {
+      "source": "/billing/(.*)",
+      "destination": "https://torrent-cdn.onrender.com/billing/$1"
+    },
+    {
+      "source": "/admin/(.*)",
+      "destination": "https://torrent-cdn.onrender.com/admin/$1"
     }
   ]
 }
