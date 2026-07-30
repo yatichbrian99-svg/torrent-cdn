@@ -78,12 +78,17 @@ async def register(data: UserRegister):
 
         password_hash = hash_password(data.password)
         try:
+            # First user to register becomes admin
+            existing_count = await conn.fetchval("SELECT COUNT(*) FROM users")
+            is_admin = existing_count == 0
+
             user = await conn.fetchrow(
-                """INSERT INTO users (email, password_hash)
-                   VALUES ($1, $2)
+                """INSERT INTO users (email, password_hash, is_admin)
+                   VALUES ($1, $2, $3)
                    RETURNING id""",
                 data.email,
                 password_hash,
+                is_admin,
             )
         except Exception as e:
             # Catch unique constraint violation (race condition between SELECT and INSERT)
@@ -145,7 +150,7 @@ async def get_me(user_id: UUID = Depends(get_current_user_id)):
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         user = await conn.fetchrow(
-            "SELECT id, email, plan, verified, created_at FROM users WHERE id = $1",
+            "SELECT id, email, plan, verified, is_admin, created_at FROM users WHERE id = $1",
             user_id,
         )
         if not user:

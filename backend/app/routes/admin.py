@@ -3,9 +3,12 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from uuid import UUID
 
+from ..config import get_settings
 from ..database import get_db_pool
 from ..auth import get_current_user_id
 from ..models import UserAdminResponse, UpdateUserPlanRequest, AdminAnalyticsResponse
+
+settings = get_settings()
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -112,6 +115,20 @@ async def admin_delete_user(user_id: UUID, _: UUID = Depends(require_admin)):
     """Delete a user and all their data."""
     pool = await get_db_pool()
     async with pool.acquire() as conn:
+        # Delete upload files from S3 first
+        files = await conn.fetch(
+            "SELECT id, minio_url FROM uploads WHERE user_id = $1", user_id
+        )
+        for f in files:
+            try:
+                from ..routes.upload import get_minio_client
+                s3 = get_minio_client()
+                key = "/".join(f["minio_url"].split("/")[-3:])
+                s3.delete_object(Bucket=settings.minio_bucket, Key=key)
+            except Exception as e:
+                logger.warning("Failed to delete S3 object for file %s: %s", f["id"], e)
+
+        # Delete user (cascades to uploads, analytics, usage_records)
         result = await conn.execute(
             "DELETE FROM users WHERE id = $1", user_id
         )
