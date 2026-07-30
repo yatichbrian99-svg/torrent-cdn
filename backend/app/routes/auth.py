@@ -168,13 +168,31 @@ async def login(data: UserLogin):
 
 
 @router.post("/setup")
-async def setup_first_admin():
+async def setup_first_admin(email: str = None):
     """
-    One-time setup: promote the first registered user to admin.
-    Safe to call multiple times — only acts if no admin exists.
+    One-time setup: promote a user to admin.
+    - If ?email=user@example.com is provided, promote that specific user.
+    - If called without email, promote the first registered user if no admin exists.
     """
     pool = await get_db_pool()
     async with pool.acquire() as conn:
+        # If email is specified, promote that user regardless
+        if email:
+            user = await conn.fetchrow(
+                "SELECT id, email, is_admin FROM users WHERE email = $1", email
+            )
+            if not user:
+                return {"detail": f"No user found with email {email}"}
+            if user["is_admin"]:
+                return {"detail": f"User {email} is already an admin"}
+
+            await conn.execute(
+                "UPDATE users SET is_admin = TRUE WHERE email = $1", email
+            )
+            logger.info("Promoted user %s (%s) to admin via /auth/setup", user["id"], email)
+            return {"detail": f"User {email} promoted to admin. Log in again."}
+
+        # No email — promote first user if no admin exists
         admin_exists = await conn.fetchval(
             "SELECT EXISTS (SELECT 1 FROM users WHERE is_admin = TRUE)"
         )
