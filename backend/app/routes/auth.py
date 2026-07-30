@@ -192,7 +192,11 @@ async def setup_first_admin():
         )
         logger.info("Promoted user %s to admin via /auth/setup", first_user)
 
-    return {"detail": "First user promoted to admin. Please log in again."}
+    return {"detail": "First user promoted to admin. Log in again for the changes to take effect."}
+
+
+@router.get("/me")
+async def get_me(user_id: UUID = Depends(get_current_user_id)):
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         user = await conn.fetchrow(
