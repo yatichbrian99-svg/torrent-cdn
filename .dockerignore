@@ -10,5 +10,6 @@ __pycache__/
 docker-compose.yml
 Caddyfile
 backend/scripts/
+backend/tests/
 .pytest_cache/
 *.egg-info/
