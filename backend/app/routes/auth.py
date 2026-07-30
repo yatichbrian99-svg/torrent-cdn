@@ -68,6 +68,20 @@ async def register(data: UserRegister):
             CREATE INDEX IF NOT EXISTS idx_usage_user_month ON usage_records(user_id, month);
         """)
 
+        # Migration: add missing columns to existing users table (safe to run multiple times)
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT FALSE;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255);
+        """)
+
+        # Promote the first-ever registered user to admin if no admin exists yet
+        await conn.execute("""
+            UPDATE users SET is_admin = TRUE
+            WHERE id = (SELECT id FROM users ORDER BY created_at ASC LIMIT 1)
+            AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin = TRUE)
+        """)
+
         existing = await conn.fetchrow(
             "SELECT id FROM users WHERE email = $1", data.email
         )
