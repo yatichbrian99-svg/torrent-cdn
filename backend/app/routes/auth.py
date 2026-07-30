@@ -104,13 +104,18 @@ async def register(data: UserRegister):
                 status_code=500, detail="Registration failed. Please try again."
             )
 
-        # Fallback: ensure at least one admin exists (handles case where migration
-        # ran before any users existed, so no one was promoted)
-        await conn.execute("""
-            UPDATE users SET is_admin = TRUE
-            WHERE id = (SELECT id FROM users ORDER BY created_at ASC LIMIT 1)
-            AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin = TRUE)
-        """)
+        # Fallback: ensure at least one admin exists
+        # This handles the edge case where the startup migration ran before
+        # any users existed, and existing users' is_admin wasn't set correctly
+        if not await conn.fetchval("SELECT EXISTS (SELECT 1 FROM users WHERE is_admin = TRUE)"):
+            first_id = await conn.fetchval(
+                "SELECT id FROM users ORDER BY created_at ASC LIMIT 1"
+            )
+            if first_id:
+                await conn.execute(
+                    "UPDATE users SET is_admin = TRUE WHERE id = $1", first_id
+                )
+                logger.info("Promoted user %s to admin (first registered)", first_id)
 
         token = create_access_token({"sub": str(user["id"])})
 
