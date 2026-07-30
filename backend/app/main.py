@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 from fastapi import FastAPI, Request
@@ -6,8 +7,10 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+logger = logging.getLogger(__name__)
+
 from .config import get_settings
-from .database import close_db, close_redis
+from .database import close_db, close_redis, get_db_pool
 import os
 
 from .routes import auth, upload, files, analytics, billing, csp, admin, verification
@@ -15,8 +18,31 @@ from .routes import auth, upload, files, analytics, billing, csp, admin, verific
 settings = get_settings()
 
 
+async def run_startup_migrations():
+    """Run schema migrations at startup. Idempotent — safe to run multiple times."""
+    try:
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT FALSE;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255);
+            """)
+            # Promote the first registered user to admin if none exists
+            await conn.execute("""
+                UPDATE users SET is_admin = TRUE
+                WHERE id = (SELECT id FROM users ORDER BY created_at ASC LIMIT 1)
+                AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin = TRUE)
+            """)
+            logger.info("Startup migrations completed")
+    except Exception as e:
+        logger.warning("Startup migrations skipped (first run?): %s", e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Startup: run migrations before accepting requests
+    await run_startup_migrations()
     yield
     # Shutdown
     await close_db()
