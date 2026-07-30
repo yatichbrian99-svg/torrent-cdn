@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from uuid import UUID
 
-from ..database import get_db_pool
+from ..database import get_db_pool, get_redis
 from ..auth import get_current_user_id
 from ..models import FileDetail
 
@@ -109,8 +109,19 @@ async def get_file(file_id: UUID, user_id: UUID = Depends(get_current_user_id)):
 
 
 @router.get("/public/{file_id}")
-async def get_public_file(file_id: UUID):
+async def get_public_file(file_id: UUID, request: Request = None):
     """Public endpoint for embed player — no auth required."""
+    # Rate limit: 30 requests per minute per IP for public file access
+    redis = await get_redis()
+    if redis is not None and request:
+        ip = request.client.host if request.client else "unknown"
+        rate_key = f"public_file_rate:{ip}"
+        count = await redis.get(rate_key)
+        if count and int(count) >= 30:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        await redis.incr(rate_key)
+        await redis.expire(rate_key, 60)
+
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(

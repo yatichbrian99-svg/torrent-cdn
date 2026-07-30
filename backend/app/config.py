@@ -32,10 +32,15 @@ class Settings(BaseSettings):
     # Region for S3-compatible storage (required by some providers like AWS S3)
     minio_region: str = "us-east-1"
 
-    # JWT
+    # JWT — Authentication tokens
     jwt_secret: str = "changeme"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440  # 24 hours
+
+    # Separate secret for email verification tokens (different from auth JWT)
+    jwt_verify_secret: str = ""
+    # Separate secret for password reset tokens
+    jwt_reset_secret: str = ""
 
     # Stripe
     stripe_secret_key: str = "sk_test_xxx"
@@ -78,6 +83,17 @@ def get_settings() -> Settings:
             raise ValueError(
                 "JWT_SECRET must be at least 32 characters and not equal to 'changeme' in production"
             )
+        # Auto-generate verification/reset secrets if not explicitly set
+        if not settings.jwt_verify_secret:
+            import hashlib
+            settings.jwt_verify_secret = hashlib.sha256(
+                (settings.jwt_secret + "__verify__").encode()
+            ).hexdigest()
+        if not settings.jwt_reset_secret:
+            import hashlib
+            settings.jwt_reset_secret = hashlib.sha256(
+                (settings.jwt_secret + "__reset__").encode()
+            ).hexdigest()
         # In production, email verification is required by default
         # (unless explicitly disabled via env var EMAIL_VERIFICATION_REQUIRED=false)
         if not os.environ.get("EMAIL_VERIFICATION_REQUIRED"):

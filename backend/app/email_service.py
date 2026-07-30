@@ -27,20 +27,24 @@ def _get_resend() -> Optional[any]:
 
 
 def create_verification_token(user_id: UUID) -> str:
-    """Create a JWT token for email verification that expires in 24 hours."""
+    """Create a JWT token for email verification that expires in 24 hours.
+    Uses a separate secret from auth tokens to prevent cross-use attacks.
+    """
+    secret = settings.jwt_verify_secret or settings.jwt_secret
     expire = datetime.utcnow() + timedelta(hours=24)
     return jwt.encode(
         {"sub": str(user_id), "purpose": "email_verify", "exp": expire},
-        settings.jwt_secret,
+        secret,
         algorithm=settings.jwt_algorithm,
     )
 
 
 def decode_verification_token(token: str) -> Optional[str]:
     """Decode a verification token and return the user ID if valid."""
+    secret = settings.jwt_verify_secret or settings.jwt_secret
     try:
         payload = jwt.decode(
-            token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
+            token, secret, algorithms=[settings.jwt_algorithm]
         )
         if payload.get("purpose") != "email_verify":
             return None
@@ -56,20 +60,24 @@ def build_verification_url(token: str) -> str:
 
 
 def create_password_reset_token(user_id: UUID) -> str:
-    """Create a JWT for password reset that expires in 1 hour."""
+    """Create a JWT for password reset that expires in 1 hour.
+    Uses a separate secret from auth tokens to prevent cross-use attacks.
+    """
+    secret = settings.jwt_reset_secret or settings.jwt_secret
     expire = datetime.utcnow() + timedelta(hours=1)
     return jwt.encode(
         {"sub": str(user_id), "purpose": "reset_password", "exp": expire},
-        settings.jwt_secret,
+        secret,
         algorithm=settings.jwt_algorithm,
     )
 
 
 def decode_password_reset_token(token: str) -> Optional[str]:
     """Decode a password reset token and return the user ID if valid."""
+    secret = settings.jwt_reset_secret or settings.jwt_secret
     try:
         payload = jwt.decode(
-            token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
+            token, secret, algorithms=[settings.jwt_algorithm]
         )
         if payload.get("purpose") != "reset_password":
             return None

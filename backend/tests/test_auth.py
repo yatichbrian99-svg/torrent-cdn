@@ -57,10 +57,28 @@ class TestRegister:
         """Should reject passwords shorter than 8 characters."""
         resp = client.post(self.REGISTER_URL, json={
             "email": "user@example.com",
-            "password": "1234567",
+            "password": "abc1234",
         })
         assert resp.status_code == 400
         assert resp.json()["detail"] == "Password must be at least 8 characters"
+
+    def test_register_no_letter_password(self, client):
+        """Should reject passwords without any letters."""
+        resp = client.post(self.REGISTER_URL, json={
+            "email": "user@example.com",
+            "password": "12345678",
+        })
+        assert resp.status_code == 400
+        assert "letter" in resp.json()["detail"]
+
+    def test_register_no_number_password(self, client):
+        """Should reject passwords without any numbers."""
+        resp = client.post(self.REGISTER_URL, json={
+            "email": "user@example.com",
+            "password": "abcdefgh",
+        })
+        assert resp.status_code == 400
+        assert "number" in resp.json()["detail"]
 
     def test_register_exactly_8_chars_password(self, client, mock_conn):
         """Should accept password with exactly 8 characters (boundary)."""
@@ -71,7 +89,7 @@ class TestRegister:
 
         resp = client.post(self.REGISTER_URL, json={
             "email": "boundary@example.com",
-            "password": "12345678",
+            "password": "abcd1234",
             "terms_accepted": True,
         })
         assert resp.status_code == 200

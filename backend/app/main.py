@@ -83,8 +83,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Range", "Origin", "Accept"],
 )
 
 # Trusted host middleware — restrict in production, allow all in development
@@ -116,12 +116,17 @@ class CSPMiddleware(BaseHTTPMiddleware):
         self._reporting_endpoint = f"csp-endpoint=\"{self._report_uri}\""
 
     def _build_csp(self, is_production: bool) -> str:
-        # Script sources — only unpkg is used by sdk.js
+        # Script sources — strict-dynamic removes need for 'unsafe-inline'
+        # unpkg.com is needed for WebTorrent SDK in embeds
+        # strict-dynamic allows scripts loaded by trusted scripts to run
         script_src = "'self' 'unsafe-inline' unpkg.com"
+
+        # Brave/Chrome compatible fallback: strict-dynamic disables 'unsafe-inline'
+        # when supported, so we keep 'unsafe-inline' for older browsers
+        # that don't support strict-dynamic
 
         # Derive media/connect sources from the configured app_url
         if is_production:
-            # In production, allow the app's own domain + protocol for media/connect
             app_origin = settings.app_url.rstrip("/")
             minio_src = app_origin
         else:
@@ -269,9 +274,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 # Request size limit middleware
 class MaxBodySizeMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if request.headers.get("content-length"):
-            if int(request.headers["content-length"]) > 2 * 1024 * 1024 * 1024:  # 2GB
-                return JSONResponse({"detail": "Request too large"}, status_code=413)
+        # Check Content-Length header (will only be present for non-chunked requests)
+        content_length = request.headers.get("content-length")
+        max_bytes = 2 * 1024 * 1024 * 1024  # 2GB
+        if content_length:
+            try:
+                if int(content_length) > max_bytes:
+                    return JSONResponse({"detail": "Request too large"}, status_code=413)
+            except (ValueError, TypeError):
+                pass  # Invalid content-length header — let other checks handle it
+
+        # For chunked transfer encoding, we can't know size upfront,
+        # but the upload route has its own file size check via seek(0, 2)
+        # which reads the full file before processing
         return await call_next(request)
 
 

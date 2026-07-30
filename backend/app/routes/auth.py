@@ -19,10 +19,19 @@ async def register(data: UserRegister):
     if not re.match(r'^[^@]+@[^@]+\.[^@]+$', data.email):
         raise HTTPException(status_code=400, detail="Invalid email address")
 
-    # Validate minimum password length
-    if len(data.password) < 8:
+    # Validate password: min 8 chars, must have letter + number
+    pwd = data.password
+    if len(pwd) < 8:
         raise HTTPException(
             status_code=400, detail="Password must be at least 8 characters"
+        )
+    if not re.search(r'[A-Za-z]', pwd):
+        raise HTTPException(
+            status_code=400, detail="Password must contain at least one letter"
+        )
+    if not re.search(r'[0-9]', pwd):
+        raise HTTPException(
+            status_code=400, detail="Password must contain at least one number"
         )
 
     # Require acceptance of Terms & Privacy
@@ -223,6 +232,14 @@ async def reset_password(data: ResetPasswordRequest):
     if len(data.password) < 8:
         raise HTTPException(
             status_code=400, detail="Password must be at least 8 characters"
+        )
+    if not re.search(r'[A-Za-z]', data.password):
+        raise HTTPException(
+            status_code=400, detail="Password must contain at least one letter"
+        )
+    if not re.search(r'[0-9]', data.password):
+        raise HTTPException(
+            status_code=400, detail="Password must contain at least one number"
         )
 
     user_id_str = decode_password_reset_token(data.token)

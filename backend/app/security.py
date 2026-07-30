@@ -143,8 +143,11 @@ def validate_content_type(content_type: Optional[str], filename: str) -> tuple[b
     """
     Validate that the declared Content-Type matches the file extension.
     Returns (is_valid, message).
+    If Content-Type is provided and doesn't match, the upload is rejected.
+    If no Content-Type is provided, the upload is allowed (browser may omit it).
     """
     if not content_type:
+        # Browser may omit Content-Type for multipart file uploads
         return True, "No content type provided — skipping validation"
 
     ext = _get_ext(filename)
@@ -159,9 +162,9 @@ def validate_content_type(content_type: Optional[str], filename: str) -> tuple[b
     if ct_normalized in expected_types:
         return True, ""
 
-    logger.debug("Content-Type mismatch: got '%s', expected one of %s for %s",
-                 content_type, expected_types, filename)
-    return True, f"Warning: Content-Type '{content_type}' doesn't match extension"
+    logger.warning("Content-Type mismatch: got '%s', expected one of %s for %s — rejecting",
+                   content_type, expected_types, filename)
+    return False, f"Content-Type '{content_type}' doesn't match expected type for {ext} files"
 
 
 def estimate_compression_ratio(file_stream) -> Optional[float]:
