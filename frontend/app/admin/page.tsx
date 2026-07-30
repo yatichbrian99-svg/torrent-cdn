@@ -607,6 +607,29 @@ export default function AdminPage() {
                       </td>
                       <td className="px-4 sm:px-5 py-3">
                         <div className="flex items-center justify-end gap-1">
+                          {!user.verified && !user.is_admin && (
+                            <button
+                              onClick={async () => {
+                                const token = getToken()
+                                const res = await fetch(`/api/admin/users/${user.id}/verify`, {
+                                  method: 'POST',
+                                  headers: { Authorization: `Bearer ${token}` },
+                                })
+                                const data = await res.json()
+                                if (res.ok) {
+                                  showToast(`Verified ${user.email}`, 'success')
+                                  fetchData()
+                                } else {
+                                  showToast(data.detail || 'Failed to verify', 'error')
+                                }
+                              }}
+                              className="p-1.5 rounded transition-all duration-150 opacity-0 group-hover:opacity-100 hover:bg-green-500/10"
+                              style={{ color: '#555' }}
+                              title="Verify user"
+                            >
+                              <CheckCircle size={12} className="transition-colors hover:text-green-400" />
+                            </button>
+                          )}
                           <button
                             onClick={() => setDeleteTarget(user)}
                             className="p-1.5 rounded transition-all duration-150 opacity-0 group-hover:opacity-100 hover:bg-red-500/10"

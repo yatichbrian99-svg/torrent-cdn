@@ -150,6 +150,27 @@ async def admin_delete_user(user_id: UUID, admin_id: UUID = Depends(require_admi
     return {"detail": "User deleted"}
 
 
+@router.post("/users/{user_id}/verify")
+async def admin_verify_user(user_id: UUID, _: UUID = Depends(require_admin)):
+    """Manually verify a user's email. Admin-only."""
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        user = await conn.fetchrow(
+            "SELECT id, email, verified FROM users WHERE id = $1", user_id
+        )
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if user["verified"]:
+            return {"detail": f"User {user['email']} is already verified"}
+
+        await conn.execute(
+            "UPDATE users SET verified = TRUE WHERE id = $1", user_id
+        )
+        logger.info("Admin verified user %s (%s)", user_id, user["email"])
+
+    return {"detail": f"User {user['email']} verified successfully"}
+
+
 @router.get("/analytics", response_model=AdminAnalyticsResponse)
 async def admin_analytics(_: UUID = Depends(require_admin)):
     """Get platform-wide analytics."""
