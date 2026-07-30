@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     rate_limit_global: int = 5      # max requests per window per IP
     rate_limit_window_seconds: int = 10  # sliding window for global rate limit
 
+    # Email verification
+    # In production, users must verify their email before they can log in.
+    # In development, this is disabled so you don't need a working email service.
+    email_verification_required: bool = False  # overridden by env var
+
     class Config:
         env_file = ".env"
         case_sensitive = False
@@ -73,4 +78,8 @@ def get_settings() -> Settings:
             raise ValueError(
                 "JWT_SECRET must be at least 32 characters and not equal to 'changeme' in production"
             )
+        # In production, email verification is required by default
+        # (unless explicitly disabled via env var EMAIL_VERIFICATION_REQUIRED=false)
+        if not os.environ.get("EMAIL_VERIFICATION_REQUIRED"):
+            settings.email_verification_required = True
     return settings

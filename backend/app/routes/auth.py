@@ -5,9 +5,9 @@ from uuid import UUID
 
 from ..database import get_db_pool, get_redis
 from ..auth import hash_password, verify_password, create_access_token, get_current_user_id
-from ..email_service import send_verification_email
-from ..models import UserRegister, UserLogin, TokenResponse, ForgotPasswordRequest, ResetPasswordRequest
 from ..email_service import send_verification_email, send_password_reset_email, decode_password_reset_token
+from ..models import UserRegister, UserLogin, TokenResponse, ForgotPasswordRequest, ResetPasswordRequest
+from ..config import get_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -147,7 +147,7 @@ async def login(data: UserLogin):
 
     async with pool.acquire() as conn:
         user = await conn.fetchrow(
-            "SELECT id, email, password_hash FROM users WHERE email = $1",
+            "SELECT id, email, password_hash, verified FROM users WHERE email = $1",
             data.email,
         )
         if not user or not verify_password(data.password, user["password_hash"]):
@@ -158,6 +158,14 @@ async def login(data: UserLogin):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password",
+            )
+
+        # Block login if email verification is required and user hasn't verified
+        settings = get_settings()
+        if settings.email_verification_required and not user["verified"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Email not verified. Please check your inbox or request a new verification link.",
             )
 
     # Reset rate limit on success

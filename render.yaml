@@ -33,3 +33,7 @@ services:
       # - STRIPE_WEBHOOK_SECRET (if using Stripe)
       # - STRIPE_PRICE_PRO (if using Stripe)
       # - STRIPE_PRICE_BUSINESS (if using Stripe)
+      - key: RESEND_API_KEY
+        value: ""  # ← Set this in Render dashboard (get a free key at https://resend.com/api-keys)
+      - key: RESEND_FROM
+        value: "TorrentCDN <onboarding@resend.dev>"  # Change to your verified domain later

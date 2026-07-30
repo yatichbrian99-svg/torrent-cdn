@@ -103,6 +103,7 @@ class TestLogin:
             "id": UUID("11111111-1111-4111-8111-111111111111"),
             "email": "user@example.com",
             "password_hash": hashed,
+            "verified": True,
         }
 
     def test_login_success(self, client, mock_conn):
@@ -150,6 +151,31 @@ class TestLogin:
         })
         assert resp.status_code == 429
         assert "Rate limit" in resp.json()["detail"]  # Matches both global and login-specific messages
+
+    def test_login_unverified_blocked(self, client, mock_conn, monkeypatch):
+        """Should block login for unverified users when verification is required."""
+        from passlib.context import CryptContext
+        pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+        hashed = pwd.hash("securePass123")
+        mock_conn.fetchrow.return_value = {
+            "id": UUID("11111111-1111-4111-8111-111111111111"),
+            "email": "unverified@example.com",
+            "password_hash": hashed,
+            "verified": False,
+        }
+
+        # Enable email verification for this test by patching the route module's local reference
+        import app.routes.auth
+        monkeypatch.setattr(app.routes.auth, "get_settings", lambda: type("Settings", (), {
+            "email_verification_required": True,
+        })())
+
+        resp = client.post(self.LOGIN_URL, json={
+            "email": "unverified@example.com",
+            "password": "securePass123",
+        })
+        assert resp.status_code == 403
+        assert "Email not verified" in resp.json()["detail"]
 
     def test_login_missing_fields(self, client):
         """Should reject login without required fields."""

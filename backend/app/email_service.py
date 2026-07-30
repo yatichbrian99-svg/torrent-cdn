@@ -190,20 +190,25 @@ async def send_password_reset_email(email: str, user_id: UUID) -> bool:
 
 async def send_verification_email(email: str, user_id: UUID) -> bool:
     """Generate a verification token and send the email via Resend. Returns True if sent."""
-    resend = _get_resend()
-    if resend is None:
-        # No Resend configured — auto-verify the user so they aren't stuck
-        logger.info("Resend not configured — auto-verifying user %s", user_id)
-        from .database import get_db_pool
-        pool = await get_db_pool()
-        async with pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE users SET verified = TRUE WHERE id = $1", user_id
-            )
-        return False
-
     token = create_verification_token(user_id)
     verify_url = build_verification_url(token)
+
+    # Always log the verification link so devs / admins can use it
+    logger.info(
+        "Verification link for %s (user %s): %s",
+        email, user_id, verify_url,
+    )
+
+    resend = _get_resend()
+    if resend is None:
+        logger.info(
+            "Resend not configured — verification link logged above. "
+            "User %s (%s) will NOT be auto-verified.",
+            user_id, email,
+        )
+        print(f"\n\n🔐 VERIFICATION LINK: {verify_url}\n\n")
+        return False
+
     html = build_verification_email_html(email, verify_url)
 
     # Default to Resend's pre-verified test sender until the user configures their domain
@@ -223,11 +228,4 @@ async def send_verification_email(email: str, user_id: UUID) -> bool:
         return True
     except Exception as e:
         logger.error("Failed to send verification email to %s: %s", email, e)
-        # Auto-verify on failure so the user isn't stuck
-        from .database import get_db_pool
-        pool = await get_db_pool()
-        async with pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE users SET verified = TRUE WHERE id = $1", user_id
-            )
         return False
