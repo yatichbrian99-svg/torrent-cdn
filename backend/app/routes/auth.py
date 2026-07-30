@@ -167,8 +167,32 @@ async def login(data: UserLogin):
     return TokenResponse(access_token=token)
 
 
-@router.get("/me")
-async def get_me(user_id: UUID = Depends(get_current_user_id)):
+@router.post("/setup")
+async def setup_first_admin():
+    """
+    One-time setup: promote the first registered user to admin.
+    Safe to call multiple times — only acts if no admin exists.
+    """
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        admin_exists = await conn.fetchval(
+            "SELECT EXISTS (SELECT 1 FROM users WHERE is_admin = TRUE)"
+        )
+        if admin_exists:
+            return {"detail": "Admin already exists — no action needed"}
+
+        first_user = await conn.fetchval(
+            "SELECT id FROM users ORDER BY created_at ASC LIMIT 1"
+        )
+        if not first_user:
+            return {"detail": "No users found — register first"}
+
+        await conn.execute(
+            "UPDATE users SET is_admin = TRUE WHERE id = $1", first_user
+        )
+        logger.info("Promoted user %s to admin via /auth/setup", first_user)
+
+    return {"detail": "First user promoted to admin. Please log in again."}
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         user = await conn.fetchrow(
