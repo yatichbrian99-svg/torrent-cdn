@@ -173,7 +173,7 @@ export default function LandingPage() {
               },
               {
                 q: "Do you have an API?",
-                a: "Yes. Every account gets an API key (format: tcdn_xxx) visible in your dashboard. Use it to authenticate API requests. You can upload files, list files, and generate embed codes programmatically via our REST API — for example: curl -H 'Authorization: Bearer YOUR_API_KEY' https://api.torrentcdn.com/upload -F 'file=@video.mp4'."
+                a: "Yes. Every account gets an API key (format: tcdn_xxx) visible in your dashboard. Use it to authenticate API requests. You can upload files, list files, and generate embed codes programmatically via our REST API."
               },
             ].map((item) => (
               <div key={item.q} className="py-5">
