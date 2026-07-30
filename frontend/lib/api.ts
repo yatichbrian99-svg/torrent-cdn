@@ -66,6 +66,15 @@ export default {
 
   getBillingStatus: () => api.get('/billing/status').then((r) => r.data),
 
+  verifyEmail: (token: string) =>
+    api.post('/auth/verify-email', { token }).then((r) => r.data),
+
+  resendVerification: () =>
+    api.post('/auth/resend-verification').then((r) => r.data),
+
+  getVerificationStatus: () =>
+    api.get('/auth/verification-status').then((r) => r.data),
+
   createCheckout: async (plan: string) => {
     try {
       const res = await api.post('/billing/create-checkout', { plan })

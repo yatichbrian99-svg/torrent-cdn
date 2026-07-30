@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Upload, Loader2 } from 'lucide-react'
+import { Upload, Loader2, Mail, ShieldCheck } from 'lucide-react'
 import { isLoggedIn } from '@/lib/auth'
 import api from '@/lib/api'
 import FileCard from '@/components/FileCard'
@@ -14,11 +14,33 @@ export default function DashboardPage() {
   const [files, setFiles] = useState<FileItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [verified, setVerified] = useState<boolean | null>(null)
+  const [resending, setResending] = useState(false)
+  const [resendMsg, setResendMsg] = useState('')
 
   useEffect(() => {
     if (!isLoggedIn()) { router.push('/'); return }
-    api.listFiles().then(setFiles).catch((err) => setError(err.response?.data?.detail || 'Failed to load')).finally(() => setLoading(false))
+    Promise.all([
+      api.listFiles(),
+      api.getVerificationStatus().catch(() => ({ verified: null })),
+    ]).then(([filesData, statusData]) => {
+      setFiles(filesData)
+      setVerified(statusData.verified)
+    }).catch((err) => setError(err.response?.data?.detail || 'Failed to load')).finally(() => setLoading(false))
   }, [router])
+
+  const handleResend = async () => {
+    setResending(true)
+    try {
+      const res = await api.resendVerification()
+      setResendMsg(res.detail || 'Verification email sent!')
+    } catch {
+      setResendMsg('Failed to send. Try again later.')
+    } finally {
+      setResending(false)
+      setTimeout(() => setResendMsg(''), 5000)
+    }
+  }
 
   const handleDelete = async (id: string) => {
     try { await api.deleteFile(id); setFiles((p) => p.filter((f) => f.id !== id)) }
@@ -33,6 +55,35 @@ export default function DashboardPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
+      {/* Email verification banner */}
+      {verified === false && (
+        <div className="mb-6 flex items-center gap-3 border px-4 py-3" style={{ borderColor: '#333', backgroundColor: '#1a1a1a' }}>
+          <Mail size={16} style={{ color: '#fbbf24' }} />
+          <p className="flex-1 text-xs" style={{ color: '#ccc' }}>
+            Please verify your email address to unlock all features.
+          </p>
+          <button
+            onClick={handleResend}
+            disabled={resending}
+            className="border px-3 py-1 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
+            style={{ borderColor: '#555', color: '#fff' }}
+          >
+            {resending ? 'Sending...' : 'Resend email'}
+          </button>
+          {resendMsg && (
+            <span className="text-xs" style={{ color: '#4ade80' }}>{resendMsg}</span>
+          )}
+        </div>
+      )}
+      {verified === true && (
+        <div className="mb-6 flex items-center gap-3 border px-4 py-3" style={{ borderColor: '#1a3a1a', backgroundColor: '#0d1f0d' }}>
+          <ShieldCheck size={16} style={{ color: '#4ade80' }} />
+          <p className="flex-1 text-xs" style={{ color: '#86efac' }}>
+            Email verified
+          </p>
+        </div>
+      )}
+
       <div className="mb-10 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold tracking-[-0.02em] text-white">Your Files</h1>

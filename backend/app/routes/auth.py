@@ -5,6 +5,7 @@ from uuid import UUID
 
 from ..database import get_db_pool, get_redis
 from ..auth import hash_password, verify_password, create_access_token, get_current_user_id
+from ..email_service import send_verification_email
 from ..models import UserRegister, UserLogin, TokenResponse
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,14 @@ async def register(data: UserRegister):
             )
 
         token = create_access_token({"sub": str(user["id"])})
+
+        # Send verification email after successful registration
+        # Wrap in try/except so registration succeeds even if email delivery fails
+        try:
+            await send_verification_email(data.email, user["id"])
+        except Exception as e:
+            logger.warning("Verification email failed after registration: %s", e)
+
         return TokenResponse(access_token=token)
 
 

@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     stripe_price_pro: str = "price_pro_monthly"
     stripe_price_business: str = "price_business_monthly"
 
+    # Resend (transactional email)
+    resend_api_key: str = ""
+
     # CSP
     csp_report_url: str = "/csp-report"
     csp_report_only: bool = False  # If True, use Content-Security-Policy-Report-Only instead of enforcing
