@@ -9,6 +9,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
   const [isLogin, setIsLogin] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [termsAccepted, setTermsAccepted] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -17,7 +18,9 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
     setLoading(true)
     setError('')
     try {
-      const data = isLogin ? await api.login(email, password) : await api.register(email, password)
+      const data = isLogin
+        ? await api.login(email, password)
+        : await api.register(email, password, termsAccepted)
       saveToken(data.access_token)
       onClose()
       window.location.reload()
@@ -58,6 +61,29 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
           </div>
 
           {error && <p className="text-xs text-white">{error}</p>}
+
+          {!isLogin && (
+            <label className="flex items-start gap-2 text-xs" style={{ color: '#555' }}>
+              <input
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={(e) => setTermsAccepted(e.target.checked)}
+                required
+                className="mt-0.5"
+                style={{ accentColor: '#fff' }}
+              />
+              <span>
+                I accept the{' '}
+                <a href="/terms" target="_blank" className="underline transition-colors hover:text-white" style={{ color: '#888' }}>
+                  Terms of Service
+                </a>
+                {' '}and{' '}
+                <a href="/privacy" target="_blank" className="underline transition-colors hover:text-white" style={{ color: '#888' }}>
+                  Privacy Policy
+                </a>
+              </span>
+            </label>
+          )}
 
           <button type="submit" disabled={loading}
             className="w-full border py-2 text-sm font-medium disabled:opacity-50"

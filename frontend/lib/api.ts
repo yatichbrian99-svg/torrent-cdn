@@ -30,8 +30,8 @@ api.interceptors.response.use(
 )
 
 export default {
-  register: (email: string, password: string) =>
-    api.post('/auth/register', { email, password }).then((r) => r.data),
+  register: (email: string, password: string, termsAccepted: boolean = false) =>
+    api.post('/auth/register', { email, password, terms_accepted: termsAccepted }).then((r) => r.data),
 
   login: (email: string, password: string) =>
     api.post('/auth/login', { email, password }).then((r) => r.data),

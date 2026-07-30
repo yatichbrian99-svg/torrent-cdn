@@ -43,6 +43,7 @@ class UsageRecord(BaseModel):
 class UserRegister(BaseModel):
     email: str
     password: str
+    terms_accepted: bool = False
 
 
 class UserLogin(BaseModel):

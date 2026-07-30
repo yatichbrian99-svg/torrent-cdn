@@ -25,6 +25,13 @@ async def register(data: UserRegister):
             status_code=400, detail="Password must be at least 8 characters"
         )
 
+    # Require acceptance of Terms & Privacy
+    if not data.terms_accepted:
+        raise HTTPException(
+            status_code=400,
+            detail="You must accept the Terms of Service and Privacy Policy to create an account.",
+        )
+
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         # Ensure tables exist (lazy creation on first request)
@@ -85,8 +92,8 @@ async def register(data: UserRegister):
             is_admin = existing_count == 0
 
             user = await conn.fetchrow(
-                """INSERT INTO users (email, password_hash, is_admin)
-                   VALUES ($1, $2, $3)
+                """INSERT INTO users (email, password_hash, is_admin, terms_accepted, terms_accepted_at)
+                   VALUES ($1, $2, $3, TRUE, NOW())
                    RETURNING id""",
                 data.email,
                 password_hash,

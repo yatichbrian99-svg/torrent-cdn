@@ -23,6 +23,7 @@ class TestRegister:
         resp = client.post(self.REGISTER_URL, json={
             "email": "newuser@example.com",
             "password": "securePass123",
+            "terms_accepted": True,
         })
 
         assert resp.status_code == 200
@@ -37,6 +38,7 @@ class TestRegister:
         resp = client.post(self.REGISTER_URL, json={
             "email": "existing@example.com",
             "password": "securePass123",
+            "terms_accepted": True,
         })
 
         assert resp.status_code == 400
@@ -70,6 +72,7 @@ class TestRegister:
         resp = client.post(self.REGISTER_URL, json={
             "email": "boundary@example.com",
             "password": "12345678",
+            "terms_accepted": True,
         })
         assert resp.status_code == 200
         assert "access_token" in resp.json()
@@ -82,6 +85,25 @@ class TestRegister:
         })
         assert resp.status_code == 400
         assert "Invalid email" in resp.json()["detail"]
+
+    def test_register_terms_not_accepted(self, client):
+        """Should reject registration when terms are not accepted."""
+        resp = client.post(self.REGISTER_URL, json={
+            "email": "user@example.com",
+            "password": "securePass123",
+            "terms_accepted": False,
+        })
+        assert resp.status_code == 400
+        assert "Terms of Service" in resp.json()["detail"]
+
+    def test_register_terms_default_false(self, client):
+        """Should reject registration when terms_accepted is omitted (defaults to False)."""
+        resp = client.post(self.REGISTER_URL, json={
+            "email": "user@example.com",
+            "password": "securePass123",
+        })
+        assert resp.status_code == 400
+        assert "Terms of Service" in resp.json()["detail"]
 
     def test_register_missing_fields(self, client):
         """Should reject request without required fields."""
