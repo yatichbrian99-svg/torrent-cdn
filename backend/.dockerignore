@@ -1,0 +1,9 @@
+frontend/node_modules
+frontend/.next
+.git
+__pycache__
+*.pyc
+.env
+.env.local
+*.md
+.gitignore
