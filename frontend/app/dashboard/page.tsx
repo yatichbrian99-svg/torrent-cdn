@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Upload, Loader2, Mail, ShieldCheck, Copy } from 'lucide-react'
-import { isLoggedIn } from '@/lib/auth'
+import { Upload, Loader2, Mail, ShieldCheck, Copy, AlertTriangle } from 'lucide-react'
+import { isLoggedIn, removeToken } from '@/lib/auth'
 import api from '@/lib/api'
 import FileCard from '@/components/FileCard'
 
@@ -57,6 +57,24 @@ export default function DashboardPage() {
   const handleDelete = async (id: string) => {
     try { await api.deleteFile(id); setFiles((p) => p.filter((f) => f.id !== id)) }
     catch { alert('Failed to delete file. Please try again.') }
+  }
+
+  const [deleteAccountConfirm, setDeleteAccountConfirm] = useState(false)
+  const [deletingAccount, setDeletingAccount] = useState(false)
+
+  const handleDeleteAccount = async () => {
+    if (!deleteAccountConfirm) { setDeleteAccountConfirm(true); return }
+    setDeletingAccount(true)
+    try {
+      await api.deleteAccount()
+      removeToken()
+      router.push('/')
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to delete account. Please try again.')
+      setDeleteAccountConfirm(false)
+    } finally {
+      setDeletingAccount(false)
+    }
   }
 
   const totalFiles = files.length
@@ -124,6 +142,27 @@ export default function DashboardPage() {
             style={{ borderColor: '#333', color: '#555' }}
           >
             {copied ? <><Copy size={12} className="inline" style={{ color: '#4ade80' }} /> Copied</> : 'Copy'}
+          </button>
+        </div>
+      </div>
+
+      {/* Delete Account */}
+      <div className="mb-8 border p-5" style={{ borderColor: '#331111', backgroundColor: '#110808' }}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <AlertTriangle size={16} style={{ color: '#ef4444' }} />
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#ef4444', fontFamily: 'monospace' }}>Danger Zone</p>
+              <p className="mt-1 text-sm" style={{ color: '#888' }}>Permanently delete your account and all associated data. This cannot be undone.</p>
+            </div>
+          </div>
+          <button
+            onClick={handleDeleteAccount}
+            disabled={deletingAccount}
+            className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
+            style={{ borderColor: deleteAccountConfirm ? '#ef4444' : '#553333', backgroundColor: deleteAccountConfirm ? '#7f1d1d' : 'transparent', color: '#ef4444' }}
+          >
+            {deletingAccount ? 'Deleting...' : deleteAccountConfirm ? 'Click again to confirm' : 'Delete account'}
           </button>
         </div>
       </div>

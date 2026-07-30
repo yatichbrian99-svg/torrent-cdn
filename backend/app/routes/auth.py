@@ -349,3 +349,52 @@ async def get_me(user_id: UUID = Depends(get_current_user_id)):
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         return dict(user)
+
+
+@router.delete("/me")
+async def delete_own_account(user_id: UUID = Depends(get_current_user_id)):
+    """
+    Delete the current user's own account and all associated data.
+    Admin accounts cannot be deleted through this endpoint.
+    """
+    from ..routes.upload import get_minio_client
+
+    _settings = get_settings()
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        # Check if the user is an admin — prevent self-deletion of admin accounts
+        user = await conn.fetchrow(
+            "SELECT id, email, is_admin FROM users WHERE id = $1", user_id
+        )
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if user["is_admin"]:
+            raise HTTPException(
+                status_code=403,
+                detail="Admin accounts cannot be deleted. Contact another admin or use the admin panel.",
+            )
+
+        # Delete upload files from S3 first
+        files = await conn.fetch(
+            "SELECT id, minio_url FROM uploads WHERE user_id = $1", user_id
+        )
+        try:
+            s3 = get_minio_client()
+            for f in files:
+                try:
+                    key = "/".join(f["minio_url"].split("/")[-3:])
+                    s3.delete_object(Bucket=_settings.minio_bucket, Key=key)
+                except Exception as e:
+                    logger.warning("Failed to delete S3 object for file %s: %s", f["id"], e)
+        except Exception:
+            logger.warning("MinIO unavailable — skipping file deletion")
+
+        # Delete user (cascades to uploads, analytics, usage_records via FK)
+        result = await conn.execute(
+            "DELETE FROM users WHERE id = $1", user_id
+        )
+        if result == "DELETE 0":
+            raise HTTPException(status_code=404, detail="User not found")
+
+    logger.info("User %s (%s) deleted their own account", user_id, user["email"])
+    return {"detail": "Account and all associated data deleted successfully."}

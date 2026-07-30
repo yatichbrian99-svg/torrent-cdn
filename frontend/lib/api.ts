@@ -82,6 +82,8 @@ export default {
   resetPassword: (token: string, password: string) =>
     api.post('/auth/reset-password', { token, password }).then((r) => r.data),
 
+  deleteAccount: () => api.delete('/auth/me').then((r) => r.data),
+
   createCheckout: async (plan: string) => {
     try {
       const res = await api.post('/billing/create-checkout', { plan })

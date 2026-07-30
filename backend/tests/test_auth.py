@@ -261,3 +261,60 @@ class TestGetMe:
         resp = client.get(self.ME_URL, headers=auth_headers)
         assert resp.status_code == 404
         assert resp.json()["detail"] == "User not found"
+
+
+class TestDeleteMe:
+    """Tests for DELETE /auth/me — self-account deletion."""
+
+    DELETE_URL = "/auth/me"
+
+    def test_delete_own_account_success(self, client, auth_headers, mock_conn, mock_s3_client):
+        """Should delete the user's own account and return success."""
+        mock_conn.fetchrow.side_effect = [
+            {"id": UUID("11111111-1111-4111-8111-111111111111"), "email": "user@example.com", "is_admin": False},
+        ]
+        mock_conn.fetch.return_value = []
+        mock_conn.execute.return_value = "DELETE 1"
+
+        resp = client.delete(self.DELETE_URL, headers=auth_headers)
+        assert resp.status_code == 200
+        assert "deleted successfully" in resp.json()["detail"]
+
+    def test_delete_own_account_no_auth(self, client):
+        """Should return 401 without auth."""
+        resp = client.delete(self.DELETE_URL)
+        assert resp.status_code == 401
+
+    def test_delete_own_account_admin_blocked(self, client, auth_headers, mock_conn):
+        """Should block self-deletion of admin accounts."""
+        mock_conn.fetchrow.return_value = {
+            "id": UUID("11111111-1111-4111-8111-111111111111"),
+            "email": "admin@example.com",
+            "is_admin": True,
+        }
+
+        resp = client.delete(self.DELETE_URL, headers=auth_headers)
+        assert resp.status_code == 403
+        assert "cannot be deleted" in resp.json()["detail"]
+
+    def test_delete_own_account_not_found(self, client, auth_headers, mock_conn):
+        """Should return 404 if user doesn't exist."""
+        mock_conn.fetchrow.return_value = None
+
+        resp = client.delete(self.DELETE_URL, headers=auth_headers)
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "User not found"
+
+    def test_delete_own_account_with_files(self, client, auth_headers, mock_conn, mock_s3_client):
+        """Should clean up S3 files when deleting own account."""
+        mock_conn.fetchrow.side_effect = [
+            {"id": UUID("11111111-1111-4111-8111-111111111111"), "email": "user@example.com", "is_admin": False},
+        ]
+        mock_conn.fetch.return_value = [
+            {"id": UUID("33333333-3333-4333-8333-333333333333"), "minio_url": "http://minio:9000/bucket/user123/file456/video.mp4"},
+        ]
+        mock_conn.execute.return_value = "DELETE 1"
+
+        resp = client.delete(self.DELETE_URL, headers=auth_headers)
+        assert resp.status_code == 200
+        mock_s3_client.delete_object.assert_called_once()
