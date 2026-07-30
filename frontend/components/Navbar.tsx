@@ -9,7 +9,7 @@ import AuthModal from './AuthModal'
 export default function Navbar() {
   const router = useRouter()
   const [showAuth, setShowAuth] = useState(false)
-  const [user, setUser] = useState<{ email: string; plan: string } | null>(null)
+  const [user, setUser] = useState<{ email: string; plan: string; is_admin?: boolean } | null>(null)
   const [loggedIn, setLoggedIn] = useState(false)
 
   useEffect(() => {
@@ -38,7 +38,9 @@ export default function Navbar() {
               <>
                 <a href="/dashboard" className="text-sm" style={{ color: '#555' }}>Dashboard</a>
                 <a href="/billing" className="text-sm" style={{ color: '#555' }}>Billing</a>
-                <a href="/admin" className="text-sm" style={{ color: '#555' }}>Admin</a>
+                {user?.is_admin && (
+                  <a href="/admin" className="text-sm" style={{ color: '#555' }}>Admin</a>
+                )}
                 <span className="text-sm" style={{ color: '#555' }}>{user?.email}</span>
                 <button onClick={handleLogout} className="border px-3 py-1 text-sm" style={{ borderColor: '#222', color: '#555' }}>Logout</button>
               </>
