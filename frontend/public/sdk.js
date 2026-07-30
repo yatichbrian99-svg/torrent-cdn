@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var API_BASE = 'https://torrent-cdn.onrender.com';
+  var API_BASE = 'https://www.torrentcdn.store';
 
   function getConfig(el) {
     return {

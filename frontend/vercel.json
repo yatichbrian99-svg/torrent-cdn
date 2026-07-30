@@ -7,6 +7,14 @@
     {
       "source": "/api/(.*)",
       "destination": "https://torrent-cdn.onrender.com/$1"
+    },
+    {
+      "source": "/files/(.*)",
+      "destination": "https://torrent-cdn.onrender.com/files/$1"
+    },
+    {
+      "source": "/analytics/(.*)",
+      "destination": "https://torrent-cdn.onrender.com/analytics/$1"
     }
   ]
 }
