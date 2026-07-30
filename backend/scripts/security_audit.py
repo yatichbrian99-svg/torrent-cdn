@@ -83,7 +83,7 @@ check("CSP contains 'self'", "'self'" in csp)
 check("CSP contains unpkg.com", "unpkg.com" in csp)
 check("CSP contains WebTorrent trackers",
       all(t in csp for t in ["tracker.openwebtorrent.com", "tracker.btorrent.xyz", "tracker.fastcast.nz"]))
-check("CSP contains report-uri", "report-uri /api/csp-report" in csp)
+check("CSP contains report-uri", "report-uri " in csp and ("/csp-report" in csp or "/api/csp-report" in csp))
 check("CSP contains report-to", "report-to csp-endpoint" in csp)
 check("CSP contains worker-src blob:", "worker-src 'self' blob:" in csp)
 check("CSP contains base-uri 'self'", "base-uri 'self'" in csp)

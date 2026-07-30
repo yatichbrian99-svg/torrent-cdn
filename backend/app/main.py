@@ -99,6 +99,9 @@ if settings.app_env == "production":
             trusted_hosts.append(f".{parsed.hostname}")
     # Always allow Render's onrender.com domain (where this backend runs)
     trusted_hosts.extend(["onrender.com", "*.onrender.com"])
+
+    # Allow localhost and testserver for health checks and CI/TestClient
+    trusted_hosts.extend(["localhost", "127.0.0.1", "testserver"])
 else:
     trusted_hosts = ["*"]
 
