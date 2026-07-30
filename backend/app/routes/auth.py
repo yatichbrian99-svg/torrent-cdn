@@ -1,6 +1,6 @@
 import re
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from uuid import UUID
 
 from ..database import get_db_pool, get_redis
@@ -184,11 +184,27 @@ async def login(data: UserLogin):
 
 
 @router.post("/forgot-password")
-async def forgot_password(data: ForgotPasswordRequest):
+async def forgot_password(data: ForgotPasswordRequest, request: Request):
     """
     Request a password reset email.
     Always returns success to avoid email enumeration.
+    Rate limited to 1 request per 60 seconds per IP.
     """
+    # Rate limiting: 1 request per 60 seconds per IP
+    if request:
+        redis = await get_redis()
+        if redis is not None:
+            ip = request.client.host if request.client else "unknown"
+            rate_key = f"forgot_pw_rate:{ip}"
+            count = await redis.get(rate_key)
+            if count and int(count) >= 1:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Please wait before requesting another reset email.",
+                )
+            await redis.incr(rate_key)
+            await redis.expire(rate_key, 60)
+
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         user = await conn.fetchrow(
@@ -243,15 +259,35 @@ async def reset_password(data: ResetPasswordRequest):
 
 
 @router.post("/setup")
-async def setup_first_admin(email: str = None):
+async def setup_first_admin(
+    email: str = None,
+    requester_id: UUID = Depends(get_current_user_id),
+):
     """
-    One-time setup: promote a user to admin.
-    - If ?email=user@example.com is provided, promote that specific user.
-    - If called without email, promote the first registered user if no admin exists.
+    Promote a user to admin.
+    - If an admin already exists, the requester must be an admin.
+    - If no admin exists, first promotion is allowed (with valid token).
+    - If called without email and no admin exists, promotes the first registered user.
     """
     pool = await get_db_pool()
     async with pool.acquire() as conn:
-        # If email is specified, promote that user regardless
+        # Check if any admin exists
+        admin_exists = await conn.fetchval(
+            "SELECT EXISTS (SELECT 1 FROM users WHERE is_admin = TRUE)"
+        )
+
+        # If admin already exists, verify the requester is an admin
+        if admin_exists:
+            requester = await conn.fetchrow(
+                "SELECT is_admin FROM users WHERE id = $1", requester_id
+            )
+            if not requester or not requester["is_admin"]:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Admin access required. An admin account already exists.",
+                )
+
+        # If email is specified, promote that user
         if email:
             user = await conn.fetchrow(
                 "SELECT id, email, is_admin FROM users WHERE email = $1", email
@@ -268,9 +304,6 @@ async def setup_first_admin(email: str = None):
             return {"detail": f"User {email} promoted to admin. Log in again."}
 
         # No email — promote first user if no admin exists
-        admin_exists = await conn.fetchval(
-            "SELECT EXISTS (SELECT 1 FROM users WHERE is_admin = TRUE)"
-        )
         if admin_exists:
             return {"detail": "Admin already exists — no action needed"}
 
