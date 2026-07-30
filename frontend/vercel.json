@@ -3,6 +3,9 @@
   "outputDirectory": ".next",
   "installCommand": "npm install",
   "framework": "nextjs",
+  "env": {
+    "NEXT_PUBLIC_API_URL": "https://www.torrentcdn.store"
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",
