@@ -171,7 +171,7 @@ async def send_password_reset_email(email: str, user_id: UUID) -> bool:
 
     from_email = os.getenv(
         "RESEND_FROM",
-        "TorrentCDN <onboarding@resend.dev>",
+        "TorrentCDN <noreply@torrentcdn.store>",
     )
     try:
         params = {
@@ -214,7 +214,7 @@ async def send_verification_email(email: str, user_id: UUID) -> bool:
     # Default to Resend's pre-verified test sender until the user configures their domain
     from_email = os.getenv(
         "RESEND_FROM",
-        "TorrentCDN <onboarding@resend.dev>",
+        "TorrentCDN <noreply@torrentcdn.store>",
     )
     try:
         params = {
