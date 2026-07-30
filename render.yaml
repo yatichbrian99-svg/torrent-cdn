@@ -10,13 +10,13 @@ services:
       - key: APP_ENV
         value: production
       - key: APP_URL
-        value: https://your-app.vercel.app
+        value: https://torrentcdn.store
       - key: JWT_SECRET
         generateValue: true
       - key: CORS_ORIGINS
-        value: "https://your-app.vercel.app"
+        value: "https://torrent-cdn.vercel.app,https://torrentcdn.store,https://www.torrentcdn.store"
       - key: TRUSTED_HOSTS
-        value: ".onrender.com,.vercel.app,localhost"
+        value: ".onrender.com,.vercel.app,.torrentcdn.store,localhost"
       - key: CSP_REPORT_URL
         value: "/api/csp-report"
       - key: MINIO_SECURE
@@ -36,4 +36,4 @@ services:
       - key: RESEND_API_KEY
         value: ""  # ← Set this in Render dashboard (get a free key at https://resend.com/api-keys)
       - key: RESEND_FROM
-        value: "TorrentCDN <onboarding@resend.dev>"  # Change to your verified domain later
+        value: "TorrentCDN <noreply@torrentcdn.store>"  # Your verified domain

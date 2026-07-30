@@ -69,6 +69,8 @@ cors_origins = [
     "http://localhost:3000",
     "http://frontend:3000",
     "https://torrent-cdn.vercel.app",
+    "https://torrentcdn.store",
+    "https://www.torrentcdn.store",
     "https://torrentcdn.com",
     "https://api.torrentcdn.com",
 ]
