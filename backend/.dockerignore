@@ -1,9 +1,14 @@
-frontend/node_modules
-frontend/.next
+frontend/
 .git
-__pycache__
+__pycache__/
 *.pyc
 .env
 .env.local
 *.md
 .gitignore
+.github/
+docker-compose.yml
+Caddyfile
+backend/scripts/
+.pytest_cache/
+*.egg-info/
