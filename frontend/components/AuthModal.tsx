@@ -46,6 +46,15 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8}
               className="w-full border px-3 py-2 text-sm text-white" style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}
               placeholder="password" />
+            {isLogin && (
+              <a
+                href="/auth/forgot-password"
+                className="mt-1 inline-block text-[11px] transition-colors hover:text-white"
+                style={{ color: '#555' }}
+              >
+                Forgot password?
+              </a>
+            )}
           </div>
 
           {error && <p className="text-xs text-white">{error}</p>}

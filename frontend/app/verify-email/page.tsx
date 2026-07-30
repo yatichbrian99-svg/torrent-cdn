@@ -1,11 +1,23 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Loader2, CheckCircle, XCircle } from 'lucide-react'
 import api from '@/lib/api'
 
 export default function VerifyEmailPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-[80vh] items-center justify-center">
+        <Loader2 size={20} className="animate-spin" style={{ color: '#555' }} />
+      </div>
+    }>
+      <VerifyEmailContent />
+    </Suspense>
+  )
+}
+
+function VerifyEmailContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const token = searchParams.get('token')

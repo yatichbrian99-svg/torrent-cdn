@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Upload, Loader2, Mail, ShieldCheck, Copy, Check } from 'lucide-react'
+import { Upload, Loader2, Mail, ShieldCheck, Copy } from 'lucide-react'
 import { isLoggedIn } from '@/lib/auth'
 import api from '@/lib/api'
 import FileCard from '@/components/FileCard'

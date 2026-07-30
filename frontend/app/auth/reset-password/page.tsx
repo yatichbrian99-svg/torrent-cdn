@@ -133,7 +133,7 @@ function ResetPasswordForm() {
         )}
 
         {/* Reset form */}
-        {status === 'ready' && (
+        {(status === 'ready' || status === 'loading') && (
           <div className="border p-8" style={{ borderColor: '#222', backgroundColor: '#111' }}>
             <div className="mb-6 flex items-center gap-3">
               <div className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ backgroundColor: 'rgba(59,130,246,0.1)' }}>
