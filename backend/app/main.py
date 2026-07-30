@@ -196,6 +196,72 @@ class CSPMiddleware(BaseHTTPMiddleware):
 app.add_middleware(CSPMiddleware)
 
 
+# Rate limiting middleware (5 requests per 10 seconds per IP)
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """
+    Global rate limiting — 5 requests per 10 seconds per IP.
+    Uses Redis when available, falls back to in-memory.
+    Excludes /health from rate limiting.
+    """
+    def __init__(self, app):
+        super().__init__(app)
+        self._window = settings.rate_limit_window_seconds  # 10s
+        self._limit = settings.rate_limit_global  # 5 requests
+        # In-memory fallback: {ip: [(timestamp, count), ...]}
+        self._memory_store: dict[str, list[float]] = {}
+
+    async def dispatch(self, request: Request, call_next):
+        # Skip rate limiting for health check and CSP report endpoint
+        path = request.url.path.rstrip("/")
+        if path == "/health" or path == "/csp-report":
+            return await call_next(request)
+
+        import time
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.time()
+
+        # Try Redis first
+        redis = None
+        try:
+            from .database import get_redis
+            redis = await get_redis()
+        except Exception:
+            pass
+
+        if redis is not None:
+            rate_key = f"ratelimit:{client_ip}:global"
+            count = await redis.get(rate_key)
+            if count and int(count) >= self._limit:
+                # Check if the window has passed
+                ttl = await redis.ttl(rate_key)
+                retry_after = max(1, ttl) if ttl and ttl > 0 else self._window
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": f"Rate limit exceeded. Try again in {retry_after}s."},
+                    headers={"Retry-After": str(retry_after)},
+                )
+            await redis.incr(rate_key)
+            if count is None:
+                await redis.expire(rate_key, self._window)
+        else:
+            # In-memory fallback — sliding window
+            timestamps = self._memory_store.get(client_ip, [])
+            cutoff = now - self._window
+            # Remove expired timestamps
+            timestamps = [t for t in timestamps if t > cutoff]
+            if len(timestamps) >= self._limit:
+                retry_after = int(timestamps[0] + self._window - now) + 1
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": f"Rate limit exceeded. Try again in {retry_after}s."},
+                    headers={"Retry-After": str(retry_after)},
+                )
+            timestamps.append(now)
+            self._memory_store[client_ip] = timestamps
+
+        return await call_next(request)
+
+
 # Request size limit middleware
 class MaxBodySizeMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -205,6 +271,7 @@ class MaxBodySizeMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(MaxBodySizeMiddleware)
 
 # Routes

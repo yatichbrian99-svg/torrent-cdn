@@ -55,8 +55,10 @@ class Settings(BaseSettings):
     trusted_hosts: str = "localhost,127.0.0.1,frontend,*.onrender.com,*.vercel.app"
 
     # Limits
-    max_upload_size_mb: int = 2048
+    max_upload_size_mb: int = 1024  # 1 GB max file size (reduced from 2GB)
     rate_limit_analytics: int = 60  # max events per minute per IP
+    rate_limit_global: int = 5      # max requests per window per IP
+    rate_limit_window_seconds: int = 10  # sliding window for global rate limit
 
     class Config:
         env_file = ".env"

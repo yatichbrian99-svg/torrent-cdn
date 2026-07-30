@@ -69,6 +69,15 @@ class EmailVerifyRequest(BaseModel):
     token: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    password: str
+
+
 class AdminAnalyticsResponse(BaseModel):
     total_users: int
     total_files: int

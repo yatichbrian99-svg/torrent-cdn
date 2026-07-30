@@ -58,6 +58,7 @@ def mock_redis():
     redis.expire = AsyncMock(return_value=True)
     redis.delete = AsyncMock(return_value=True)
     redis.ping = AsyncMock(return_value=True)
+    redis.ttl = AsyncMock(return_value=10)
     return redis
 
 
@@ -87,6 +88,7 @@ def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
     import app.routes.billing
     import app.routes.analytics
     import app.routes.csp
+    import app.routes.admin
 
     # Patch each route module's local reference imported via `from ..database import ...`
     monkeypatch.setattr(app.routes.auth, "get_db_pool", AsyncMock(return_value=mock_pool))
@@ -94,12 +96,22 @@ def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
     monkeypatch.setattr(app.routes.files, "get_db_pool", AsyncMock(return_value=mock_pool))
     monkeypatch.setattr(app.routes.billing, "get_db_pool", AsyncMock(return_value=mock_pool))
     monkeypatch.setattr(app.routes.analytics, "get_db_pool", AsyncMock(return_value=mock_pool))
+    monkeypatch.setattr(app.routes.admin, "get_db_pool", AsyncMock(return_value=mock_pool))
 
     # Patch Redis in route modules that import it
     monkeypatch.setattr(app.routes.auth, "get_redis", AsyncMock(return_value=mock_redis))
     monkeypatch.setattr(app.routes.billing, "get_redis", AsyncMock(return_value=mock_redis))
     monkeypatch.setattr(app.routes.analytics, "get_redis", AsyncMock(return_value=mock_redis))
     monkeypatch.setattr(app.routes.csp, "get_redis", AsyncMock(return_value=mock_redis))
+
+    # Patch security validation functions so tests don't need real magic bytes
+    # Must patch both the module AND the importing module's local reference
+    import app.security
+    import app.routes.upload
+    for mod in (app.security, app.routes.upload):
+        monkeypatch.setattr(mod, "validate_file_magic", lambda fs, fn: (True, ""))
+        monkeypatch.setattr(mod, "validate_content_type", lambda ct, fn: (True, ""))
+        monkeypatch.setattr(mod, "estimate_compression_ratio", lambda fs: None)
 
     # Patch MinIO client (defined locally in upload.py; imported dynamically in files.py)
     monkeypatch.setattr(app.routes.upload, "get_minio_client", lambda: mock_s3_client)
@@ -119,8 +131,22 @@ def client():
 
 
 @pytest.fixture(scope="function")
+def admin_user_id() -> UUID:
+    """A separate user ID that acts as the admin."""
+    return UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+
+
+@pytest.fixture(scope="function")
 def auth_headers(client, test_user_id):
-    """Generate valid JWT auth headers for a test user."""
+    """Generate valid JWT auth headers for a regular (non-admin) test user."""
     from app.auth import create_access_token
     token = create_access_token({"sub": str(test_user_id)})
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture(scope="function")
+def admin_headers(client, admin_user_id):
+    """Generate valid JWT auth headers for an admin user."""
+    from app.auth import create_access_token
+    token = create_access_token({"sub": str(admin_user_id)})
     return {"Authorization": f"Bearer {token}"}

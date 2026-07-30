@@ -75,6 +75,12 @@ export default {
   getVerificationStatus: () =>
     api.get('/auth/verification-status').then((r) => r.data),
 
+  forgotPassword: (email: string) =>
+    api.post('/auth/forgot-password', { email }).then((r) => r.data),
+
+  resetPassword: (token: string, password: string) =>
+    api.post('/auth/reset-password', { token, password }).then((r) => r.data),
+
   createCheckout: async (plan: string) => {
     try {
       const res = await api.post('/billing/create-checkout', { plan })

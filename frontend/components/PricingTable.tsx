@@ -54,7 +54,7 @@ export default function PricingTable({ currentPlan }: { currentPlan?: string }) 
                 ))}
               </ul>
               <button
-                onClick={() => handleClick(tier.plan)}
+                onClick={() => tier.plan === 'business' ? window.location.href = 'mailto:support@torrentcdn.com?subject=Business Plan Inquiry' : handleClick(tier.plan)}
                 disabled={isCurrent || loading === tier.plan}
                 className="w-full border py-2 text-sm font-medium transition-opacity hover:opacity-80 disabled:opacity-40"
                 style={{

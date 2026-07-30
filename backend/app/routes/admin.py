@@ -111,18 +111,31 @@ async def admin_update_plan(
 
 
 @router.delete("/users/{user_id}")
-async def admin_delete_user(user_id: UUID, _: UUID = Depends(require_admin)):
-    """Delete a user and all their data."""
+async def admin_delete_user(user_id: UUID, admin_id: UUID = Depends(require_admin)):
+    """Delete a user and all their data. Admin accounts cannot be deleted."""
+    from ..routes.upload import get_minio_client
     pool = await get_db_pool()
     async with pool.acquire() as conn:
+        # Prevent deleting admin accounts
+        target_user = await conn.fetchrow(
+            "SELECT is_admin FROM users WHERE id = $1", user_id
+        )
+        if not target_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if target_user["is_admin"]:
+            raise HTTPException(
+                status_code=403,
+                detail="Admin accounts cannot be deleted. Demote the user first if needed.",
+            )
+
         # Delete upload files from S3 first
         files = await conn.fetch(
             "SELECT id, minio_url FROM uploads WHERE user_id = $1", user_id
         )
+        s3 = get_minio_client()
         for f in files:
             try:
-                from ..routes.upload import get_minio_client
-                s3 = get_minio_client()
+                # URL format: .../bucket/user_id/file_id/filename → key: user_id/file_id/filename
                 key = "/".join(f["minio_url"].split("/")[-3:])
                 s3.delete_object(Bucket=settings.minio_bucket, Key=key)
             except Exception as e:

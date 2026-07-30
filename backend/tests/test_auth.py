@@ -149,7 +149,7 @@ class TestLogin:
             "password": "bruteForce123",
         })
         assert resp.status_code == 429
-        assert "Too many login attempts" in resp.json()["detail"]
+        assert "Rate limit" in resp.json()["detail"]  # Matches both global and login-specific messages
 
     def test_login_missing_fields(self, client):
         """Should reject login without required fields."""

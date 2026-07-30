@@ -1,5 +1,8 @@
 'use client'
 
+'use client'
+
+import { useState, useEffect } from 'react'
 import PricingTable from '@/components/PricingTable'
 
 const metrics = [
@@ -10,6 +13,15 @@ const metrics = [
 ]
 
 export default function LandingPage() {
+  const [count, setCount] = useState(1284)
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCount((prev) => prev + Math.floor(Math.random() * 3) + 1)
+    }, 4000)
+    return () => clearInterval(interval)
+  }, [])
+
   return (
     <div>
       {/* Hero */}
@@ -40,6 +52,9 @@ export default function LandingPage() {
           </div>
           <p className="mt-4 text-sm" style={{ color: '#444' }}>
             No credit card required &middot; 100GB free forever
+          </p>
+          <p className="mt-6 font-mono text-xs" style={{ color: '#555' }}>
+            {count.toLocaleString()} files delivered via P2P
           </p>
         </div>
       </section>
@@ -122,12 +137,62 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* FAQ */}
+      <section className="border-b py-20" style={{ borderColor: '#222' }}>
+        <div className="mx-auto max-w-4xl px-6">
+          <h2 className="text-2xl font-bold tracking-[-0.02em] text-white">Frequently asked questions</h2>
+          <div className="mt-10 divide-y" style={{ borderColor: '#222' }}>
+            {[
+              {
+                q: "What browsers are supported?",
+                a: "TorrentCDN works in all modern browsers that support WebRTC — Chrome, Firefox, Edge, Safari 15+, and all mobile browsers."
+              },
+              {
+                q: "What happens if there are no peers?",
+                a: "If no peers are available, the player automatically falls back to direct delivery from our origin server within 5 seconds. Your viewers never see a blank screen."
+              },
+              {
+                q: "What file types are supported?",
+                a: "We support MP4, WebM, MKV, MOV, AVI for video and MP3, WAV, OGG, M4A for audio."
+              },
+              {
+                q: "What is the maximum file size?",
+                a: "The maximum file size is 2GB per file. Contact us for larger files on the Business plan."
+              },
+              {
+                q: "Is my content private?",
+                a: "Files are stored privately on Cloudflare R2. Only people with your embed code or direct link can access your content."
+              },
+              {
+                q: "How does billing work?",
+                a: "We measure bandwidth by the amount delivered from our origin servers. P2P bandwidth between peers is free and does not count toward your limit."
+              },
+              {
+                q: "Can I use this on my own domain?",
+                a: "Yes — Business plan includes custom domain support. You can serve the embed player and SDK from your own domain."
+              },
+              {
+                q: "Do you have an API?",
+                a: "Yes. Every account gets an API key in the dashboard. You can upload files and generate embed codes programmatically via our REST API."
+              },
+            ].map((item) => (
+              <div key={item.q} className="py-5">
+                <p className="text-sm font-semibold text-white">{item.q}</p>
+                <p className="mt-2 text-sm leading-relaxed" style={{ color: '#555' }}>{item.a}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Footer */}
       <footer className="py-8">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm" style={{ color: '#444' }}>TorrentCDN &copy; 2026</p>
           <div className="flex items-center gap-6">
-            <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="text-sm transition-colors hover:text-white" style={{ color: '#444' }}>GitHub</a>
+            <a href="https://github.com/yatichbrian99-svg/torrent-cdn" target="_blank" rel="noopener noreferrer" className="text-sm transition-colors hover:text-white" style={{ color: '#444' }}>GitHub</a>
+            <a href="/terms" className="text-sm transition-colors hover:text-white" style={{ color: '#444' }}>Terms</a>
+            <a href="/privacy" className="text-sm transition-colors hover:text-white" style={{ color: '#444' }}>Privacy</a>
             <span className="text-sm" style={{ color: '#444' }}>Docs</span>
           </div>
         </div>

@@ -13,6 +13,13 @@ from ..config import get_settings
 from ..database import get_db_pool
 from ..auth import get_current_user_id
 from ..models import UploadResponse
+from ..security import (
+    validate_file_magic,
+    validate_content_type,
+    estimate_compression_ratio,
+    MAX_COMPRESSION_RATIO,
+    read_magic_bytes,
+)
 
 CHUNK_SIZE = 5 * 1024 * 1024  # 5 MB per multipart chunk
 
@@ -45,10 +52,29 @@ async def upload_file(
     # Sanitize filename — replace dangerous characters
     safe_filename = re.sub(r'[^a-zA-Z0-9._-]', '_', os.path.basename(file.filename))
 
-    # Validate by file extension only (ignore Content-Type from client)
+    # Validate by file extension
     ext = os.path.splitext(safe_filename)[1].lower()
     if ext not in ALLOWED_EXTS:
         raise HTTPException(status_code=400, detail="Unsupported file type")
+
+    # --- Validate Content-Type (but don't reject on it alone) ---
+    content_type = file.content_type if hasattr(file, 'content_type') else None
+    ct_valid, ct_msg = validate_content_type(content_type, safe_filename)
+    if not ct_valid:
+        raise HTTPException(status_code=400, detail=ct_msg)
+
+    # --- Validate magic bytes BEFORE reading full size ---
+    content_valid, content_msg = validate_file_magic(file.file, safe_filename)
+    if not content_valid:
+        raise HTTPException(status_code=400, detail=content_msg)
+
+    # --- Check for zip bombs (extreme compression ratios) ---
+    ratio = estimate_compression_ratio(file.file)
+    if ratio and ratio > MAX_COMPRESSION_RATIO:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File rejected: compression ratio ({ratio:.0f}x) exceeds maximum allowed ({MAX_COMPRESSION_RATIO}x). Possible archive bomb.",
+        )
 
     # --- Check file size ---
     file.file.seek(0, 2)

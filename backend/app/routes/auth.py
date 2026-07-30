@@ -6,7 +6,8 @@ from uuid import UUID
 from ..database import get_db_pool, get_redis
 from ..auth import hash_password, verify_password, create_access_token, get_current_user_id
 from ..email_service import send_verification_email
-from ..models import UserRegister, UserLogin, TokenResponse
+from ..models import UserRegister, UserLogin, TokenResponse, ForgotPasswordRequest, ResetPasswordRequest
+from ..email_service import send_verification_email, send_password_reset_email, decode_password_reset_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -165,6 +166,65 @@ async def login(data: UserLogin):
 
     token = create_access_token({"sub": str(user["id"])})
     return TokenResponse(access_token=token)
+
+
+@router.post("/forgot-password")
+async def forgot_password(data: ForgotPasswordRequest):
+    """
+    Request a password reset email.
+    Always returns success to avoid email enumeration.
+    """
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        user = await conn.fetchrow(
+            "SELECT id, email FROM users WHERE email = $1", data.email
+        )
+
+    if user:
+        await send_password_reset_email(user["email"], user["id"])
+
+    return {"detail": "If that email is registered, a password reset link has been sent."}
+
+
+@router.post("/reset-password")
+async def reset_password(data: ResetPasswordRequest):
+    """Reset password using a valid reset token."""
+    if len(data.password) < 8:
+        raise HTTPException(
+            status_code=400, detail="Password must be at least 8 characters"
+        )
+
+    user_id_str = decode_password_reset_token(data.token)
+    if not user_id_str:
+        raise HTTPException(
+            status_code=400, detail="Invalid or expired reset token"
+        )
+
+    # Verify token hasn't been revoked (via Redis)
+    redis = await get_redis()
+    if redis is not None:
+        token_key = f"reset_token:{data.token}"
+        stored = await redis.get(token_key)
+        if not stored:
+            raise HTTPException(
+                status_code=400, detail="Invalid or expired reset token"
+            )
+        # Consume the token (one-time use)
+        await redis.delete(token_key)
+
+    pool = await get_db_pool()
+    password_hash = hash_password(data.password)
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE users SET password_hash = $1 WHERE id = $2",
+            password_hash,
+            UUID(user_id_str),
+        )
+        if result == "UPDATE 0":
+            raise HTTPException(status_code=404, detail="User not found")
+
+    logger.info("Password reset successful for user %s", user_id_str)
+    return {"detail": "Password has been reset successfully."}
 
 
 @router.post("/setup")

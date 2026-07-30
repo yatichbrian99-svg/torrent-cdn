@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Upload, Loader2, Mail, ShieldCheck } from 'lucide-react'
+import { Upload, Loader2, Mail, ShieldCheck, Copy, Check } from 'lucide-react'
 import { isLoggedIn } from '@/lib/auth'
 import api from '@/lib/api'
 import FileCard from '@/components/FileCard'
@@ -17,15 +17,19 @@ export default function DashboardPage() {
   const [verified, setVerified] = useState<boolean | null>(null)
   const [resending, setResending] = useState(false)
   const [resendMsg, setResendMsg] = useState('')
+  const [user, setUser] = useState<{ id: string; email: string; plan: string } | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     if (!isLoggedIn()) { router.push('/'); return }
     Promise.all([
       api.listFiles(),
       api.getVerificationStatus().catch(() => ({ verified: null })),
-    ]).then(([filesData, statusData]) => {
+      api.getMe().catch(() => null),
+    ]).then(([filesData, statusData, userData]) => {
       setFiles(filesData)
       setVerified(statusData.verified)
+      if (userData) setUser(userData)
     }).catch((err) => setError(err.response?.data?.detail || 'Failed to load')).finally(() => setLoading(false))
   }, [router])
 
@@ -40,6 +44,14 @@ export default function DashboardPage() {
       setResending(false)
       setTimeout(() => setResendMsg(''), 5000)
     }
+  }
+
+  const handleCopyApiKey = () => {
+    if (!user) return
+    const key = `tcdn_${user.id.replace(/-/g, '').substring(0, 32)}`
+    navigator.clipboard.writeText(key)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   const handleDelete = async (id: string) => {
@@ -92,6 +104,28 @@ export default function DashboardPage() {
         <a href="/dashboard/upload" className="border px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80" style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000' }}>
           Upload file &rarr;
         </a>
+      </div>
+
+      {/* API Key */}
+      <div className="mb-8 border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>API Key</p>
+            <p className="mt-1 font-mono text-sm text-white">Use this key to upload files via the REST API</p>
+          </div>
+        </div>
+        <div className="mt-3 flex items-center gap-2">
+          <code className="flex-1 border px-3 py-2 font-mono text-xs text-white" style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}>
+            {user?.id ? `tcdn_${user.id.replace(/-/g, '').substring(0, 32)}` : 'Loading...'}
+          </code>
+          <button
+            onClick={handleCopyApiKey}
+            className="border px-3 py-2 text-xs transition-opacity hover:opacity-80"
+            style={{ borderColor: '#333', color: '#555' }}
+          >
+            {copied ? <><Copy size={12} className="inline" style={{ color: '#4ade80' }} /> Copied</> : 'Copy'}
+          </button>
+        </div>
       </div>
 
       <div className="mb-10 grid gap-4 sm:grid-cols-3">
