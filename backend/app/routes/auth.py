@@ -104,6 +104,14 @@ async def register(data: UserRegister):
                 status_code=500, detail="Registration failed. Please try again."
             )
 
+        # Fallback: ensure at least one admin exists (handles case where migration
+        # ran before any users existed, so no one was promoted)
+        await conn.execute("""
+            UPDATE users SET is_admin = TRUE
+            WHERE id = (SELECT id FROM users ORDER BY created_at ASC LIMIT 1)
+            AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin = TRUE)
+        """)
+
         token = create_access_token({"sub": str(user["id"])})
 
         # Send verification email after successful registration
