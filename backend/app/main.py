@@ -29,11 +29,17 @@ async def run_startup_migrations():
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255);
             """)
             # Promote the first registered user to admin if none exists
-            await conn.execute("""
-                UPDATE users SET is_admin = TRUE
-                WHERE id = (SELECT id FROM users ORDER BY created_at ASC LIMIT 1)
-                AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin = TRUE)
-            """)
+            if not await conn.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM users WHERE is_admin = TRUE)"
+            ):
+                first_id = await conn.fetchval(
+                    "SELECT id FROM users ORDER BY created_at ASC LIMIT 1"
+                )
+                if first_id:
+                    await conn.execute(
+                        "UPDATE users SET is_admin = TRUE WHERE id = $1", first_id
+                    )
+                    logger.info("Promoted user %s to admin at startup", first_id)
             logger.info("Startup migrations completed")
     except Exception as e:
         logger.warning("Startup migrations skipped (first run?): %s", e)
