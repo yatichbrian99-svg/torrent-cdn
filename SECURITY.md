@@ -154,6 +154,9 @@ git clone --mirror . /tmp/torrent-cdn-backup.git
 
 # 2. Install git-filter-repo (once)
 pip install git-filter-repo        # or: brew install git-filter-repo / apt install git-filter-repo
+# If pip is blocked (PEP 668 'externally managed'):
+#   python3 -m venv /tmp/fr-venv && /tmp/fr-venv/bin/pip install git-filter-repo
+#   and use /tmp/fr-venv/bin/git-filter-repo below
 
 # 3. Remove the secret file(s) from ALL history
 #    (run once per leaked path, or use --path with multiple paths)
@@ -188,7 +191,8 @@ Admins are **never** auto-created. Bootstrap is a temporary, gated process:
 
 ```bash
 # 1. Deploy with ADMIN_SETUP_ENABLED=true (Render env var)
-# 2. Register your account via the app, then promote it:
+# 2. Register your account via the app, then promote it.
+#    Replace $API with your API base, e.g. https://torrent-cdn.onrender.com
 curl -X POST "$API/auth/setup?email=you@example.com" \
   -H "Authorization: Bearer <your-jwt-token>"
 # 3. REMOVE ADMIN_SETUP_ENABLED from Render immediately (back to unset/false)
