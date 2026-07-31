@@ -90,7 +90,9 @@ else
   pf 0 "Frontend CSP header present"
   echo "$FECSP" | grep -q 'nonce-' && pf 0 "Frontend CSP uses nonces" || pf 1 "Frontend CSP uses nonces (NO nonce)"
   echo "$FECSP" | grep -q "'strict-dynamic'" && pf 0 "Frontend CSP has 'strict-dynamic'" || pf 1 "Frontend CSP has 'strict-dynamic'"
-  echo "$FECSP" | grep -q "'unsafe-inline'" && pf 1 "Frontend CSP has no 'unsafe-inline' (PRESENT)" || pf 0 "Frontend CSP has no 'unsafe-inline'"
+  # Scope to the script-src directive only — style-src legitimately uses 'unsafe-inline'
+  FESCRIPT_SRC=$(echo "$FECSP" | grep -o 'script-src[^;]*')
+  echo "$FESCRIPT_SRC" | grep -q "'unsafe-inline'" && pf 1 "Frontend CSP script-src has no 'unsafe-inline' (PRESENT)" || pf 0 "Frontend CSP script-src has no 'unsafe-inline'"
 fi
 
 # 4. Frontend HTML nonce coverage

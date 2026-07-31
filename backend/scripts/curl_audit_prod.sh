@@ -188,7 +188,9 @@ echo "$FE_HEADERS" | grep -qi 'content-security-policy' && check 0 "Frontend CSP
 echo "$FE_HEADERS" | grep -qi 'strict-transport-security' && check 0 "Frontend HSTS" || check 1 "Frontend HSTS MISSING"
 FECSP=$(echo "$FE_HEADERS" | grep -i 'content-security-policy' | head -1)
 echo "$FECSP" | grep -q 'nonce-' && check 0 "Frontend CSP uses nonces" || check 1 "Frontend CSP has no nonce"
-echo "$FECSP" | grep -q "'unsafe-inline'" && check 1 "Frontend CSP has 'unsafe-inline'" || check 0 "Frontend CSP has no 'unsafe-inline'"
+# Scope to the script-src directive only — style-src legitimately uses 'unsafe-inline'
+FESCRIPT_SRC=$(echo "$FECSP" | grep -o 'script-src[^;]*')
+echo "$FESCRIPT_SRC" | grep -q "'unsafe-inline'" && check 1 "Frontend CSP script-src has 'unsafe-inline'" || check 0 "Frontend CSP script-src has no 'unsafe-inline'"
 
 echo "$FE_HEADERS" | grep -qi 'server' && FE_SRV=$(echo "$FE_HEADERS" | grep -i '^server:' | head -1 | tr -d '\r') || FE_SRV="(no server header)"
 check 0 "Frontend server: $FE_SRV (informational)"
@@ -202,8 +204,11 @@ else
   check 1 "Script nonce coverage: $NONCED/$TOTAL (expected >= $((TOTAL - 1)))"
 fi
 
-SRI=$(echo "$FE_HTML" | grep -o 'integrity="[^"]*"' | wc -l)
-[ "$SRI" -ge 1 ] && check 0 "SRI on vendor scripts: $SRI integrity attr(s)" || check 1 "SRI missing (0 integrity attributes)"
+# SRI is applied DYNAMICALLY by sdk.js (script.integrity = 'sha384-...' on the
+# self-hosted /vendor/webtorrent.min.js) — not statically in HTML, so verify sdk.js
+SDK=$(curl -s "$FE/sdk.js" 2>/dev/null || echo "")
+echo "$SDK" | grep -q 'webtorrent.min.js' && check 0 "sdk.js loads self-hosted webtorrent.min.js" || check 1 "sdk.js does not reference webtorrent.min.js"
+echo "$SDK" | grep -q 'script.integrity' && check 0 "sdk.js applies SRI integrity to vendor script" || check 1 "sdk.js SRI integrity MISSING"
 
 for EP in "/api/files" "/api/auth/me" "/api/billing/status"; do
   sleep 2.2
