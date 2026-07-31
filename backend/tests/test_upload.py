@@ -89,7 +89,7 @@ class TestUpload:
             files={"file": ("test.mp4", BytesIO(b"test"), "video/mp4")},
         )
         assert resp.status_code == 500
-        assert "MinIO upload failed" in resp.json()["detail"]
+        assert "Storage upload failed" in resp.json()["detail"]
 
     def test_upload_user_not_found(self, client, auth_headers, mock_conn):
         """Should reject upload if authenticated user doesn't exist in DB."""

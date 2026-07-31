@@ -1,3 +1,4 @@
+import logging
 import stripe
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -11,6 +12,7 @@ from ..models import BillingStatus, CheckoutRequest, CheckoutResponse
 VALID_PLANS = {"free", "pro", "business"}
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 stripe.api_key = settings.stripe_secret_key
 
 router = APIRouter(prefix="/billing", tags=["billing"])
@@ -97,7 +99,8 @@ async def create_checkout(
         )
         return CheckoutResponse(url=checkout_session.url)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Stripe checkout session failed for user %s: %s", user_id, e)
+        raise HTTPException(status_code=500, detail="Checkout failed. Please try again.")
 
 
 @router.post("/webhook")

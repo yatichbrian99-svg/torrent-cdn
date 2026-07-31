@@ -30,18 +30,6 @@ async def run_startup_migrations():
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted BOOLEAN DEFAULT FALSE;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMP WITH TIME ZONE;
             """)
-            # Promote the first registered user to admin if none exists
-            if not await conn.fetchval(
-                "SELECT EXISTS (SELECT 1 FROM users WHERE is_admin = TRUE)"
-            ):
-                first_id = await conn.fetchval(
-                    "SELECT id FROM users ORDER BY created_at ASC LIMIT 1"
-                )
-                if first_id:
-                    await conn.execute(
-                        "UPDATE users SET is_admin = TRUE WHERE id = $1", first_id
-                    )
-                    logger.info("Promoted user %s to admin at startup", first_id)
             logger.info("Startup migrations completed")
     except Exception as e:
         logger.warning("Startup migrations skipped (first run?): %s", e)
@@ -119,10 +107,10 @@ class CSPMiddleware(BaseHTTPMiddleware):
         self._reporting_endpoint = f"csp-endpoint=\"{self._report_uri}\""
 
     def _build_csp(self, is_production: bool) -> str:
-        # Script sources — strict-dynamic removes need for 'unsafe-inline'
-        # unpkg.com is needed for WebTorrent SDK in embeds
-        # strict-dynamic allows scripts loaded by trusted scripts to run
-        script_src = "'self' 'unsafe-inline' unpkg.com"
+        # Script sources — same-origin only. WebTorrent is self-hosted and pinned
+        # at /vendor/webtorrent.min.js (with SRI), so no third-party script CDNs
+        # or inline scripts are allowed.
+        script_src = "'self'"
 
         # Brave/Chrome compatible fallback: strict-dynamic disables 'unsafe-inline'
         # when supported, so we keep 'unsafe-inline' for older browsers

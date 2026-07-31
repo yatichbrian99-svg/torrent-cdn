@@ -10,6 +10,21 @@
     };
   }
 
+  // Resolve the origin that served this SDK script so WebTorrent loads from
+  // the same host (works for custom domains on the Business plan too).
+  function getScriptOrigin() {
+    var scripts = document.getElementsByTagName('script');
+    for (var i = 0; i < scripts.length; i++) {
+      var src = scripts[i].getAttribute('src') || '';
+      if (/sdk\.js(\?|$)/.test(src)) {
+        var a = document.createElement('a');
+        a.href = src;
+        if (a.host) return a.protocol + '//' + a.host;
+      }
+    }
+    return API_BASE;
+  }
+
   function createPlayer(el, fileData, apiUrl) {
     if (!fileData.magnet_link) {
       // No magnet link, fall back to direct URL immediately
@@ -47,9 +62,20 @@
       }));
     });
 
-    // Load WebTorrent from unpkg
+    // Load WebTorrent from our own origin — pinned version with SRI integrity.
+    // (Self-hosted instead of unpkg.com/@latest to eliminate supply-chain risk.)
     var script = document.createElement('script');
-    script.src = 'https://unpkg.com/webtorrent@latest/webtorrent.min.js';
+    script.src = getScriptOrigin() + '/vendor/webtorrent.min.js';
+    script.integrity = 'sha384-6xyg5O6x7KTirI65LTuJedkVfpfk14DZF+mnj87irSN8ildVHD53YxWlBp3R+2+8';
+    script.crossOrigin = 'anonymous';
+    script.onerror = function () {
+      // Integrity check failed or network error — fall straight back to direct URL
+      clearTimeout(fallbackTimer);
+      if (media && !media.src) {
+        media.src = fileData.minio_url;
+        media.play().catch(function () {});
+      }
+    };
     script.onload = function () {
       try {
         var client = new WebTorrent();

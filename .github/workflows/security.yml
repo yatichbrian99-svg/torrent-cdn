@@ -24,6 +24,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Gitleaks — scan for hardcoded secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -51,7 +56,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Note: compose interpolates the whole file, so JWT_SECRET must be set here
+      # too even though the backend service isn't started in this step.
       - name: Start infrastructure (Postgres, Redis, MinIO)
+        env:
+          JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
+          POSTGRES_PASSWORD: ci-test-password
+          MINIO_ROOT_PASSWORD: ci-test-minio-password
         run: |
           docker compose up -d postgres redis minio
           echo "Waiting for services to be healthy..."
@@ -62,10 +73,13 @@ jobs:
           done
 
       - name: Build and start backend
+        env:
+          JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
+          POSTGRES_PASSWORD: ci-test-password
+          MINIO_ROOT_PASSWORD: ci-test-minio-password
         run: |
           docker compose build backend
-          JWT_SECRET="ci-test-secret-that-is-at-least-32-chars!!" \
-            APP_ENV="production" \
+          APP_ENV="production" \
             docker compose up -d backend
           echo "Waiting for backend..."
           for i in $(seq 1 30); do

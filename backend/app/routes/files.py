@@ -1,3 +1,4 @@
+import time
 from fastapi import APIRouter, Depends, HTTPException, Request
 from uuid import UUID
 
@@ -6,6 +7,17 @@ from ..auth import get_current_user_id
 from ..models import FileDetail
 
 router = APIRouter(prefix="/files", tags=["files"])
+
+# In-memory fallback for public file rate limiting (used when Redis is down)
+_public_file_requests: dict[str, list[float]] = {}
+_PUBLIC_FILE_WINDOW = 60
+
+
+def _prune_public_file_requests(now: float) -> None:
+    """Drop keys whose newest entry has expired (keeps dict bounded)."""
+    expired = [k for k, v in _public_file_requests.items() if not v or now - v[-1] > _PUBLIC_FILE_WINDOW]
+    for k in expired:
+        del _public_file_requests[k]
 
 
 @router.get("")
@@ -112,15 +124,25 @@ async def get_file(file_id: UUID, user_id: UUID = Depends(get_current_user_id)):
 async def get_public_file(file_id: UUID, request: Request = None):
     """Public endpoint for embed player — no auth required."""
     # Rate limit: 30 requests per minute per IP for public file access
+    # (Redis primary, in-memory fallback when Redis is unavailable)
     redis = await get_redis()
-    if redis is not None and request:
+    if request:
         ip = request.client.host if request.client else "unknown"
         rate_key = f"public_file_rate:{ip}"
-        count = await redis.get(rate_key)
-        if count and int(count) >= 30:
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
-        await redis.incr(rate_key)
-        await redis.expire(rate_key, 60)
+        if redis is not None:
+            count = await redis.get(rate_key)
+            if count and int(count) >= 30:
+                raise HTTPException(status_code=429, detail="Rate limit exceeded")
+            await redis.incr(rate_key)
+            await redis.expire(rate_key, 60)
+        else:
+            now = time.time()
+            _prune_public_file_requests(now)
+            recent = [t for t in _public_file_requests.get(ip, []) if now - t < _PUBLIC_FILE_WINDOW]
+            if len(recent) >= 30:
+                raise HTTPException(status_code=429, detail="Rate limit exceeded")
+            recent.append(now)
+            _public_file_requests[ip] = recent
 
     pool = await get_db_pool()
     async with pool.acquire() as conn:

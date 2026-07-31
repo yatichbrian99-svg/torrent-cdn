@@ -1,3 +1,4 @@
+import time
 from fastapi import APIRouter, Depends, HTTPException, Request
 from uuid import UUID
 
@@ -9,6 +10,17 @@ VALID_EVENTS = {"peer_joined", "peer_left", "chunk_downloaded"}
 
 settings = get_settings()
 router = APIRouter(prefix="/analytics", tags=["analytics"])
+
+# In-memory fallback for public analytics rate limiting (used when Redis is down)
+_analytics_get_requests: dict[str, list[float]] = {}
+_ANALYTICS_GET_WINDOW = 60
+
+
+def _prune_analytics_get_requests(now: float) -> None:
+    """Drop keys whose newest entry has expired (keeps dict bounded)."""
+    expired = [k for k, v in _analytics_get_requests.items() if not v or now - v[-1] > _ANALYTICS_GET_WINDOW]
+    for k in expired:
+        del _analytics_get_requests[k]
 
 
 @router.post("/event")
@@ -53,8 +65,27 @@ async def track_event(
 
 
 @router.get("/{file_id}")
-async def get_analytics(file_id: UUID):
+async def get_analytics(file_id: UUID, request: Request):
     """Get analytics for a file. Public endpoint."""
+    # Rate limit: 30 requests per minute per IP (Redis primary, in-memory fallback)
+    ip = request.client.host if request.client else "unknown"
+    redis = await get_redis()
+    if redis is not None:
+        rate_key = f"analytics_get_rate:{ip}"
+        count = await redis.get(rate_key)
+        if count and int(count) >= 30:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        await redis.incr(rate_key)
+        await redis.expire(rate_key, 60)
+    else:
+        now = time.time()
+        _prune_analytics_get_requests(now)
+        recent = [t for t in _analytics_get_requests.get(ip, []) if now - t < _ANALYTICS_GET_WINDOW]
+        if len(recent) >= 30:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        recent.append(now)
+        _analytics_get_requests[ip] = recent
+
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         file_exists = await conn.fetchval(

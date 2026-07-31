@@ -1,7 +1,9 @@
 import uuid
 import os
 import re
+import mimetypes
 import tempfile
+import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from uuid import UUID
@@ -22,6 +24,8 @@ from ..security import (
 )
 
 CHUNK_SIZE = 5 * 1024 * 1024  # 5 MB per multipart chunk
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 router = APIRouter(prefix="/upload", tags=["upload"])
@@ -129,10 +133,13 @@ async def upload_file(
         # MinIO buckets are private by default — no public access without explicit presigned URLs
         # The bucket policy with aws:PrincipalArn is not supported by MinIO, so we skip it.
 
-        # Initiate multipart upload
+        # Initiate multipart upload with an explicit, extension-derived ContentType
+        # so the stored object is never served as a sniffed/ambiguous type
+        content_type = mimetypes.guess_type(safe_filename)[0] or "application/octet-stream"
         mpu = s3.create_multipart_upload(
             Bucket=settings.minio_bucket,
             Key=minio_key,
+            ContentType=content_type,
         )
         upload_id = mpu["UploadId"]
 
@@ -163,7 +170,8 @@ async def upload_file(
         # MINIO_PUBLIC_URL already includes the bucket path for Supabase Storage
         minio_http_url = f"{settings.minio_public_url}/{minio_key}"
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"MinIO upload failed: {str(e)}")
+        logger.error("MinIO upload failed for user %s: %s", user_id, e)
+        raise HTTPException(status_code=500, detail="Storage upload failed. Please try again.")
 
     # --- Generate .torrent and magnet link ---
     temp_path = None

@@ -167,11 +167,15 @@ async def send_password_reset_email(email: str, user_id: UUID) -> bool:
     # Try to send the email
     resend = _get_resend()
     if resend is None:
-        logger.info(
-            "Resend not configured — password reset for %s. Token is valid for 1 hour. "
-            "Reset URL: %s",
-            email, build_reset_url(token),
-        )
+        if settings.app_env != "production":
+            # Dev convenience only — never log reset tokens in production logs
+            logger.info(
+                "Resend not configured — password reset for %s. Token is valid for 1 hour. "
+                "Reset URL: %s",
+                email, build_reset_url(token),
+            )
+        else:
+            logger.info("Resend not configured — password reset for %s. Token valid for 1 hour.", email)
         return False
 
     reset_url = build_reset_url(token)
@@ -201,20 +205,23 @@ async def send_verification_email(email: str, user_id: UUID) -> bool:
     token = create_verification_token(user_id)
     verify_url = build_verification_url(token)
 
-    # Always log the verification link so devs / admins can use it
-    logger.info(
-        "Verification link for %s (user %s): %s",
-        email, user_id, verify_url,
-    )
+    # Log the link ONLY in non-production (dev convenience).
+    # Never log verification tokens in production logs.
+    if settings.app_env != "production":
+        logger.info(
+            "Verification link for %s (user %s): %s",
+            email, user_id, verify_url,
+        )
 
     resend = _get_resend()
     if resend is None:
         logger.info(
-            "Resend not configured — verification link logged above. "
-            "User %s (%s) will NOT be auto-verified.",
-            user_id, email,
+            "Resend not configured — verification link for %s (user %s). "
+            "User will NOT be auto-verified.",
+            email, user_id,
         )
-        print(f"\n\n🔐 VERIFICATION LINK: {verify_url}\n\n")
+        if settings.app_env != "production":
+            print(f"\n\n🔐 VERIFICATION LINK: {verify_url}\n\n")
         return False
 
     html = build_verification_email_html(email, verify_url)
@@ -236,6 +243,6 @@ async def send_verification_email(email: str, user_id: UUID) -> bool:
         return True
     except Exception as e:
         logger.error("Failed to send verification email to %s: %s", email, e)
-        # Print the verification link so it appears in Render logs for admin use
-        print(f"\n\n🔐 VERIFICATION LINK (email delivery failed): {verify_url}\n\n")
+        if settings.app_env != "production":
+            print(f"\n\n🔐 VERIFICATION LINK (email delivery failed): {verify_url}\n\n")
         return False

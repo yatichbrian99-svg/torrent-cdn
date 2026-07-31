@@ -1,4 +1,5 @@
 import re
+import time
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from uuid import UUID
@@ -11,6 +12,28 @@ from ..config import get_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# In-memory rate-limiting fallbacks (used only when Redis is unavailable)
+# {key: [epoch_seconds, ...]} — failed login attempts per IP+email
+_login_attempts: dict[str, list[float]] = {}
+# {ip: last_request_epoch} — forgot-password requests per IP
+_forgot_requests: dict[str, float] = {}
+_LOGIN_WINDOW = 900  # 15 minutes
+_FORGOT_WINDOW = 60  # 60 seconds
+
+
+def _prune_login_attempts(now: float) -> None:
+    """Drop login-attempt keys whose newest entry has expired (keeps dict bounded)."""
+    expired = [k for k, v in _login_attempts.items() if not v or now - v[-1] > _LOGIN_WINDOW]
+    for k in expired:
+        del _login_attempts[k]
+
+
+def _prune_forgot_requests(now: float) -> None:
+    """Drop forgot-password keys older than the window (keeps dict bounded)."""
+    expired = [k for k, v in _forgot_requests.items() if now - v > _FORGOT_WINDOW]
+    for k in expired:
+        del _forgot_requests[k]
 
 
 @router.post("/register", response_model=TokenResponse)
@@ -96,17 +119,14 @@ async def register(data: UserRegister):
 
         password_hash = hash_password(data.password)
         try:
-            # First user to register becomes admin
-            existing_count = await conn.fetchval("SELECT COUNT(*) FROM users")
-            is_admin = existing_count == 0
-
+            # No auto-admin on registration — admins are promoted only via
+            # /auth/setup (gated by ADMIN_SETUP_ENABLED) or by an existing admin.
             user = await conn.fetchrow(
                 """INSERT INTO users (email, password_hash, is_admin, terms_accepted, terms_accepted_at)
-                   VALUES ($1, $2, $3, TRUE, NOW())
+                   VALUES ($1, $2, FALSE, TRUE, NOW())
                    RETURNING id""",
                 data.email,
                 password_hash,
-                is_admin,
             )
         except Exception as e:
             # Catch unique constraint violation (race condition between SELECT and INSERT)
@@ -121,19 +141,6 @@ async def register(data: UserRegister):
                 status_code=500, detail="Registration failed. Please try again."
             )
 
-        # Fallback: ensure at least one admin exists
-        # This handles the edge case where the startup migration ran before
-        # any users existed, and existing users' is_admin wasn't set correctly
-        if not await conn.fetchval("SELECT EXISTS (SELECT 1 FROM users WHERE is_admin = TRUE)"):
-            first_id = await conn.fetchval(
-                "SELECT id FROM users ORDER BY created_at ASC LIMIT 1"
-            )
-            if first_id:
-                await conn.execute(
-                    "UPDATE users SET is_admin = TRUE WHERE id = $1", first_id
-                )
-                logger.info("Promoted user %s to admin (first registered)", first_id)
-
         token = create_access_token({"sub": str(user["id"])})
 
         # Send verification email after successful registration
@@ -147,19 +154,31 @@ async def register(data: UserRegister):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(data: UserLogin):
+async def login(data: UserLogin, request: Request):
     pool = await get_db_pool()
     redis = await get_redis()
 
-    # Rate limiting: check login attempts (skip if Redis unavailable)
+    # Rate limiting: keyed by IP + email so an attacker can't lock out a victim's
+    # account from their own IP. Redis primary, in-memory fallback when down.
+    ip = request.client.host if request.client else "unknown"
+    rate_key = f"login_attempts:{ip}:{data.email}"
     if redis is not None:
-        rate_key = f"login_attempts:{data.email}"
         attempts = await redis.get(rate_key)
         if attempts and int(attempts) >= 5:
             raise HTTPException(
                 status_code=429,
                 detail="Too many login attempts. Try again in 15 minutes.",
             )
+    else:
+        now = time.time()
+        _prune_login_attempts(now)
+        recent = [t for t in _login_attempts.get(rate_key, []) if now - t < _LOGIN_WINDOW]
+        if len(recent) >= 5:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many login attempts. Try again in 15 minutes.",
+            )
+        _login_attempts[rate_key] = recent
 
     async with pool.acquire() as conn:
         user = await conn.fetchrow(
@@ -167,10 +186,13 @@ async def login(data: UserLogin):
             data.email,
         )
         if not user or not verify_password(data.password, user["password_hash"]):
-            # Increment failed attempt counter (skip if Redis unavailable)
+            # Increment failed attempt counter (Redis primary, in-memory fallback)
             if redis is not None:
                 await redis.incr(rate_key)
                 await redis.expire(rate_key, 900)  # 15 minutes
+            else:
+                _login_attempts.setdefault(rate_key, []).append(time.time())
+                _prune_login_attempts(time.time())
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password",
@@ -187,6 +209,8 @@ async def login(data: UserLogin):
     # Reset rate limit on success
     if redis is not None:
         await redis.delete(rate_key)
+    else:
+        _login_attempts.pop(rate_key, None)
 
     token = create_access_token({"sub": str(user["id"])})
     return TokenResponse(access_token=token)
@@ -202,9 +226,9 @@ async def forgot_password(data: ForgotPasswordRequest, request: Request):
     # Rate limiting: 1 request per 60 seconds per IP
     if request:
         redis = await get_redis()
+        ip = request.client.host if request.client else "unknown"
+        rate_key = f"forgot_pw_rate:{ip}"
         if redis is not None:
-            ip = request.client.host if request.client else "unknown"
-            rate_key = f"forgot_pw_rate:{ip}"
             count = await redis.get(rate_key)
             if count and int(count) >= 1:
                 raise HTTPException(
@@ -213,6 +237,16 @@ async def forgot_password(data: ForgotPasswordRequest, request: Request):
                 )
             await redis.incr(rate_key)
             await redis.expire(rate_key, 60)
+        else:
+            # In-memory fallback: 1 request per 60 seconds per IP
+            now = time.time()
+            _prune_forgot_requests(now)
+            if now - _forgot_requests.get(ip, 0) < _FORGOT_WINDOW:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Please wait before requesting another reset email.",
+                )
+            _forgot_requests[ip] = now
 
     pool = await get_db_pool()
     async with pool.acquire() as conn:
@@ -282,10 +316,17 @@ async def setup_first_admin(
 ):
     """
     Promote a user to admin.
+    - Only available while ADMIN_SETUP_ENABLED=true (bootstrap mode).
     - If an admin already exists, the requester must be an admin.
-    - If no admin exists, first promotion is allowed (with valid token).
     - If called without email and no admin exists, promotes the first registered user.
     """
+    _settings = get_settings()
+    if not _settings.admin_setup_enabled:
+        raise HTTPException(
+            status_code=403,
+            detail="Admin setup is disabled. Set ADMIN_SETUP_ENABLED=true to bootstrap the first admin.",
+        )
+
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         # Check if any admin exists

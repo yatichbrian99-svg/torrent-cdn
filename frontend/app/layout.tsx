@@ -1,10 +1,15 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
-import dynamic from 'next/dynamic'
+import nextDynamic from 'next/dynamic'
+
+// Nonce-based CSP (see middleware.ts) requires per-request rendering so Next.js
+// can stamp the per-request nonce onto its scripts. Static prerendering would
+// bake in scripts without nonces and break under the strict CSP.
+export const dynamic = 'force-dynamic'
 
 const inter = Inter({ subsets: ['latin'], weight: ['400', '500', '600', '700'] })
-const Navbar = dynamic(() => import('@/components/Navbar'), { ssr: false })
+const Navbar = nextDynamic(() => import('@/components/Navbar'), { ssr: false })
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.torrentcdn.store'),
@@ -100,7 +105,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Preconnect to performance origins */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link rel="preconnect" href="https://unpkg.com" />
       </head>
       <body className={inter.className}>
         <Navbar />

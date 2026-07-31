@@ -80,7 +80,8 @@ r = client.get("/health")
 csp = r.headers.get("content-security-policy", "")
 
 check("CSP contains 'self'", "'self'" in csp)
-check("CSP contains unpkg.com", "unpkg.com" in csp)
+check("CSP does NOT allow unpkg.com", "unpkg.com" not in csp)
+check("CSP script-src has no 'unsafe-inline'", "script-src 'self' 'unsafe-inline'" not in csp)
 check("CSP contains WebTorrent trackers",
       all(t in csp for t in ["tracker.openwebtorrent.com", "tracker.btorrent.xyz", "tracker.fastcast.nz"]))
 check("CSP contains report-uri", "report-uri " in csp and ("/csp-report" in csp or "/api/csp-report" in csp))

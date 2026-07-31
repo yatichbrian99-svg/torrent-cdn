@@ -44,9 +44,11 @@ done
 echo ""
 echo "── 3. CSP CONTENT ──"
 CSP=$(echo "$HEADERS" | grep -i 'content-security-policy' | head -1)
-for pat in "'self'" "unpkg.com" "tracker.openwebtorrent.com" "report-uri" "report-to" "base-uri 'self'"; do
+for pat in "'self'" "tracker.openwebtorrent.com" "report-uri" "report-to" "base-uri 'self'"; do
   echo "$CSP" | grep -q "$pat" && check 0 "CSP contains: $pat" || check 1 "CSP missing: $pat"
 done
+echo "$CSP" | grep -q "unpkg.com" && check 1 "CSP should NOT allow unpkg.com" || check 0 "CSP blocks unpkg.com"
+echo "$CSP" | grep -q "script-src 'self' 'unsafe-inline'" && check 1 "CSP script-src should not allow 'unsafe-inline'" || check 0 "CSP script-src has no 'unsafe-inline'"
 
 # ── 4. AUTH ENFORCEMENT ──
 echo ""

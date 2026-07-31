@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+import logging
 import os
 
 
@@ -42,6 +43,10 @@ class Settings(BaseSettings):
     # Separate secret for password reset tokens
     jwt_reset_secret: str = ""
 
+    # Admin bootstrap: when True, /auth/setup can promote users to admin.
+    # Set ADMIN_SETUP_ENABLED=true temporarily to create the first admin, then disable it.
+    admin_setup_enabled: bool = False
+
     # Stripe
     stripe_secret_key: str = "sk_test_xxx"
     stripe_webhook_secret: str = "whsec_xxx"
@@ -78,22 +83,33 @@ class Settings(BaseSettings):
 @lru_cache()
 def get_settings() -> Settings:
     settings = Settings()
+    # Fail closed: never allow the default/placeholder JWT secret, in ANY environment.
+    # An attacker who can forge JWTs can impersonate any user, including admins.
+    if settings.jwt_secret == "changeme" or len(settings.jwt_secret) < 32:
+        raise ValueError(
+            "JWT_SECRET must be at least 32 characters and not equal to 'changeme'"
+        )
+    # Auto-generate verification/reset secrets if not explicitly set
+    if not settings.jwt_verify_secret:
+        import hashlib
+        settings.jwt_verify_secret = hashlib.sha256(
+            (settings.jwt_secret + "__verify__").encode()
+        ).hexdigest()
+    if not settings.jwt_reset_secret:
+        import hashlib
+        settings.jwt_reset_secret = hashlib.sha256(
+            (settings.jwt_secret + "__reset__").encode()
+        ).hexdigest()
     if settings.app_env == "production":
-        if settings.jwt_secret == "changeme" or len(settings.jwt_secret) < 32:
-            raise ValueError(
-                "JWT_SECRET must be at least 32 characters and not equal to 'changeme' in production"
+        # Warn loudly (but don't crash) if placeholder credentials are detected
+        if settings.minio_secret_key == "minioadmin":
+            logging.getLogger(__name__).warning(
+                "MINIO_SECRET_KEY is the insecure default 'minioadmin' — set a real secret in production"
             )
-        # Auto-generate verification/reset secrets if not explicitly set
-        if not settings.jwt_verify_secret:
-            import hashlib
-            settings.jwt_verify_secret = hashlib.sha256(
-                (settings.jwt_secret + "__verify__").encode()
-            ).hexdigest()
-        if not settings.jwt_reset_secret:
-            import hashlib
-            settings.jwt_reset_secret = hashlib.sha256(
-                (settings.jwt_secret + "__reset__").encode()
-            ).hexdigest()
+        if settings.stripe_secret_key in ("sk_test_xxx", "sk_live_xxx"):
+            logging.getLogger(__name__).warning(
+                "STRIPE_SECRET_KEY looks like a placeholder — set a real Stripe secret key in production"
+            )
         # In production, email verification is required by default
         # (unless explicitly disabled via env var EMAIL_VERIFICATION_REQUIRED=false)
         if not os.environ.get("EMAIL_VERIFICATION_REQUIRED"):

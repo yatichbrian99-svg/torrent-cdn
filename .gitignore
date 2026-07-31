@@ -12,8 +12,12 @@ env/
 node_modules/
 .next/
 out/
+
+# Environment files (secrets) — never commit real credentials.
+# Only the committed .env.example template is allowed.
 .env
-.env.local
+.env.*
+!.env.example
 
 # Docker
 docker-data/

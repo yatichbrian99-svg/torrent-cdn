@@ -37,3 +37,7 @@ services:
         value: ""  # ← Set this in Render dashboard (get a free key at https://resend.com/api-keys)
       - key: RESEND_FROM
         value: "TorrentCDN <noreply@torrentcdn.store>"  # Your verified domain
+      # Bootstrap: set ADMIN_SETUP_ENABLED=true temporarily, call POST /auth/setup
+      # once, then remove it. Admins are NOT auto-created on first registration.
+      # - key: ADMIN_SETUP_ENABLED
+      #   value: "true"
