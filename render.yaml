@@ -10,7 +10,13 @@ services:
       - key: APP_ENV
         value: production
       - key: APP_URL
-        value: https://torrentcdn.store
+        # Canonical frontend domain — email reset/verify links, billing redirects, embed
+        # URLs, and the CSP media/connect-src all derive from this. MUST match the exact
+        # domain Vercel serves (www.torrentcdn.store, confirmed HTTP 200).
+        # NOTE: the live Render dashboard env var currently overrides this with the stale
+        # https://torrentcdn.com (proven by the prod CSP) — update it in the dashboard
+        # to https://www.torrentcdn.store and redeploy for email links to work.
+        value: https://www.torrentcdn.store
       - key: JWT_SECRET
         generateValue: true
       - key: CORS_ORIGINS
