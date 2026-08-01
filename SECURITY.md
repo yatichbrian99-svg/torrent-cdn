@@ -225,6 +225,52 @@ curl -X POST "$API/auth/setup?email=you@example.com" \
 
 ---
 
+## Operations Runbook
+
+What to expect on deploy, so the next deployer isn't surprised by startup log noise or a burst of 429s.
+
+### 1. APP_URL startup guard (production)
+
+`APP_URL` drives every user-facing link the backend emits — email verification, password reset, referral URLs, billing redirects, embed URLs, and the CSP `media-src`/`connect-src`. A stale value silently breaks email verification: the link points at a dead domain and users can never verify. `get_settings()` in `backend/app/config.py` therefore validates `APP_URL` at process startup **in production only**. It fails loudly (but never crashes — the process still boots) and applies the safest fix it can for the current process.
+
+| Condition in production | Log level | What the backend does | Required action |
+|---|---|---|---|
+| Host is `localhost` / `127.0.0.1` | `ERROR` | Keeps booting with the broken value | Set `APP_URL` to the real frontend domain and redeploy |
+| Host is `torrentcdn.com` / `www.torrentcdn.com` (dead DNS) | `WARNING` | Auto-overrides to `https://www.torrentcdn.store` **for this process only** | Update `APP_URL` in the Render dashboard to `https://www.torrentcdn.store` and redeploy so the fix is permanent |
+| Missing scheme or hostname (e.g. empty, `torrentcdn.store`) | `ERROR` | Keeps booting — links are unresolvable | Set a full `https://` URL and redeploy |
+| Scheme is `http://` | `WARNING` | Upgrades to `https://` for this process (HSTS would otherwise block the links in browsers) | Set an `https://` URL in the dashboard |
+| `MINIO_SECRET_KEY` is `minioadmin` | `WARNING` | None (credential hygiene) | Set a real secret |
+| `STRIPE_SECRET_KEY` is a placeholder (`sk_test_xxx` / `sk_live_xxx`) | `WARNING` | None (credential hygiene) | Set a real Stripe key |
+
+**Deploy check:** after a deploy, search the Render logs for the strings `APP_URL`, `minioadmin`, and `STRIPE_SECRET_KEY`. An `ERROR`/`WARNING` that mentions `APP_URL` means the deployed instance is running on a **corrected-but-temporary** value — the fix only becomes permanent once the dashboard env var is updated and the service is redeployed.
+
+> The guard is a safety net, not a substitute for correct config: both `render.yaml` and the Render dashboard must point `APP_URL` at `https://www.torrentcdn.store` (the canonical frontend domain — `torrentcdn.com` no longer resolves).
+
+### 2. Rate limiting behind the Vercel proxy (X-Forwarded-For)
+
+Vercel proxies every `/api/*` request, and its edge IPs **vary per request**. Keying rate limits on the direct peer would make limits silently dead (or worse, hit innocent users at random). All rate limiters therefore key on the **real client IP** via `get_client_ip()` in `backend/app/security.py`:
+
+- Uses the **first `X-Forwarded-For` entry** — the client IP appended by Vercel.
+- Validates with `ipaddress.ip_address` (forged junk like `not-an-ip<script>` can't poison Redis keys), strips IPv4 ports (`1.2.3.4:8080` → `1.2.3.4`), preserves IPv6.
+- Falls back to the direct peer address, then `"unknown"`, if the header is absent or malformed.
+
+| Limiter | Where | Limit |
+|---|---|---|
+| Global | `backend/app/main.py` (`RateLimitMiddleware`) | 5 req / 10s per IP (`/health` and `/csp-report` exempt) |
+| Login lockout | `backend/app/routes/auth.py` | 5 failed attempts / 15 min per **IP+email** (reset on success) |
+| Forgot password | `backend/app/routes/auth.py` | 1 request / 60s per IP |
+| CSP reports | `backend/app/routes/csp.py` | 100 / min per IP |
+| Public file | `backend/app/routes/files.py` | 30 / min per IP |
+| Analytics | `backend/app/routes/analytics.py` | 30 / min per IP (post + get) |
+
+**Expected behavior on deploy:** rate limits **tighten immediately** — limits that never fired behind Vercel's varying edge IPs now fire as designed. A temporary rise in 429s right after a deploy is the fix working, not a regression. No Redis migration needed; old keys expire harmlessly.
+
+**Verifying the fix is live:** three rapid `POST /auth/forgot-password` calls from a fresh IP should return `200 → 429 → 429` (first passes, the next two blocked in the same 60s window). A mixed `200/429/200` pattern means the old peer-keyed code is still serving — wait for the deploy to swap and re-probe.
+
+**Known tradeoff:** clients that reach the backend *directly* (bypassing Vercel) can forge `X-Forwarded-For` to rotate past these limits. This is accepted and documented in the `get_client_ip()` docstring — the public surface is the Vercel domain, which strips/replaces client-supplied XFF.
+
+---
+
 ## Verification
 
 ### Quick header check
