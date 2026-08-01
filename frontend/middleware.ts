@@ -33,7 +33,9 @@ export function middleware(request: NextRequest) {
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
     "style-src 'self' 'unsafe-inline' fonts.googleapis.com",
     "font-src 'self' fonts.gstatic.com",
-    "img-src 'self' data: blob:",
+    // https: allows cross-origin video thumbnails served from MinIO/Supabase
+    // Storage (MINIO_PUBLIC_URL) — dev also allows localhost for local MinIO.
+    `img-src 'self' data: blob: https:${isProduction ? '' : ' http://localhost:*'}`,
     // media-src allows https: so direct (origin/Cloudflare) playback works
     // regardless of the storage endpoint; blob: is used by WebTorrent streaming
     "media-src 'self' blob: https:",

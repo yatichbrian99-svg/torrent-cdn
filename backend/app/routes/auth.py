@@ -451,9 +451,12 @@ async def get_referral(user_id: UUID = Depends(get_current_user_id)):
             "SELECT COUNT(*) FROM users WHERE referred_by = $1", user_id
         )
 
+    _settings = get_settings()
     return {
         "referral_code": code,
-        "referral_url": f"https://torrentcdn.store?ref={code}",
+        # Use the canonical app domain (www.torrentcdn.store in prod) rather than
+        # the apex, which has historically been flaky.
+        "referral_url": f"{_settings.app_url.rstrip('/')}?ref={code}",
         "total_referrals": total_referrals or 0,
         "bonus_gb_earned": user["referral_bonus_gb"] or 0,
     }

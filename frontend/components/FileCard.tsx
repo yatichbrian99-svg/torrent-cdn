@@ -48,7 +48,7 @@ export default function FileCard({ file, onDelete }: { file: FileItem; onDelete:
               </div>
             )}
             {file.thumbnail_url && (
-              <div className="pointer-events-none absolute left-0 top-0 z-30 hidden border group-hover:block" style={{ borderColor: '#333' }}>
+              <div className="pointer-events-none absolute left-0 top-full z-30 mt-1 hidden border group-hover:block" style={{ borderColor: '#333' }}>
                 <img src={file.thumbnail_url} alt="" style={{ width: 200, height: 120 }} />
               </div>
             )}
