@@ -1,9 +1,11 @@
 import time
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
 from uuid import UUID
 
 from ..config import get_settings
 from ..database import get_db_pool, get_redis
+from ..auth import get_current_user_id
 from ..models import AnalyticsEventCreate
 from ..security import get_client_ip
 
@@ -63,6 +65,40 @@ async def track_event(
         )
 
     return {"detail": "Event tracked"}
+
+
+@router.get("/bandwidth-history")
+async def get_bandwidth_history(user_id: UUID = Depends(get_current_user_id)):
+    """Daily origin bandwidth (GB) for the current user over the last 7 days.
+
+    Queries chunk_downloaded analytics joined to the user's own uploads, then
+    zero-fills missing days so the chart always has exactly 7 points.
+    """
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT
+                    DATE(a.created_at) as date,
+                    COALESCE(SUM(a.bytes_origin) / (1024*1024*1024.0), 0) as gb_used
+               FROM analytics a
+               JOIN uploads u ON a.file_id = u.id
+              WHERE u.user_id = $1
+                AND a.created_at >= NOW() - INTERVAL '7 days'
+                AND a.event_type = 'chunk_downloaded'
+              GROUP BY DATE(a.created_at)
+              ORDER BY date ASC""",
+            user_id,
+        )
+
+    by_date = {r["date"]: r["gb_used"] for r in rows}
+    today = datetime.utcnow().date()
+    return [
+        {
+            "date": (today - timedelta(days=i)).isoformat(),
+            "gb": round(by_date.get(today - timedelta(days=i), 0), 4),
+        }
+        for i in range(6, -1, -1)
+    ]
 
 
 @router.get("/{file_id}")

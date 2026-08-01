@@ -67,21 +67,23 @@ async def admin_stats(_: UUID = Depends(require_admin)):
         },
         "new_users_today": new_users_today or 0,
         "new_files_today": new_files_today or 0,
+        "revenue_estimate": round((pro_users or 0) * 29 + (business_users or 0) * 99, 2),
     }
 
 
-@router.get("/users", response_model=list[UserAdminResponse])
+@router.get("/users")
 async def admin_list_users(
     page: int = 1,
     limit: int = 20,
     _: UUID = Depends(require_admin),
 ):
-    """List users with their usage stats. Paginated (page=1, limit=20 default)."""
+    """List users with their usage stats. Paginated envelope: {users, total, page, pages}."""
     page = max(1, page)
     limit = max(1, min(limit, 200))
     offset = (page - 1) * limit
     pool = await get_db_pool()
     async with pool.acquire() as conn:
+        total = await conn.fetchval("SELECT COUNT(*) FROM users") or 0
         rows = await conn.fetch("""
             SELECT
                 u.id, u.email, u.plan, u.verified, u.is_admin, u.created_at,
@@ -94,19 +96,25 @@ async def admin_list_users(
             LIMIT $2 OFFSET $3
         """, datetime.utcnow().strftime("%Y-%m"), limit, offset)
 
-    return [
-        UserAdminResponse(
-            id=row["id"],
-            email=row["email"],
-            plan=row["plan"],
-            verified=row.get("verified", False),
-            is_admin=row.get("is_admin", False),
-            created_at=row["created_at"],
-            usage_gb=round(row["usage_gb"] or 0, 2),
-            file_count=row["file_count"],
-        )
-        for row in rows
-    ]
+    pages = max(1, (total + limit - 1) // limit) if total else 1
+    return {
+        "users": [
+            {
+                "id": str(row["id"]),
+                "email": row["email"],
+                "plan": row["plan"],
+                "verified": bool(row.get("verified", False)),
+                "is_admin": bool(row.get("is_admin", False)),
+                "total_files": row["file_count"],
+                "total_gb_used": round(row["usage_gb"] or 0, 2),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ],
+        "total": total,
+        "page": page,
+        "pages": pages,
+    }
 
 
 @router.get("/users/{user_id}", response_model=UserAdminResponse)
@@ -175,6 +183,27 @@ async def admin_update_plan_post(
 ):
     """Update a user's subscription plan (POST alias)."""
     return await _admin_update_plan(user_id, data)
+
+
+@router.post("/users/{user_id}/toggle-admin")
+async def admin_toggle_admin(
+    user_id: UUID,
+    _: UUID = Depends(require_admin),
+):
+    """Toggle a user's admin flag."""
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT is_admin FROM users WHERE id = $1", user_id
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+        new_status = not row["is_admin"]
+        await conn.execute(
+            "UPDATE users SET is_admin = $1 WHERE id = $2",
+            new_status, user_id,
+        )
+    return {"detail": "Admin status updated", "is_admin": new_status}
 
 
 @router.delete("/users/{user_id}")

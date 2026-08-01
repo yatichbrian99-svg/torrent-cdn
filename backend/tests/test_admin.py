@@ -42,13 +42,14 @@ class TestAdminAccess:
 
 
 class TestAdminListUsers:
-    """Tests for GET /admin/users."""
+    """Tests for GET /admin/users (paginated envelope: {users, total, page, pages})."""
 
     URL = "/admin/users"
 
     def test_list_users_success(self, client, admin_headers, mock_conn):
-        """Should return list of users with their stats."""
+        """Should return paginated envelope of users with their stats."""
         mock_conn.fetchrow.return_value = {"is_admin": True}
+        mock_conn.fetchval.return_value = 2
         mock_conn.fetch.return_value = [
             {
                 "id": UUID("11111111-1111-4111-8111-111111111111"),
@@ -75,25 +76,60 @@ class TestAdminListUsers:
         resp = client.get(self.URL, headers=admin_headers)
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data) == 2
-        assert data[0]["email"] == "admin@example.com"
-        assert data[0]["is_admin"] is True
-        assert data[0]["plan"] == "pro"
-        assert data[1]["email"] == "user@example.com"
-        assert data[1]["is_admin"] is False
+        assert data["total"] == 2
+        assert data["page"] == 1
+        assert data["pages"] == 1
+        users = data["users"]
+        assert len(users) == 2
+        assert users[0]["email"] == "admin@example.com"
+        assert users[0]["is_admin"] is True
+        assert users[0]["plan"] == "pro"
+        assert users[0]["total_files"] == 3
+        assert users[0]["total_gb_used"] == 5.0
+        assert users[1]["email"] == "user@example.com"
+        assert users[1]["is_admin"] is False
+
+    def test_list_users_pagination(self, client, admin_headers, mock_conn):
+        """Should compute page count from total / limit."""
+        mock_conn.fetchrow.return_value = {"is_admin": True}
+        mock_conn.fetchval.return_value = 41
+        mock_conn.fetch.return_value = [
+            {
+                "id": UUID("11111111-1111-4111-8111-111111111111"),
+                "email": "admin@example.com",
+                "plan": "free",
+                "verified": False,
+                "is_admin": False,
+                "created_at": "2026-01-01T00:00:00Z",
+                "usage_gb": 0,
+                "file_count": 0,
+            }
+        ]
+
+        resp = client.get(self.URL + "?page=3&limit=20", headers=admin_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 41
+        assert data["page"] == 3
+        assert data["pages"] == 3  # ceil(41/20)
 
     def test_list_users_empty(self, client, admin_headers, mock_conn):
-        """Should return empty list when no users."""
+        """Should return empty users list with zeroed envelope when no users."""
         mock_conn.fetchrow.return_value = {"is_admin": True}
+        mock_conn.fetchval.return_value = 0
         mock_conn.fetch.return_value = []
 
         resp = client.get(self.URL, headers=admin_headers)
         assert resp.status_code == 200
-        assert resp.json() == []
+        data = resp.json()
+        assert data["users"] == []
+        assert data["total"] == 0
+        assert data["pages"] == 1
 
     def test_list_users_null_usage(self, client, admin_headers, mock_conn):
-        """Should handle null usage_gb gracefully (Pydantic coerces None to False for booleans)."""
+        """Should handle null usage_gb gracefully (0, not None)."""
         mock_conn.fetchrow.return_value = {"is_admin": True}
+        mock_conn.fetchval.return_value = 1
         mock_conn.fetch.return_value = [
             {
                 "id": UUID("11111111-1111-4111-8111-111111111111"),
@@ -110,9 +146,72 @@ class TestAdminListUsers:
         resp = client.get(self.URL, headers=admin_headers)
         assert resp.status_code == 200
         data = resp.json()
-        assert data[0]["usage_gb"] == 0
-        assert data[0]["verified"] is False
-        assert data[0]["is_admin"] is False
+        user = data["users"][0]
+        assert user["total_gb_used"] == 0
+        assert user["verified"] is False
+        assert user["is_admin"] is False
+
+
+class TestAdminToggleAdmin:
+    """Tests for POST /admin/users/{user_id}/toggle-admin."""
+
+    URL = "/admin/users"
+
+    def test_toggle_admin_grant(self, client, admin_headers, mock_conn):
+        """Should flip a regular user to admin."""
+        mock_conn.fetchrow.side_effect = [
+            {"is_admin": True},   # require_admin check
+            {"is_admin": False},  # target user
+        ]
+
+        resp = client.post(
+            f"{self.URL}/11111111-1111-4111-8111-111111111111/toggle-admin",
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["detail"] == "Admin status updated"
+        assert data["is_admin"] is True
+        mock_conn.execute.assert_awaited_once()
+
+    def test_toggle_admin_revoke(self, client, admin_headers, mock_conn):
+        """Should flip an admin back to regular user."""
+        mock_conn.fetchrow.side_effect = [
+            {"is_admin": True},  # require_admin check
+            {"is_admin": True},  # target user
+        ]
+
+        resp = client.post(
+            f"{self.URL}/11111111-1111-4111-8111-111111111111/toggle-admin",
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["is_admin"] is False
+
+    def test_toggle_admin_not_found(self, client, admin_headers, mock_conn):
+        """Should return 404 for non-existent user."""
+        mock_conn.fetchrow.side_effect = [
+            {"is_admin": True},  # require_admin check
+            None,                 # target user not found
+        ]
+
+        resp = client.post(
+            f"{self.URL}/00000000-0000-0000-0000-000000000000/toggle-admin",
+            headers=admin_headers,
+        )
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "User not found"
+
+    def test_toggle_admin_non_admin_forbidden(self, client, auth_headers, mock_conn):
+        """Regular user should get 403."""
+        mock_conn.fetchrow.return_value = {"is_admin": False}
+
+        resp = client.post(
+            f"{self.URL}/11111111-1111-4111-8111-111111111111/toggle-admin",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "Admin access required"
 
 
 class TestAdminGetUser:

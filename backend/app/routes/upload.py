@@ -252,7 +252,7 @@ async def upload_file(
             try:
                 thumb_path = f"/tmp/{file_id}_thumb.jpg"
                 proc = subprocess.run(
-                    ["ffmpeg", "-y", "-i", temp_path, "-ss", "00:00:01", "-vframes", "1", thumb_path],
+                    ["ffmpeg", "-y", "-i", temp_path, "-ss", "00:00:02", "-vframes", "1", "-vf", "scale=640:360", thumb_path],
                     capture_output=True,
                     timeout=60,
                 )

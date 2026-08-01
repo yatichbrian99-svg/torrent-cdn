@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Upload, Loader2, Mail, ShieldCheck, Copy, AlertTriangle, Users, Gift } from 'lucide-react'
+import { Upload, Loader2, Mail, ShieldCheck, Copy, AlertTriangle, Users, Gift, Activity } from 'lucide-react'
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
 import { isLoggedIn, removeToken } from '@/lib/auth'
 import api from '@/lib/api'
 import FileCard from '@/components/FileCard'
@@ -21,6 +22,7 @@ export default function DashboardPage() {
   const [copied, setCopied] = useState(false)
   const [referral, setReferral] = useState<{ referral_code: string; referral_url: string; total_referrals: number; bonus_gb_earned: number } | null>(null)
   const [copiedRef, setCopiedRef] = useState(false)
+  const [bandwidth, setBandwidth] = useState<{ date: string; gb: number }[]>([])
 
   useEffect(() => {
     if (!isLoggedIn()) { router.push('/'); return }
@@ -29,11 +31,13 @@ export default function DashboardPage() {
       api.getVerificationStatus().catch(() => ({ verified: null })),
       api.getMe().catch(() => null),
       api.getReferral().catch(() => null),
-    ]).then(([filesData, statusData, userData, refData]) => {
+      api.getBandwidthHistory().catch(() => [] as { date: string; gb: number }[]),
+    ]).then(([filesData, statusData, userData, refData, bwData]) => {
       setFiles(filesData)
       setVerified(statusData.verified)
       if (userData) setUser(userData)
       if (refData) setReferral(refData)
+      setBandwidth(bwData || [])
     }).catch((err) => setError(err.response?.data?.detail || 'Failed to load')).finally(() => setLoading(false))
   }, [router])
 
@@ -84,6 +88,8 @@ export default function DashboardPage() {
   const totalFiles = files.length
   const totalBW = files.reduce((s, f) => s + f.bandwidth_saved_gb, 0)
   const avgP2P = totalFiles > 0 ? files.reduce((s, f) => s + f.p2p_offload_percent, 0) / totalFiles : 0
+  const totalBandwidthMonth = bandwidth.reduce((s, d) => s + d.gb, 0)
+  const allZero = bandwidth.length > 0 && bandwidth.every((d) => d.gb === 0)
 
   if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 size={20} className="animate-spin" style={{ color: '#555' }} /></div>
 
@@ -224,6 +230,46 @@ export default function DashboardPage() {
             <p className="mt-1 text-lg font-bold text-white">{s.value}</p>
           </div>
         ))}
+      </div>
+
+      {/* Bandwidth Usage Graph */}
+      <div className="mb-10 border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Activity size={14} style={{ color: '#555' }} />
+            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>
+              Bandwidth Usage — Last 7 Days
+            </p>
+          </div>
+          <p className="text-xs" style={{ color: '#555' }}>
+            Total this month: <span className="font-medium text-white">{totalBandwidthMonth.toFixed(2)} GB</span>
+          </p>
+        </div>
+        {allZero || bandwidth.length === 0 ? (
+          <div className="flex h-[200px] items-center justify-center border" style={{ borderColor: '#222' }}>
+            <p className="text-sm" style={{ color: '#555' }}>No data yet — upload a file to see usage</p>
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={bandwidth}>
+              <CartesianGrid stroke="#111" />
+              <XAxis
+                dataKey="date"
+                stroke="#222"
+                tick={{ fill: '#555', fontSize: 11 }}
+                tickFormatter={(v: string) => v.slice(5)}
+              />
+              <YAxis stroke="#222" tick={{ fill: '#555', fontSize: 11 }} tickFormatter={(v: number) => `${v} GB`} />
+              <Tooltip
+                contentStyle={{ backgroundColor: '#111', border: '1px solid #222', color: '#fff' }}
+                labelStyle={{ color: '#fff' }}
+                itemStyle={{ color: '#fff' }}
+                formatter={(value: number) => [`${Number(value).toFixed(2)} GB`, 'Bandwidth']}
+              />
+              <Line type="monotone" dataKey="gb" stroke="#fff" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       {files.length === 0 ? (

@@ -17,6 +17,7 @@
     "axios": "^1.6.0",
     "webtorrent": "^2.1.0",
     "lucide-react": "^0.383.0",
+    "recharts": "^2.12.7",
     "@stripe/stripe-js": "^2.0.0",
     "@types/node": "^20",
     "@types/react": "^18",

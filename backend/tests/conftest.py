@@ -33,6 +33,7 @@ def mock_conn():
     conn = AsyncMock()
     conn.fetch = AsyncMock(return_value=[])
     conn.fetchrow = AsyncMock(return_value=None)
+    conn.fetchval = AsyncMock(return_value=0)
     conn.execute = AsyncMock(return_value=None)
     return conn
 

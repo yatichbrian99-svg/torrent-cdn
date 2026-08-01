@@ -40,11 +40,11 @@ export default function FileCard({ file, onDelete }: { file: FileItem; onDelete:
                 src={file.thumbnail_url}
                 alt=""
                 className="border object-cover"
-                style={{ width: 60, height: 40, borderColor: '#333' }}
+                style={{ width: 72, height: 40, borderColor: '#222' }}
               />
             ) : (
-              <div className="flex items-center justify-center border" style={{ width: 60, height: 40, borderColor: '#333' }}>
-                <Film size={14} style={{ color: '#444' }} />
+              <div className="flex items-center justify-center border" style={{ width: 72, height: 40, backgroundColor: '#111', borderColor: '#222' }}>
+                <Film size={14} style={{ color: '#333' }} />
               </div>
             )}
             {file.thumbnail_url && (

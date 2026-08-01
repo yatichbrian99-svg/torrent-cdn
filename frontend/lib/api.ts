@@ -98,4 +98,18 @@ export default {
   markNotificationRead: (id: string) => api.post(`/notifications/mark-read/${id}`).then((r) => r.data),
 
   getReferral: () => api.get('/auth/referral').then((r) => r.data),
+
+  getBandwidthHistory: () => api.get('/analytics/bandwidth-history').then((r) => r.data),
+
+  getAdminStats: () => api.get('/admin/stats').then((r) => r.data),
+
+  getAdminUsers: (page: number) => api.get(`/admin/users?page=${page}&limit=20`).then((r) => r.data),
+
+  updateUserPlan: (userId: string, plan: string) =>
+    api.post(`/admin/users/${userId}/plan`, { plan }).then((r) => r.data),
+
+  toggleAdmin: (userId: string) => api.post(`/admin/users/${userId}/toggle-admin`).then((r) => r.data),
+
+  deleteUser: (userId: string) => api.delete(`/admin/users/${userId}`).then((r) => r.data),
 }
+

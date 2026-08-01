@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  Loader2, Users, Film, HardDrive, Crown,
+  Loader2, Users, Film, HardDrive, Crown, DollarSign,
   Search, X, ShieldCheck, Trash2, CheckCircle, XCircle,
   AlertTriangle, BarChart3, UserCog, ArrowUpDown,
   RefreshCw, Calendar, FolderOpen, UserCheck,
@@ -19,6 +19,7 @@ interface Analytics {
   users_by_plan: { free: number; pro: number; business: number }
   new_users_today: number
   new_files_today: number
+  revenue_estimate: number
 }
 
 interface User {
@@ -28,11 +29,11 @@ interface User {
   verified: boolean
   is_admin: boolean
   created_at: string
-  usage_gb: number
-  file_count: number
+  total_gb_used: number
+  total_files: number
 }
 
-type SortField = 'email' | 'plan' | 'verified' | 'file_count' | 'usage_gb' | 'created_at'
+type SortField = 'email' | 'plan' | 'verified' | 'total_files' | 'total_gb_used' | 'created_at'
 type SortDir = 'asc' | 'desc'
 
 export default function AdminPage() {
@@ -48,6 +49,10 @@ export default function AdminPage() {
   const [deleting, setDeleting] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [planUpdating, setPlanUpdating] = useState<string | null>(null)
+  const [adminToggling, setAdminToggling] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+  const [pages, setPages] = useState(1)
+  const [total, setTotal] = useState(0)
 
   // Toast auto-dismiss
   useEffect(() => {
@@ -57,14 +62,14 @@ export default function AdminPage() {
     }
   }, [toast])
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (pageNum: number) => {
     const token = getToken()
     const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
 
     try {
       const [analyticsRes, usersRes] = await Promise.all([
         fetch('/api/admin/stats', { headers }),
-        fetch('/api/admin/users?page=1&limit=200', { headers }),
+        fetch(`/api/admin/users?page=${pageNum}&limit=20`, { headers }),
       ])
 
       if (analyticsRes.status === 403) {
@@ -74,7 +79,11 @@ export default function AdminPage() {
       }
 
       setAnalytics(await analyticsRes.json())
-      setUsers(await usersRes.json())
+      const data = await usersRes.json()
+      setUsers(data.users || [])
+      setTotal(data.total || 0)
+      setPages(data.pages || 1)
+      setPage(data.page || 1)
     } catch {
       setError('Failed to load admin data')
     } finally {
@@ -87,7 +96,7 @@ export default function AdminPage() {
     // Redirect non-admins to the homepage.
     fetch('/api/auth/me', { headers: { Authorization: `Bearer ${getToken()}` } })
       .then((r) => r.json())
-      .then((me) => { if (!me?.is_admin) { router.push('/'); return } fetchData() })
+      .then((me) => { if (!me?.is_admin) { router.push('/'); return } fetchData(1) })
       .catch(() => { router.push('/') })
   }, [router, fetchData])
 
@@ -106,7 +115,7 @@ export default function AdminPage() {
       })
       if (res.ok) {
         showToast(`Plan updated to ${plan}`, 'success')
-        fetchData()
+        fetchData(page)
       } else {
         const data = await res.json()
         showToast(data.detail || 'Failed to update plan', 'error')
@@ -115,6 +124,28 @@ export default function AdminPage() {
       showToast('Failed to update plan', 'error')
     } finally {
       setPlanUpdating(null)
+    }
+  }
+
+  const toggleAdmin = async (user: User) => {
+    const token = getToken()
+    setAdminToggling(user.id)
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}/toggle-admin`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json()
+      if (res.ok) {
+        showToast(data.detail || 'Admin status updated', 'success')
+        fetchData(page)
+      } else {
+        showToast(data.detail || 'Failed to update admin status', 'error')
+      }
+    } catch {
+      showToast('Failed to update admin status', 'error')
+    } finally {
+      setAdminToggling(null)
     }
   }
 
@@ -131,7 +162,7 @@ export default function AdminPage() {
       if (res.ok) {
         showToast(`User ${deleteTarget.email} deleted`, 'success')
         setDeleteTarget(null)
-        fetchData()
+        fetchData(page)
       } else {
         showToast(data.detail || 'Failed to delete user', 'error')
       }
@@ -169,8 +200,8 @@ export default function AdminPage() {
         case 'email': cmp = a.email.localeCompare(b.email); break
         case 'plan': cmp = a.plan.localeCompare(b.plan); break
         case 'verified': cmp = Number(b.verified) - Number(a.verified); break
-        case 'file_count': cmp = a.file_count - b.file_count; break
-        case 'usage_gb': cmp = a.usage_gb - b.usage_gb; break
+        case 'total_files': cmp = a.total_files - b.total_files; break
+        case 'total_gb_used': cmp = a.total_gb_used - b.total_gb_used; break
         case 'created_at': cmp = a.created_at.localeCompare(b.created_at); break
       }
       return sortDir === 'asc' ? cmp : -cmp
@@ -179,10 +210,12 @@ export default function AdminPage() {
     return result
   }, [users, searchQuery, sortField, sortDir])
 
-  const planColors: Record<string, { bg: string; text: string }> = {
-    free: { bg: 'rgba(255,255,255,0.05)', text: '#888' },
-    pro: { bg: 'rgba(59,130,246,0.12)', text: '#60a5fa' },
-    business: { bg: 'rgba(168,85,247,0.12)', text: '#a78bfa' },
+  // Plan badge styling per spec:
+  // free — plain white text on #111; pro — white text, #222 border; business — white text, #fff border
+  const planColors: Record<string, { bg: string; text: string; border?: string }> = {
+    free: { bg: '#111', text: '#fff' },
+    pro: { bg: '#111', text: '#fff', border: '#222' },
+    business: { bg: '#111', text: '#fff', border: '#fff' },
   }
 
   // Loading state
@@ -295,7 +328,7 @@ export default function AdminPage() {
       {/* Analytics Cards */}
       {analytics && (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-8">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 mb-8">
             {[
               {
                 icon: Users, label: 'Total Users', value: analytics.total_users,
@@ -308,14 +341,19 @@ export default function AdminPage() {
                 color: '#34d399', bg: 'rgba(52,211,153,0.08)',
               },
               {
-                icon: HardDrive, label: 'Total Bandwidth', value: `${analytics.total_bandwidth_gb} GB`,
-                sub: `${analytics.new_users_today} new users today`,
+                icon: HardDrive, label: 'Bandwidth Used', value: `${analytics.total_bandwidth_gb} GB`,
+                sub: 'Origin bandwidth delivered',
                 color: '#fbbf24', bg: 'rgba(251,191,36,0.08)',
               },
               {
                 icon: Crown, label: 'P2P Saved', value: `${analytics.total_p2p_saved_gb} GB`,
-                sub: 'Bandwidth offloaded to peers',
+                sub: `${analytics.new_users_today} new users today`,
                 color: '#a78bfa', bg: 'rgba(168,85,247,0.08)',
+              },
+              {
+                icon: DollarSign, label: 'Est. Revenue', value: `$${analytics.revenue_estimate.toLocaleString()}`,
+                sub: 'Pro × $29 · Business × $99',
+                color: '#4ade80', bg: 'rgba(74,222,128,0.08)',
               },
             ].map((card, i) => (
               <div
@@ -415,7 +453,7 @@ export default function AdminPage() {
               <UserCog size={14} style={{ color: '#555' }} />
               <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555' }}>
                 Users
-                <span className="ml-2 font-normal" style={{ color: '#444' }}>({users.length})</span>
+                <span className="ml-2 font-normal" style={{ color: '#444' }}>({total})</span>
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -437,7 +475,7 @@ export default function AdminPage() {
                 )}
               </div>
               <button
-                onClick={fetchData}
+                onClick={() => fetchData(page)}
                 className="border p-1.5 transition-colors hover:border-white/20"
                 style={{ borderColor: '#222' }}
                 title="Refresh"
@@ -483,19 +521,19 @@ export default function AdminPage() {
                 <th
                   className="hidden md:table-cell px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer select-none transition-colors hover:text-white"
                   style={{ color: '#555' }}
-                  onClick={() => toggleSort('file_count')}
+                  onClick={() => toggleSort('total_files')}
                 >
                   <span className="flex items-center">
-                    Files <SortIcon field="file_count" />
+                    Files <SortIcon field="total_files" />
                   </span>
                 </th>
                 <th
                   className="hidden md:table-cell px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer select-none transition-colors hover:text-white"
                   style={{ color: '#555' }}
-                  onClick={() => toggleSort('usage_gb')}
+                  onClick={() => toggleSort('total_gb_used')}
                 >
                   <span className="flex items-center">
-                    Usage <SortIcon field="usage_gb" />
+                    Usage <SortIcon field="total_gb_used" />
                   </span>
                 </th>
                 <th
@@ -570,7 +608,7 @@ export default function AdminPage() {
                               className="border px-2 py-1 text-[11px] text-white outline-none cursor-pointer transition-colors hover:border-white/20"
                               style={{
                                 backgroundColor: planColor.bg,
-                                borderColor: 'transparent',
+                                borderColor: planColor.border || 'transparent',
                                 color: planColor.text,
                                 borderRadius: 0,
                               }}
@@ -596,11 +634,11 @@ export default function AdminPage() {
                       </td>
                       <td className="hidden md:table-cell px-4 sm:px-5 py-3">
                         <span className="flex items-center gap-1.5 text-xs" style={{ color: '#555' }}>
-                          <FolderOpen size={11} /> {user.file_count}
+                          <FolderOpen size={11} /> {user.total_files}
                         </span>
                       </td>
                       <td className="hidden md:table-cell px-4 sm:px-5 py-3">
-                        <span className="text-xs" style={{ color: '#555' }}>{user.usage_gb} GB</span>
+                        <span className="text-xs" style={{ color: '#555' }}>{user.total_gb_used} GB</span>
                       </td>
                       <td className="hidden lg:table-cell px-4 sm:px-5 py-3">
                         <span className="flex items-center gap-1.5 text-xs" style={{ color: '#555' }}>
@@ -623,7 +661,7 @@ export default function AdminPage() {
                                 const data = await res.json()
                                 if (res.ok) {
                                   showToast(`Verified ${user.email}`, 'success')
-                                  fetchData()
+                                  fetchData(page)
                                 } else {
                                   showToast(data.detail || 'Failed to verify', 'error')
                                 }
@@ -635,6 +673,19 @@ export default function AdminPage() {
                               <CheckCircle size={12} className="transition-colors hover:text-green-400" />
                             </button>
                           )}
+                          <button
+                            onClick={() => toggleAdmin(user)}
+                            disabled={adminToggling === user.id}
+                            className="p-1.5 rounded transition-all duration-150 opacity-0 group-hover:opacity-100 hover:bg-purple-500/10 disabled:opacity-40"
+                            style={{ color: '#555' }}
+                            title={user.is_admin ? 'Revoke admin' : 'Make admin'}
+                          >
+                            {adminToggling === user.id ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <UserCog size={12} className="transition-colors hover:text-purple-400" />
+                            )}
+                          </button>
                           <button
                             onClick={() => setDeleteTarget(user)}
                             className="p-1.5 rounded transition-all duration-150 opacity-0 group-hover:opacity-100 hover:bg-red-500/10"
@@ -653,13 +704,14 @@ export default function AdminPage() {
           </table>
         </div>
 
-        {/* Footer */}
-        {filteredUsers.length > 0 && (
-          <div className="border-t px-5 py-3" style={{ borderColor: '#222' }}>
-            <div className="flex items-center justify-between">
-              <p className="text-[10px]" style={{ color: '#444' }}>
-                Showing {filteredUsers.length} of {users.length} users
-              </p>
+        {/* Footer with pagination */}
+        <div className="border-t px-5 py-3" style={{ borderColor: '#222' }}>
+          <div className="flex items-center justify-between">
+            <p className="text-[10px]" style={{ color: '#444' }}>
+              {total} user{total === 1 ? '' : 's'}
+              {searchQuery && ` · filtering "${searchQuery}"`}
+            </p>
+            <div className="flex items-center gap-3">
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
@@ -669,9 +721,28 @@ export default function AdminPage() {
                   Clear filter
                 </button>
               )}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => fetchData(page - 1)}
+                  disabled={page <= 1}
+                  className="border px-3 py-1 text-[10px] uppercase tracking-widest transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  style={{ borderColor: '#222', color: '#555', fontFamily: 'monospace' }}
+                >
+                  Previous
+                </button>
+                <span className="text-[10px]" style={{ color: '#555' }}>Page {page} of {pages}</span>
+                <button
+                  onClick={() => fetchData(page + 1)}
+                  disabled={page >= pages}
+                  className="border px-3 py-1 text-[10px] uppercase tracking-widest transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  style={{ borderColor: '#222', color: '#555', fontFamily: 'monospace' }}
+                >
+                  Next
+                </button>
+              </div>
             </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   )
