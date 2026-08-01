@@ -113,7 +113,7 @@ export default function DocsPage() {
   "password": "yourpassword1"
 }`}
             response={`{
-  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "access_token": "<your_access_token>",
   "token_type": "bearer"
 }`}
           />
@@ -126,7 +126,7 @@ export default function DocsPage() {
   "password": "yourpassword1"
 }`}
             response={`{
-  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "access_token": "<your_access_token>",
   "token_type": "bearer"
 }`}
           />
@@ -141,7 +141,7 @@ export default function DocsPage() {
           url="/upload"
           desc="Upload a video or audio file. The file is stored and a magnet link + embed URL are generated."
           request={`Headers:
-  Authorization: Bearer YOUR_TOKEN
+  Authorization: Bearer <YOUR_TOKEN>
 Body:
   multipart/form-data, field name: "file"`}
           response={`{
@@ -156,7 +156,7 @@ Body:
         <div className="mt-4">
           <p className="mb-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>curl example</p>
           <CodeBlock code={`curl -X POST ${BASE_URL}/upload \\
-  -H "Authorization: Bearer YOUR_TOKEN" \\
+  -H "Authorization: Bearer <YOUR_TOKEN>" \\
   -F "file=@video.mp4"`} />
         </div>
       </section>
@@ -169,7 +169,7 @@ Body:
           url="/files"
           desc="List all files for the authenticated user, with per-file analytics."
           request={`Headers:
-  Authorization: Bearer YOUR_TOKEN`}
+  Authorization: Bearer <YOUR_TOKEN>`}
           response={`[
   {
     "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
@@ -192,7 +192,7 @@ Body:
           url="/files/{file_id}"
           desc="Get a single file's details by its ID."
           request={`Headers:
-  Authorization: Bearer YOUR_TOKEN`}
+  Authorization: Bearer <YOUR_TOKEN>`}
           response={`{
   "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
   "filename": "video.mp4",
@@ -211,7 +211,7 @@ Body:
           url="/files/{file_id}"
           desc="Permanently delete a file and its stored data."
           request={`Headers:
-  Authorization: Bearer YOUR_TOKEN`}
+  Authorization: Bearer <YOUR_TOKEN>`}
           response={`{
   "detail": "File deleted successfully"
 }`}
