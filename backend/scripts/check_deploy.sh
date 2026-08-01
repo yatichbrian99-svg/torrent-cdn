@@ -48,7 +48,10 @@ if echo "$SERVICES" | grep -qi '"message"' ; then
   echo "" >&2
   exit 2
 fi
-SVC_ID=$(SERVICE_NAME="$SERVICE_NAME" python3 -c '
+# Pipe the JSON in explicitly: an env-prefixed `python3` inside a command
+# substitution would otherwise inherit this script's stdin — which may be an
+# open pipe that never EOFs — and json.load(sys.stdin) would block forever.
+SVC_ID=$(echo "$SERVICES" | SERVICE_NAME="$SERVICE_NAME" python3 -c '
 import json, os, sys
 try:
     data = json.load(sys.stdin)
@@ -72,6 +75,7 @@ echo "  service id: $SVC_ID"
 
 # ── 2. List deploys, find the newest LIVE one ──
 DEPLOYS=$(curl -s --max-time 20 -H "Authorization: Bearer $KEY" "$API/services/$SVC_ID/deploys")
+# Same stdin note as above: the JSON is piped in, never read from inherited stdin.
 LIVE_INFO=$(echo "$DEPLOYS" | python3 -c '
 import json, sys
 try:
