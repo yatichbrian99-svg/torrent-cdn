@@ -63,7 +63,7 @@ cat <<EOF
      shared logs — that is how secrets leak (and how the originals leaked).
 
 
-STEP 1 — Paste these into Render (torrentcdn-backend -> Environment):
+STEP 1 — Paste these into Render (torrent-cdn -> Environment):
 
   JWT_SECRET=${JWT_SECRET}
   DATABASE_URL=postgresql://postgres.<YOUR_REF>:${DB_PASSWORD}@aws-0-<REGION>.pooler.supabase.com:6543/postgres

@@ -111,7 +111,7 @@ echo "── PRE-FLIGHT RESULT: $PF_PASS ✅  $PF_FAIL ❌ ──"
 if [ "$PF_FAIL" -ne 0 ]; then
   echo ""
   echo "⚠️  The hardened build does NOT appear to be fully live yet."
-  echo "    Check Render (torrentcdn-backend) and Vercel (www.torrentcdn.store)"
+  echo "    Check Render (torrent-cdn) and Vercel (www.torrentcdn.store)"
   echo "    deploy status for commit $EXPECTED_COMMIT, then re-run this script."
   echo "    (Skipping the full ~3-minute audit — nothing to audit yet.)"
   exit 1

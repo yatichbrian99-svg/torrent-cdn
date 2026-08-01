@@ -5,7 +5,7 @@
 #   RENDER_API_KEY=rnd_... bash check_deploy.sh [expected_commit]
 #
 # The script:
-#   1. Finds the web service by name (default: torrentcdn-backend)
+#   1. Finds the web service by name (default: torrent-cdn)
 #   2. Lists its deploys (newest first) and finds the latest one with
 #      status "live"
 #   3. Reports the live commit id + message + deploy time
@@ -20,7 +20,7 @@ set -uo pipefail
 
 API="https://api.render.com/v1"
 KEY="${RENDER_API_KEY:-}"
-SERVICE_NAME="${SERVICE_NAME:-torrentcdn-backend}"
+SERVICE_NAME="${SERVICE_NAME:-torrent-cdn}"
 EXPECTED="${1:-$(git rev-parse --short HEAD 2>/dev/null || echo '')}"
 
 if [ -z "$KEY" ]; then
