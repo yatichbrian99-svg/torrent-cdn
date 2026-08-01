@@ -126,6 +126,11 @@ jobs:
             [ "$CODE" = "200" ] && echo "Backend healthy" && break
             sleep 3
           done
+          if [ "$CODE" != "200" ]; then
+            echo "Backend never became healthy on :8000" >&2
+            docker compose logs backend --tail 40 2>&1
+            exit 1
+          fi
 
       # This job runs from the repo root (no working-directory default, since the
       # docker compose steps need the root-level compose file), so reference the
@@ -135,6 +140,12 @@ jobs:
         env:
           API_URL: "http://localhost:8000"
 
+      # Compose interpolates the whole file, so the required env vars must be
+      # present even for teardown (docker compose down -v).
       - name: Cleanup
         if: always()
+        env:
+          JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
+          POSTGRES_PASSWORD: ci-test-password
+          MINIO_ROOT_PASSWORD: ci-test-minio-password
         run: docker compose down -v
