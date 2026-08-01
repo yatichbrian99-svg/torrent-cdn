@@ -16,7 +16,7 @@ import os
 import threading
 
 from .routes import auth, upload, files, analytics, billing, csp, admin, verification, notifications
-from .database import NOTIFICATIONS_TABLE_DDL
+from .database import NOTIFICATIONS_TABLE_DDL, USERS_TABLE_DDL
 
 settings = get_settings()
 
@@ -26,8 +26,10 @@ async def run_startup_migrations():
     try:
         pool = await get_db_pool()
         async with pool.acquire() as conn:
-            # Create the notifications table FIRST so any indexes on it can be
-            # created afterwards — on existing DBs the table may not exist yet.
+            # Create the users table FIRST (full schema) so a fresh database has
+            # all columns before the ALTERs run and so NOTIFICATIONS_TABLE_DDL
+            # (which REFERENCES users) can be created. Idempotent on existing DBs.
+            await conn.execute(USERS_TABLE_DDL)
             await conn.execute(NOTIFICATIONS_TABLE_DDL)
             await conn.execute("""
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT FALSE;

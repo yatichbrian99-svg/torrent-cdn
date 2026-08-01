@@ -20,6 +20,30 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 """
 
+# Users table DDL — full current schema (including columns added by later
+# features such as terms_accepted / terms_accepted_at). Created idempotently at
+# startup BEFORE the ALTER migrations run so a fresh database gets the complete
+# schema on first boot (otherwise the register INSERT referencing these columns
+# fails with a 500 on a brand-new DB, and NOTIFICATIONS_TABLE_DDL, which
+# REFERENCES users, cannot be created either).
+USERS_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    plan VARCHAR(50) DEFAULT 'free',
+    verified BOOLEAN DEFAULT FALSE,
+    is_admin BOOLEAN DEFAULT FALSE,
+    stripe_customer_id VARCHAR(255),
+    terms_accepted BOOLEAN DEFAULT FALSE,
+    terms_accepted_at TIMESTAMP WITH TIME ZONE,
+    referral_code VARCHAR(20) UNIQUE,
+    referred_by UUID REFERENCES users(id),
+    referral_bonus_gb FLOAT DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+"""
+
 # Connection pools
 pg_pool: Optional[asyncpg.Pool] = None
 redis_client: Optional[Redis] = None

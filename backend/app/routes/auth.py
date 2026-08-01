@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from uuid import UUID
 
-from ..database import get_db_pool, get_redis
+from ..database import get_db_pool, get_redis, USERS_TABLE_DDL
 from ..auth import hash_password, verify_password, create_access_token, get_current_user_id
 from ..email_service import send_verification_email, send_password_reset_email, decode_password_reset_token
 from ..models import UserRegister, UserLogin, TokenResponse, ForgotPasswordRequest, ResetPasswordRequest
@@ -69,21 +69,12 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks):
 
     pool = await get_db_pool()
     async with pool.acquire() as conn:
-        # Ensure tables exist (lazy creation on first request)
+        # Ensure tables exist (lazy creation on first request). The users table
+        # uses the shared USERS_TABLE_DDL (single source of truth) so a fresh DB
+        # gets the full schema — including terms_accepted / terms_accepted_at
+        # referenced by the INSERT below — even if startup migrations were skipped.
+        await conn.execute(USERS_TABLE_DDL)
         await conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                email VARCHAR(255) UNIQUE NOT NULL,
-                password_hash VARCHAR(255) NOT NULL,
-                plan VARCHAR(50) DEFAULT 'free',
-                verified BOOLEAN DEFAULT FALSE,
-                is_admin BOOLEAN DEFAULT FALSE,
-                stripe_customer_id VARCHAR(255),
-                referral_code VARCHAR(20) UNIQUE,
-                referred_by UUID REFERENCES users(id),
-                referral_bonus_gb FLOAT DEFAULT 0,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-            );
             CREATE TABLE IF NOT EXISTS uploads (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
