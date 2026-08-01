@@ -127,8 +127,11 @@ jobs:
             sleep 3
           done
 
+      # This job runs from the repo root (no working-directory default, since the
+      # docker compose steps need the root-level compose file), so reference the
+      # audit script by its full path under backend/.
       - name: Run full-stack curl audit
-        run: bash scripts/curl_audit.sh
+        run: bash backend/scripts/curl_audit.sh
         env:
           API_URL: "http://localhost:8000"
 
