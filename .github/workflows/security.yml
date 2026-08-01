@@ -1,21 +1,59 @@
-name: Security Header Audit
+name: "CI: Tests & Security Audits"
 
+# No paths filter: tests + audits (incl. the gitleaks secret scan) run on
+# every push/PR to main — a secret committed anywhere (frontend/, Caddyfile,
+# docker-compose.yml, root files) must never escape the scan.
 on:
   push:
     branches: [main]
-    paths:
-      - "backend/**"
-      - ".github/workflows/security.yml"
   pull_request:
     branches: [main]
-    paths:
-      - "backend/**"
-      - ".github/workflows/security.yml"
+
+# Least privilege: the default GITHUB_TOKEN is repo read/write; this workflow
+# only needs read. (gitleaks reports findings via the job log; add
+# security-events: write if you later enable SARIF upload.)
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  # ── Backend unit test suite (fully mocked — no infra required) ──
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run test suite
+        run: python -m pytest -q
+        env:
+          JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
+          APP_ENV: "development"
+
   # ── Static audit (no infra required) ──
   static-audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
@@ -50,6 +88,7 @@ jobs:
   # ── Full-stack audit (requires Docker) ──
   fullstack-audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: static-audit
 
     steps:

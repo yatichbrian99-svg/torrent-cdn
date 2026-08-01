@@ -223,6 +223,24 @@ curl -X POST "$API/auth/setup?email=you@example.com" \
 - CI runs **Gitleaks** on every push/PR (`.github/workflows/security.yml`) — history and live files are scanned.
 - Rotate anything that touched a log, a chat, or a fork.
 
+### 6. Post-deploy verification (run after every deploy)
+
+Two commands confirm the deploy is correct and hardened — no dashboard login required after the one-time key creation below:
+
+```bash
+# 1. Which commit is actually live on Render? (read-only API key)
+RENDER_API_KEY=rnd_... bash backend/scripts/check_deploy.sh          # compare against local HEAD
+RENDER_API_KEY=rnd_... bash backend/scripts/check_deploy.sh <commit> # compare against a specific commit
+
+# 2. Full security audit against production (pre-flight gate + ~3 min paced audit)
+bash backend/scripts/post_deploy_check.sh
+```
+
+- `check_deploy.sh` exits `0` on a commit match, `1` on mismatch/no live deploy, `2` on key/API error. Render's API is the source of truth — it does **not** write deploy statuses back to GitHub (the statuses you see are Vercel's).
+- `post_deploy_check.sh` fast-fails (exit 1) if the hardened build isn't live yet (so you never audit a stale build), otherwise runs the full ~3-minute audit and exits `0` only when **every** check passes — security headers, CSP content, host-header protection, auth enforcement, email-verification gate, SQLi/input validation, CORS, HTTP methods, and the frontend nonce/SRI/proxy.
+- **Key creation (one-time):** Render dashboard → Account Settings → API Keys → Create API Key. A plain (read-only) key is sufficient — both scripts use only GET endpoints. Store it in the deployer's env / secrets manager; never commit it.
+- Expected result after a healthy deploy: `✅ LIVE commit matches expected` from step 1 and a `0` exit with zero `❌` lines from step 2.
+
 ---
 
 ## Operations Runbook
@@ -318,3 +336,5 @@ RENDER_API_KEY=rnd_... bash backend/scripts/check_deploy.sh 7c71b03  # compare a
 It finds the service (default `torrentcdn-backend`, override with `SERVICE_NAME=`), reads the newest `status: "live"` deploy, prints its commit id/message/timestamp, and exits `0` on a match. Only GET endpoints are used, so a read-only key is sufficient. Exit codes: `0` = match, `1` = mismatch/no live deploy, `2` = usage/API/key error.
 
 > **Why not the GitHub deployments API?** Render does not write deploy statuses back to GitHub for this service (the commit statuses you see are Vercel's, for the frontend). The Render API is the authoritative source for the backend's live commit.
+
+> **Run it as step 1 of the post-deploy checklist** (section 6 above), then `post_deploy_check.sh` for the full security audit.
