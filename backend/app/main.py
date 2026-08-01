@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 from .config import get_settings
 from .database import close_db, close_redis, get_db_pool
+from .security import get_client_ip
 import os
 
 from .routes import auth, upload, files, analytics, billing, csp, admin, verification, notifications
@@ -226,7 +227,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         import time
-        client_ip = request.client.host if request.client else "unknown"
+        client_ip = get_client_ip(request)
         now = time.time()
 
         # Try Redis first

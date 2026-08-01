@@ -5,6 +5,7 @@ from uuid import UUID
 from ..config import get_settings
 from ..database import get_db_pool, get_redis
 from ..models import AnalyticsEventCreate
+from ..security import get_client_ip
 
 VALID_EVENTS = {"peer_joined", "peer_left", "chunk_downloaded"}
 
@@ -36,7 +37,7 @@ async def track_event(
     # IP-based rate limiting (skip if Redis unavailable)
     redis = await get_redis()
     if redis is not None:
-        ip = request.client.host if request.client else "unknown"
+        ip = get_client_ip(request)
         rate_key = f"analytics_rate:{ip}"
         count = await redis.get(rate_key)
         if count and int(count) >= settings.rate_limit_analytics:
@@ -68,7 +69,7 @@ async def track_event(
 async def get_analytics(file_id: UUID, request: Request):
     """Get analytics for a file. Public endpoint."""
     # Rate limit: 30 requests per minute per IP (Redis primary, in-memory fallback)
-    ip = request.client.host if request.client else "unknown"
+    ip = get_client_ip(request)
     redis = await get_redis()
     if redis is not None:
         rate_key = f"analytics_get_rate:{ip}"

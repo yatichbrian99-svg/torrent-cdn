@@ -5,6 +5,7 @@ from uuid import UUID
 from ..database import get_db_pool, get_redis
 from ..auth import get_current_user_id
 from ..models import FileDetail
+from ..security import get_client_ip
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -129,7 +130,7 @@ async def get_public_file(file_id: UUID, request: Request = None):
     # (Redis primary, in-memory fallback when Redis is unavailable)
     redis = await get_redis()
     if request:
-        ip = request.client.host if request.client else "unknown"
+        ip = get_client_ip(request)
         rate_key = f"public_file_rate:{ip}"
         if redis is not None:
             count = await redis.get(rate_key)

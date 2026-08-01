@@ -1,7 +1,10 @@
 """
-File validation utilities.
-Verifies file content matches its extension, detects zip bombs, and validates content types.
+Security utilities.
+
+File validation (magic bytes, zip bombs, content types) plus client-IP
+resolution for per-IP rate limiting behind reverse proxies.
 """
+import ipaddress
 import logging
 import struct
 from typing import Optional
@@ -253,3 +256,37 @@ def _get_file_size(file_stream) -> Optional[int]:
         return size
     except Exception:
         return None
+
+
+def get_client_ip(request) -> str:
+    """Best-effort real client IP for per-IP rate limiting.
+
+    Behind the Vercel proxy, ``request.client.host`` is the proxy's edge IP,
+    which varies per request — so per-IP limits keyed on it never fire reliably.
+    ``X-Forwarded-For`` carries the original client IP as its first entry, so we
+    prefer that when present.
+
+    Security note: we trust the first XFF entry unconditionally. Vercel sets
+    this header itself for proxied traffic, but a client connecting directly to
+    the backend can forge it to rotate past per-IP limits. That is an accepted
+    tradeoff for this app (the public surface is the Vercel domain); the value
+    is still validated with :func:`ipaddress.ip_address` so forged junk can't
+    poison rate-limit keys or in-memory stores, and IPv4 ports are stripped.
+    Falls back to the direct peer when the header is absent or malformed.
+    """
+    peer = "unknown"
+    if request and request.client and request.client.host:
+        peer = request.client.host
+    xff = (request.headers.get("x-forwarded-for") or "").strip()
+    if not xff:
+        return peer
+    candidate = xff.split(",")[0].strip()
+    # Strip an IPv4 port if present (e.g. "1.2.3.4:5678"). IPv6 has multiple
+    # colons, so the count check keeps IPv6 addresses intact.
+    if candidate.count(":") == 1:
+        candidate = candidate.rsplit(":", 1)[0].strip()
+    try:
+        ipaddress.ip_address(candidate)
+        return candidate
+    except ValueError:
+        return peer

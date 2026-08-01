@@ -179,6 +179,83 @@ class TestLoginLockout:
         assert resp.status_code == 200
         mock_redis.delete.assert_any_call(rate_key)
 
+    def test_lockout_keyed_on_xff_client_ip(self, client, mock_conn, mock_redis):
+        """Behind a proxy, X-Forwarded-For (real client) drives the lockout key,
+        not the proxy's varying edge IP (request.client.host)."""
+        rate_key = "login_attempts:203.0.113.9:user@example.com"
+        mock_redis.get.side_effect = lambda key: "5" if key == rate_key else None
+
+        resp = client.post(
+            self.LOGIN_URL,
+            json={"email": "user@example.com", "password": "wrongPass1"},
+            headers={"X-Forwarded-For": "203.0.113.9, 10.0.0.1"},
+        )
+        assert resp.status_code == 429
+        assert "Too many login attempts" in resp.json()["detail"]
+
+    def test_lockout_ignores_forged_xff(self, client, mock_conn, mock_redis):
+        """A malformed X-Forwarded-For (e.g. attacker junk) falls back to the peer IP."""
+        rate_key = "login_attempts:testclient:user@example.com"
+        mock_redis.get.side_effect = lambda key: "5" if key == rate_key else None
+
+        resp = client.post(
+            self.LOGIN_URL,
+            json={"email": "user@example.com", "password": "wrongPass1"},
+            headers={"X-Forwarded-For": "not-an-ip<script>"},
+        )
+        assert resp.status_code == 429  # keyed on the peer (testclient), not the junk
+
+
+class TestGetClientIp:
+    """get_client_ip() must prefer the first X-Forwarded-For entry (real client
+    behind Vercel), strip ports, reject forged junk, and fall back to the peer."""
+
+    @staticmethod
+    def _make_request(xff: str = None, peer: str = "198.51.100.10"):
+        from starlette.requests import Request
+
+        headers = []
+        if xff is not None:
+            headers.append((b"x-forwarded-for", xff.encode()))
+        scope = {"type": "http", "headers": headers, "client": (peer, 12345)}
+        return Request(scope)
+
+    def test_uses_first_xff_entry(self):
+        from app.security import get_client_ip
+
+        req = self._make_request(xff="203.0.113.9, 10.0.0.1, 172.16.0.1")
+        assert get_client_ip(req) == "203.0.113.9"
+
+    def test_strips_ipv4_port(self):
+        from app.security import get_client_ip
+
+        req = self._make_request(xff="203.0.113.9:5678")
+        assert get_client_ip(req) == "203.0.113.9"
+
+    def test_ipv6_address_preserved(self):
+        from app.security import get_client_ip
+
+        req = self._make_request(xff="2001:db8::1")
+        assert get_client_ip(req) == "2001:db8::1"
+
+    def test_malformed_xff_falls_back_to_peer(self):
+        from app.security import get_client_ip
+
+        req = self._make_request(xff="not-an-ip<script>")
+        assert get_client_ip(req) == "198.51.100.10"
+
+    def test_missing_xff_falls_back_to_peer(self):
+        from app.security import get_client_ip
+
+        req = self._make_request(xff=None)
+        assert get_client_ip(req) == "198.51.100.10"
+
+    def test_no_client_falls_back_to_unknown(self):
+        from app.security import get_client_ip
+
+        req = self._make_request(xff=None, peer=None)
+        assert get_client_ip(req) == "unknown"
+
 
 class TestFailClosedConfig:
     """get_settings() must fail closed on insecure JWT secrets."""
@@ -280,6 +357,48 @@ class TestProductionAppUrlGuard:
         get_settings = self._fresh_prod_settings(monkeypatch, "http://www.torrentcdn.store")
         settings = get_settings()
         assert settings.app_url == "https://www.torrentcdn.store"
+        get_settings.cache_clear()
+
+    def test_http_dead_domain_combined_ordering(self, monkeypatch):
+        """http:// + dead domain: the dead-domain override must win over the http upgrade."""
+        get_settings = self._fresh_prod_settings(monkeypatch, "http://torrentcdn.com")
+        settings = get_settings()
+        assert settings.app_url == "https://www.torrentcdn.store"
+        get_settings.cache_clear()
+
+    def test_trailing_slash_dead_domain(self, monkeypatch):
+        """A trailing slash must not defeat the dead-domain override (hostname parsed clean)."""
+        get_settings = self._fresh_prod_settings(monkeypatch, "https://torrentcdn.com/")
+        settings = get_settings()
+        assert settings.app_url == "https://www.torrentcdn.store"
+        get_settings.cache_clear()
+
+    def test_port_variant_dead_domain(self, monkeypatch):
+        """A port must not defeat the dead-domain override (hostname excludes the port)."""
+        get_settings = self._fresh_prod_settings(monkeypatch, "https://torrentcdn.com:443")
+        settings = get_settings()
+        assert settings.app_url == "https://www.torrentcdn.store"
+        get_settings.cache_clear()
+
+    def test_combined_www_port_slash_dead_domain(self, monkeypatch):
+        """www + port + trailing slash on the dead domain → still canonicalized."""
+        get_settings = self._fresh_prod_settings(monkeypatch, "https://www.torrentcdn.com:8443/")
+        settings = get_settings()
+        assert settings.app_url == "https://www.torrentcdn.store"
+        get_settings.cache_clear()
+
+    def test_uppercase_host_dead_domain(self, monkeypatch):
+        """Uppercase hostname is lowercased by urlparse, so the dead-domain override still fires."""
+        get_settings = self._fresh_prod_settings(monkeypatch, "HTTPS://TORRENTCDN.COM")
+        settings = get_settings()
+        assert settings.app_url == "https://www.torrentcdn.store"
+        get_settings.cache_clear()
+
+    def test_trailing_slash_canonical_domain(self, monkeypatch):
+        """A correct domain with a trailing slash is left alone — the canonical form wins."""
+        get_settings = self._fresh_prod_settings(monkeypatch, "https://www.torrentcdn.store/")
+        settings = get_settings()
+        assert settings.app_url == "https://www.torrentcdn.store/"
         get_settings.cache_clear()
 
     def test_localhost_flagged_but_not_guessed(self, monkeypatch, caplog):
@@ -394,6 +513,27 @@ class TestInMemoryRateLimitFallbacks:
             resp = client.post(self.FORGOT_URL, json={"email": "user@example.com"})
             assert resp.status_code == 200
             resp = client.post(self.FORGOT_URL, json={"email": "user@example.com"})
+            assert resp.status_code == 429
+            assert "Please wait" in resp.json()["detail"]
+        finally:
+            auth_route._forgot_requests.clear()
+            auth_route._forgot_requests.update(saved)
+
+    def test_forgot_password_in_memory_keyed_on_xff(self, client, monkeypatch):
+        """In-memory forgot-password limit keys on the X-Forwarded-For client IP."""
+        import app.routes.auth as auth_route
+        self._disable_redis(monkeypatch, auth_route)
+
+        saved = dict(auth_route._forgot_requests)
+        auth_route._forgot_requests.clear()
+        try:
+            # Seed the store with a recent request from the XFF client IP
+            auth_route._forgot_requests["203.0.113.9"] = time.time()
+            resp = client.post(
+                self.FORGOT_URL,
+                json={"email": "user@example.com"},
+                headers={"X-Forwarded-For": "203.0.113.9"},
+            )
             assert resp.status_code == 429
             assert "Please wait" in resp.json()["detail"]
         finally:

@@ -5,6 +5,7 @@ from fastapi.responses import Response
 
 from ..config import get_settings
 from ..database import get_redis
+from ..security import get_client_ip
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -23,7 +24,7 @@ async def csp_report_endpoint(request: Request):
     # IP-based rate limiting for CSP reports
     try:
         redis = await get_redis()
-        ip = request.client.host if request.client else "unknown"
+        ip = get_client_ip(request)
         rate_key = f"csp_report_rate:{ip}"
         count = await redis.get(rate_key)
         if count and int(count) >= 100:  # max 100 reports per minute per IP

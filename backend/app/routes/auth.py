@@ -10,6 +10,7 @@ from ..auth import hash_password, verify_password, create_access_token, get_curr
 from ..email_service import send_verification_email, send_password_reset_email, decode_password_reset_token
 from ..models import UserRegister, UserLogin, TokenResponse, ForgotPasswordRequest, ResetPasswordRequest
 from ..config import get_settings
+from ..security import get_client_ip
 from ..services.email import send_welcome_email
 
 logger = logging.getLogger(__name__)
@@ -208,7 +209,7 @@ async def login(data: UserLogin, request: Request):
 
     # Rate limiting: keyed by IP + email so an attacker can't lock out a victim's
     # account from their own IP. Redis primary, in-memory fallback when down.
-    ip = request.client.host if request.client else "unknown"
+    ip = get_client_ip(request)
     rate_key = f"login_attempts:{ip}:{data.email}"
     if redis is not None:
         attempts = await redis.get(rate_key)
@@ -274,7 +275,7 @@ async def forgot_password(data: ForgotPasswordRequest, request: Request):
     # Rate limiting: 1 request per 60 seconds per IP
     if request:
         redis = await get_redis()
-        ip = request.client.host if request.client else "unknown"
+        ip = get_client_ip(request)
         rate_key = f"forgot_pw_rate:{ip}"
         if redis is not None:
             count = await redis.get(rate_key)
