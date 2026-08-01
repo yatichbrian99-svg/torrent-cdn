@@ -242,6 +242,101 @@ class TestFailClosedConfig:
         get_settings.cache_clear()
 
 
+class TestProductionAppUrlGuard:
+    """In production, get_settings() must never let APP_URL point at a dead domain
+    (torrentcdn.com) or a plain http:// URL — those silently break email
+    verification/reset links, billing redirects, and embed URLs."""
+
+    GOOD_SECRET = "this-is-a-32-char-secret-for-testing-only!!"
+
+    @staticmethod
+    def _fresh_prod_settings(monkeypatch, app_url: str):
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("JWT_SECRET", TestProductionAppUrlGuard.GOOD_SECRET)
+        monkeypatch.setenv("APP_URL", app_url)
+        monkeypatch.delenv("JWT_VERIFY_SECRET", raising=False)
+        monkeypatch.delenv("JWT_RESET_SECRET", raising=False)
+        monkeypatch.delenv("EMAIL_VERIFICATION_REQUIRED", raising=False)
+        from app.config import get_settings
+        get_settings.cache_clear()
+        return get_settings
+
+    def test_dead_apex_domain_overridden(self, monkeypatch):
+        """https://torrentcdn.com (dead DNS) → corrected to the canonical frontend."""
+        get_settings = self._fresh_prod_settings(monkeypatch, "https://torrentcdn.com")
+        settings = get_settings()
+        assert settings.app_url == "https://www.torrentcdn.store"
+        get_settings.cache_clear()
+
+    def test_dead_www_domain_overridden(self, monkeypatch):
+        """https://www.torrentcdn.com (dead DNS) → corrected to the canonical frontend."""
+        get_settings = self._fresh_prod_settings(monkeypatch, "https://www.torrentcdn.com")
+        settings = get_settings()
+        assert settings.app_url == "https://www.torrentcdn.store"
+        get_settings.cache_clear()
+
+    def test_http_scheme_upgraded_to_https(self, monkeypatch):
+        """http:// APP_URL → upgraded to https:// (HSTS would block http links)."""
+        get_settings = self._fresh_prod_settings(monkeypatch, "http://www.torrentcdn.store")
+        settings = get_settings()
+        assert settings.app_url == "https://www.torrentcdn.store"
+        get_settings.cache_clear()
+
+    def test_localhost_flagged_but_not_guessed(self, monkeypatch, caplog):
+        """localhost in production logs an error and is NOT auto-rewritten (can't guess the domain)."""
+        import logging
+
+        get_settings = self._fresh_prod_settings(monkeypatch, "http://localhost:3000")
+        with caplog.at_level(logging.ERROR, logger="app.config"):
+            settings = get_settings()
+        assert settings.app_url == "http://localhost:3000"
+        assert any("APP_URL points at localhost" in r.message for r in caplog.records)
+        get_settings.cache_clear()
+
+    def test_canonical_domain_untouched(self, monkeypatch):
+        """A correct https://www.torrentcdn.store APP_URL passes through unchanged."""
+        get_settings = self._fresh_prod_settings(monkeypatch, "https://www.torrentcdn.store")
+        settings = get_settings()
+        assert settings.app_url == "https://www.torrentcdn.store"
+        get_settings.cache_clear()
+
+    def test_uppercase_http_scheme_upgraded(self, monkeypatch):
+        """HTTP:// (uppercase) is still treated as insecure and upgraded to https://."""
+        get_settings = self._fresh_prod_settings(monkeypatch, "HTTP://www.torrentcdn.store")
+        settings = get_settings()
+        assert settings.app_url == "https://www.torrentcdn.store"
+        get_settings.cache_clear()
+
+    def test_scheme_less_app_url_flagged(self, monkeypatch, caplog):
+        """APP_URL without a scheme/hostname logs an error (fail loudly, don't guess)."""
+        import logging
+
+        get_settings = self._fresh_prod_settings(monkeypatch, "torrentcdn.store")
+        with caplog.at_level(logging.ERROR, logger="app.config"):
+            settings = get_settings()
+        assert settings.app_url == "torrentcdn.store"
+        assert any("no usable scheme/hostname" in r.message for r in caplog.records)
+        get_settings.cache_clear()
+
+    def test_scheme_without_host_flagged(self, monkeypatch, caplog):
+        """A bare scheme like 'http://' (no hostname) fails loudly instead of a silent 'https://' rewrite."""
+        import logging
+
+        get_settings = self._fresh_prod_settings(monkeypatch, "http://")
+        with caplog.at_level(logging.ERROR, logger="app.config"):
+            settings = get_settings()
+        assert settings.app_url == "http://"
+        assert any("no usable scheme/hostname" in r.message for r in caplog.records)
+        get_settings.cache_clear()
+
+    def test_verification_required_defaults_on_in_production(self, monkeypatch):
+        """Production with EMAIL_VERIFICATION_REQUIRED unset → verification gate on."""
+        get_settings = self._fresh_prod_settings(monkeypatch, "https://www.torrentcdn.store")
+        settings = get_settings()
+        assert settings.email_verification_required is True
+        get_settings.cache_clear()
+
+
 class TestInMemoryRateLimitFallbacks:
     """When Redis is unavailable, in-memory stores must still enforce rate limits."""
 

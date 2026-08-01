@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+from urllib.parse import urlparse
 import logging
 import os
 
@@ -101,15 +102,63 @@ def get_settings() -> Settings:
             (settings.jwt_secret + "__reset__").encode()
         ).hexdigest()
     if settings.app_env == "production":
+        logger = logging.getLogger(__name__)
         # Warn loudly (but don't crash) if placeholder credentials are detected
         if settings.minio_secret_key == "minioadmin":
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "MINIO_SECRET_KEY is the insecure default 'minioadmin' — set a real secret in production"
             )
         if settings.stripe_secret_key in ("sk_test_xxx", "sk_live_xxx"):
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "STRIPE_SECRET_KEY looks like a placeholder — set a real Stripe secret key in production"
             )
+
+        # APP_URL drives every user-facing link the backend emits (email
+        # verification, password reset, referral URLs, billing redirects, embed
+        # URLs, and the CSP media/connect-src). A stale value silently breaks
+        # email verification: the link points at a dead domain and users can
+        # never verify. Fail loudly instead of shipping a broken link.
+        parsed = urlparse(settings.app_url)
+        app_host = (parsed.hostname or "").lower()
+        app_scheme = parsed.scheme.lower()  # urllib.parse already lowercases, kept for clarity
+        if app_host in ("localhost", "127.0.0.1"):
+            logger.error(
+                "APP_URL points at localhost (%s) in production — email verification/reset "
+                "links will point at localhost. Set APP_URL to your real frontend domain.",
+                settings.app_url,
+            )
+        elif app_host in ("torrentcdn.com", "www.torrentcdn.com"):
+            # The apex torrentcdn.com no longer resolves (confirmed dead DNS).
+            # The canonical frontend domain is www.torrentcdn.store. Correct it
+            # for this process and tell the operator to fix the env var.
+            logger.warning(
+                "APP_URL (%s) points at the dead torrentcdn.com domain — overriding to "
+                "https://www.torrentcdn.store for this process. Update APP_URL in the Render "
+                "dashboard to https://www.torrentcdn.store and redeploy so the fix is permanent.",
+                settings.app_url,
+            )
+            settings.app_url = "https://www.torrentcdn.store"
+        elif not app_scheme or not app_host:
+            # No scheme or no hostname (e.g. empty, "torrentcdn.store", "http://") —
+            # links built from it are unresolvable. Fail loudly, never ship silently.
+            logger.error(
+                "APP_URL (%r) has no usable scheme/hostname in production — email "
+                "verification/reset links will be broken. Set APP_URL to your real "
+                "frontend domain, e.g. https://www.torrentcdn.store.",
+                settings.app_url,
+            )
+        elif app_scheme == "http":
+            # Plain http:// in production: HSTS makes browsers block http links,
+            # so email verification/reset would still appear to "go nowhere".
+            # Upgrade the scheme for this process and tell the operator.
+            upgraded = "https://" + settings.app_url.split("://", 1)[1]
+            logger.warning(
+                "APP_URL uses http:// — upgraded to %s for this process. Set APP_URL "
+                "to an https:// URL in the Render dashboard.",
+                upgraded,
+            )
+            settings.app_url = upgraded
+
         # In production, email verification is required by default
         # (unless explicitly disabled via env var EMAIL_VERIFICATION_REQUIRED=false)
         if not os.environ.get("EMAIL_VERIFICATION_REQUIRED"):

@@ -23,8 +23,8 @@ Controls which resources the browser is allowed to load. The policy is environme
 | `style-src` | `'self' 'unsafe-inline' fonts.googleapis.com` | `'self' 'unsafe-inline' fonts.googleapis.com` |
 | `font-src` | `'self' fonts.gstatic.com` | `'self' fonts.gstatic.com` |
 | `img-src` | `'self' data: blob:` | `'self' data: blob:` |
-| `media-src` | `'self' blob: http://localhost:9000 https://*.torrentcdn.com` | `'self' blob: https://*.torrentcdn.com` |
-| `connect-src` | `'self' wss://tracker.openwebtorrent.com wss://tracker.btorrent.xyz wss://tracker.fastcast.nz http://localhost:9000 https://*.torrentcdn.com` | `'self' wss://tracker.openwebtorrent.com wss://tracker.btorrent.xyz wss://tracker.fastcast.nz https://*.torrentcdn.com` |
+| `media-src` | `'self' blob: http://localhost:9000 <APP_URL>` | `'self' blob: <APP_URL>` |
+| `connect-src` | `'self' wss://tracker.openwebtorrent.com wss://tracker.btorrent.xyz wss://tracker.fastcast.nz http://localhost:9000 <APP_URL>` | `'self' wss://tracker.openwebtorrent.com wss://tracker.btorrent.xyz wss://tracker.fastcast.nz <APP_URL>` |
 | `frame-src` | `'self'` | `'self'` |
 | `worker-src` | `'self' blob:` | `'self' blob:` |
 | `base-uri` | `'self'` | `'self'` |
@@ -136,7 +136,7 @@ A built-in endpoint that receives CSP violation reports from browsers.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `APP_ENV` | `development` | Set to `production` for HSTS + hardened CSP |
-| `APP_URL` | `http://localhost:3000` | Frontend URL (used in CORS and CSP) |
+| `APP_URL` | `http://localhost:3000` | Frontend URL (used in CORS and CSP; must be the canonical `https://www.torrentcdn.store` in prod — dead `torrentcdn.com` is auto-corrected at startup) |
 | `CSP_REPORT_URL` | `/api/csp-report` | CSP report endpoint |
 | `CSP_REPORT_ONLY` | `false` | Use `Content-Security-Policy-Report-Only` if `true` |
 
@@ -204,7 +204,7 @@ curl -X POST "$API/auth/setup?email=you@example.com" \
 | Variable | Value | Notes |
 |----------|-------|-------|
 | `APP_ENV` | `production` | Enables HSTS, hardened CSP, email-verification-required |
-| `APP_URL` | `https://torrentcdn.store` | Used for CORS/CSP/embed URLs |
+| `APP_URL` | `https://www.torrentcdn.store` | Canonical frontend domain — drives email verify/reset links, CORS/CSP/embed URLs. Never `https://torrentcdn.com` (dead DNS) |
 | `JWT_SECRET` | random ≥32 chars | Use `generateValue: true` or set manually |
 | `DATABASE_URL` | Supabase pooled URL | Set in dashboard (never commit) |
 | `REDIS_URL` | Upstash/Redis Cloud URL | Required for distributed rate limiting |
