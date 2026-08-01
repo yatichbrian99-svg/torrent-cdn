@@ -9,7 +9,8 @@ import {
   RefreshCw, Calendar, FolderOpen, UserCheck,
   ChevronDown, ChevronUp,
 } from 'lucide-react'
-import { isLoggedIn, getToken } from '@/lib/auth'
+import { isLoggedIn } from '@/lib/auth'
+import api from '@/lib/api'
 
 interface Analytics {
   total_users: number
@@ -63,29 +64,22 @@ export default function AdminPage() {
   }, [toast])
 
   const fetchData = useCallback(async (pageNum: number) => {
-    const token = getToken()
-    const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
-
     try {
-      const [analyticsRes, usersRes] = await Promise.all([
-        fetch('/api/admin/stats', { headers }),
-        fetch(`/api/admin/users?page=${pageNum}&limit=20`, { headers }),
+      const [stats, data] = await Promise.all([
+        api.getAdminStats(),
+        api.getAdminUsers(pageNum),
       ])
-
-      if (analyticsRes.status === 403) {
-        setError('Admin access required')
-        setLoading(false)
-        return
-      }
-
-      setAnalytics(await analyticsRes.json())
-      const data = await usersRes.json()
+      setAnalytics(stats)
       setUsers(data.users || [])
       setTotal(data.total || 0)
       setPages(data.pages || 1)
       setPage(data.page || 1)
-    } catch {
-      setError('Failed to load admin data')
+    } catch (err: any) {
+      if (err?.response?.status === 403) {
+        setError('Admin access required')
+      } else {
+        setError('Failed to load admin data')
+      }
     } finally {
       setLoading(false)
     }
@@ -94,8 +88,7 @@ export default function AdminPage() {
   useEffect(() => {
     if (!isLoggedIn()) { router.push('/'); return }
     // Redirect non-admins to the homepage.
-    fetch('/api/auth/me', { headers: { Authorization: `Bearer ${getToken()}` } })
-      .then((r) => r.json())
+    api.getMe()
       .then((me) => { if (!me?.is_admin) { router.push('/'); return } fetchData(1) })
       .catch(() => { router.push('/') })
   }, [router, fetchData])
@@ -105,45 +98,26 @@ export default function AdminPage() {
   }
 
   const updatePlan = async (userId: string, plan: string) => {
-    const token = getToken()
     setPlanUpdating(userId)
     try {
-      const res = await fetch(`/api/admin/users/${userId}/plan`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan }),
-      })
-      if (res.ok) {
-        showToast(`Plan updated to ${plan}`, 'success')
-        fetchData(page)
-      } else {
-        const data = await res.json()
-        showToast(data.detail || 'Failed to update plan', 'error')
-      }
-    } catch {
-      showToast('Failed to update plan', 'error')
+      await api.updateUserPlan(userId, plan)
+      showToast(`Plan updated to ${plan}`, 'success')
+      fetchData(page)
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Failed to update plan', 'error')
     } finally {
       setPlanUpdating(null)
     }
   }
 
   const toggleAdmin = async (user: User) => {
-    const token = getToken()
     setAdminToggling(user.id)
     try {
-      const res = await fetch(`/api/admin/users/${user.id}/toggle-admin`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const data = await res.json()
-      if (res.ok) {
-        showToast(data.detail || 'Admin status updated', 'success')
-        fetchData(page)
-      } else {
-        showToast(data.detail || 'Failed to update admin status', 'error')
-      }
-    } catch {
-      showToast('Failed to update admin status', 'error')
+      await api.toggleAdmin(user.id)
+      showToast('Admin status updated', 'success')
+      fetchData(page)
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Failed to update admin status', 'error')
     } finally {
       setAdminToggling(null)
     }
@@ -151,23 +125,14 @@ export default function AdminPage() {
 
   const deleteUser = async () => {
     if (!deleteTarget) return
-    const token = getToken()
     setDeleting(true)
     try {
-      const res = await fetch(`/api/admin/users/${deleteTarget.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const data = await res.json()
-      if (res.ok) {
-        showToast(`User ${deleteTarget.email} deleted`, 'success')
-        setDeleteTarget(null)
-        fetchData(page)
-      } else {
-        showToast(data.detail || 'Failed to delete user', 'error')
-      }
-    } catch {
-      showToast('Failed to delete user', 'error')
+      await api.deleteUser(deleteTarget.id)
+      showToast(`User ${deleteTarget.email} deleted`, 'success')
+      setDeleteTarget(null)
+      fetchData(page)
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Failed to delete user', 'error')
     } finally {
       setDeleting(false)
     }
@@ -653,17 +618,12 @@ export default function AdminPage() {
                           {!user.verified && !user.is_admin && (
                             <button
                               onClick={async () => {
-                                const token = getToken()
-                                const res = await fetch(`/api/admin/users/${user.id}/verify`, {
-                                  method: 'POST',
-                                  headers: { Authorization: `Bearer ${token}` },
-                                })
-                                const data = await res.json()
-                                if (res.ok) {
+                                try {
+                                  await api.verifyUser(user.id)
                                   showToast(`Verified ${user.email}`, 'success')
                                   fetchData(page)
-                                } else {
-                                  showToast(data.detail || 'Failed to verify', 'error')
+                                } catch (err: any) {
+                                  showToast(err?.response?.data?.detail || 'Failed to verify', 'error')
                                 }
                               }}
                               className="p-1.5 rounded transition-all duration-150 opacity-0 group-hover:opacity-100 hover:bg-green-500/10"

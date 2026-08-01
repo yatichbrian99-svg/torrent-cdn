@@ -88,7 +88,7 @@ export default function DashboardPage() {
   const totalFiles = files.length
   const totalBW = files.reduce((s, f) => s + f.bandwidth_saved_gb, 0)
   const avgP2P = totalFiles > 0 ? files.reduce((s, f) => s + f.p2p_offload_percent, 0) / totalFiles : 0
-  const totalBandwidthMonth = bandwidth.reduce((s, d) => s + d.gb, 0)
+  const totalBandwidth7d = bandwidth.reduce((s, d) => s + d.gb, 0)
   const allZero = bandwidth.length > 0 && bandwidth.every((d) => d.gb === 0)
 
   if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 size={20} className="animate-spin" style={{ color: '#555' }} /></div>
@@ -242,7 +242,7 @@ export default function DashboardPage() {
             </p>
           </div>
           <p className="text-xs" style={{ color: '#555' }}>
-            Total this month: <span className="font-medium text-white">{totalBandwidthMonth.toFixed(2)} GB</span>
+            Total (last 7 days): <span className="font-medium text-white">{totalBandwidth7d.toFixed(2)} GB</span>
           </p>
         </div>
         {allZero || bandwidth.length === 0 ? (

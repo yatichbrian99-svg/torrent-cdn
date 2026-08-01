@@ -110,6 +110,8 @@ export default {
 
   toggleAdmin: (userId: string) => api.post(`/admin/users/${userId}/toggle-admin`).then((r) => r.data),
 
+  verifyUser: (userId: string) => api.post(`/admin/users/${userId}/verify`).then((r) => r.data),
+
   deleteUser: (userId: string) => api.delete(`/admin/users/${userId}`).then((r) => r.data),
 }
 
