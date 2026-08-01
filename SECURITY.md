@@ -304,3 +304,17 @@ APP_ENV=production curl -sI http://localhost:8000/health | grep -i content-secur
 # Verify all headers are present using the security audit script
 python backend/scripts/security_audit.py
 ```
+
+### Verify the live Render deploy commit (no dashboard needed)
+
+`backend/scripts/check_deploy.sh` confirms which commit is **live** on Render via the read-only REST API — no dashboard login required.
+
+```bash
+# Create a read-only API key: Render dashboard → Account Settings → API Keys → Create API Key
+RENDER_API_KEY=rnd_... bash backend/scripts/check_deploy.sh          # compare against local HEAD
+RENDER_API_KEY=rnd_... bash backend/scripts/check_deploy.sh 7c71b03  # compare against a specific commit
+```
+
+It finds the service (default `torrentcdn-backend`, override with `SERVICE_NAME=`), reads the newest `status: "live"` deploy, prints its commit id/message/timestamp, and exits `0` on a match. Only GET endpoints are used, so a read-only key is sufficient. Exit codes: `0` = match, `1` = mismatch/no live deploy, `2` = usage/API/key error.
+
+> **Why not the GitHub deployments API?** Render does not write deploy statuses back to GitHub for this service (the commit statuses you see are Vercel's, for the frontend). The Render API is the authoritative source for the backend's live commit.
