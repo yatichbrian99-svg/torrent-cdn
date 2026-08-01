@@ -18,10 +18,13 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
     setLoading(true)
     setError('')
     try {
+      const refCode = isLogin ? undefined : (sessionStorage.getItem('torrent_cdn_ref') || undefined)
       const data = isLogin
         ? await api.login(email, password)
-        : await api.register(email, password, termsAccepted)
+        : await api.register(email, password, termsAccepted, refCode)
       saveToken(data.access_token)
+      // Referral code is consumed after a successful registration.
+      if (!isLogin && refCode) sessionStorage.removeItem('torrent_cdn_ref')
       onClose()
       window.location.reload()
     } catch (err: any) {

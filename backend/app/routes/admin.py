@@ -26,9 +26,60 @@ async def require_admin(user_id: UUID = Depends(get_current_user_id)) -> UUID:
     return user_id
 
 
+@router.get("/stats")
+async def admin_stats(_: UUID = Depends(require_admin)):
+    """Platform-wide stats for the admin dashboard."""
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        total_users = await conn.fetchval("SELECT COUNT(*) FROM users")
+        total_files = await conn.fetchval("SELECT COUNT(*) FROM uploads")
+        total_bandwidth_gb = await conn.fetchval(
+            "SELECT COALESCE(SUM(total_gb_used), 0) FROM usage_records"
+        )
+        total_p2p_saved_gb = await conn.fetchval(
+            "SELECT COALESCE(SUM(bytes_p2p), 0) / (1024.0 * 1024.0 * 1024.0) FROM analytics"
+        )
+        free_users = await conn.fetchval(
+            "SELECT COUNT(*) FROM users WHERE plan = 'free'"
+        )
+        pro_users = await conn.fetchval(
+            "SELECT COUNT(*) FROM users WHERE plan = 'pro'"
+        )
+        business_users = await conn.fetchval(
+            "SELECT COUNT(*) FROM users WHERE plan = 'business'"
+        )
+        new_users_today = await conn.fetchval(
+            "SELECT COUNT(*) FROM users WHERE created_at::date = CURRENT_DATE"
+        )
+        new_files_today = await conn.fetchval(
+            "SELECT COUNT(*) FROM uploads WHERE created_at::date = CURRENT_DATE"
+        )
+
+    return {
+        "total_users": total_users or 0,
+        "total_files": total_files or 0,
+        "total_bandwidth_gb": round(total_bandwidth_gb or 0, 2),
+        "total_p2p_saved_gb": round(total_p2p_saved_gb or 0, 3),
+        "users_by_plan": {
+            "free": free_users or 0,
+            "pro": pro_users or 0,
+            "business": business_users or 0,
+        },
+        "new_users_today": new_users_today or 0,
+        "new_files_today": new_files_today or 0,
+    }
+
+
 @router.get("/users", response_model=list[UserAdminResponse])
-async def admin_list_users(_: UUID = Depends(require_admin)):
-    """List all users with their usage stats."""
+async def admin_list_users(
+    page: int = 1,
+    limit: int = 20,
+    _: UUID = Depends(require_admin),
+):
+    """List users with their usage stats. Paginated (page=1, limit=20 default)."""
+    page = max(1, page)
+    limit = max(1, min(limit, 200))
+    offset = (page - 1) * limit
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
@@ -40,7 +91,8 @@ async def admin_list_users(_: UUID = Depends(require_admin)):
             LEFT JOIN usage_records ur ON ur.user_id = u.id
                 AND ur.month = $1
             ORDER BY u.created_at DESC
-        """, datetime.utcnow().strftime("%Y-%m"))
+            LIMIT $2 OFFSET $3
+        """, datetime.utcnow().strftime("%Y-%m"), limit, offset)
 
     return [
         UserAdminResponse(
@@ -88,13 +140,8 @@ async def admin_get_user(user_id: UUID, _: UUID = Depends(require_admin)):
         )
 
 
-@router.put("/users/{user_id}/plan")
-async def admin_update_plan(
-    user_id: UUID,
-    data: UpdateUserPlanRequest,
-    _: UUID = Depends(require_admin),
-):
-    """Update a user's subscription plan."""
+async def _admin_update_plan(user_id: UUID, data: UpdateUserPlanRequest):
+    """Shared plan-update logic used by both PUT and POST routes."""
     VALID_PLANS = {"free", "pro", "business"}
     if data.plan not in VALID_PLANS:
         raise HTTPException(status_code=400, detail="Invalid plan")
@@ -108,6 +155,26 @@ async def admin_update_plan(
         if result == "UPDATE 0":
             raise HTTPException(status_code=404, detail="User not found")
     return {"detail": f"Plan updated to {data.plan}"}
+
+
+@router.put("/users/{user_id}/plan")
+async def admin_update_plan(
+    user_id: UUID,
+    data: UpdateUserPlanRequest,
+    _: UUID = Depends(require_admin),
+):
+    """Update a user's subscription plan."""
+    return await _admin_update_plan(user_id, data)
+
+
+@router.post("/users/{user_id}/plan")
+async def admin_update_plan_post(
+    user_id: UUID,
+    data: UpdateUserPlanRequest,
+    _: UUID = Depends(require_admin),
+):
+    """Update a user's subscription plan (POST alias)."""
+    return await _admin_update_plan(user_id, data)
 
 
 @router.delete("/users/{user_id}")

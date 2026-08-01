@@ -1,16 +1,28 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { Bell } from 'lucide-react'
 import { isLoggedIn, removeToken } from '@/lib/auth'
 import api from '@/lib/api'
 import AuthModal from './AuthModal'
+
+interface Notification {
+  id: string
+  type: string
+  message: string
+  read: boolean
+  created_at: string
+}
 
 export default function Navbar() {
   const router = useRouter()
   const [showAuth, setShowAuth] = useState(false)
   const [user, setUser] = useState<{ email: string; plan: string; is_admin?: boolean } | null>(null)
   const [loggedIn, setLoggedIn] = useState(false)
+  const [notifications, setNotifications] = useState<Notification[]>([])
+  const [showNotifs, setShowNotifs] = useState(false)
+  const notifRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setLoggedIn(isLoggedIn())
@@ -20,11 +32,38 @@ export default function Navbar() {
     if (loggedIn && !user) api.getMe().then(setUser).catch(() => removeToken())
   }, [loggedIn, user])
 
+  useEffect(() => {
+    if (loggedIn) {
+      api.getNotifications().then(setNotifications).catch(() => {})
+    }
+  }, [loggedIn])
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setShowNotifs(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const unreadCount = notifications.filter((n) => !n.read).length
+
   const handleLogout = () => {
     removeToken()
     setUser(null)
     router.push('/')
     window.location.reload()
+  }
+
+  const handleMarkRead = async (id: string) => {
+    try {
+      await api.markNotificationRead(id)
+      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)))
+    } catch {
+      // ignore — dropdown refresh will reconcile
+    }
   }
 
   return (
@@ -34,6 +73,7 @@ export default function Navbar() {
           <a href="/" className="font-mono text-sm font-medium text-white">TorrentCDN</a>
 
           <div className="flex items-center gap-4">
+            <a href="/docs" className="text-sm transition-colors hover:text-white" style={{ color: '#555' }}>Docs</a>
             {loggedIn && (
               <>
                 <a href="/dashboard" className="text-sm" style={{ color: '#555' }}>Dashboard</a>
@@ -41,6 +81,42 @@ export default function Navbar() {
                 {user?.is_admin && (
                   <a href="/admin" className="text-sm" style={{ color: '#555' }}>Admin</a>
                 )}
+                <div className="relative" ref={notifRef}>
+                  <button onClick={() => setShowNotifs((s) => !s)} className="relative p-1 transition-opacity hover:opacity-80" aria-label="Notifications">
+                    <Bell size={16} style={{ color: '#555' }} />
+                    {unreadCount > 0 && (
+                      <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full" style={{ backgroundColor: '#ef4444' }} />
+                    )}
+                  </button>
+                  {showNotifs && (
+                    <div className="absolute right-0 top-8 z-50 max-h-96 w-80 overflow-y-auto border" style={{ backgroundColor: '#0c0c0c', borderColor: '#222' }}>
+                      <div className="border-b px-4 py-2" style={{ borderColor: '#222' }}>
+                        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Notifications</p>
+                      </div>
+                      {notifications.length === 0 ? (
+                        <p className="px-4 py-6 text-center text-xs" style={{ color: '#555' }}>No notifications</p>
+                      ) : (
+                        notifications.map((n) => (
+                          <div key={n.id} className="border-b px-4 py-3" style={{ borderColor: '#222' }}>
+                            <p className={`text-xs leading-relaxed ${n.read ? '' : 'font-medium text-white'}`} style={n.read ? { color: '#666' } : {}}>
+                              {n.message}
+                            </p>
+                            <div className="mt-2 flex items-center gap-3">
+                              {!n.read && (
+                                <button onClick={() => handleMarkRead(n.id)} className="text-[10px] uppercase tracking-widest transition-colors hover:text-white" style={{ color: '#888', fontFamily: 'monospace' }}>
+                                  Mark read
+                                </button>
+                              )}
+                              <a href="/billing" className="text-[10px] uppercase tracking-widest transition-colors hover:text-white" style={{ color: '#4ade80', fontFamily: 'monospace' }}>
+                                Upgrade →
+                              </a>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
                 <span className="text-sm" style={{ color: '#555' }}>{user?.email}</span>
                 <button onClick={handleLogout} className="border px-3 py-1 text-sm" style={{ borderColor: '#222', color: '#555' }}>Logout</button>
               </>

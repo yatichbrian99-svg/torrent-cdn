@@ -1,7 +1,8 @@
 import re
 import time
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+import uuid
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from uuid import UUID
 
 from ..database import get_db_pool, get_redis
@@ -9,6 +10,7 @@ from ..auth import hash_password, verify_password, create_access_token, get_curr
 from ..email_service import send_verification_email, send_password_reset_email, decode_password_reset_token
 from ..models import UserRegister, UserLogin, TokenResponse, ForgotPasswordRequest, ResetPasswordRequest
 from ..config import get_settings
+from ..services.email import send_welcome_email
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -37,7 +39,7 @@ def _prune_forgot_requests(now: float) -> None:
 
 
 @router.post("/register", response_model=TokenResponse)
-async def register(data: UserRegister):
+async def register(data: UserRegister, background_tasks: BackgroundTasks):
     # Validate email format
     if not re.match(r'^[^@]+@[^@]+\.[^@]+$', data.email):
         raise HTTPException(status_code=400, detail="Invalid email address")
@@ -76,6 +78,9 @@ async def register(data: UserRegister):
                 verified BOOLEAN DEFAULT FALSE,
                 is_admin BOOLEAN DEFAULT FALSE,
                 stripe_customer_id VARCHAR(255),
+                referral_code VARCHAR(20) UNIQUE,
+                referred_by UUID REFERENCES users(id),
+                referral_bonus_gb FLOAT DEFAULT 0,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             );
             CREATE TABLE IF NOT EXISTS uploads (
@@ -85,6 +90,7 @@ async def register(data: UserRegister):
                 minio_url TEXT NOT NULL,
                 torrent_magnet TEXT NOT NULL,
                 file_size_mb FLOAT NOT NULL DEFAULT 0,
+                thumbnail_url TEXT,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             );
             CREATE TABLE IF NOT EXISTS analytics (
@@ -102,10 +108,19 @@ async def register(data: UserRegister):
                 total_gb_used FLOAT DEFAULT 0,
                 UNIQUE(user_id, month)
             );
+            CREATE TABLE IF NOT EXISTS notifications (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                type VARCHAR(50) NOT NULL,
+                message TEXT NOT NULL,
+                read BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
 
             CREATE INDEX IF NOT EXISTS idx_uploads_user_id ON uploads(user_id);
             CREATE INDEX IF NOT EXISTS idx_analytics_file_id ON analytics(file_id);
             CREATE INDEX IF NOT EXISTS idx_usage_user_month ON usage_records(user_id, month);
+            CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at DESC);
         """)
 
         existing = await conn.fetchrow(
@@ -121,12 +136,17 @@ async def register(data: UserRegister):
         try:
             # No auto-admin on registration — admins are promoted only via
             # /auth/setup (gated by ADMIN_SETUP_ENABLED) or by an existing admin.
+            # Generate the user UUID up front so we can derive a referral code from it.
+            user_uuid = uuid.uuid4()
+            referral_code = str(user_uuid).replace("-", "")[:8].upper()
             user = await conn.fetchrow(
-                """INSERT INTO users (email, password_hash, is_admin, terms_accepted, terms_accepted_at)
-                   VALUES ($1, $2, FALSE, TRUE, NOW())
+                """INSERT INTO users (id, email, password_hash, is_admin, terms_accepted, terms_accepted_at, referral_code)
+                   VALUES ($1, $2, $3, FALSE, TRUE, NOW(), $4)
                    RETURNING id""",
+                user_uuid,
                 data.email,
                 password_hash,
+                referral_code,
             )
         except Exception as e:
             # Catch unique constraint violation (race condition between SELECT and INSERT)
@@ -141,6 +161,31 @@ async def register(data: UserRegister):
                 status_code=500, detail="Registration failed. Please try again."
             )
 
+        # --- Referral handling ---
+        # If the request included a referral code, credit the referrer (+10GB) and
+        # the new user (+5GB). All failures are non-fatal — registration always succeeds.
+        if data.ref_code:
+            try:
+                ref = data.ref_code.strip().upper()
+                referrer = await conn.fetchrow(
+                    "SELECT id FROM users WHERE UPPER(referral_code) = $1", ref
+                )
+                if referrer and str(referrer["id"]) != str(user_uuid):
+                    await conn.execute(
+                        "UPDATE users SET referral_bonus_gb = referral_bonus_gb + 10 WHERE id = $1",
+                        referrer["id"],
+                    )
+                    await conn.execute(
+                        "UPDATE users SET referred_by = $1, referral_bonus_gb = 5 WHERE id = $2",
+                        referrer["id"],
+                        user_uuid,
+                    )
+                    logger.info(
+                        "Referral applied: user %s referred by %s", user_uuid, referrer["id"]
+                    )
+            except Exception as e:
+                logger.warning("Referral processing failed for %s: %s", data.email, e)
+
         token = create_access_token({"sub": str(user["id"])})
 
         # Send verification email after successful registration
@@ -149,6 +194,9 @@ async def register(data: UserRegister):
             await send_verification_email(data.email, user["id"])
         except Exception as e:
             logger.warning("Verification email failed after registration: %s", e)
+
+        # Welcome email runs as a background task so it never slows down registration.
+        background_tasks.add_task(send_welcome_email, data.email, data.email.split("@")[0])
 
         return TokenResponse(access_token=token)
 
@@ -377,6 +425,38 @@ async def setup_first_admin(
         logger.info("Promoted user %s to admin via /auth/setup", first_user)
 
     return {"detail": "First user promoted to admin. Log in again for the changes to take effect."}
+
+
+@router.get("/referral")
+async def get_referral(user_id: UUID = Depends(get_current_user_id)):
+    """Return the current user's referral code and referral stats."""
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        user = await conn.fetchrow(
+            "SELECT referral_code, referral_bonus_gb FROM users WHERE id = $1",
+            user_id,
+        )
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        code = user["referral_code"]
+        # Backfill referral code for users created before the feature shipped.
+        if not code:
+            code = str(user_id).replace("-", "")[:8].upper()
+            await conn.execute(
+                "UPDATE users SET referral_code = $1 WHERE id = $2", code, user_id
+            )
+
+        total_referrals = await conn.fetchval(
+            "SELECT COUNT(*) FROM users WHERE referred_by = $1", user_id
+        )
+
+    return {
+        "referral_code": code,
+        "referral_url": f"https://torrentcdn.store?ref={code}",
+        "total_referrals": total_referrals or 0,
+        "bonus_gb_earned": user["referral_bonus_gb"] or 0,
+    }
 
 
 @router.get("/me")

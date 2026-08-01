@@ -31,8 +31,8 @@ api.interceptors.response.use(
 )
 
 export default {
-  register: (email: string, password: string, termsAccepted: boolean = false) =>
-    api.post('/auth/register', { email, password, terms_accepted: termsAccepted }).then((r) => r.data),
+  register: (email: string, password: string, termsAccepted: boolean = false, refCode?: string) =>
+    api.post('/auth/register', { email, password, terms_accepted: termsAccepted, ref_code: refCode || undefined }).then((r) => r.data),
 
   login: (email: string, password: string) =>
     api.post('/auth/login', { email, password }).then((r) => r.data),
@@ -92,4 +92,10 @@ export default {
       throw new Error('Checkout failed. Please try again.')
     }
   },
+
+  getNotifications: () => api.get('/notifications').then((r) => r.data),
+
+  markNotificationRead: (id: string) => api.post(`/notifications/mark-read/${id}`).then((r) => r.data),
+
+  getReferral: () => api.get('/auth/referral').then((r) => r.data),
 }

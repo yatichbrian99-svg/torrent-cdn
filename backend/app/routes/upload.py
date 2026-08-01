@@ -2,6 +2,7 @@ import uuid
 import os
 import re
 import mimetypes
+import subprocess
 import tempfile
 import logging
 from datetime import datetime
@@ -32,6 +33,15 @@ router = APIRouter(prefix="/upload", tags=["upload"])
 
 ALLOWED_EXTS = {".mp4", ".webm", ".ogv", ".mov", ".mp3", ".ogg", ".wav", ".m4a", ".avi", ".mkv"}
 
+VIDEO_EXTS = {".mp4", ".webm", ".ogv", ".mov", ".avi", ".mkv"}
+
+# Usage-alert thresholds: (fraction of plan limit, notification type, message)
+USAGE_THRESHOLDS = [
+    (0.50, "usage_50", "You've used 50% of your monthly bandwidth. Upgrade to avoid interruption."),
+    (0.80, "usage_80", "You've used 80% of your monthly bandwidth. Upgrade now to keep delivering."),
+    (0.95, "usage_95", "You're almost out of bandwidth. Upgrade immediately to avoid service interruption."),
+]
+
 
 def get_minio_client():
     protocol = "https" if settings.minio_secure else "http"
@@ -43,6 +53,40 @@ def get_minio_client():
         config=BotoConfig(signature_version="s3v4"),
         region_name=settings.minio_region,
     )
+
+
+async def check_usage_thresholds(pool, user_id: UUID, used_gb: float, limit_gb: float) -> None:
+    """Insert usage-alert notifications when usage crosses 50/80/95% of the plan limit.
+
+    Each threshold fires at most once per month per user — we check the
+    notifications table for an existing notification of the same type in the
+    current month before inserting.
+    """
+    if limit_gb == float("inf") or limit_gb <= 0:
+        return  # Unlimited plan (business) — nothing to alert on
+
+    async with pool.acquire() as conn:
+        for pct, ntype, message in USAGE_THRESHOLDS:
+            if used_gb < limit_gb * pct:
+                continue
+            # Already fired this month?
+            existing = await conn.fetchrow(
+                """SELECT 1 FROM notifications
+                   WHERE user_id = $1 AND type = $2
+                     AND created_at >= date_trunc('month', NOW())
+                   LIMIT 1""",
+                user_id,
+                ntype,
+            )
+            if existing:
+                continue
+            await conn.execute(
+                "INSERT INTO notifications (user_id, type, message) VALUES ($1, $2, $3)",
+                user_id,
+                ntype,
+                message,
+            )
+            logger.info("Usage alert %s inserted for user %s", ntype, user_id)
 
 
 @router.post("", response_model=UploadResponse)
@@ -99,13 +143,14 @@ async def upload_file(
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         user = await conn.fetchrow(
-            "SELECT plan FROM users WHERE id = $1", user_id
+            "SELECT plan, referral_bonus_gb FROM users WHERE id = $1", user_id
         )
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
         plan_limits = {"free": 100, "pro": 1024, "business": float("inf")}
-        limit_gb = plan_limits.get(user["plan"], 100)
+        # Referral bonus GB is added on top of the plan limit.
+        limit_gb = plan_limits.get(user["plan"], 100) + (user.get("referral_bonus_gb") or 0)
 
         usage = await conn.fetchrow(
             "SELECT total_gb_used FROM usage_records WHERE user_id = $1 AND month = $2",
@@ -177,6 +222,7 @@ async def upload_file(
     temp_path = None
     torrent_file_path = None
     magnet_link = None
+    thumbnail_url = None
     try:
         # Write content to temp file for torrent creation
         temp_fd, temp_path = tempfile.mkstemp(suffix=f"_{safe_filename}")
@@ -200,6 +246,31 @@ async def upload_file(
 
         info_hash = str(torrent.info_hash)
         magnet_link = f"magnet:?xt=urn:btih:{info_hash}&dn={safe_filename}"
+
+        # --- Generate thumbnail for video files (best-effort, never fails the upload) ---
+        if ext in VIDEO_EXTS and temp_path and os.path.exists(temp_path):
+            try:
+                thumb_path = f"/tmp/{file_id}_thumb.jpg"
+                proc = subprocess.run(
+                    ["ffmpeg", "-y", "-i", temp_path, "-ss", "00:00:01", "-vframes", "1", thumb_path],
+                    capture_output=True,
+                    timeout=60,
+                )
+                if proc.returncode == 0 and os.path.exists(thumb_path):
+                    thumb_key = f"{user_id}/{file_id}/thumbnail.jpg"
+                    with open(thumb_path, "rb") as tf:
+                        s3.put_object(
+                            Bucket=settings.minio_bucket,
+                            Key=thumb_key,
+                            Body=tf.read(),
+                            ContentType="image/jpeg",
+                        )
+                    thumbnail_url = f"{settings.minio_public_url}/{thumb_key}"
+                    os.remove(thumb_path)
+                else:
+                    logger.warning("ffmpeg thumbnail failed for %s (rc=%s)", safe_filename, proc.returncode)
+            except Exception as e:
+                logger.warning("Thumbnail generation skipped for %s: %s", safe_filename, e)
     except Exception:
         magnet_link = f"magnet:?xt=urn:btih:{file_id}&dn={safe_filename}"
     finally:
@@ -211,8 +282,8 @@ async def upload_file(
     # --- Save to database ---
     async with pool.acquire() as conn:
         await conn.fetchrow(
-            """INSERT INTO uploads (id, user_id, filename, minio_url, torrent_magnet, file_size_mb)
-               VALUES ($1, $2, $3, $4, $5, $6)
+            """INSERT INTO uploads (id, user_id, filename, minio_url, torrent_magnet, file_size_mb, thumbnail_url)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
                RETURNING id""",
             uuid.UUID(file_id),
             user_id,
@@ -220,6 +291,7 @@ async def upload_file(
             minio_http_url,
             magnet_link,
             round(file_size_mb, 2),
+            thumbnail_url,
         )
 
         await conn.execute(
@@ -232,6 +304,13 @@ async def upload_file(
             round(file_size_mb / 1024, 4),
         )
 
+    # --- Usage alerts: fire 50/80/95% notifications once per month per user ---
+    try:
+        new_used_gb = used_gb + round(file_size_mb / 1024, 4)
+        await check_usage_thresholds(pool, user_id, new_used_gb, limit_gb)
+    except Exception as e:
+        logger.warning("Usage notification check failed for user %s: %s", user_id, e)
+
     embed_url = f"{settings.app_url}/embed/{file_id}"
 
     return UploadResponse(
@@ -241,4 +320,5 @@ async def upload_file(
         magnet_link=magnet_link,
         file_size_mb=round(file_size_mb, 2),
         embed_url=embed_url,
+        thumbnail_url=thumbnail_url,
     )

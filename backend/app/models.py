@@ -44,6 +44,7 @@ class UserRegister(BaseModel):
     email: str
     password: str
     terms_accepted: bool = False
+    ref_code: Optional[str] = None
 
 
 class UserLogin(BaseModel):
@@ -100,6 +101,7 @@ class UploadResponse(BaseModel):
     magnet_link: str
     file_size_mb: float
     embed_url: str
+    thumbnail_url: Optional[str] = None
 
 
 class AnalyticsEventCreate(BaseModel):
@@ -120,6 +122,7 @@ class FileDetail(BaseModel):
     p2p_offload_percent: float = 0
     bandwidth_saved_gb: float = 0
     active_peers: int = 0
+    thumbnail_url: Optional[str] = None
 
 
 class BillingStatus(BaseModel):

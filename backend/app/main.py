@@ -13,7 +13,8 @@ from .config import get_settings
 from .database import close_db, close_redis, get_db_pool
 import os
 
-from .routes import auth, upload, files, analytics, billing, csp, admin, verification
+from .routes import auth, upload, files, analytics, billing, csp, admin, verification, notifications
+from .database import NOTIFICATIONS_TABLE_DDL
 
 settings = get_settings()
 
@@ -23,12 +24,20 @@ async def run_startup_migrations():
     try:
         pool = await get_db_pool()
         async with pool.acquire() as conn:
+            # Create the notifications table FIRST so any indexes on it can be
+            # created afterwards — on existing DBs the table may not exist yet.
+            await conn.execute(NOTIFICATIONS_TABLE_DDL)
             await conn.execute("""
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT FALSE;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255);
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted BOOLEAN DEFAULT FALSE;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMP WITH TIME ZONE;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code VARCHAR(20) UNIQUE;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by UUID REFERENCES users(id);
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_bonus_gb FLOAT DEFAULT 0;
+                ALTER TABLE uploads ADD COLUMN IF NOT EXISTS thumbnail_url TEXT;
+                CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at DESC);
             """)
             logger.info("Startup migrations completed")
     except Exception as e:
@@ -293,6 +302,7 @@ app.include_router(billing.router)
 app.include_router(csp.router)
 app.include_router(admin.router)
 app.include_router(verification.router)
+app.include_router(notifications.router)
 
 
 @app.get("/health")

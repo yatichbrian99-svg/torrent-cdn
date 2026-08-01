@@ -34,6 +34,10 @@
     {
       "source": "/admin/(.*)",
       "destination": "https://torrent-cdn.onrender.com/admin/$1"
+    },
+    {
+      "source": "/notifications/(.*)",
+      "destination": "https://torrent-cdn.onrender.com/notifications/$1"
     }
   ]
 }

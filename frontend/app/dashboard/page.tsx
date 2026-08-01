@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Upload, Loader2, Mail, ShieldCheck, Copy, AlertTriangle } from 'lucide-react'
+import { Upload, Loader2, Mail, ShieldCheck, Copy, AlertTriangle, Users, Gift } from 'lucide-react'
 import { isLoggedIn, removeToken } from '@/lib/auth'
 import api from '@/lib/api'
 import FileCard from '@/components/FileCard'
 
-interface FileItem { id: string; filename: string; minio_url: string; torrent_magnet: string; file_size_mb: number; created_at: string; views: number; p2p_offload_percent: number; bandwidth_saved_gb: number; active_peers: number }
+interface FileItem { id: string; filename: string; minio_url: string; torrent_magnet: string; file_size_mb: number; created_at: string; views: number; p2p_offload_percent: number; bandwidth_saved_gb: number; active_peers: number; thumbnail_url?: string | null }
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -19,6 +19,8 @@ export default function DashboardPage() {
   const [resendMsg, setResendMsg] = useState('')
   const [user, setUser] = useState<{ id: string; email: string; plan: string } | null>(null)
   const [copied, setCopied] = useState(false)
+  const [referral, setReferral] = useState<{ referral_code: string; referral_url: string; total_referrals: number; bonus_gb_earned: number } | null>(null)
+  const [copiedRef, setCopiedRef] = useState(false)
 
   useEffect(() => {
     if (!isLoggedIn()) { router.push('/'); return }
@@ -26,10 +28,12 @@ export default function DashboardPage() {
       api.listFiles(),
       api.getVerificationStatus().catch(() => ({ verified: null })),
       api.getMe().catch(() => null),
-    ]).then(([filesData, statusData, userData]) => {
+      api.getReferral().catch(() => null),
+    ]).then(([filesData, statusData, userData, refData]) => {
       setFiles(filesData)
       setVerified(statusData.verified)
       if (userData) setUser(userData)
+      if (refData) setReferral(refData)
     }).catch((err) => setError(err.response?.data?.detail || 'Failed to load')).finally(() => setLoading(false))
   }, [router])
 
@@ -143,6 +147,48 @@ export default function DashboardPage() {
           >
             {copied ? <><Copy size={12} className="inline" style={{ color: '#4ade80' }} /> Copied</> : 'Copy'}
           </button>
+        </div>
+      </div>
+
+      {/* Referral */}
+      <div className="mb-8 border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+        <div className="flex items-center gap-3">
+          <Users size={16} style={{ color: '#555' }} />
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Refer a friend</p>
+            <p className="mt-1 text-sm" style={{ color: '#555' }}>You earn <span className="font-medium text-white">10GB</span> for each friend who signs up. They get <span className="font-medium text-white">5GB</span> free.</p>
+          </div>
+        </div>
+        <div className="mt-3 flex items-center gap-2">
+          <code className="flex-1 border px-3 py-2 font-mono text-xs text-white" style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}>
+            {referral?.referral_url || 'Loading...'}
+          </code>
+          <button
+            onClick={() => {
+              if (!referral) return
+              navigator.clipboard.writeText(referral.referral_url)
+              setCopiedRef(true)
+              setTimeout(() => setCopiedRef(false), 2000)
+            }}
+            className="border px-3 py-2 text-xs transition-opacity hover:opacity-80"
+            style={{ borderColor: '#333', color: '#555' }}
+          >
+            {copiedRef ? <><Copy size={12} className="inline" style={{ color: '#4ade80' }} /> Copied</> : 'Copy'}
+          </button>
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className="border p-4" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
+            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>
+              <Users size={12} /> Friends referred
+            </p>
+            <p className="mt-1 text-lg font-bold text-white">{referral?.total_referrals ?? 0}</p>
+          </div>
+          <div className="border p-4" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
+            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>
+              <Gift size={12} /> Bonus earned
+            </p>
+            <p className="mt-1 text-lg font-bold text-white">{referral?.bonus_gb_earned ?? 0} GB</p>
+          </div>
         </div>
       </div>
 

@@ -1,7 +1,5 @@
 'use client'
 
-'use client'
-
 import { useState, useEffect } from 'react'
 import PricingTable from '@/components/PricingTable'
 
@@ -14,6 +12,13 @@ const metrics = [
 
 export default function LandingPage() {
   const [count, setCount] = useState(1284)
+
+  // Capture ?ref= referral code and persist it for the signup flow.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const ref = params.get('ref')
+    if (ref) sessionStorage.setItem('torrent_cdn_ref', ref)
+  }, [])
 
   useEffect(() => {
     const interval = setInterval(() => {

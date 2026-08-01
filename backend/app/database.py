@@ -8,6 +8,18 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
+# Notifications table DDL — created idempotently at startup (see main.py migrations).
+NOTIFICATIONS_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS notifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type VARCHAR(50) NOT NULL,
+    message TEXT NOT NULL,
+    read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+"""
+
 # Connection pools
 pg_pool: Optional[asyncpg.Pool] = None
 redis_client: Optional[Redis] = None

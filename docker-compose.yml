@@ -59,6 +59,7 @@ services:
       MINIO_BUCKET: torrent-cdn-files
       MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set to a random value of 32+ characters}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_xxx}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_xxx}
       STRIPE_PRICE_PRO: ${STRIPE_PRICE_PRO:-price_pro_monthly}

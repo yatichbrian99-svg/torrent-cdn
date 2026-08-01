@@ -14,10 +14,11 @@ import { isLoggedIn, getToken } from '@/lib/auth'
 interface Analytics {
   total_users: number
   total_files: number
-  total_storage_gb: number
-  free_users: number
-  pro_users: number
-  business_users: number
+  total_bandwidth_gb: number
+  total_p2p_saved_gb: number
+  users_by_plan: { free: number; pro: number; business: number }
+  new_users_today: number
+  new_files_today: number
 }
 
 interface User {
@@ -62,8 +63,8 @@ export default function AdminPage() {
 
     try {
       const [analyticsRes, usersRes] = await Promise.all([
-        fetch('/api/admin/analytics', { headers }),
-        fetch('/api/admin/users', { headers }),
+        fetch('/api/admin/stats', { headers }),
+        fetch('/api/admin/users?page=1&limit=200', { headers }),
       ])
 
       if (analyticsRes.status === 403) {
@@ -83,7 +84,11 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!isLoggedIn()) { router.push('/'); return }
-    fetchData()
+    // Redirect non-admins to the homepage.
+    fetch('/api/auth/me', { headers: { Authorization: `Bearer ${getToken()}` } })
+      .then((r) => r.json())
+      .then((me) => { if (!me?.is_admin) { router.push('/'); return } fetchData() })
+      .catch(() => { router.push('/') })
   }, [router, fetchData])
 
   const showToast = (message: string, type: 'success' | 'error') => {
@@ -294,22 +299,22 @@ export default function AdminPage() {
             {[
               {
                 icon: Users, label: 'Total Users', value: analytics.total_users,
-                sub: `${analytics.free_users} free · ${analytics.pro_users} pro · ${analytics.business_users} business`,
+                sub: `${analytics.users_by_plan.free} free · ${analytics.users_by_plan.pro} pro · ${analytics.users_by_plan.business} business`,
                 color: '#60a5fa', bg: 'rgba(59,130,246,0.08)',
               },
               {
                 icon: Film, label: 'Total Files', value: analytics.total_files,
-                sub: 'Across all users',
+                sub: `${analytics.new_files_today} new today`,
                 color: '#34d399', bg: 'rgba(52,211,153,0.08)',
               },
               {
-                icon: HardDrive, label: 'Storage Used', value: `${analytics.total_storage_gb} GB`,
-                sub: `${analytics.total_files > 0 ? (analytics.total_storage_gb / analytics.total_files).toFixed(2) : '0'} GB avg per file`,
+                icon: HardDrive, label: 'Total Bandwidth', value: `${analytics.total_bandwidth_gb} GB`,
+                sub: `${analytics.new_users_today} new users today`,
                 color: '#fbbf24', bg: 'rgba(251,191,36,0.08)',
               },
               {
-                icon: Crown, label: 'Paid Users', value: analytics.pro_users + analytics.business_users,
-                sub: `${((analytics.pro_users + analytics.business_users) / (analytics.total_users || 1) * 100).toFixed(0)}% conversion rate`,
+                icon: Crown, label: 'P2P Saved', value: `${analytics.total_p2p_saved_gb} GB`,
+                sub: 'Bandwidth offloaded to peers',
                 color: '#a78bfa', bg: 'rgba(168,85,247,0.08)',
               },
             ].map((card, i) => (
@@ -355,46 +360,46 @@ export default function AdminPage() {
               <span className="text-[10px]" style={{ color: '#444' }}>{analytics.total_users} total</span>
             </div>
             <div className="flex h-2 gap-[2px] rounded-full overflow-hidden">
-              {analytics.free_users > 0 && (
+              {analytics.users_by_plan.free > 0 && (
                 <div
                   className="h-full transition-all duration-500"
                   style={{
-                    width: `${(analytics.free_users / analytics.total_users) * 100}%`,
+                    width: `${(analytics.users_by_plan.free / analytics.total_users) * 100}%`,
                     backgroundColor: '#333',
                   }}
-                  title={`Free: ${analytics.free_users}`}
+                  title={`Free: ${analytics.users_by_plan.free}`}
                 />
               )}
-              {analytics.pro_users > 0 && (
+              {analytics.users_by_plan.pro > 0 && (
                 <div
                   className="h-full transition-all duration-500"
                   style={{
-                    width: `${(analytics.pro_users / analytics.total_users) * 100}%`,
+                    width: `${(analytics.users_by_plan.pro / analytics.total_users) * 100}%`,
                     backgroundColor: '#3b82f6',
                   }}
-                  title={`Pro: ${analytics.pro_users}`}
+                  title={`Pro: ${analytics.users_by_plan.pro}`}
                 />
               )}
-              {analytics.business_users > 0 && (
+              {analytics.users_by_plan.business > 0 && (
                 <div
                   className="h-full transition-all duration-500"
                   style={{
-                    width: `${(analytics.business_users / analytics.total_users) * 100}%`,
+                    width: `${(analytics.users_by_plan.business / analytics.total_users) * 100}%`,
                     backgroundColor: '#8b5cf6',
                   }}
-                  title={`Business: ${analytics.business_users}`}
+                  title={`Business: ${analytics.users_by_plan.business}`}
                 />
               )}
             </div>
             <div className="flex items-center gap-4 mt-3">
               <span className="flex items-center gap-1.5 text-[10px]" style={{ color: '#555' }}>
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#333' }} /> Free ({analytics.free_users})
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#333' }} /> Free ({analytics.users_by_plan.free})
               </span>
               <span className="flex items-center gap-1.5 text-[10px]" style={{ color: '#555' }}>
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#3b82f6' }} /> Pro ({analytics.pro_users})
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#3b82f6' }} /> Pro ({analytics.users_by_plan.pro})
               </span>
               <span className="flex items-center gap-1.5 text-[10px]" style={{ color: '#555' }}>
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#8b5cf6' }} /> Business ({analytics.business_users})
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#8b5cf6' }} /> Business ({analytics.users_by_plan.business})
               </span>
             </div>
           </div>

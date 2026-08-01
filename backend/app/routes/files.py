@@ -25,7 +25,7 @@ async def list_files(user_id: UUID = Depends(get_current_user_id)):
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            """SELECT id, filename, minio_url, torrent_magnet, file_size_mb, created_at
+            """SELECT id, filename, minio_url, torrent_magnet, file_size_mb, thumbnail_url, created_at
                FROM uploads WHERE user_id = $1
                ORDER BY created_at DESC""",
             user_id,
@@ -74,6 +74,7 @@ async def list_files(user_id: UUID = Depends(get_current_user_id)):
                 p2p_offload_percent=round(p2p_offload, 1),
                 bandwidth_saved_gb=round(bandwidth_saved, 3),
                 active_peers=0,
+                thumbnail_url=row.get("thumbnail_url"),
             ))
 
         return results
@@ -117,6 +118,7 @@ async def get_file(file_id: UUID, user_id: UUID = Depends(get_current_user_id)):
             p2p_offload_percent=round(p2p_offload, 1),
             bandwidth_saved_gb=round(bandwidth_saved, 3),
             active_peers=0,
+            thumbnail_url=row.get("thumbnail_url"),
         )
 
 

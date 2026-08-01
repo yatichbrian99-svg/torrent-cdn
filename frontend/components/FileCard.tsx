@@ -1,12 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { Trash2, Copy, Check, Loader2 } from 'lucide-react'
+import { Trash2, Copy, Check, Loader2, Film } from 'lucide-react'
 import EmbedCode from './EmbedCode'
 
 interface FileItem {
   id: string; filename: string; minio_url: string; torrent_magnet: string; file_size_mb: number
   created_at: string; views: number; p2p_offload_percent: number; bandwidth_saved_gb: number; active_peers: number
+  thumbnail_url?: string | null
 }
 
 export default function FileCard({ file, onDelete }: { file: FileItem; onDelete: (id: string) => void }) {
@@ -32,6 +33,26 @@ export default function FileCard({ file, onDelete }: { file: FileItem; onDelete:
     <>
       <div className="border-b px-4 py-3" style={{ borderColor: '#222' }}>
         <div className="flex items-center gap-6 text-sm">
+          {/* Thumbnail: small on the left, larger preview on hover */}
+          <div className="group relative shrink-0">
+            {file.thumbnail_url ? (
+              <img
+                src={file.thumbnail_url}
+                alt=""
+                className="border object-cover"
+                style={{ width: 60, height: 40, borderColor: '#333' }}
+              />
+            ) : (
+              <div className="flex items-center justify-center border" style={{ width: 60, height: 40, borderColor: '#333' }}>
+                <Film size={14} style={{ color: '#444' }} />
+              </div>
+            )}
+            {file.thumbnail_url && (
+              <div className="pointer-events-none absolute left-0 top-0 z-30 hidden border group-hover:block" style={{ borderColor: '#333' }}>
+                <img src={file.thumbnail_url} alt="" style={{ width: 200, height: 120 }} />
+              </div>
+            )}
+          </div>
           <div className="min-w-0 flex-1"><p className="truncate font-medium text-white">{file.filename}</p></div>
           <span className="w-16 shrink-0" style={{ color: '#555' }}>{file.file_size_mb.toFixed(1)} MB</span>
           <span className="w-12 shrink-0" style={{ color: '#555' }}>{file.views}</span>
