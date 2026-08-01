@@ -9,10 +9,11 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 logger = logging.getLogger(__name__)
 
-from .config import get_settings
+from .config import check_clock_skew, get_settings
 from .database import close_db, close_redis, get_db_pool
 from .security import get_client_ip
 import os
+import threading
 
 from .routes import auth, upload, files, analytics, billing, csp, admin, verification, notifications
 from .database import NOTIFICATIONS_TABLE_DDL
@@ -49,6 +50,14 @@ async def run_startup_migrations():
 async def lifespan(app: FastAPI):
     # Startup: run migrations before accepting requests
     await run_startup_migrations()
+
+    # Startup: clock-skew guard (production only, non-blocking, fail-open).
+    # JWT exp (email verify 24h, password reset 1h) is minted/validated against
+    # the local clock; a badly drifted instance silently breaks token lifetimes.
+    # Runs in a daemon thread so an unreachable NTP reference can never delay
+    # readiness, and so tests (which run in development mode) never hit the network.
+    if settings.app_env == "production":
+        threading.Thread(target=check_clock_skew, daemon=True).start()
     yield
     # Shutdown
     await close_db()

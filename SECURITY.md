@@ -269,6 +269,18 @@ Vercel proxies every `/api/*` request, and its edge IPs **vary per request**. Ke
 
 **Known tradeoff:** clients that reach the backend *directly* (bypassing Vercel) can forge `X-Forwarded-For` to rotate past these limits. This is accepted and documented in the `get_client_ip()` docstring — the public surface is the Vercel domain, which strips/replaces client-supplied XFF.
 
+### 3. Clock-skew guard (production)
+
+JWT `exp` (email verify 24h, password reset 1h) is minted and validated against the **local clock** — a badly drifted instance silently shortens or lengthens token lifetimes. At startup (non-blocking, fail-open) `check_clock_skew()` in `backend/app/config.py` compares the app clock against public NTP-over-HTTP references (Cloudflare `/cdn-cgi/trace`, Google `Date` header, worldtimeapi).
+
+| Condition | Log line |
+|---|---|
+| Skew ≤ `CLOCK_SKEW_MAX_MINUTES` (default 5) | `INFO` — "Clock skew check OK: app clock within Ns of real time" |
+| Skew > threshold | `ERROR` — "CLOCK SKEW: app clock is N seconds off real time …" — check instance time / NTP sync |
+| No reference reachable / fetch error | `WARNING` — "Clock skew check skipped …" (fail-open, app still boots) |
+
+**Deploy check:** a healthy instance logs the `INFO` "Clock skew check OK" line at startup; an `ERROR` with `CLOCK SKEW` means the instance clock needs fixing before token lifetimes can be trusted.
+
 ---
 
 ## Verification

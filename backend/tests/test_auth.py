@@ -325,10 +325,12 @@ class TestResetPassword:
     Tests for POST /auth/reset-password.
 
     Covers the Redis availability asymmetry: the one-time revocation key
-    (`reset_token:{token}`) is only stored at SEND time when Redis is up, but
-    it is required at CLICK time when Redis is up. So if Redis was down when
-    the reset email was sent, a valid, unexpired token is rejected once Redis
-    comes back — the JWT is fine, but the missing key fails the check.
+    (`reset_token:{token}`) is only stored at SEND time when Redis is up. If
+    Redis was down when the reset email was sent, the key is legitimately
+    absent — a valid, unexpired JWT must still reset the password (fall back
+    to JWT-expiry-only validation), matching the Redis-down-at-click path.
+    When the key IS present it is consumed into a "CONSUMED" tombstone, so a
+    replayed link is still rejected for the rest of the JWT window.
     """
 
     RESET_URL = "/auth/reset-password"
@@ -356,36 +358,63 @@ class TestResetPassword:
 
         assert resp.status_code == 200
         assert "reset successfully" in resp.json()["detail"]
-        mock_redis.delete.assert_called_once()  # one-time use consumed (UPDATE path reached)
+        # Consumed into a tombstone (not deleted) so replays stay blocked
+        mock_redis.set.assert_called_once()
+        assert mock_redis.set.call_args.args[1] == "CONSUMED"
 
-    def test_reset_password_valid_token_rejected_when_redis_key_missing(self, client, mock_redis):
+    def test_reset_password_valid_token_succeeds_when_redis_key_missing(self, client, mock_conn, mock_redis):
         """
         Edge case: Redis was DOWN when the reset email was sent, so the one-time
         key was never stored. When Redis is back up at click time, a VALID,
-        unexpired token is rejected with 400 — the key-absence check fails even
-        though the JWT decodes perfectly.
+        unexpired token must STILL reset the password — the route falls back to
+        JWT-expiry-only validation instead of rejecting it with 400.
         """
         token = self._valid_reset_token()
 
-        # Prove the token itself is valid — rejection must come from the Redis
-        # gate, not from JWT decode/expiry.
+        # Prove the token itself is valid — success must come from the JWT
+        # (not from a stored key, which is absent).
         from app.email_service import decode_password_reset_token
         assert decode_password_reset_token(token) == str(self.USER_ID)
 
         mock_redis.get.return_value = None  # key never stored (send-time outage)
+        mock_conn.execute.return_value = "UPDATE 1"
+
+        resp = client.post(self.RESET_URL, json={"token": token, "password": "NewPass456!"})
+
+        assert resp.status_code == 200
+        assert "reset successfully" in resp.json()["detail"]
+        mock_redis.delete.assert_not_called()  # no key to consume
+        mock_redis.set.assert_not_called()  # no tombstone created for an absent key
+
+    def test_reset_password_consumed_token_replay_rejected(self, client, mock_redis):
+        """
+        A token whose one-time key was already consumed (tombstoned as
+        "CONSUMED") is rejected with 400 even though its JWT is still valid —
+        one-time use survives Redis restarts for the rest of the JWT window.
+        """
+        token = self._valid_reset_token()
+
+        from app.email_service import decode_password_reset_token
+        assert decode_password_reset_token(token) == str(self.USER_ID)
+
+        # Only the reset_token key looks consumed; the global RateLimitMiddleware
+        # reads this same mock for ratelimit:{ip}:global and must see None.
+        async def _fake_get(key):
+            return "CONSUMED" if str(key).startswith("reset_token:") else None
+        mock_redis.get.side_effect = _fake_get
 
         resp = client.post(self.RESET_URL, json={"token": token, "password": "NewPass456!"})
 
         assert resp.status_code == 400
         assert resp.json()["detail"] == "Invalid or expired reset token"
-        mock_redis.delete.assert_not_called()  # token not consumed
+        mock_redis.delete.assert_not_called()
+        mock_redis.set.assert_not_called()  # never re-consumes or re-tombstones
 
     def test_reset_password_redis_down_at_click_uses_jwt_only(self, client, mock_conn, monkeypatch):
         """
         Asymmetry control: if Redis is down at CLICK time, the key check is
-        skipped entirely and the same valid token works — JWT expiry is the only
-        gate. This is what makes the missing-key rejection above a true edge
-        case rather than a universal failure.
+        skipped entirely and the same valid token works — JWT expiry is the
+        only gate. The missing-key fallback above behaves identically.
         """
         token = self._valid_reset_token()
 

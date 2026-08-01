@@ -1,8 +1,16 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 from urllib.parse import urlparse
+import json
 import logging
 import os
+import time
+import urllib.request
+from datetime import timezone
+from email.utils import parsedate_to_datetime
+from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -71,6 +79,13 @@ class Settings(BaseSettings):
     rate_limit_global: int = 5      # max requests per window per IP
     rate_limit_window_seconds: int = 10  # sliding window for global rate limit
 
+    # Clock-skew guard (production)
+    # JWT exp (email verify 24h, password reset 1h) is minted and validated
+    # against the local clock, so a badly drifted instance silently shortens or
+    # lengthens token lifetimes. Fail loudly at startup if the app clock is more
+    # than this many minutes off a public NTP reference (env: CLOCK_SKEW_MAX_MINUTES).
+    clock_skew_max_minutes: int = 5
+
     # Email verification
     # In production, users must verify their email before they can log in.
     # In development, this is disabled so you don't need a working email service.
@@ -102,7 +117,6 @@ def get_settings() -> Settings:
             (settings.jwt_secret + "__reset__").encode()
         ).hexdigest()
     if settings.app_env == "production":
-        logger = logging.getLogger(__name__)
         # Warn loudly (but don't crash) if placeholder credentials are detected
         if settings.minio_secret_key == "minioadmin":
             logger.warning(
@@ -164,3 +178,94 @@ def get_settings() -> Settings:
         if not os.environ.get("EMAIL_VERIFICATION_REQUIRED"):
             settings.email_verification_required = True
     return settings
+
+
+def _fetch_reference_epoch(timeout: float = 5.0) -> Optional[float]:
+    """Best-effort fetch of an authoritative UTC epoch from a public NTP-over-HTTP source.
+
+    Tries several reliable endpoints in order; returns the first usable epoch or
+    None if every source is unreachable/malformed. Never raises — the clock
+    guard must be fail-open (an NTP outage must not block or crash startup).
+    """
+    # 1) Cloudflare trace endpoint — plain `ts=<unix epoch>` line, no JSON
+    try:
+        with urllib.request.urlopen(
+            "https://www.cloudflare.com/cdn-cgi/trace", timeout=timeout
+        ) as resp:
+            for line in resp.read().decode("utf-8", "replace").splitlines():
+                if line.startswith("ts="):
+                    return float(line.split("=", 1)[1])
+    except Exception:
+        pass
+
+    # 2) HTTP Date header from a reliable CDN edge (NTP-synced). HTTP dates are
+    #    naive UTC — pin tzinfo to UTC before .timestamp(), otherwise it is
+    #    interpreted as local time and the skew reading is garbage.
+    try:
+        req = urllib.request.Request("https://www.google.com/", method="HEAD")
+        # Some CDN edges reject requests without a User-Agent (403/400) — set one
+        # so the primary reference source is reliable in production.
+        req.add_header("User-Agent", "torrent-cdn-clock-guard/1.0")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            date_hdr = resp.headers.get("Date")
+            if date_hdr:
+                dt = parsedate_to_datetime(date_hdr)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt.timestamp()
+    except Exception:
+        pass
+
+    # 3) worldtimeapi JSON fallback
+    try:
+        with urllib.request.urlopen(
+            "https://worldtimeapi.org/api/timezone/Etc/UTC", timeout=timeout
+        ) as resp:
+            data = json.load(resp)
+            ut = data.get("unixtime")
+            if ut:
+                return float(ut)
+    except Exception:
+        pass
+
+    return None
+
+
+def check_clock_skew(settings: Optional[Settings] = None) -> None:
+    """Startup clock-skew guard (production only, fail-open).
+
+    Compares the local clock against a public NTP-over-HTTP reference and logs
+    an ERROR if the app clock deviates by more than ``clock_skew_max_minutes``.
+    JWT ``exp`` (email verify 24h, password reset 1h) is minted/validated against
+    the local clock, so a badly drifted instance silently breaks token lifetimes
+    — fail loudly instead. Never raises: an unreachable reference logs a warning
+    and the process continues.
+    """
+    s = settings or get_settings()
+    if s.app_env != "production":
+        return
+
+    threshold_seconds = s.clock_skew_max_minutes * 60
+    try:
+        ref_epoch = _fetch_reference_epoch()
+        if ref_epoch is None:
+            logger.warning(
+                "Clock skew check skipped — no NTP reference reachable (fail-open)"
+            )
+            return
+        skew_seconds = abs(time.time() - ref_epoch)
+        if skew_seconds > threshold_seconds:
+            logger.error(
+                "CLOCK SKEW: app clock is %d seconds off real time (threshold %ds) — "
+                "JWT expiries (email verify 24h, password reset 1h) will be wrong. "
+                "Check instance time / NTP sync.",
+                int(skew_seconds),
+                threshold_seconds,
+            )
+        else:
+            logger.info(
+                "Clock skew check OK: app clock within %ds of real time",
+                int(skew_seconds),
+            )
+    except Exception as e:
+        logger.warning("Clock skew check skipped — error: %s", e)

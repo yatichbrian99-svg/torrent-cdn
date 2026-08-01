@@ -456,6 +456,96 @@ class TestProductionAppUrlGuard:
         get_settings.cache_clear()
 
 
+class TestClockSkewGuard:
+    """check_clock_skew() must fail loudly (ERROR) when the app clock drifts
+    from an NTP reference beyond the threshold, stay quiet within it, and never
+    raise when the reference is unreachable (fail-open)."""
+
+    @staticmethod
+    def _prod_settings():
+        from app.config import Settings
+        return Settings(app_env="production", clock_skew_max_minutes=5)
+
+    def test_skipped_outside_production(self, caplog):
+        """In development the guard is a no-op — no fetch, no logs."""
+        import logging
+        from app.config import Settings, check_clock_skew
+
+        s = Settings(app_env="development")
+        with caplog.at_level(logging.WARNING, logger="app.config"):
+            check_clock_skew(s)
+        assert not any("clock skew" in r.message.lower() for r in caplog.records)
+
+    def test_logs_error_when_clock_ahead(self, caplog, monkeypatch):
+        """Clock 2h AHEAD of real time → ERROR."""
+        import logging
+        from app.config import check_clock_skew
+
+        monkeypatch.setattr("app.config._fetch_reference_epoch", lambda: time.time() + 7200)
+        with caplog.at_level(logging.ERROR, logger="app.config"):
+            check_clock_skew(self._prod_settings())
+        assert any("CLOCK SKEW" in r.message for r in caplog.records)
+
+    def test_logs_error_when_clock_behind(self, caplog, monkeypatch):
+        """Clock 2h BEHIND real time → ERROR (direction doesn't matter)."""
+        import logging
+        from app.config import check_clock_skew
+
+        monkeypatch.setattr("app.config._fetch_reference_epoch", lambda: time.time() - 7200)
+        with caplog.at_level(logging.ERROR, logger="app.config"):
+            check_clock_skew(self._prod_settings())
+        assert any("CLOCK SKEW" in r.message for r in caplog.records)
+
+    def test_no_error_within_threshold(self, caplog, monkeypatch):
+        """Skew under the threshold → no ERROR (info-level only)."""
+        import logging
+        from app.config import check_clock_skew
+
+        monkeypatch.setattr("app.config._fetch_reference_epoch", lambda: time.time() + 30)
+        with caplog.at_level(logging.ERROR, logger="app.config"):
+            check_clock_skew(self._prod_settings())
+        assert not any("CLOCK SKEW" in r.message for r in caplog.records)
+
+    def test_fail_open_when_reference_unreachable(self, caplog, monkeypatch):
+        """No NTP reference → warning, no raise, no ERROR."""
+        import logging
+        from app.config import check_clock_skew
+
+        monkeypatch.setattr("app.config._fetch_reference_epoch", lambda: None)
+        with caplog.at_level(logging.WARNING, logger="app.config"):
+            check_clock_skew(self._prod_settings())  # must not raise
+        assert any("no NTP reference reachable" in r.message for r in caplog.records)
+
+    def test_fail_open_when_fetch_raises(self, caplog, monkeypatch):
+        """A raising reference fetch → warning, no crash."""
+        import logging
+        from app.config import check_clock_skew
+
+        def boom():
+            raise OSError("network down")
+
+        monkeypatch.setattr("app.config._fetch_reference_epoch", boom)
+        with caplog.at_level(logging.WARNING, logger="app.config"):
+            check_clock_skew(self._prod_settings())  # must not raise
+        assert any("skipped" in r.message for r in caplog.records)
+
+    def test_reference_epoch_never_raises(self, monkeypatch):
+        """_fetch_reference_epoch() returns None (never raises) when every source fails."""
+        from app.config import _fetch_reference_epoch
+
+        def _raise(*args, **kwargs):
+            raise OSError("network down")
+
+        monkeypatch.setattr("urllib.request.urlopen", _raise)
+        assert _fetch_reference_epoch(timeout=0.001) is None
+
+    def test_settings_default_threshold(self):
+        """CLOCK_SKEW_MAX_MINUTES defaults to 5 minutes."""
+        from app.config import Settings
+
+        assert Settings().clock_skew_max_minutes == 5
+
+
 class TestInMemoryRateLimitFallbacks:
     """When Redis is unavailable, in-memory stores must still enforce rate limits."""
 

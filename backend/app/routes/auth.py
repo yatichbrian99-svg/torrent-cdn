@@ -331,17 +331,32 @@ async def reset_password(data: ResetPasswordRequest):
             status_code=400, detail="Invalid or expired reset token"
         )
 
-    # Verify token hasn't been revoked (via Redis)
+    # Verify the token hasn't been revoked (via Redis). The one-time key is
+    # only stored when Redis is up at SEND time — if Redis was down then, a
+    # valid, unexpired token legitimately has no key, so fall back to
+    # JWT-expiry-only validation (matching the Redis-down-at-click path) rather
+    # than rejecting a valid token. When the key IS present it is consumed into
+    # a "CONSUMED" tombstone (not deleted), so a replayed link is still rejected
+    # for the rest of the JWT window (and across Redis restarts, if persistence
+    # is enabled).
     redis = await get_redis()
     if redis is not None:
         token_key = f"reset_token:{data.token}"
         stored = await redis.get(token_key)
-        if not stored:
+        if stored == "CONSUMED":
+            # Already used — reject the replay even though the JWT is still valid.
             raise HTTPException(
                 status_code=400, detail="Invalid or expired reset token"
             )
-        # Consume the token (one-time use)
-        await redis.delete(token_key)
+        if stored:
+            # Consume the token (one-time use): replace with a tombstone so a
+            # replayed link within the 1h JWT window is still blocked.
+            await redis.set(token_key, "CONSUMED", ex=3600)
+        else:
+            logger.warning(
+                "Reset token one-time key missing — falling back to JWT-expiry-only "
+                "validation (Redis likely down when the reset email was sent)"
+            )
 
     pool = await get_db_pool()
     password_hash = hash_password(data.password)
