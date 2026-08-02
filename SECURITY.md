@@ -240,6 +240,7 @@ curl -X POST "$API/auth/setup?email=you@example.com" \
 - `.env*` files are gitignored (only `.env.example` is tracked).
 - CI runs **Gitleaks** on every push/PR (`.github/workflows/security.yml`) — history and live files are scanned.
 - CI also runs a **diff-scoped secret gate** (`backend/scripts/secret_scan.sh`, the `secret-scan` job): every push/PR is checked for high-signal secrets (GitHub PATs, AWS/Stripe/SendGrid/Resend keys, Slack/npm/PyPI/Google tokens, private keys, webhooks) in the changeset *and* the full tree, and the build fails with the offending file/line (secrets redacted in logs) before the expensive full-stack audit even starts. Run it locally anytime: `bash backend/scripts/secret_scan.sh` (diff vs `origin/main`) or `--full` (whole tree).
+- Gitleaks also **uploads a SARIF report** to GitHub Code Scanning (the `Upload SARIF to Code Scanning` step in `static-audit`). Note: the Security tab only displays code-scanning results on **public** repos or private repos with GitHub Advanced Security — on a private personal-account repo the upload succeeds but findings aren't displayed (the build-failure + rotation flow remains the real defense).
 - Rotate anything that touched a log, a chat, or a fork.
 
 ### 6. Post-deploy verification (run after every deploy)
