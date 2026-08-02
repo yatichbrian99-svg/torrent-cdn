@@ -1,0 +1,6 @@
+This file exists ONLY to test the gitleaks PR comment feature.
+The token below is FAKE - it is not a real credential and this branch
+will be deleted after the test. It is deliberately shaped like a GitHub
+PAT so gitleaks flags it and posts an inline comment on the PR.
+
+FAKE_TOKEN_FOR_PR_COMMENT_TEST = ghp_AbCdEfGhIjKlMnOpQrStUvWxYz1234567890
