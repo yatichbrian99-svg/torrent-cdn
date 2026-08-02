@@ -182,8 +182,12 @@ describe('api client interceptors', () => {
       mocks.instance.post.mockRejectedValue({ response: { status: 504 } })
 
       const promise = api.login('user@example.com', 'securePass123')
+      // Attach the rejection handler IMMEDIATELY — the retry rejects during
+      // advanceTimersByTimeAsync below, and an unhandled rejection in that
+      // window fails the run in CI even though the assertion later passes.
+      const assertion = expect(promise).rejects.toMatchObject({ response: { status: 504 } })
       await vi.advanceTimersByTimeAsync(2000)
-      await expect(promise).rejects.toMatchObject({ response: { status: 504 } })
+      await assertion
       expect(mocks.instance.post).toHaveBeenCalledTimes(2)
     })
   })
