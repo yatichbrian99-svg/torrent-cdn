@@ -44,8 +44,26 @@ export default {
   register: (email: string, password: string, termsAccepted: boolean = false, refCode?: string) =>
     api.post('/auth/register', { email, password, terms_accepted: termsAccepted, ref_code: refCode || undefined }).then((r) => r.data),
 
-  login: (email: string, password: string) =>
-    api.post('/auth/login', { email, password }).then((r) => r.data),
+  login: async (email: string, password: string) => {
+    // Render's free tier cold-starts after ~15min idle — the first request after
+    // idle can hit a transient 502/503/504 at the Vercel proxy while the
+    // instance wakes. Retry ONCE after a short pause so users don't have to
+    // click Login twice. Login is safe to retry (idempotent: only mints a
+    // token). Non-5xx errors (wrong password 401, lockout 429) pass through.
+    try {
+      return (await api.post('/auth/login', { email, password })).data
+    } catch (err: any) {
+      const status = err.response?.status
+      // Retry once on a cold start: either a transient 502/503/504 from the
+      // proxy OR no response at all (the 45s timeout fires while Render boots).
+      // Login is idempotent (only mints a token) so retrying is safe — it can't
+      // hit the 401/429 lockout paths, which pass through untouched.
+      const isTransient = status === 502 || status === 503 || status === 504 || !err.response
+      if (!isTransient) throw err
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+      return (await api.post('/auth/login', { email, password })).data
+    }
+  },
 
   getMe: () => api.get('/auth/me').then((r) => r.data),
 

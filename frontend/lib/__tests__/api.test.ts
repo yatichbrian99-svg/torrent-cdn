@@ -6,19 +6,25 @@ const mocks = vi.hoisted(() => ({
   responseHandlers: [] as { ok: (r: any) => any; err: (e: any) => any }[],
   getToken: vi.fn(),
   removeToken: vi.fn(),
+  // The mocked axios instance is captured here so tests can drive its post()
+  // (e.g. for the login retry-on-5xx behavior).
+  instance: null as any,
 }))
 
 vi.mock('axios', () => ({
   default: {
-    create: vi.fn(() => ({
-      interceptors: {
-        request: { use: (fn: any) => mocks.requestHandlers.push(fn) },
-        response: { use: (ok: any, err: any) => mocks.responseHandlers.push({ ok, err }) },
-      },
-      get: vi.fn(),
-      post: vi.fn(),
-      delete: vi.fn(),
-    })),
+    create: vi.fn(() => {
+      mocks.instance = {
+        interceptors: {
+          request: { use: (fn: any) => mocks.requestHandlers.push(fn) },
+          response: { use: (ok: any, err: any) => mocks.responseHandlers.push({ ok, err }) },
+        },
+        get: vi.fn(),
+        post: vi.fn(),
+        delete: vi.fn(),
+      }
+      return mocks.instance
+    }),
   },
 }))
 
@@ -27,8 +33,9 @@ vi.mock('../auth', () => ({
   removeToken: mocks.removeToken,
 }))
 
-// Importing the module registers the interceptors via the mocked axios.create.
-import '../api'
+// Importing the module registers the interceptors via the mocked axios.create,
+// and gives us the api client to test the login retry behavior.
+import api from '../api'
 
 // Captured once — the arrays are populated at import time and must not be cleared.
 const requestInterceptor = mocks.requestHandlers[0]
@@ -108,6 +115,76 @@ describe('api client interceptors', () => {
       await expect(responseInterceptor.err(error)).rejects.toMatchObject(error)
       expect(mocks.removeToken).toHaveBeenCalledTimes(1)
       expect(window.location.href).toBe('/')
+    })
+  })
+
+  describe('login retry on transient 5xx (Render cold start)', () => {
+    beforeEach(() => {
+      mocks.instance.post.mockReset()
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('retries once when the first attempt 504s, then succeeds', async () => {
+      mocks.instance.post
+        .mockRejectedValueOnce({ response: { status: 504 } })
+        .mockResolvedValueOnce({ data: { access_token: 't1', token_type: 'bearer' } })
+
+      const promise = api.login('user@example.com', 'securePass123')
+      await vi.advanceTimersByTimeAsync(2000)
+      const result = await promise
+
+      expect(mocks.instance.post).toHaveBeenCalledTimes(2)
+      expect(result.access_token).toBe('t1')
+    })
+
+    it('retries once when the first attempt times out (no response), then succeeds', async () => {
+      // A Render cold start more often surfaces as a timeout (axios aborts with
+      // no response) than as a fast 5xx — login is idempotent, so retry once.
+      mocks.instance.post
+        .mockRejectedValueOnce(new Error('timeout of 45000ms exceeded'))
+        .mockResolvedValueOnce({ data: { access_token: 't1', token_type: 'bearer' } })
+
+      const promise = api.login('user@example.com', 'securePass123')
+      await vi.advanceTimersByTimeAsync(2000)
+      const result = await promise
+
+      expect(mocks.instance.post).toHaveBeenCalledTimes(2)
+      expect(result.access_token).toBe('t1')
+    })
+
+    it('passes through a 401 (wrong password) without retrying', async () => {
+      mocks.instance.post.mockRejectedValueOnce({
+        response: { status: 401, data: { detail: 'Invalid email or password' } },
+      })
+
+      await expect(api.login('user@example.com', 'wrongPass1')).rejects.toMatchObject({
+        response: { status: 401 },
+      })
+      expect(mocks.instance.post).toHaveBeenCalledTimes(1)
+    })
+
+    it('passes through a 429 (login lockout) without retrying', async () => {
+      mocks.instance.post.mockRejectedValueOnce({
+        response: { status: 429, data: { detail: 'Too many login attempts' } },
+      })
+
+      await expect(api.login('user@example.com', 'wrongPass1')).rejects.toMatchObject({
+        response: { status: 429 },
+      })
+      expect(mocks.instance.post).toHaveBeenCalledTimes(1)
+    })
+
+    it('surfaces the error if the retry also 504s', async () => {
+      mocks.instance.post.mockRejectedValue({ response: { status: 504 } })
+
+      const promise = api.login('user@example.com', 'securePass123')
+      await vi.advanceTimersByTimeAsync(2000)
+      await expect(promise).rejects.toMatchObject({ response: { status: 504 } })
+      expect(mocks.instance.post).toHaveBeenCalledTimes(2)
     })
   })
 })
