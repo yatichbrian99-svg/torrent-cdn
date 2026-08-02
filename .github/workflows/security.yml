@@ -20,6 +20,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── Diff-scoped secret gate (fast, no infra) ──
+  # Fails the build the moment a high-signal secret (GitHub PAT, AWS/Stripe/
+  # SendGrid/Resend key, private key, …) lands in the changeset — with a
+  # readable message. Gitleaks (in static-audit) remains the full-history
+  # backstop; this gate catches new secrets in seconds.
+  secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout (full history for an accurate diff base)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Base = PR base commit, or the commit pushed to main (`before`);
+      # the script falls back to origin/main, then HEAD^, then errors.
+      - name: Scan the changeset for committed secrets
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BASE=""
+          fi
+          bash backend/scripts/secret_scan.sh "$BASE"
+
+      # Belt-and-braces: also scan the whole working tree as committed.
+      - name: Scan the full tree for committed secrets
+        run: bash backend/scripts/secret_scan.sh --full
   # ── Backend unit test suite (fully mocked — no infra required) ──
   tests:
     runs-on: ubuntu-latest
@@ -89,7 +117,7 @@ jobs:
   fullstack-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: static-audit
+    needs: [static-audit, secret-scan]
 
     steps:
       - name: Checkout
