@@ -19,20 +19,41 @@ export function middleware(request: NextRequest) {
 
   const connectSources = [
     "'self'",
-    // The three WebTorrent WSS trackers are the only cross-origin connections
-    // the app makes. API calls route through the same-origin Vercel proxy
-    // (NEXT_PUBLIC_API_URL defaults to https://www.torrentcdn.store — any
-    // cross-origin override in production would be blocked by this CSP, so
-    // keep the proxy model), and storage media/thumbnails are governed by
-    // img-src/media-src (not connect-src). No bare https: — keeps the blast
-    // radius of any script injection minimal.
+    // The three WebTorrent WSS trackers are the only hardcoded cross-origin
+    // connections the app makes. API calls ideally route through the same-origin
+    // Vercel proxy (NEXT_PUBLIC_API_URL defaults to https://www.torrentcdn.store),
+    // BUT the build-time env may point straight at the backend (e.g.
+    // https://torrent-cdn.onrender.com). If that origin is cross-origin to the
+    // page, it MUST be allow-listed here or the browser silently blocks every
+    // fetch — which surfaces to users as 'Could not reach the server' with no
+    // HTTP response, even though the API is healthy. Derived below so the CSP
+    // can never drift from the configured API URL. Storage media/thumbnails are
+    // governed by img-src/media-src (not connect-src). No bare https: — keeps
+    // the blast radius of any script injection minimal.
     'wss://tracker.openwebtorrent.com',
     'wss://tracker.btorrent.xyz',
     'wss://tracker.fastcast.nz',
     // Localhost is allowed for local dev (NEXT_PUBLIC_API_URL=http://localhost:8000);
     // never included in production.
     ...(isProduction ? [] : ['http://localhost:*']),
-  ].join(' ')
+  ]
+
+  // If NEXT_PUBLIC_API_URL is cross-origin (direct backend call instead of the
+  // same-origin Vercel proxy), add exactly that origin to connect-src. Derived
+  // from the same env var the axios client uses, so this can never silently
+  // diverge from what the app actually calls.
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+  let apiOrigin = ''
+  try {
+    apiOrigin = new URL(apiUrl).origin
+  } catch {
+    // Malformed/empty — 'self' (or localhost in dev) is all we allow.
+  }
+  if (apiOrigin && apiOrigin !== request.nextUrl.origin) {
+    connectSources.push(apiOrigin)
+  }
+
+  const connectSourcesJoined = connectSources.join(' ')
 
   const csp = [
     "default-src 'self'",
@@ -45,7 +66,7 @@ export function middleware(request: NextRequest) {
     // media-src allows https: so direct (origin/Cloudflare) playback works
     // regardless of the storage endpoint; blob: is used by WebTorrent streaming
     "media-src 'self' blob: https:",
-    `connect-src ${connectSources}`,
+    `connect-src ${connectSourcesJoined}`,
     "frame-src 'self'",
     "worker-src 'self' blob:",
     "base-uri 'self'",
