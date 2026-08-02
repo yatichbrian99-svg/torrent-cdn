@@ -64,21 +64,21 @@ export default function FileCard({ file, onDelete }: { file: FileItem; onDelete:
           </div>
           <span className="w-20 shrink-0 text-xs" style={{ color: '#555' }}>{file.bandwidth_saved_gb.toFixed(3)} GB</span>
           <div className="flex shrink-0 items-center gap-2">
-            <button onClick={handleCopy} className="border px-2 py-1 text-xs transition-opacity hover:opacity-80" style={{ borderColor: '#333', color: '#555' }}>
+            <button onClick={handleCopy} aria-label="Copy embed code" className="border px-2 py-1 text-xs transition-opacity hover:opacity-80" style={{ borderColor: '#333', color: '#555' }}>
               {copied ? <Check size={12} /> : <Copy size={12} />}
             </button>
             <button onClick={() => setShowEmbed(true)} className="border px-2 py-1 text-xs" style={{ borderColor: '#333', color: '#555' }}>Embed</button>
             {confirmDelete ? (
               <div className="flex items-center gap-1">
-                <button onClick={handleConfirmDelete} disabled={deleting} className="border px-2 py-1 text-xs disabled:opacity-50" style={{ borderColor: '#fff', color: '#fff' }}>
+                <button onClick={handleConfirmDelete} disabled={deleting} aria-label="Confirm delete" className="border px-2 py-1 text-xs disabled:opacity-50" style={{ borderColor: '#fff', color: '#fff' }}>
                   {deleting ? <Loader2 size={12} className="animate-spin" /> : 'Confirm'}
                 </button>
                 {!deleting && (
-                  <button onClick={() => setConfirmDelete(false)} className="border px-2 py-1 text-xs" style={{ borderColor: '#333', color: '#555' }}>No</button>
+                  <button onClick={() => setConfirmDelete(false)} aria-label="Cancel delete" className="border px-2 py-1 text-xs" style={{ borderColor: '#333', color: '#555' }}>No</button>
                 )}
               </div>
             ) : (
-              <button onClick={() => setConfirmDelete(true)} className="border px-2 py-1 text-xs transition-opacity hover:opacity-80" style={{ borderColor: '#333', color: '#555' }}>
+              <button onClick={() => setConfirmDelete(true)} aria-label="Delete file" className="border px-2 py-1 text-xs transition-opacity hover:opacity-80" style={{ borderColor: '#333', color: '#555' }}>
                 <Trash2 size={12} />
               </button>
             )}

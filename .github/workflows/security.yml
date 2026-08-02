@@ -98,6 +98,13 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      # Unit tests (vitest + Testing Library): auth token store, API client
+      # interceptors (Bearer attachment + 401 logout), and component logic
+      # (UsageBar math, EmbedCode snippet, PricingTable checkout, FileCard
+      # delete-confirm/copy).
+      - name: Test
+        run: npm test
+
       - name: Build
         run: npm run build
 
