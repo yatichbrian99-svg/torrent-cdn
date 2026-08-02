@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     # Set ADMIN_SETUP_ENABLED=true temporarily to create the first admin, then disable it.
     admin_setup_enabled: bool = False
 
+    # API docs (Swagger UI / ReDoc / OpenAPI schema). Off in production by
+    # default — the public schema hands attackers a precise route map (OWASP
+    # API3:2019). Set ENABLE_API_DOCS=true to force them on in production.
+    api_docs_enabled: bool = False
+
     # Stripe
     stripe_secret_key: str = "sk_test_xxx"
     stripe_webhook_secret: str = "whsec_xxx"
@@ -78,6 +83,11 @@ class Settings(BaseSettings):
     rate_limit_analytics: int = 60  # max events per minute per IP
     rate_limit_global: int = 5      # max requests per window per IP
     rate_limit_window_seconds: int = 10  # sliding window for global rate limit
+    # Per-IP upload throttling (F-05 hardening): max upload requests per IP per
+    # window. Protects storage/bandwidth from bulk-automated upload abuse — the
+    # global limiter only paces request rate, not cumulative uploads.
+    rate_limit_uploads: int = 10           # max uploads per IP per window
+    rate_limit_uploads_window: int = 3600  # window in seconds (1 hour)
 
     # Clock-skew guard (production)
     # JWT exp (email verify 24h, password reset 1h) is minted and validated

@@ -162,11 +162,11 @@ export default function LandingPage() {
               },
               {
                 q: "What is the maximum file size?",
-                a: "The maximum file size is 2GB per file. Contact us for larger files on the Business plan."
+                a: "The maximum file size is 1GB per file. Contact us for larger files on the Business plan."
               },
               {
                 q: "Is my content private?",
-                a: "Files are stored privately on Cloudflare R2. Only people with your embed code or direct link can access your content."
+                a: "Your files are stored in a private Cloudflare R2 bucket and are unlisted — there's no public index or search, and only people with your embed link or magnet can access them. But links and magnets behave like keys: anyone who has one can view and re-share your content, and P2P delivery means viewers pass chunks directly between peers. Treat your links like a shared secret — TorrentCDN is for content you're comfortable sharing, not for confidential or DRM-protected material."
               },
               {
                 q: "How does billing work?",

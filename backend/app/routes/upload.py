@@ -5,15 +5,16 @@ import mimetypes
 import subprocess
 import tempfile
 import logging
+import time
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, status
 from uuid import UUID
 import boto3
 from botocore.config import Config as BotoConfig
 from torrentool.api import Torrent
 
 from ..config import get_settings
-from ..database import get_db_pool
+from ..database import get_db_pool, get_redis
 from ..auth import get_current_user_id
 from ..models import UploadResponse
 from ..security import (
@@ -22,6 +23,7 @@ from ..security import (
     estimate_compression_ratio,
     MAX_COMPRESSION_RATIO,
     read_magic_bytes,
+    get_client_ip,
 )
 
 CHUNK_SIZE = 5 * 1024 * 1024  # 5 MB per multipart chunk
@@ -41,6 +43,26 @@ USAGE_THRESHOLDS = [
     (0.80, "usage_80", "You've used 80% of your monthly bandwidth. Upgrade now to keep delivering."),
     (0.95, "usage_95", "You're almost out of bandwidth. Upgrade immediately to avoid service interruption."),
 ]
+
+# In-memory fallback for the per-IP upload rate limit (used when Redis is down)
+_upload_requests: dict[str, list[float]] = {}
+
+
+def _prune_upload_requests(now: float) -> None:
+    """Drop keys whose newest entry has expired (keeps dict bounded)."""
+    expired = [k for k, v in _upload_requests.items() if not v or now - v[-1] > settings.rate_limit_uploads_window]
+    for k in expired:
+        del _upload_requests[k]
+
+
+def _upload_limit_detail() -> str:
+    """Human-readable 429 detail for the per-IP upload limiter."""
+    window = settings.rate_limit_uploads_window
+    if window >= 3600 and window % 3600 == 0:
+        unit = "hour" if window == 3600 else f"{window // 3600} hours"
+    else:
+        unit = f"{window}s"
+    return f"Upload limit reached ({settings.rate_limit_uploads} per {unit} per IP). Please try again later."
 
 
 def get_minio_client():
@@ -92,6 +114,7 @@ async def check_usage_thresholds(pool, user_id: UUID, used_gb: float, limit_gb: 
 @router.post("", response_model=UploadResponse)
 async def upload_file(
     file: UploadFile = File(...),
+    request: Request = None,
     user_id: UUID = Depends(get_current_user_id),
 ):
     if not file.filename:
@@ -162,6 +185,30 @@ async def upload_file(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail=f"Usage limit exceeded ({limit_gb}GB/month). Please upgrade your plan.",
             )
+
+    # --- Per-IP upload rate limit (default 10/hour) ---
+    # Redis primary, in-memory fallback when Redis is down. Counts uploads that
+    # are ABOUT to hit storage — validation/usage rejections (400/413/402) do
+    # not consume the budget, so a user debugging an oversized or mis-typed file
+    # can't lock themselves out of uploads (F-05 hardening). The global
+    # 5 req/10s limiter still paces all request traffic.
+    ip = get_client_ip(request)
+    redis = await get_redis()
+    if redis is not None:
+        rate_key = f"upload_rate:{ip}"
+        count = await redis.get(rate_key)
+        if count and int(count) >= settings.rate_limit_uploads:
+            raise HTTPException(status_code=429, detail=_upload_limit_detail())
+        await redis.incr(rate_key)
+        await redis.expire(rate_key, settings.rate_limit_uploads_window)
+    else:
+        now = time.time()
+        _prune_upload_requests(now)
+        recent = [t for t in _upload_requests.get(ip, []) if now - t < settings.rate_limit_uploads_window]
+        if len(recent) >= settings.rate_limit_uploads:
+            raise HTTPException(status_code=429, detail=_upload_limit_detail())
+        recent.append(now)
+        _upload_requests[ip] = recent
 
     # --- Chunked multipart upload to MinIO ---
     file_id = str(uuid.uuid4())

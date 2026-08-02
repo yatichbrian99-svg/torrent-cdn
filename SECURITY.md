@@ -4,7 +4,7 @@ This document describes the security header configuration for the TorrentCDN API
 
 ## Overview
 
-All security headers are set by `CSPMiddleware` in `backend/app/main.py`. The middleware runs on every response and sets 7 security headers (8 in production). Additionally, middleware-level protections are configured for CORS, trusted hosts, and request body size.
+All security headers are set by `CSPMiddleware` in `backend/app/main.py`. The middleware runs on every response and sets 8 security headers (9 in production). Additionally, middleware-level protections are configured for CORS, trusted hosts, and request body size.
 
 ---
 
@@ -31,7 +31,7 @@ Controls which resources the browser is allowed to load. The policy is environme
 | `report-uri` | `/api/csp-report` | `/api/csp-report` |
 | `report-to` | `csp-endpoint` | `csp-endpoint` |
 
-**Script policy:** `script-src 'self'` — no inline scripts or third-party script CDNs. WebTorrent is self-hosted and pinned at `/vendor/webtorrent.min.js` with SRI. The **frontend** (Next.js) additionally enforces a nonce-based CSP via `frontend/middleware.ts` (which requires `export const dynamic = 'force-dynamic'` in the root layout).
+**Script policy:** `script-src 'self'` — no inline scripts or third-party script CDNs. WebTorrent is self-hosted and pinned at `/vendor/webtorrent.min.js` with SRI. The **frontend** (Next.js) additionally enforces a nonce-based CSP via `frontend/middleware.ts` (which requires `export const dynamic = 'force-dynamic'` in the root layout), and sends `X-Frame-Options: SAMEORIGIN` + `Cross-Origin-Opener-Policy: same-origin` via `next.config.js`. CORP/COEP are intentionally **not** set on the frontend: the embed SDK (`sdk.js` + `/vendor/webtorrent.min.js`) must stay loadable cross-origin from customers' pages, and COEP `require-corp` would break no-cors thumbnails served from the storage provider.
 
 **Environment switching:** Set `APP_ENV=production` to strip `localhost:9000` from `media-src` and `connect-src`.
 
@@ -91,6 +91,12 @@ The frontend can set its own `Permissions-Policy` if these features are needed f
 
 **Only set when `APP_ENV=production`.** Instructs browsers to always connect over HTTPS for 1 year (31536000 seconds). Includes all subdomains and requests browser preload list inclusion.
 
+### 9. Cross-Origin-Resource-Policy
+
+**Header:** `Cross-Origin-Resource-Policy: same-origin`
+
+Blocks no-cors cross-origin embedding of API payloads (e.g. `<img>`/`<script>` tags pointing at API JSON). Safe on the API because browser clients consume it via CORS-enabled fetch, where CORP is ignored.
+
 ---
 
 ## Middleware Protections
@@ -105,6 +111,18 @@ The frontend can set its own `Permissions-Policy` if these features are needed f
 | Headers | `*` |
 
 Configure `APP_URL` to set the production frontend origin.
+
+### API Documentation (production)
+
+`/docs`, `/redoc`, and `/openapi.json` are **disabled in production** (`docs_url=None`, `redoc_url=None`, `openapi_url=None` in `backend/app/main.py`) — a public OpenAPI schema is an unnecessary attack-surface map (OWASP API3:2019). They stay available in development, or can be force-enabled with `ENABLE_API_DOCS=true`.
+
+### Security Contact (security.txt)
+
+RFC 9116 `/.well-known/security.txt` is served on the frontend (`frontend/app/.well-known/security.txt/route.ts`) and on the API origin (`GET /.well-known/security.txt` in `backend/app/main.py`).
+
+### Health Endpoint
+
+`GET /health` returns only `{"status": "healthy"}` — no service name — to avoid implementation fingerprinting.
 
 ### Trusted Host
 
@@ -237,7 +255,7 @@ bash backend/scripts/post_deploy_check.sh
 ```
 
 - `check_deploy.sh` exits `0` on a commit match, `1` on mismatch/no live deploy, `2` on key/API error. Render's API is the source of truth — it does **not** write deploy statuses back to GitHub (the statuses you see are Vercel's).
-- `post_deploy_check.sh` fast-fails (exit 1) if the hardened build isn't live yet (so you never audit a stale build), otherwise runs the full ~3-minute audit and exits `0` only when **every** check passes — security headers, CSP content, host-header protection, auth enforcement, email-verification gate, SQLi/input validation, CORS, HTTP methods, and the frontend nonce/SRI/proxy.
+- `post_deploy_check.sh` fast-fails (exit 1) if the hardened build isn't live yet (so you never audit a stale build), otherwise runs the full ~3-minute audit and exits `0` only when **every** check passes — security headers, CSP content, host-header protection, auth enforcement, email-verification gate, **API-docs gating (`/api/openapi.json` → 404)**, SQLi/input validation, CORS, HTTP methods, and the frontend nonce/SRI/proxy.
 - **Key creation (one-time):** Render dashboard → Account Settings → API Keys → Create API Key. A plain (read-only) key is sufficient — both scripts use only GET endpoints. Store it in the deployer's env / secrets manager; never commit it.
 - Expected result after a healthy deploy: `✅ LIVE commit matches expected` from step 1 and a `0` exit with zero `❌` lines from step 2.
 
@@ -274,12 +292,13 @@ Vercel proxies every `/api/*` request, and its edge IPs **vary per request**. Ke
 
 | Limiter | Where | Limit |
 |---|---|---|
-| Global | `backend/app/main.py` (`RateLimitMiddleware`) | 5 req / 10s per IP (`/health` and `/csp-report` exempt) |
+| Global | `backend/app/main.py` (`RateLimitMiddleware`) | 5 req / 10s per IP (static/no-state endpoints exempt: `/health`, `/csp-report`, `/docs`, `/redoc`, `/openapi.json`, `/.well-known/security.txt`) |
 | Login lockout | `backend/app/routes/auth.py` | 5 failed attempts / 15 min per **IP+email** (reset on success) |
 | Forgot password | `backend/app/routes/auth.py` | 1 request / 60s per IP |
 | CSP reports | `backend/app/routes/csp.py` | 100 / min per IP |
 | Public file | `backend/app/routes/files.py` | 30 / min per IP |
-| Analytics | `backend/app/routes/analytics.py` | 30 / min per IP (post + get) |
+| Analytics | `backend/app/routes/analytics.py` | 30 / min per IP (POST public; GET auth + ownership-scoped) |
+| Upload | `backend/app/routes/upload.py` | 10 / hour per IP (counts uploads that reach storage — validation/usage rejections don't consume the budget; tune `RATE_LIMIT_UPLOADS` upward if shared egress IPs/NAT are a concern) |
 
 **Expected behavior on deploy:** rate limits **tighten immediately** — limits that never fired behind Vercel's varying edge IPs now fire as designed. A temporary rise in 429s right after a deploy is the fix working, not a regression. No Redis migration needed; old keys expire harmlessly.
 

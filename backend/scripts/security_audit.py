@@ -74,6 +74,10 @@ header_check("Reporting-Endpoints",
              "reporting-endpoints",
              "csp-endpoint=")
 
+header_check("Cross-Origin-Resource-Policy",
+             "cross-origin-resource-policy",
+             "same-origin")
+
 # ── 2. CSP CONTENT CHECKS ──
 print("\n── CSP Content Checks ──")
 r = client.get("/health")
@@ -137,6 +141,18 @@ check("No server header leak", not r.headers.get("server", ""),
 print("\n── Public Endpoints ──")
 r = client.get("/health")
 check("Health endpoint accessible", r.status_code == 200, f"Got {r.status_code}")
+
+# ── 9. API DOCS DISABLED IN PRODUCTION ──
+print("\n── API Docs (production) ──")
+for path in ["/docs", "/redoc", "/openapi.json"]:
+    r = client.get(path)
+    check(f"{path} disabled (404)", r.status_code == 404, f"Got {r.status_code}")
+
+# ── 10. SECURITY CONTACT ──
+print("\n── Security Contact ──")
+r = client.get("/.well-known/security.txt")
+check("security.txt served", r.status_code == 200, f"Got {r.status_code}")
+check("security.txt has Contact", "Contact:" in r.text, f"Got: {r.text[:80]}")
 
 # ============================================================
 print(f"\n{'='*60}")

@@ -104,6 +104,7 @@ def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
     monkeypatch.setattr(app.routes.billing, "get_redis", AsyncMock(return_value=mock_redis))
     monkeypatch.setattr(app.routes.analytics, "get_redis", AsyncMock(return_value=mock_redis))
     monkeypatch.setattr(app.routes.csp, "get_redis", AsyncMock(return_value=mock_redis))
+    monkeypatch.setattr(app.routes.upload, "get_redis", AsyncMock(return_value=mock_redis))
 
     # Patch security validation functions so tests don't need real magic bytes
     # Must patch both the module AND the importing module's local reference

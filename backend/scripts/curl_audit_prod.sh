@@ -179,9 +179,25 @@ for M in PUT DELETE PATCH TRACE CONNECT; do
   [ "$CODE" != "200" ] && check 0 "$M blocked → $CODE" || check 1 "$M VULNERABLE → 200"
 done
 
-# ── 12. FRONTEND SECURITY ──
+# ── 12. API DOCS DISABLED (F-01) ──
 echo ""
-echo "── 12. FRONTEND ($FE) ──"
+echo "── 12. API DOCS DISABLED ──"
+# /openapi.json, /docs and /redoc are gated off in production (docs_url=None,
+# openapi_url=None, redoc_url=None in backend/app/main.py). A 200 here means
+# the docs-gating build is NOT live.
+for EP in "/openapi.json" "/docs" "/redoc"; do
+  CODE=$(curl -so /dev/null -w '%{http_code}' "$API$EP" 2>/dev/null || echo "000")
+  [ "$CODE" = "404" ] && check 0 "Backend $EP → $CODE" || check 1 "Backend $EP → $CODE (expected 404 — docs gating not live)"
+done
+# Public-facing paths through the Vercel proxy (what the audit probed)
+for EP in "/api/openapi.json" "/api/docs" "/api/redoc"; do
+  CODE=$(curl -so /dev/null -w '%{http_code}' "$FE$EP" 2>/dev/null || echo "000")
+  [ "$CODE" = "404" ] && check 0 "Proxy $EP → $CODE" || check 1 "Proxy $EP → $CODE (expected 404 — docs gating not live)"
+done
+
+# ── 13. FRONTEND SECURITY ──
+echo ""
+echo "── 13. FRONTEND ($FE) ──"
 sleep 2.2
 FE_HEADERS=$(curl -s -D - -o /dev/null "$FE/" 2>/dev/null || echo "")
 echo "$FE_HEADERS" | grep -qi 'content-security-policy' && check 0 "Frontend CSP header present" || check 1 "Frontend CSP header MISSING"

@@ -102,8 +102,16 @@ async def get_bandwidth_history(user_id: UUID = Depends(get_current_user_id)):
 
 
 @router.get("/{file_id}")
-async def get_analytics(file_id: UUID, request: Request):
-    """Get analytics for a file. Public endpoint."""
+async def get_analytics(
+    file_id: UUID,
+    request: Request,
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """Get analytics for a file. Auth required, ownership-scoped.
+
+    Scoped to the caller's own uploads so the endpoint can't be used as a
+    cross-account file-existence oracle or to read another user's stats.
+    """
     # Rate limit: 30 requests per minute per IP (Redis primary, in-memory fallback)
     ip = get_client_ip(request)
     redis = await get_redis()
@@ -125,8 +133,10 @@ async def get_analytics(file_id: UUID, request: Request):
 
     pool = await get_db_pool()
     async with pool.acquire() as conn:
-        file_exists = await conn.fetchval(
-            "SELECT id FROM uploads WHERE id = $1", file_id
+        # Ownership check — same 404 for missing and not-owned (no oracle).
+        file_exists = await conn.fetchrow(
+            "SELECT id FROM uploads WHERE id = $1 AND user_id = $2",
+            file_id, user_id,
         )
         if not file_exists:
             raise HTTPException(status_code=404, detail="File not found")

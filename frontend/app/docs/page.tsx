@@ -224,7 +224,9 @@ Body:
         <Endpoint
           method="GET"
           url="/analytics/{file_id}"
-          desc="Get delivery analytics for a file. Public endpoint — no auth required."
+          desc="Get delivery analytics for one of your files. Requires authentication — only the file's owner can read its stats."
+          request={`Headers:
+  Authorization: Bearer <YOUR_TOKEN>`}
           response={`{
   "total_views": 42,
   "p2p_offload_percent": 91.2,

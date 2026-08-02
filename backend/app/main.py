@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -66,11 +66,20 @@ async def lifespan(app: FastAPI):
     await close_redis()
 
 
+# API docs (Swagger UI / ReDoc / OpenAPI schema) are development-only.
+# Exposing the full schema in production gives attackers a precise route map
+# before their first request (OWASP API3:2019 — Excessive Data Exposure).
+# Enabled outside production by default, or explicitly via ENABLE_API_DOCS=true.
+docs_enabled = settings.app_env != "production" or settings.api_docs_enabled
+
 app = FastAPI(
     title="Torrent CDN API",
     description="P2P CDN platform powered by WebTorrent",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url="/docs" if docs_enabled else None,
+    redoc_url="/redoc" if docs_enabled else None,
+    openapi_url="/openapi.json" if docs_enabled else None,
 )
 
 # CORS
@@ -180,6 +189,9 @@ class CSPMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["X-XSS-Protection"] = "1; mode=block"
+        # API responses are JSON consumed via CORS-enabled fetch — CORP is safe
+        # here and blocks no-cors cross-origin embedding of API payloads.
+        response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
         response.headers["Permissions-Policy"] = (
             "accelerometer=(), "
             "ambient-light-sensor=(), "
@@ -232,9 +244,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._memory_store: dict[str, list[float]] = {}
 
     async def dispatch(self, request: Request, call_next):
-        # Skip rate limiting for health check and CSP report endpoint
+        # Skip rate limiting for static/no-state endpoints: health check, CSP
+        # report collector, API docs (404 in production), and security.txt.
+        # None of them touch the DB or Redis, so there is nothing to protect.
         path = request.url.path.rstrip("/")
-        if path == "/health" or path == "/csp-report":
+        if path in {"/health", "/csp-report", "/docs", "/redoc", "/openapi.json", "/.well-known/security.txt"}:
             return await call_next(request)
 
         import time
@@ -317,6 +331,21 @@ app.include_router(verification.router)
 app.include_router(notifications.router)
 
 
+SECURITY_TXT = """Contact: https://www.torrentcdn.store
+Contact: https://github.com/yatichbrian99-svg/torrent-cdn/security
+Expires: 2027-08-02T00:00:00.000Z
+Preferred-Languages: en
+Acknowledgments: https://github.com/yatichbrian99-svg/torrent-cdn
+"""
+
+
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "service": "torrent-cdn-api"}
+    # No service name here — keep the endpoint free of implementation fingerprinting.
+    return {"status": "healthy"}
+
+
+@app.get("/.well-known/security.txt", include_in_schema=False)
+async def security_txt():
+    """RFC 9116 security contact for researchers (also served on the frontend)."""
+    return Response(content=SECURITY_TXT, media_type="text/plain; charset=utf-8")

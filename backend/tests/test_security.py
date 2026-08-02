@@ -7,6 +7,7 @@ Unit tests for the security hardening behavior:
 4. In-memory rate-limit fallbacks (auth login/forgot, files public, analytics, global middleware)
 """
 import time
+from io import BytesIO
 from unittest.mock import AsyncMock
 from uuid import UUID
 
@@ -647,7 +648,7 @@ class TestInMemoryRateLimitFallbacks:
             files_route._public_file_requests.clear()
             files_route._public_file_requests.update(saved)
 
-    def test_analytics_get_rate_limit_in_memory_fallback(self, client, monkeypatch):
+    def test_analytics_get_rate_limit_in_memory_fallback(self, client, auth_headers, monkeypatch):
         """GET /analytics/{file_id} is rate limited (30/min) even without Redis."""
         import app.routes.analytics as analytics_route
         self._disable_redis(monkeypatch, analytics_route)
@@ -656,12 +657,39 @@ class TestInMemoryRateLimitFallbacks:
         analytics_route._analytics_get_requests.clear()
         try:
             analytics_route._analytics_get_requests["testclient"] = [time.time()] * 30
-            resp = client.get("/analytics/11111111-1111-4111-8111-111111111111")
+            resp = client.get("/analytics/11111111-1111-4111-8111-111111111111", headers=auth_headers)
             assert resp.status_code == 429
             assert "Rate limit exceeded" in resp.json()["detail"]
         finally:
             analytics_route._analytics_get_requests.clear()
             analytics_route._analytics_get_requests.update(saved)
+
+    def test_upload_rate_limit_in_memory_fallback(self, client, auth_headers, mock_conn, monkeypatch):
+        """POST /upload is limited (10/hour per IP) even without Redis."""
+        import app.routes.upload as upload_route
+        self._disable_redis(monkeypatch, upload_route)
+
+        # The limiter fires after validation/usage checks — provide a user row
+        # so the request reaches the storage-bound limiter.
+        mock_conn.fetchrow.side_effect = [
+            {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"},
+            None,  # no usage record
+        ]
+
+        saved = dict(upload_route._upload_requests)
+        upload_route._upload_requests.clear()
+        try:
+            upload_route._upload_requests["testclient"] = [time.time()] * 10
+            resp = client.post(
+                "/upload",
+                headers=auth_headers,
+                files={"file": ("test.mp4", BytesIO(b"test"), "video/mp4")},
+            )
+            assert resp.status_code == 429
+            assert "Upload limit reached" in resp.json()["detail"]
+        finally:
+            upload_route._upload_requests.clear()
+            upload_route._upload_requests.update(saved)
 
     def test_global_middleware_in_memory_fallback(self, client, monkeypatch):
         """The global 5 req/10s middleware limiter still works when Redis is down.

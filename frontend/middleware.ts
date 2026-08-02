@@ -19,7 +19,13 @@ export function middleware(request: NextRequest) {
 
   const connectSources = [
     "'self'",
-    'https:',
+    // The three WebTorrent WSS trackers are the only cross-origin connections
+    // the app makes. API calls route through the same-origin Vercel proxy
+    // (NEXT_PUBLIC_API_URL defaults to https://www.torrentcdn.store — any
+    // cross-origin override in production would be blocked by this CSP, so
+    // keep the proxy model), and storage media/thumbnails are governed by
+    // img-src/media-src (not connect-src). No bare https: — keeps the blast
+    // radius of any script injection minimal.
     'wss://tracker.openwebtorrent.com',
     'wss://tracker.btorrent.xyz',
     'wss://tracker.fastcast.nz',

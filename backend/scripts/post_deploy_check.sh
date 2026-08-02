@@ -8,6 +8,7 @@
 #      (the pre-hardening build's CSP was: script-src 'self' 'unsafe-inline' unpkg.com)
 #   3. Frontend serves a nonce-based CSP ('nonce-' + 'strict-dynamic', no unsafe-inline)
 #   4. Frontend HTML script tags carry nonces (>= total-1 coverage)
+#   5. API docs disabled in production (/api/openapi.json → 404)
 #
 # If ALL pre-flights pass, the script runs the full paced audit
 # (curl_audit_prod.sh) so you get deep coverage in the same command.
@@ -104,6 +105,13 @@ if [ "$TOTAL" -gt 0 ] && [ "$NONCED" -ge $((TOTAL - 1)) ]; then
 else
   pf 1 "Frontend script nonce coverage: $NONCED/$TOTAL (expected >= $((TOTAL - 1)))"
 fi
+
+# 5. API docs disabled (F-01) — a 200 here means the pre-gating build is live.
+#    Docs are development-only; /api/openapi.json must 404 in production.
+FE_DOCS=$(curl -so /dev/null -w '%{http_code}' "$FE/api/openapi.json" 2>/dev/null || echo "000")
+[ "$FE_DOCS" = "404" ] && pf 0 "Frontend /api/openapi.json disabled → $FE_DOCS" || pf 1 "Frontend /api/openapi.json → $FE_DOCS (expected 404 — docs gating not live)"
+API_DOCS=$(curl -so /dev/null -w '%{http_code}' "$API/openapi.json" 2>/dev/null || echo "000")
+[ "$API_DOCS" = "404" ] && pf 0 "Backend /openapi.json disabled → $API_DOCS" || pf 1 "Backend /openapi.json → $API_DOCS (expected 404 — docs gating not live)"
 
 echo ""
 echo "── PRE-FLIGHT RESULT: $PF_PASS ✅  $PF_FAIL ❌ ──"

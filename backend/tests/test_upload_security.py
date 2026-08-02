@@ -173,6 +173,57 @@ class TestUploadOversizedFile:
         assert resp.status_code == 200
 
 
+class TestUploadRateLimit:
+    """POST /upload is throttled per IP via the Redis-backed limiter."""
+
+    UPLOAD_URL = "/upload"
+
+    def test_upload_rate_limited_via_redis_429(self, client, auth_headers, mock_conn, mock_redis, monkeypatch):
+        """At the hourly per-IP cap the Redis limiter returns 429."""
+        import app.routes.upload
+        monkeypatch.setattr(app.routes.upload, "get_redis", AsyncMock(return_value=mock_redis))
+
+        # Limiter fires after validation/usage checks — provide a user row so
+        # the request reaches the storage-bound limiter.
+        mock_conn.fetchrow.side_effect = [
+            {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"},
+            None,  # no usage record
+        ]
+
+        def fake_get(key):
+            if key == "upload_rate:testclient":
+                return "10"
+            return None
+
+        mock_redis.get.side_effect = fake_get
+        resp = client.post(
+            self.UPLOAD_URL,
+            headers=auth_headers,
+            files={"file": ("test.mp4", BytesIO(b"test"), "video/mp4")},
+        )
+        assert resp.status_code == 429
+        assert "Upload limit reached" in resp.json()["detail"]
+
+    def test_upload_below_limit_proceeds(self, client, auth_headers, mock_conn, mock_s3_client, mock_redis, monkeypatch):
+        """An upload under the hourly cap goes through the limiter untouched."""
+        import app.routes.upload
+        monkeypatch.setattr(app.routes.upload, "get_redis", AsyncMock(return_value=mock_redis))
+
+        mock_conn.fetchrow.side_effect = [
+            {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"},
+            None,
+            {"id": UUID("22222222-2222-4222-8222-222222222222")},
+        ]
+        resp = client.post(
+            self.UPLOAD_URL,
+            headers=auth_headers,
+            files={"file": ("test.mp4", BytesIO(b"test"), "video/mp4")},
+        )
+        assert resp.status_code == 200
+        # The limiter incremented the hourly counter for this IP
+        mock_redis.incr.assert_any_call("upload_rate:testclient")
+
+
 class TestFilesRouteSecurity:
     """Files-route security: UUID validation and public-endpoint rate limiting."""
 

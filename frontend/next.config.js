@@ -11,6 +11,12 @@ module.exports = {
         headers: [
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          // Clickjacking + popup/opener isolation. CORP is intentionally NOT set
+          // here: the embed SDK (sdk.js + /vendor/webtorrent.min.js) must remain
+          // loadable cross-origin from customers' pages, and COEP require-corp
+          // would break no-cors thumbnails served from the storage provider.
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
           {
             key: 'Permissions-Policy',
             value:

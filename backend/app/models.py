@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
@@ -107,8 +107,12 @@ class UploadResponse(BaseModel):
 class AnalyticsEventCreate(BaseModel):
     file_id: UUID
     event_type: str
-    bytes_p2p: int = 0
-    bytes_origin: int = 0
+    # The event endpoint is public (embed SDK posts unauthenticated), so the
+    # byte counters are clamped: negatives and absurd values would otherwise let
+    # anyone corrupt views/bandwidth dashboards. 2GB covers the largest legit
+    # single event (a full 1GB-file direct fallback reported in one shot).
+    bytes_p2p: int = Field(default=0, ge=0, le=2 * 1024**3)
+    bytes_origin: int = Field(default=0, ge=0, le=2 * 1024**3)
 
 
 class FileDetail(BaseModel):
