@@ -48,6 +48,22 @@ jobs:
       # Belt-and-braces: also scan the whole working tree as committed.
       - name: Scan the full tree for committed secrets
         run: bash backend/scripts/secret_scan.sh --full
+  # ── Frontend asset guards (fast, no infra) ──
+  # Fails if link-preview cards would render broken: og:image / twitter:image
+  # in layout.tsx must resolve to a real, non-empty PNG under public/ (a prior
+  # regression shipped a 0-byte dynamic route + a 404 twitter image, blanking
+  # every preview card on Twitter/X, LinkedIn, Slack, Discord, WhatsApp).
+  frontend-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: OG image guard
+        run: bash frontend/scripts/check_og_image.sh
+
   # ── Backend unit test suite (fully mocked — no infra required) ──
   tests:
     runs-on: ubuntu-latest
