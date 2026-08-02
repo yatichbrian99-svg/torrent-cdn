@@ -54,7 +54,11 @@ export const metadata: Metadata = {
       'TorrentCDN uses WebTorrent P2P technology to deliver video at a fraction of traditional CDN costs. The more people watch, the less you pay.',
     images: [
       {
-        url: '/og-image.png',
+        // Absolute URL — required by Twitter/X, LinkedIn, Slack, Discord,
+        // WhatsApp link previews. Static asset (public/og-image.png); the
+        // old next/og dynamic route emitted a 0-byte image, so previews
+        // rendered blank everywhere.
+        url: 'https://www.torrentcdn.store/og-image.png',
         width: 1200,
         height: 630,
         alt: 'TorrentCDN — P2P Video Delivery',
@@ -66,7 +70,7 @@ export const metadata: Metadata = {
     title: 'TorrentCDN — P2P Video Delivery That Gets Cheaper As You Scale',
     description:
       'Deliver video cheaper as you scale. TorrentCDN uses WebTorrent P2P technology.',
-    images: ['/og-image.png'],
+    images: ['https://www.torrentcdn.store/og-image.png'],
     creator: '@torrentcdn',
   },
   alternates: {
