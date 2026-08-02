@@ -105,6 +105,22 @@ jobs:
       - name: Test
         run: npm test
 
+      # Next.js persistent build cache (.next/cache — webpack + swc). Next's
+      # docs recommend caching .next/cache, NOT the whole .next: full .next can
+      # serve stale prerendered pages/route manifests, while .next/cache is
+      # content-addressed and skips recompiling unchanged modules on warm runs
+      # (npm deps are already cached via setup-node's cache: npm above).
+      # Keyed on the lockfile + frontend sources; restore-keys reuse the
+      # previous cache when only some inputs changed.
+      - name: Cache Next.js build cache
+        uses: actions/cache@v6
+        with:
+          path: frontend/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('frontend/package-lock.json') }}-${{ hashFiles('frontend/**/*.ts', 'frontend/**/*.tsx', 'frontend/**/*.css', 'frontend/next.config.js', 'frontend/tailwind.config.*', 'frontend/postcss.config.*') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('frontend/package-lock.json') }}-
+            ${{ runner.os }}-nextjs-
+
       - name: Build
         run: npm run build
 
