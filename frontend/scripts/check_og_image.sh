@@ -49,6 +49,9 @@ check() {  # check <pass:0|1> <message>
 OG_URL="$(grep -oE "url: [\"'][^\"']+[\"']" "$LAYOUT" | grep -E "\.(png|jpe?g|webp)[\"']$" | head -1 | sed "s/url: [\"']//; s/[\"']$//")"
 TW_URL="$(grep -oE "images: \[[\"'][^\"']+" "$LAYOUT" | head -1 | sed "s/images: \[[\"']//")"
 
+# Note: only the og:image (openGraph.images) and twitter:image entries are
+# guarded. If the metadata ever gains additional image entries (e.g. a
+# favicon), extend the extraction below.
 echo "── OG IMAGE GUARD ──"
 [ -n "$OG_URL" ] && check 0 "og:image → ${OG_URL}" || check 1 "og:image URL not found in layout.tsx metadata"
 [ -n "$TW_URL" ] && check 0 "twitter:image → ${TW_URL}" || check 1 "twitter:image URL not found in layout.tsx metadata"
