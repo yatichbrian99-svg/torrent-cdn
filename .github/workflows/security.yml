@@ -23,11 +23,13 @@ on:
 permissions:
   contents: read
 
-# Schedule runs get their own concurrency group ('cron'): on schedule events
-# github.ref is the default branch, so without this a coincidental push would
-# share the group and cancel-in-progress would silently kill the daily scan.
+# Schedule + manual dispatch runs get their own concurrency group ('cron'):
+# on schedule events github.ref is the default branch, so without this a
+# coincidental push would share the group and cancel-in-progress would kill
+# the daily scan. workflow_dispatch gets the same group so a manual re-scan
+# can't cancel an in-flight push (which would skip its fullstack-audit).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'cron' || github.ref }}
+  group: ${{ github.workflow }}-${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cron' || github.ref }}
   cancel-in-progress: true
 
 jobs:
