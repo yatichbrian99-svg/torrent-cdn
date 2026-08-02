@@ -3,11 +3,19 @@ name: "CI: Tests & Security Audits"
 # No paths filter: tests + audits (incl. the gitleaks secret scan) run on
 # every push/PR to main — a secret committed anywhere (frontend/, Caddyfile,
 # docker-compose.yml, root files) must never escape the scan.
+#
+# Daily cron + manual dispatch re-scan the FULL history: push-time gitleaks
+# only scans the pushed range, so a secret that slipped through an old commit
+# (e.g. before gitleaks was added) is only caught by a full-history scan.
+# Gitleaks on schedule/dispatch scans the whole repo (no commit range).
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: "0 4 * * *"  # daily 04:00 UTC full-history re-scan
+  workflow_dispatch:      # manual "re-scan everything now" button
 
 # Least privilege: contents read is all most jobs need. security-events: write
 # is granted only to the static-audit job (job-level permissions), required by
@@ -15,8 +23,11 @@ on:
 permissions:
   contents: read
 
+# Schedule runs get their own concurrency group ('cron'): on schedule events
+# github.ref is the default branch, so without this a coincidental push would
+# share the group and cancel-in-progress would silently kill the daily scan.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'cron' || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -35,9 +46,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Base = PR base commit, or the commit pushed to main (`before`);
-      # the script falls back to origin/main, then HEAD^, then errors.
+      # Diff-scoped scan only makes sense for push/PR events (on schedule /
+      # dispatch there is no "before" commit — gitleaks covers full history
+      # there, and the --full step below covers the whole tree).
       - name: Scan the changeset for committed secrets
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
         run: |
           BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
           if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
@@ -45,7 +58,9 @@ jobs:
           fi
           bash backend/scripts/secret_scan.sh "$BASE"
 
-      # Belt-and-braces: also scan the whole working tree as committed.
+      # Belt-and-braces: also scan the whole working tree as committed. On
+      # schedule/dispatch runs this (with gitleaks' full-history scan) is the
+      # entire daily re-check.
       - name: Scan the full tree for committed secrets
         run: bash backend/scripts/secret_scan.sh --full
   # ── Frontend asset guards (fast, no infra) ──
@@ -157,7 +172,10 @@ jobs:
           APP_ENV: "production"
 
   # ── Full-stack audit (requires Docker) ──
+  # Push/PR only: the daily cron exists to re-scan secrets (gitleaks full
+  # history + secret-scan --full), not to rebuild Docker nightly.
   fullstack-audit:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [static-audit, secret-scan]
