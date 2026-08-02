@@ -1,0 +1,32 @@
+# gitleaks config — TorrentCDN
+#
+# Extends the default ruleset (all built-in secret patterns stay active) and
+# allowlists documentation *placeholders* that the full-history daily scan
+# legitimately flags as false positives:
+#
+#   - Truncated JWT-shaped examples in API docs ("eyJhbGciOiJIUzI1NiIs...")
+#   - "Authorization: Bearer YOUR_TOKEN" / "YOUR_API_KEY" curl examples
+#
+# These strings can never be real credentials (they end in "..." or use the
+# literal placeholder words YOUR_*), so allowlisting them is safe. Anything
+# else — real tokens, keys, passwords — still fails the build.
+title = "gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documentation API examples (placeholders only — never real credentials)"
+# Match against the full line (not just the secret value): the curl rules
+# report the Authorization header, and the allowlist patterns include the
+# 'Authorization: Bearer ' prefix which only exists in the line.
+regexTarget = "line"
+regexes = [
+  # Truncated JWT-shaped example in frontend/app/docs/page.tsx responses:
+  #   "access_token": "eyJhbGciOiJIUzI1NiIs..."
+  '''eyJhbGciOiJIUzI1NiIs\.\.\.''',
+  # curl examples with explicit placeholder tokens:
+  #   -H "Authorization: Bearer YOUR_TOKEN"
+  #   curl -H 'Authorization: Bearer YOUR_API_KEY' ...
+  '''Authorization: Bearer YOUR_(TOKEN|API_KEY)''',
+]
