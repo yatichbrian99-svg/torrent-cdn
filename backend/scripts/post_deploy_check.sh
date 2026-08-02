@@ -10,10 +10,11 @@
 #   4. Frontend HTML script tags carry nonces (>= total-1 coverage)
 #   5. API docs disabled in production (/api/openapi.json → 404)
 #
-# If ALL pre-flights pass, the script runs the full paced audit
+# If ALL pre-flights pass, the script runs the FRONTEND UNIT TESTS (vitest +
+# coverage gate, on the deployed checkout) and then the full paced audit
 # (curl_audit_prod.sh) so you get deep coverage in the same command.
-# If ANY pre-flight fails, it reports exactly what's still stale and exits 1
-# WITHOUT running the ~3-minute audit (fast-fail).
+# If ANY pre-flight fails — or the frontend tests fail — it reports exactly
+# what's wrong and exits 1 WITHOUT running the ~3-minute audit (fast-fail).
 #
 # Usage:
 #   bash post_deploy_check.sh                      # prod defaults
@@ -127,12 +128,39 @@ fi
 
 if [ "$RUN_AUDIT" = "0" ]; then
   echo ""
-  echo "✅  Pre-flight passed. (--preflight-only: full audit skipped.)"
+  echo "✅  Pre-flight passed. (--preflight-only: full audit + frontend tests skipped.)"
   exit 0
 fi
 
+# ── FRONTEND UNIT TESTS (vitest + coverage gate) ──
+# The preflight above confirms the hardened build is LIVE over HTTP; this gate
+# confirms the code at the deployed commit passes its unit tests + coverage
+# thresholds — frontend health is verified after deploy, not just before merge.
+# (npm ci runs only when node_modules is missing; gitignored, so first run only.)
 echo ""
-echo "✅  Pre-flight passed — hardened build is live. Running full audit..."
+echo "── FRONTEND UNIT TESTS (vitest + coverage gate) ──"
+FRONTEND_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)/frontend"
+if [ -d "$FRONTEND_DIR" ]; then
+  FE_OUT=$(cd "$FRONTEND_DIR" && { [ -d node_modules ] || npm ci --no-audit --no-fund >/dev/null 2>&1; } && npm run test:coverage 2>&1)
+  FE_RC=$?
+  if [ "$FE_RC" = "0" ]; then
+    echo "  ✅  Frontend unit tests passed (vitest + coverage gate)"
+    echo "$FE_OUT" | grep -E 'Test Files|Tests  ' | head -2 | sed 's/^/      /'
+    echo "$FE_OUT" | grep -E 'Statements|Branches|Functions|Lines' | head -4 | sed 's/^/      /'
+  else
+    echo "  ❌  Frontend unit tests FAILED (exit $FE_RC) — frontend is NOT healthy at this commit"
+    echo "$FE_OUT" | tail -15 | sed 's/^/      /'
+    echo ""
+    echo "⚠️  Fix the failing tests before calling this deploy healthy — a green"
+    echo "    preflight alone is not enough. (Full network audit skipped.)"
+    exit 1
+  fi
+else
+  echo "  ⚠️  frontend/ not found at $FRONTEND_DIR — skipping frontend unit tests (run from a full checkout)"
+fi
+
+echo ""
+echo "✅  Pre-flight passed and frontend tests green — hardened build is live. Running full audit..."
 echo ""
 bash "$SCRIPT_DIR/curl_audit_prod.sh"
 exit $?

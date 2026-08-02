@@ -278,12 +278,14 @@ Two commands confirm the deploy is correct and hardened — no dashboard login r
 RENDER_API_KEY=rnd_... bash backend/scripts/check_deploy.sh          # compare against local HEAD
 RENDER_API_KEY=rnd_... bash backend/scripts/check_deploy.sh <commit> # compare against a specific commit
 
-# 2. Full security audit against production (pre-flight gate + ~3 min paced audit)
+# 2. Full security audit + frontend tests against production (pre-flight gate
+#    + vitest/coverage gate + ~3 min paced audit)
 bash backend/scripts/post_deploy_check.sh
 ```
 
 - `check_deploy.sh` exits `0` on a commit match, `1` on mismatch/no live deploy, `2` on key/API error. Render's API is the source of truth — it does **not** write deploy statuses back to GitHub (the statuses you see are Vercel's).
-- `post_deploy_check.sh` fast-fails (exit 1) if the hardened build isn't live yet (so you never audit a stale build), otherwise runs the full ~3-minute audit and exits `0` only when **every** check passes — security headers, CSP content, host-header protection, auth enforcement, email-verification gate, **API-docs gating (`/api/openapi.json` → 404)**, SQLi/input validation, CORS, HTTP methods, and the frontend nonce/SRI/proxy.
+- `post_deploy_check.sh` fast-fails (exit 1) if the hardened build isn't live yet (so you never audit a stale build), otherwise runs the **frontend unit-test gate** (`frontend/` — `npm run test:coverage`, the same vitest suite + coverage thresholds that gate PRs; `npm ci` auto-runs only when `node_modules` is missing — if tests behave oddly against stale deps, `rm -rf node_modules` first) and then the full ~3-minute audit, exiting `0` only when **every** check passes — security headers, CSP content, host-header protection, auth enforcement, email-verification gate, **API-docs gating (`/api/openapi.json` → 404)**, SQLi/input validation, CORS, HTTP methods, the frontend nonce/SRI/proxy, **and frontend unit tests/coverage**.
+- Frontend health is therefore verified **after** deploy too, not just before merge: the unit-test gate runs against the deployed commit's checkout, so a broken build that slipped past pre-merge CI (or a stale/partial deploy) is caught here. `--preflight-only` skips both the frontend tests and the full audit (it just confirms the hardened build is live).
 - **Key creation (one-time):** Render dashboard → Account Settings → API Keys → Create API Key. A plain (read-only) key is sufficient — both scripts use only GET endpoints. Store it in the deployer's env / secrets manager; never commit it.
 - Expected result after a healthy deploy: `✅ LIVE commit matches expected` from step 1 and a `0` exit with zero `❌` lines from step 2.
 
