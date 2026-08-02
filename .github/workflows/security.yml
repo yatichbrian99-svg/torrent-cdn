@@ -103,8 +103,14 @@ jobs:
         working-directory: backend
 
     steps:
-      - name: Checkout
+      # Full history required: gitleaks-action computes a BASE^..HEAD range on
+      # push events, which fails with 'fatal: ambiguous argument' against the
+      # default shallow (fetch-depth: 1) checkout whenever a push contains
+      # more than one commit (seen on the dashboard + chore(ops) runs).
+      - name: Checkout (full history for gitleaks range resolution)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Gitleaks — scan for hardcoded secrets
         uses: gitleaks/gitleaks-action@v2
