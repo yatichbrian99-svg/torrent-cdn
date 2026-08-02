@@ -51,7 +51,7 @@ Every push/PR to `main` runs `.github/workflows/security.yml` — **all jobs mus
 | `tests` | Backend unit suite (pytest, fully mocked — no infra) | `cd backend && python -m pytest` |
 | `secret-scan` | High-signal secrets (PATs, AWS/Stripe/SendGrid/Resend keys, private keys, webhooks) in the diff **and** the full tree | `bash backend/scripts/secret_scan.sh` (or `--full`) |
 | `static-audit` | Gitleaks secret scan (pushed-range on push, **full history** on the daily 04:00 UTC cron / manual dispatch; PR comments + SARIF upload) + header/CSP/auth/API-docs-gating audit | `cd backend && python scripts/security_audit.py` |
-| `frontend-checks` | **Frontend pipeline:** `npm ci` → `tsc --noEmit` → **vitest unit tests** → `next build` → **OG image guard** | `cd frontend && npm test` |
+| `frontend-checks` | **Frontend pipeline:** `npm ci` → `tsc --noEmit` → **vitest unit tests + coverage gate** → `next build` → **OG image guard** | `cd frontend && npm run test:coverage` |
 | `fullstack-audit` | Docker stack (Postgres/Redis/MinIO) + `curl_audit.sh` end-to-end (push/PR only; runs even when the secret gates are red so a leak PR keeps its e2e signal) | `cd backend && API_URL=http://localhost:8000 bash scripts/curl_audit.sh` |
 
 ### Frontend tests (vitest)
@@ -60,11 +60,14 @@ Every push/PR to `main` runs `.github/workflows/security.yml` — **all jobs mus
 
 ```bash
 cd frontend
-npm test            # one-shot — exactly what CI runs
-npm run test:watch  # watch mode during development
+npm test             # one-shot (no coverage)
+npm run test:coverage # one-shot WITH the coverage gate — exactly what CI runs
+npm run test:watch   # watch mode during development
 ```
 
 21 tests across 6 files cover real behavior, not just types: the auth token store (`lib/auth.ts`), the API client interceptors — Bearer-header attachment and the 401 logout/redirect (`lib/api.ts`), UsageBar percentage math (incl. the unlimited plan), EmbedCode snippet generation, PricingTable checkout flow (incl. the error path), and FileCard's delete-confirm + copy interactions.
+
+**Coverage gate (v8 provider):** `test:coverage` counts every file under `lib/` and `components/` — tested or not — and fails the build if totals drop below the configured thresholds (`statements 25`, `branches 33`, `functions 14`, `lines 32` — the measured baseline, raise them as coverage grows). Removing a test, breaking a covered path, or adding a new untested file all fail CI. `VideoPlayer.tsx` is excluded (WebRTC/webtorrent glue — covered by `next build` + the embed e2e, not meaningfully unit-testable in jsdom).
 
 ### Frontend build + OG image guard
 

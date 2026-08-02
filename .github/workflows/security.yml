@@ -101,9 +101,12 @@ jobs:
       # Unit tests (vitest + Testing Library): auth token store, API client
       # interceptors (Bearer attachment + 401 logout), and component logic
       # (UsageBar math, EmbedCode snippet, PricingTable checkout, FileCard
-      # delete-confirm/copy).
+      # delete-confirm/copy). test:coverage = vitest run --coverage — the v8
+      # coverage gate (all: true over lib/ + components/) fails the build if
+      # totals drop below the configured thresholds (e.g. a removed test or a
+      # new untested file), like the backend suite would.
       - name: Test
-        run: npm test
+        run: npm run test:coverage
 
       # Next.js persistent build cache (.next/cache — webpack + swc). Next's
       # docs recommend caching .next/cache, NOT the whole .next: full .next can

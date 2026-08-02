@@ -169,7 +169,7 @@ Every push/PR to `main` runs `.github/workflows/security.yml` — **all jobs mus
 | `tests` | Backend unit suite (pytest, fully mocked — no infra) |
 | `secret-scan` | Diff-scoped high-signal secret gate (`backend/scripts/secret_scan.sh`) + whole-tree scan — GitHub PATs, AWS/Stripe/SendGrid/Resend keys, private keys, webhooks |
 | `static-audit` | Gitleaks secret scan (pushed-range on push, **full history** on the daily cron/dispatch; posts inline PR comments, uploads SARIF) + `security_audit.py` header/CSP/auth/API-docs-gating checks |
-| `frontend-checks` | **Frontend pipeline:** `npm ci` → `tsc --noEmit` → vitest unit tests → `next build` → **OG image guard** |
+| `frontend-checks` | **Frontend pipeline:** `npm ci` → `tsc --noEmit` → vitest unit tests **+ coverage gate** → `next build` → **OG image guard** |
 | `fullstack-audit` | Docker stack (Postgres/Redis/MinIO) + `curl_audit.sh` end-to-end (push/PR only; runs even when the secret gates are red, so a leak PR keeps its e2e signal) |
 
 ### Frontend build + OG image guard (protects link previews)
