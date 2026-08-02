@@ -410,6 +410,30 @@ class TestResetPassword:
         mock_redis.delete.assert_not_called()
         mock_redis.set.assert_not_called()  # never re-consumes or re-tombstones
 
+    def test_reset_password_marks_email_verified(self, client, mock_conn, mock_redis):
+        """
+        A successful reset proves email ownership (the token only reached that
+        inbox), so the account is marked verified. This unblocks users whose
+        verification email was lost/never delivered — production gates login on
+        verified, so without this they'd be permanently locked out even after
+        resetting.
+        """
+        token = self._valid_reset_token()
+
+        async def _fake_get(key):
+            return str(self.USER_ID) if str(key).startswith("reset_token:") else None
+        mock_redis.get.side_effect = _fake_get
+        mock_conn.execute.return_value = "UPDATE 1"
+
+        resp = client.post(self.RESET_URL, json={"token": token, "password": "NewPass456!"})
+
+        assert resp.status_code == 200
+        assert "reset successfully" in resp.json()["detail"]
+        # The UPDATE must set verified = TRUE alongside the new password hash.
+        sql = mock_conn.execute.call_args.args[0].lower()
+        assert "verified" in sql
+        assert "set password_hash = $1, verified = true" in sql
+
     def test_reset_password_redis_down_at_click_uses_jwt_only(self, client, mock_conn, monkeypatch):
         """
         Asymmetry control: if Redis is down at CLICK time, the key check is

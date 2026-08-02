@@ -295,7 +295,14 @@ async def forgot_password(data: ForgotPasswordRequest, request: Request):
         )
 
     if user:
-        await send_password_reset_email(user["email"], user["id"])
+        # Wrap in try/except so email delivery failures can never 500 the
+        # endpoint — the anti-enumeration response below must always be
+        # returned (a 500 vs 200 split would leak which emails are registered).
+        # Registration follows the same pattern for its verification email.
+        try:
+            await send_password_reset_email(user["email"], user["id"])
+        except Exception as e:
+            logger.warning("Password reset email failed for %s: %s", user["email"], e)
 
     return {"detail": "If that email is registered, a password reset link has been sent."}
 
@@ -352,8 +359,13 @@ async def reset_password(data: ResetPasswordRequest):
     pool = await get_db_pool()
     password_hash = hash_password(data.password)
     async with pool.acquire() as conn:
+        # Also mark the email verified: presenting a valid reset token IS proof
+        # of email ownership (it was only delivered to that inbox), so a user
+        # who lost/never got their verification email can unlock login by
+        # resetting instead of being permanently locked out (production gates
+        # login on verified).
         result = await conn.execute(
-            "UPDATE users SET password_hash = $1 WHERE id = $2",
+            "UPDATE users SET password_hash = $1, verified = TRUE WHERE id = $2",
             password_hash,
             UUID(user_id_str),
         )

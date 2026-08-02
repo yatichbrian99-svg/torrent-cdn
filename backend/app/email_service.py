@@ -175,7 +175,10 @@ async def send_password_reset_email(email: str, user_id: UUID) -> bool:
                 email, build_reset_url(token),
             )
         else:
-            logger.info("Resend not configured — password reset for %s. Token valid for 1 hour.", email)
+            # Warning (not info) in production: a missing/broken email provider
+            # silently strands users who can never receive reset/verification
+            # links — this must be visible in logs, not lost among info noise.
+            logger.warning("Resend not configured — password reset for %s. Token valid for 1 hour.", email)
         return False
 
     reset_url = build_reset_url(token)

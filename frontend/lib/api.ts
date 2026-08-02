@@ -8,7 +8,10 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://www.torrentcdn.stor
 
 const api = axios.create({
   baseURL: API_BASE,
-  timeout: 15000,
+  // 45s: Render's free tier cold-starts after ~15min of inactivity (can take
+  // 20-45s). The old 15s timeout made the FIRST request after idle fail with a
+  // generic 'Something went wrong' even though the backend eventually responds.
+  timeout: 45000,
 })
 
 api.interceptors.request.use((config) => {

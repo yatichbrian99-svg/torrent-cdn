@@ -20,8 +20,11 @@ export default function ForgotPasswordPage() {
     try {
       await api.forgotPassword(email)
       setStatus('success')
-    } catch {
-      setError('Something went wrong. Please try again.')
+    } catch (err: any) {
+      // Surface the real API message (e.g. the 60s rate limit / transient
+      // 500) instead of a generic 'something went wrong' — matches the
+      // AuthModal and reset-password pages.
+      setError(err.response?.data?.detail || 'Something went wrong. Please try again.')
       setStatus('form')
     }
   }

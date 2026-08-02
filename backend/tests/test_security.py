@@ -610,6 +610,27 @@ class TestInMemoryRateLimitFallbacks:
             auth_route._forgot_requests.clear()
             auth_route._forgot_requests.update(saved)
 
+    def test_forgot_password_email_failure_still_returns_200(self, client, mock_conn, monkeypatch):
+        """A raising email service must NOT 500 the endpoint — the anti-enumeration
+        success response is always returned (a 200/500 split would leak which
+        emails are registered, and users would see a generic frontend error)."""
+        import app.routes.auth as auth_route
+
+        # A registered user exists, so the route takes the email-send path.
+        mock_conn.fetchrow.return_value = {
+            "id": UUID("11111111-1111-4111-8111-111111111111"),
+            "email": "user@example.com",
+        }
+
+        async def _boom(*args, **kwargs):
+            raise RuntimeError("resend down")
+
+        monkeypatch.setattr(auth_route, "send_password_reset_email", _boom)
+
+        resp = client.post(self.FORGOT_URL, json={"email": "user@example.com"})
+        assert resp.status_code == 200
+        assert "password reset link has been sent" in resp.json()["detail"]
+
     def test_forgot_password_in_memory_keyed_on_xff(self, client, monkeypatch):
         """In-memory forgot-password limit keys on the X-Forwarded-For client IP."""
         import app.routes.auth as auth_route
