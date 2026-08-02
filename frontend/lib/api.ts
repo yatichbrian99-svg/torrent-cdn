@@ -23,7 +23,14 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    // A 401 from the login/register endpoints means WRONG CREDENTIALS, not an
+    // expired session — let the form show the real error ('Invalid email or
+    // password') instead of nuking the page with a redirect. Everywhere else
+    // (auth/me, files, billing, ...) a 401 still means the session died, so
+    // clear the token and bounce home.
+    const url = error.config?.url || ''
+    const isCredentialCheck = url === '/auth/login' || url === '/auth/register'
+    if (error.response?.status === 401 && !isCredentialCheck) {
       removeToken()
       if (typeof window !== 'undefined') {
         window.location.href = '/'

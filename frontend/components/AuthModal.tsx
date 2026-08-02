@@ -29,7 +29,21 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
       onClose()
       window.location.reload()
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Authentication failed')
+      // Show the API's real message when present; otherwise explain WHY the
+      // generic 'Authentication failed' happens — Render's free tier cold-starts
+      // after ~15min idle, so the Vercel proxy can return 502/504 (or the
+      // request times out) even with correct credentials.
+      const status = err.response?.status
+      const detail = err.response?.data?.detail
+      if (detail) {
+        setError(detail)
+      } else if (status === 502 || status === 503 || status === 504) {
+        setError('The server is still waking up. Give it a few seconds and try again.')
+      } else if (!err.response) {
+        setError('Could not reach the server. Check your connection and try again.')
+      } else {
+        setError(`${isLogin ? 'Login' : 'Sign up'} failed. Please try again.`)
+      }
     } finally { setLoading(false) }
   }
 

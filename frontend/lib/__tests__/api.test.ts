@@ -85,5 +85,29 @@ describe('api client interceptors', () => {
       await expect(responseInterceptor.err(error)).rejects.toBe(error)
       expect(mocks.removeToken).not.toHaveBeenCalled()
     })
+
+    it('does NOT redirect on 401 from /auth/login (wrong credentials, not expired session)', async () => {
+      vi.stubGlobal('location', { href: '' })
+      const error = { config: { url: '/auth/login' }, response: { status: 401 } }
+      await expect(responseInterceptor.err(error)).rejects.toMatchObject(error)
+      expect(mocks.removeToken).not.toHaveBeenCalled()
+      expect(window.location.href).toBe('')
+    })
+
+    it('does NOT redirect on 401 from /auth/register', async () => {
+      vi.stubGlobal('location', { href: '' })
+      const error = { config: { url: '/auth/register' }, response: { status: 401 } }
+      await expect(responseInterceptor.err(error)).rejects.toMatchObject(error)
+      expect(mocks.removeToken).not.toHaveBeenCalled()
+      expect(window.location.href).toBe('')
+    })
+
+    it('still redirects on 401 from authenticated endpoints (expired session)', async () => {
+      vi.stubGlobal('location', { href: '' })
+      const error = { config: { url: '/files' }, response: { status: 401 } }
+      await expect(responseInterceptor.err(error)).rejects.toMatchObject(error)
+      expect(mocks.removeToken).toHaveBeenCalledTimes(1)
+      expect(window.location.href).toBe('/')
+    })
   })
 })
