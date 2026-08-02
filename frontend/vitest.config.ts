@@ -16,11 +16,11 @@ export default defineConfig({
     setupFiles: ['./vitest.setup.ts'],
     include: ['**/*.test.{ts,tsx}'],
     // Coverage gate (v8 provider): every file under lib/ and components/ counts
-    // toward the thresholds, tested or not (all: true), so a new untested file
-    // or a removed test drops coverage and fails CI.
+    // toward the thresholds, tested or not — vitest 4 counts all files matched
+    // by `include` (the old `all` flag was removed), so a new untested file or
+    // a removed test drops coverage and fails CI.
     coverage: {
       provider: 'v8',
-      all: true,
       include: ['lib/**', 'components/**'],
       // VideoPlayer is WebRTC/webtorrent glue — not meaningfully unit-testable
       // in jsdom (covered by next build + the embed e2e). Everything else in
