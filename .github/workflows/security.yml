@@ -17,9 +17,10 @@ on:
     - cron: "0 4 * * *"  # daily 04:00 UTC full-history re-scan
   workflow_dispatch:      # manual "re-scan everything now" button
 
-# Least privilege: contents read is all most jobs need. security-events: write
-# is granted only to the static-audit job (job-level permissions), required by
-# its SARIF upload step (posts gitleaks findings to Code Scanning).
+# Least privilege: contents read is all most jobs need. The static-audit job
+# scopes exactly two extras to itself (job-level permissions): security-events:
+# write for its SARIF upload (posts gitleaks findings to Code Scanning) and
+# pull-requests: write for gitleaks' inline PR comments.
 permissions:
   contents: read
 
@@ -65,21 +66,47 @@ jobs:
       # entire daily re-check.
       - name: Scan the full tree for committed secrets
         run: bash backend/scripts/secret_scan.sh --full
-  # ── Frontend asset guards (fast, no infra) ──
-  # Fails if link-preview cards would render broken: og:image / twitter:image
-  # in layout.tsx must resolve to a real, non-empty PNG under public/ (a prior
-  # regression shipped a 0-byte dynamic route + a 404 twitter image, blanking
-  # every preview card on Twitter/X, LinkedIn, Slack, Discord, WhatsApp).
+  # ── Frontend checks (no infra) ──
+  # Builds the Next.js app and guards link-preview cards. The backend gets
+  # tests + 3 audit layers, but the frontend was the only CI-blind spot: type
+  # errors, build breaks, and broken imports could merge silently. Node 20
+  # matches the production image (frontend/Dockerfile: node:20-alpine).
   frontend-checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Explicit typecheck before build: next build type-checks too, but this
+      # isolates type errors (faster, cleaner output) and stays effective even
+      # if ignoreBuildErrors is ever enabled in next.config.
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+
+      # Fails if link-preview cards would render broken: og:image / twitter:image
+      # in layout.tsx must resolve to a real, non-empty PNG under public/ (a prior
+      # regression shipped a 0-byte dynamic route + a 404 twitter image, blanking
+      # every preview card on Twitter/X, LinkedIn, Slack, Discord, WhatsApp).
       - name: OG image guard
-        run: bash frontend/scripts/check_og_image.sh
+        run: bash scripts/check_og_image.sh
 
   # ── Backend unit test suite (fully mocked — no infra required) ──
   tests:
@@ -185,8 +212,12 @@ jobs:
   # ── Full-stack audit (requires Docker) ──
   # Push/PR only: the daily cron exists to re-scan secrets (gitleaks full
   # history + secret-scan --full), not to rebuild Docker nightly.
+  # if: always() — runs even when the secret gates (needs) fail, so a leak PR
+  # still gets its Docker e2e signal instead of silently skipping it. The
+  # throwaway stack only holds test data; the leak is already caught by the
+  # failing gates themselves.
   fullstack-audit:
-    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    if: always() && (github.event_name == 'push' || github.event_name == 'pull_request')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [static-audit, secret-scan]
@@ -210,6 +241,14 @@ jobs:
             [ "$STATUS" -ge 3 ] && echo "All services healthy" && break
             sleep 3
           done
+          # Fail hard if infra never becomes healthy instead of letting the
+          # backend step diagnose it blind (the backend health wait is still a
+          # second gate, but the failure should point here first).
+          if [ "$STATUS" -lt 3 ]; then
+            echo "Infrastructure never became healthy ($STATUS/3) — aborting" >&2
+            docker compose ps
+            exit 1
+          fi
 
       - name: Build and start backend
         env:
