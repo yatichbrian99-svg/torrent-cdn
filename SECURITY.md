@@ -160,6 +160,32 @@ A built-in endpoint that receives CSP violation reports from browsers.
 
 ---
 
+## Pre-merge CI Gates
+
+Every push/PR to `main` runs `.github/workflows/security.yml` — **all jobs must be green before merging**. PRs get inline gitleaks comments pointing at the offending line when a secret is introduced; the build fails on anything below:
+
+| Job | What it gates |
+|---|---|
+| `tests` | Backend unit suite (pytest, fully mocked — no infra) |
+| `secret-scan` | Diff-scoped high-signal secret gate (`backend/scripts/secret_scan.sh`) + whole-tree scan — GitHub PATs, AWS/Stripe/SendGrid/Resend keys, private keys, webhooks |
+| `static-audit` | Gitleaks secret scan (pushed-range on push, **full history** on the daily cron/dispatch; posts inline PR comments, uploads SARIF) + `security_audit.py` header/CSP/auth/API-docs-gating checks |
+| `frontend-checks` | **Frontend pipeline:** `npm ci` → `tsc --noEmit` → vitest unit tests → `next build` → **OG image guard** |
+| `fullstack-audit` | Docker stack (Postgres/Redis/MinIO) + `curl_audit.sh` end-to-end (push/PR only; runs even when the secret gates are red, so a leak PR keeps its e2e signal) |
+
+### Frontend build + OG image guard (protects link previews)
+
+The `frontend-checks` job compiles the Next.js app exactly like production (Node 20, matching `frontend/Dockerfile`) and asserts share-card metadata can't silently break:
+
+- `npm ci` — locked dependency install (fails loudly on lockfile drift).
+- `npx tsc --noEmit` — strict typecheck of the whole frontend (test files included).
+- `npm test` — vitest unit tests (auth token store, API interceptor Bearer/401-logout, UsageBar math, EmbedCode snippet, PricingTable checkout, FileCard delete-confirm/copy).
+- `npm run build` — full `next build`; a type error or build break now fails CI instead of shipping.
+- **OG image guard** (`frontend/scripts/check_og_image.sh`) — the `og:image` / `twitter:image` URLs in `app/layout.tsx` must resolve to a real, non-empty PNG under `public/`. A prior regression shipped a 0-byte dynamic route + a 404 twitter image that blanked every preview card on Twitter/X, LinkedIn, Slack, Discord, and WhatsApp — this guard exists so that can't happen again.
+
+CI keeps the frontend fast: npm packages are cached via `setup-node`'s `cache: npm`, and Next.js' persistent build cache (`.next/cache`) is cached between runs (`actions/cache`) so warm builds skip recompiling unchanged modules (~2× faster Build step).
+
+---
+
 ## Production Deployment Checklist
 
 ### 1. Purge secrets from git history (one-time)
