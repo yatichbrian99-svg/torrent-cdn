@@ -134,6 +134,18 @@ jobs:
       - name: OG image guard
         run: bash scripts/check_og_image.sh
 
+      # Fails if the shipped bundle would call a cross-origin API that the page
+      # CSP blocks (or that dies at the network layer). A build-time
+      # NEXT_PUBLIC_API_URL override once baked baseURL=https://torrent-cdn.onrender.com
+      # into the axios instance — the browser silently blocked every fetch via
+      # connect-src, surfacing to users as 'Could not reach the server' with a
+      # healthy backend. Production must resolve same-origin ('' — vercel.json
+      # rewrites /api/*, /auth/*, /upload, /files/*, /analytics/*, /billing/*,
+      # /admin/*, /notifications/* to Render). Checks the COMPILED bundle, so it
+      # is the ground truth of what ships.
+      - name: API baseURL guard
+        run: bash scripts/check_api_baseurl.sh
+
   # ── Backend unit test suite (fully mocked — no infra required) ──
   tests:
     runs-on: ubuntu-latest
