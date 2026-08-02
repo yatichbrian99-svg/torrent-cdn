@@ -79,30 +79,49 @@ for EP in "/auth/me" "/files" "/billing/status"; do
 done
 
 # ── 6. REGISTER & LOGIN (email-verification aware) ──
+# Auth POSTs go through the VERCEL PROXY ($FE/auth/*) — the exact same-origin
+# path the browser uses (API_BASE='', vercel.json rewrites /auth/* to Render).
+# Direct POSTs to the Render origin (torrent-cdn.onrender.com) fail at the
+# network layer on Render's free tier (HTTP 000 connection reset in ~1s even
+# though the server often processed the request — which used to produce false
+# 'registration failed' audit failures AND orphaned test users). GETs to the
+# backend are reliable, so non-auth checks still target $API directly.
+# post_proxy retries once after a pause on transient failures (Render cold
+# start), mirroring the login auto-retry in the frontend.
+post_proxy() {  # post_proxy <path> <json> <auth_header_or_empty> -> echoes body
+  local path="$1" json="$2" auth="${3:-}" body=""
+  for attempt in 1 2; do
+    body=$(curl -s -m 90 -X POST "$FE$path" \
+      -H "Content-Type: application/json" \
+      ${auth:+-H "Authorization: $auth"} \
+      -d "$json" 2>/dev/null || echo "")
+    [ -n "$body" ] && break
+    [ "$attempt" = "1" ] && sleep 6
+  done
+  echo "$body"
+}
 echo ""
 echo "── 6. REGISTRATION & LOGIN ──"
 sleep 2.2
 TS=$(date +%s)
 EMAIL="ci-audit-${TS}@example.com"
-REG=$(curl -s -X POST "$API/auth/register" \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"$EMAIL\",\"password\":\"testpass123\",\"terms_accepted\":true}" 2>/dev/null || echo "")
+REG=$(post_proxy "/auth/register" "{\"email\":\"$EMAIL\",\"password\":\"testpass123\",\"terms_accepted\":true}")
 
 TOKEN=$(echo "$REG" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
 if [ -n "$TOKEN" ]; then
   check 0 "Registration → token received"
 
   sleep 2.2
-  ME=$(curl -s "$API/auth/me" -H "Authorization: Bearer $TOKEN" 2>/dev/null || echo "")
+  ME=$(curl -s -m 60 "$FE/auth/me" -H "Authorization: Bearer $TOKEN" 2>/dev/null || echo "")
   echo "$ME" | grep -q "$EMAIL" && check 0 "Auth/me → correct user" || check 1 "Auth/me failed: $(echo "$ME" | head -c 120)"
 
   sleep 2.2
-  BILL=$(curl -s "$API/billing/status" -H "Authorization: Bearer $TOKEN" 2>/dev/null || echo "")
+  BILL=$(curl -s -m 60 "$FE/billing/status" -H "Authorization: Bearer $TOKEN" 2>/dev/null || echo "")
   echo "$BILL" | grep -q '"plan":"free"' && check 0 "Billing → free plan" || check 1 "Billing: $(echo "$BILL" | head -c 120)"
 
   # Production requires verified email → login MUST be blocked (403), not a token.
   sleep 2.2
-  LOGIN_CODE=$(curl -so /dev/null -w '%{http_code}' -X POST "$API/auth/login" \
+  LOGIN_CODE=$(curl -so /dev/null -w '%{http_code}' -m 60 -X POST "$FE/auth/login" \
     -H "Content-Type: application/json" \
     -d "{\"email\":\"$EMAIL\",\"password\":\"testpass123\"}" 2>/dev/null || echo "000")
   if [ "$LOGIN_CODE" = "403" ]; then
@@ -115,14 +134,13 @@ if [ -n "$TOKEN" ]; then
 
   # Duplicate registration should return 400
   sleep 2.2
-  DUPE_CODE=$(curl -so /dev/null -w '%{http_code}' -X POST "$API/auth/register" \
-    -H "Content-Type: application/json" \
-    -d "{\"email\":\"$EMAIL\",\"password\":\"testpass123\",\"terms_accepted\":true}" 2>/dev/null || echo "000")
-  [ "$DUPE_CODE" = "400" ] && check 0 "Duplicate registration → $DUPE_CODE" || check 1 "Duplicate registration → $DUPE_CODE"
+  DUPE_BODY=$(post_proxy "/auth/register" "{\"email\":\"$EMAIL\",\"password\":\"testpass123\",\"terms_accepted\":true}")
+  DUPE_CODE=000; echo "$DUPE_BODY" | grep -q 'already registered' && DUPE_CODE=400
+  [ "$DUPE_CODE" = "400" ] && check 0 "Duplicate registration → $DUPE_CODE" || check 1 "Duplicate registration → $DUPE_CODE ($(echo "$DUPE_BODY" | head -c 80))"
 
   # Cleanup the throwaway user (also verifies DELETE /auth/me in production)
   sleep 2.2
-  DEL_CODE=$(curl -so /dev/null -w '%{http_code}' -X DELETE "$API/auth/me" \
+  DEL_CODE=$(curl -so /dev/null -w '%{http_code}' -m 60 -X DELETE "$FE/auth/me" \
     -H "Authorization: Bearer $TOKEN" 2>/dev/null || echo "000")
   [ "$DEL_CODE" = "200" ] && check 0 "Test user cleaned up (DELETE /auth/me) → $DEL_CODE" || check 1 "Cleanup DELETE /auth/me → $DEL_CODE"
 else
@@ -134,7 +152,7 @@ echo ""
 echo "── 7. SQL INJECTION ──"
 for PAYLOAD in "' OR '1'='1" "'; DROP TABLE users; --" "' UNION SELECT * FROM users; --"; do
   sleep 2.2
-  CODE=$(curl -so /dev/null -w '%{http_code}' -X POST "$API/auth/login" \
+  CODE=$(curl -so /dev/null -w '%{http_code}' -m 60 -X POST "$FE/auth/login" \
     -H "Content-Type: application/json" \
     -d "{\"email\":\"$PAYLOAD\",\"password\":\"x\"}" 2>/dev/null || echo "000")
   [ "$CODE" != "200" ] && check 0 "SQLi blocked: ${PAYLOAD:0:15} → $CODE" || check 1 "SQLi VULN: $PAYLOAD → $CODE"
@@ -145,7 +163,7 @@ echo ""
 echo "── 8. INPUT VALIDATION ──"
 for payload in '{"email":"bad","password":"short","terms_accepted":true}' '{"email":"x@y.co","password":"1234567","terms_accepted":true}'; do
   sleep 2.2
-  CODE=$(curl -so /dev/null -w '%{http_code}' -X POST "$API/auth/register" \
+  CODE=$(curl -so /dev/null -w '%{http_code}' -m 60 -X POST "$FE/auth/register" \
     -H "Content-Type: application/json" -d "$payload" 2>/dev/null || echo "000")
   [ "$CODE" = "400" ] && check 0 "Invalid input rejected → $CODE" || check 1 "Invalid input → $CODE"
 done
@@ -154,7 +172,7 @@ done
 echo ""
 echo "── 9. ANALYTICS XSS ──"
 sleep 2.2
-CODE=$(curl -so /dev/null -w '%{http_code}' -X POST "$API/analytics/event" \
+CODE=$(curl -so /dev/null -w '%{http_code}' -m 60 -X POST "$FE/analytics/event" \
   -H "Content-Type: application/json" \
   -d '{"file_id":"00000000-0000-0000-0000-000000000000","event_type":"<script>","bytes_p2p":0,"bytes_origin":0}' 2>/dev/null || echo "000")
 [ "$CODE" = "400" ] && check 0 "XSS event_type blocked → $CODE" || check 1 "XSS event_type → $CODE"
