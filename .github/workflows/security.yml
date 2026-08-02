@@ -9,9 +9,9 @@ on:
   pull_request:
     branches: [main]
 
-# Least privilege: the default GITHUB_TOKEN is repo read/write; this workflow
-# only needs read. (gitleaks reports findings via the job log; add
-# security-events: write if you later enable SARIF upload.)
+# Least privilege: contents read is all most jobs need. security-events: write
+# is granted only to the static-audit job (job-level permissions), required by
+# its SARIF upload step (posts gitleaks findings to Code Scanning).
 permissions:
   contents: read
 
@@ -31,7 +31,7 @@ jobs:
 
     steps:
       - name: Checkout (full history for an accurate diff base)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -59,7 +59,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: OG image guard
         run: bash frontend/scripts/check_og_image.sh
@@ -74,10 +74,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: "pip"
@@ -98,6 +98,10 @@ jobs:
   static-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # security-events: write is needed only here (SARIF upload to Code Scanning).
+    permissions:
+      contents: read
+      security-events: write
     defaults:
       run:
         working-directory: backend
@@ -108,17 +112,34 @@ jobs:
       # default shallow (fetch-depth: 1) checkout whenever a push contains
       # more than one commit (seen on the dashboard + chore(ops) runs).
       - name: Checkout (full history for gitleaks range resolution)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
+      # v3 (not v2): v2 runs on Node 20, which GitHub removes from hosted
+      # runners on 2026-09-16 — v2 would stop working entirely.
       - name: Gitleaks — scan for hardcoded secrets
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Posts gitleaks results.sarif to Code Scanning (Security tab). Runs even
+      # when gitleaks finds a leak, so the alert lands in the Security tab.
+      # (gitleaks itself still fails the build via its exit code on findings.)
+      # continue-on-error: code scanning needs Advanced Security on private
+      # personal-account repos; if the upload is unsupported there, the gitleaks
+      # scan (the actual gate) still runs and fails the build — the upload just
+      # can't break CI. Check the Security tab after the first run to confirm
+      # findings are landing.
+      - name: Upload SARIF to Code Scanning
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results.sarif
+
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: "pip"
@@ -143,7 +164,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Note: compose interpolates the whole file, so JWT_SECRET must be set here
       # too even though the backend service isn't started in this step.
