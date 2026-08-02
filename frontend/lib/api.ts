@@ -1,10 +1,19 @@
 import axios from 'axios'
 import { getToken, removeToken } from './auth'
 
-// API calls route through Vercel proxy (our domain) for reliable connectivity.
-// Override via NEXT_PUBLIC_API_URL env var.
-// For local dev, set NEXT_PUBLIC_API_URL=http://localhost:8000 in .env.local
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://www.torrentcdn.store'
+// Production ALWAYS routes through the same-origin Vercel proxy: vercel.json
+// rewrites /api/*, /auth/*, /upload, /files/*, /analytics/*, /billing/*,
+// /admin/*, /notifications/* to the Render backend, so relative URLs are
+// reliable AND avoid the page CSP + CORS entirely.
+//
+// A cross-origin NEXT_PUBLIC_API_URL (e.g. someone setting it to a direct
+// https://torrent-cdn.onrender.com URL) breaks login in production: the browser
+// either blocks the fetch via connect-src or the direct cross-origin POST fails
+// at the network layer ('Could not reach the server'). So in production we
+// IGNORE the env var and stay same-origin. The env override is only honored in
+// local dev, where vercel.json rewrites don't exist.
+const isProduction = process.env.NODE_ENV === 'production'
+const API_BASE = isProduction ? '' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
 
 const api = axios.create({
   baseURL: API_BASE,
