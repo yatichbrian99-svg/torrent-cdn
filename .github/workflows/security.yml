@@ -115,10 +115,13 @@ jobs:
   static-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # security-events: write is needed only here (SARIF upload to Code Scanning).
+    # Job-scoped least privilege: security-events: write for the SARIF upload
+    # (Code Scanning); pull-requests: write so gitleaks can post inline review
+    # comments on PRs where a leak is introduced (GITLEAKS_ENABLE_COMMENTS).
     permissions:
       contents: read
       security-events: write
+      pull-requests: write
     defaults:
       run:
         working-directory: backend
@@ -135,10 +138,16 @@ jobs:
 
       # v3 (not v2): v2 runs on Node 20, which GitHub removes from hosted
       # runners on 2026-09-16 — v2 would stop working entirely.
+      # GITLEAKS_ENABLE_COMMENTS: gitleaks-action posts inline review comments
+      # on PRs when it finds a leak (needs the pull-requests: write permission
+      # above). Default is true, but set explicitly so it's documented. Only
+      # pull_request runs have a PR to comment on — push/schedule/dispatch runs
+      # simply have no PR context and skip commenting.
       - name: Gitleaks — scan for hardcoded secrets
         uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "true"
 
       # Posts gitleaks results.sarif to Code Scanning (Security tab). Runs even
       # when gitleaks finds a leak, so the alert lands in the Security tab.
