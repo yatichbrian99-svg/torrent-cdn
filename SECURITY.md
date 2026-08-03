@@ -24,7 +24,7 @@ Controls which resources the browser is allowed to load. The policy is environme
 | `font-src` | `'self' fonts.gstatic.com` | `'self' fonts.gstatic.com` |
 | `img-src` | `'self' data: blob:` | `'self' data: blob:` |
 | `media-src` | `'self' blob: http://localhost:9000 <APP_URL>` | `'self' blob: <APP_URL>` |
-| `connect-src` | `'self' wss://tracker.openwebtorrent.com wss://tracker.btorrent.xyz wss://tracker.fastcast.nz http://localhost:9000 <APP_URL>` | `'self' wss://tracker.openwebtorrent.com wss://tracker.btorrent.xyz wss://tracker.fastcast.nz <APP_URL>` |
+| `connect-src` | `'self' wss://tracker.webtorrent.dev wss://tracker.openwebtorrent.com wss://tracker.btorrent.xyz http://localhost:9000 <APP_URL>` | `'self' wss://tracker.webtorrent.dev wss://tracker.openwebtorrent.com wss://tracker.btorrent.xyz <APP_URL>` |
 | `frame-src` | `'self'` | `'self'` |
 | `worker-src` | `'self' blob:` | `'self' blob:` |
 | `base-uri` | `'self'` | `'self'` |

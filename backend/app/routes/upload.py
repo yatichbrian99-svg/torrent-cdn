@@ -3,6 +3,8 @@ import json
 import uuid
 import os
 import re
+import shutil
+import urllib.parse
 import mimetypes
 import subprocess
 import tempfile
@@ -333,10 +335,17 @@ def _torrent_and_thumbnail(file_stream, safe_filename: str, user_id: UUID, file_
     temp_path = None
     magnet_link = None
     thumbnail_url = None
+    temp_dir = None
     try:
-        # Write content to temp file for torrent creation
-        temp_fd, temp_path = tempfile.mkstemp(suffix=f"_{safe_filename}")
-        os.close(temp_fd)
+        # The temp file's basename becomes the torrent's `name` (torrentool's
+        # create_from uses src_path.name). Writing it as `safe_filename` inside
+        # a fresh temp DIR — rather than mkstemp, which prepends a random
+        # prefix — keeps the torrent name == the real filename: the magnet's
+        # `dn` matches the info dict, and the infohash is reproducible from the
+        # file bytes alone (a browser P2P seeder rebuilds the identical info
+        # dict, so it can seed the same swarm).
+        temp_dir = tempfile.mkdtemp(prefix="torrentcd-")
+        temp_path = os.path.join(temp_dir, safe_filename)
         file_stream.seek(0)
         with open(temp_path, "wb") as tf:
             while True:
@@ -346,13 +355,24 @@ def _torrent_and_thumbnail(file_stream, safe_filename: str, user_id: UUID, file_
                 tf.write(chunk)
 
         torrent = Torrent.create_from(temp_path)
+        # Public WebTorrent WSS trackers. fastcast.nz is defunct (TCP connects
+        # fail) — the trio below is the canonical, currently-live set.
         torrent.announce_urls = [
+            "wss://tracker.webtorrent.dev",
             "wss://tracker.openwebtorrent.com",
             "wss://tracker.btorrent.xyz",
-            "wss://tracker.fastcast.nz",
         ]
         info_hash = str(torrent.info_hash)
-        magnet_link = f"magnet:?xt=urn:btih:{info_hash}&dn={safe_filename}"
+        # The magnet MUST carry the announce trackers as tr= params: webtorrent's
+        # client has NO default tracker list and only announces to the magnet's
+        # `tr` (or explicit opts.announce). Without them the embed player can
+        # never discover peers, so P2P silently never engages (every embed falls
+        # back to direct origin streaming).
+        # torrentool's announce_urls getter returns the nested announce-list
+        # shape ([['wss://…'], ['wss://…']]) — flatten before quoting.
+        announce_urls = [u for group in torrent.announce_urls for u in group]
+        tr_params = "".join(f"&tr={urllib.parse.quote(u, safe='')}" for u in announce_urls)
+        magnet_link = f"magnet:?xt=urn:btih:{info_hash}&dn={safe_filename}{tr_params}"
 
         # --- Generate thumbnail for video files (best-effort, never fails the upload) ---
         if ext in VIDEO_EXTS and os.path.exists(temp_path):
@@ -382,11 +402,8 @@ def _torrent_and_thumbnail(file_stream, safe_filename: str, user_id: UUID, file_
         logger.error("Torrent generation failed for %s: %s", safe_filename, e)
         magnet_link = f"magnet:?xt=urn:btih:{file_id}&dn={safe_filename}"
     finally:
-        if temp_path and os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except OSError:
-                pass
+        if temp_dir and os.path.isdir(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
     return magnet_link, thumbnail_url
 
 

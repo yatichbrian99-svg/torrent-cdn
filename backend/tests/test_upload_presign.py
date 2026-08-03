@@ -288,3 +288,38 @@ class TestPresignFinalize:
         resp = client.post("/upload/presign/finalize/does-not-exist", headers=auth_headers)
         assert resp.status_code == 404
         assert resp.json()["detail"] == "Upload session not found"
+
+
+class TestTorrentGeneration:
+    """The torrent/magnet built for every upload must be P2P-friendly: a clean
+    (reproducible) infohash and tr= trackers so the embed player can discover
+    peers. Both are regressions the 2-peer E2E suite depends on."""
+
+    def test_clean_name_reproducible_infohash_and_tr_trackers(self, tmp_path, mock_s3_client):
+        from torrentool.api import Torrent
+
+        content = bytes(range(256)) * 2000  # 512 KiB, deterministic, > 32 KiB → 256 KiB pieces
+        file_stream = BytesIO(content)
+        safe_filename = "clip.mp3"  # non-video ext → thumbnail step skipped
+        user_id = UUID("11111111-1111-4111-8111-111111111111")
+        file_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+
+        magnet, thumbnail = upload_route._torrent_and_thumbnail(
+            file_stream, safe_filename, user_id, file_id, mock_s3_client
+        )
+
+        # Real 40-hex infohash, clean dn, and every announce tracker present as tr=.
+        m = re.match(r"^magnet:\?xt=urn:btih:([0-9a-f]{40})&dn=clip\.mp3(&tr=.*)$", magnet)
+        assert m, f"magnet malformed: {magnet}"
+        assert "wss%3A%2F%2Ftracker.webtorrent.dev" in magnet
+        assert "wss%3A%2F%2Ftracker.openwebtorrent.com" in magnet
+        assert "wss%3A%2F%2Ftracker.btorrent.xyz" in magnet
+
+        # The infohash is REPRODUCIBLE from the file bytes + name (what a browser
+        # seeder does with create-torrent). The old mkstemp temp-prefix naming
+        # made this impossible — torrent names leaked `tmpXXXXX_` prefixes.
+        f = tmp_path / safe_filename
+        f.write_bytes(content)
+        rebuilt = Torrent.create_from(str(f))
+        assert str(rebuilt.info_hash) == m.group(1)
+        assert rebuilt.name == safe_filename
