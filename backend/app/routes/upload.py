@@ -1,3 +1,5 @@
+import asyncio
+import json
 import uuid
 import os
 import re
@@ -51,9 +53,20 @@ CHUNK_SESSION_TTL = 30 * 60  # chunked-upload sessions expire after 30 min
 PRESIGN_URL_TTL = 900  # 15 min — signed PUT window
 PRESIGN_SESSION_TTL = 30 * 60  # presign sessions expire after 30 min
 
+# Orphaned-object sweep: an object that was PUT but never finalized (presign
+# session expired, or the DB insert crashed after storage write) is garbage in
+# the bucket. A production-only background task lists the bucket and deletes
+# objects that have NO uploads row AND NO pending session AND are older than the
+# grace window (so an in-flight direct/chunked upload can never be raced).
+ORPHAN_GRACE_SECONDS = 60 * 60  # never touch objects younger than 1h
+# Sweep cadence (default 15 min) — overridable via ORPHAN_SWEEP_INTERVAL_SECONDS;
+# assigned from settings after `settings = get_settings()` below.
+ORPHAN_SWEEP_MAX_DELETIONS = 200  # per run — a runaway bucket can't stall one sweep
+
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
+ORPHAN_SWEEP_INTERVAL_SECONDS = settings.orphan_sweep_interval_seconds
 router = APIRouter(prefix="/upload", tags=["upload"])
 
 ALLOWED_EXTS = {".mp4", ".webm", ".ogv", ".mov", ".mp3", ".ogg", ".wav", ".m4a", ".avi", ".mkv"}
@@ -85,28 +98,107 @@ _presign_sessions: dict[str, dict] = {}
 
 
 def _prune_presign_sessions(now: Optional[float] = None) -> None:
-    """Drop expired presign sessions AND best-effort delete their object from
-    storage. A presigned URL that was PUT but never finalized leaves a REAL
-    object in the bucket — a leak the chunked flow doesn't have (it only writes
-    to storage at finalize). Deleting a never-uploaded key is a harmless no-op."""
+    """Drop expired in-memory presign session copies (Redis copies self-expire
+    via TTL). DELIBERATELY does NOT delete the session's object from storage:
+    a previous version did, and because finalize never removed the session, ~30
+    min after a SUCCESSFUL upload the next presign/finalize call deleted a
+    FINALIZED user file. Object GC is the orphan sweep's job (sweep_orphan_objects),
+    which checks the uploads table first so a finalized object is never deleted."""
     now = now or time.time()
     expired = [k for k, s in _presign_sessions.items() if now - s["created_at"] > PRESIGN_SESSION_TTL]
-    if not expired:
-        return
+    for k in expired:
+        _presign_sessions.pop(k, None)
+
+
+def _presign_session_key(upload_id: str) -> str:
+    return f"presign_session:{upload_id}"
+
+
+def _presign_session_idx_key(user_id, idempotency_key: str) -> str:
+    return f"presign_idx:{user_id}:{idempotency_key}"
+
+
+async def _load_presign_session(upload_id: str, raise_on_error: bool = False) -> Optional[dict]:
+    """Load a presign session: the in-memory copy first (fast, always current),
+    then Redis (survives instance recycling — the JSON round-trip stores
+    user_id as str).
+
+    By default a Redis read error is treated as a miss (the caller can fall
+    back safely). With raise_on_error=True the error propagates — used by the
+    orphan sweep so an unreadable session is NEVER mistaken for "no session"
+    (fail-safe: skip the object rather than delete it)."""
+    session = _presign_sessions.get(upload_id)
+    if session is not None:
+        return session
     try:
-        s3 = get_minio_client()
-        for k in expired:
-            s = _presign_sessions.pop(k, None)
-            if s and s.get("object_key"):
-                try:
-                    s3.delete_object(Bucket=settings.minio_bucket, Key=s["object_key"])
-                except Exception:
-                    pass
+        redis = await get_redis()
+        if redis is not None:
+            raw = await redis.get(_presign_session_key(upload_id))
+            if raw:
+                return json.loads(raw)
     except Exception:
-        # Storage unreachable — still drop the in-memory session so the dict
-        # can't grow unbounded; the object will be pruned by a later run.
-        for k in expired:
-            _presign_sessions.pop(k, None)
+        if raise_on_error:
+            raise
+        pass  # Redis hiccup — treat as a miss; the memory copy was already checked
+    return None
+
+
+async def _save_presign_session(upload_id: str, session: dict) -> None:
+    """Persist a presign session: ALWAYS to the in-memory dict (fast path,
+    keeps idempotent-reuse simple), and to Redis with TTL when available so the
+    session survives a Render instance recycle between presign and finalize."""
+    _presign_sessions[upload_id] = session
+    try:
+        redis = await get_redis()
+        if redis is not None:
+            await redis.setex(
+                _presign_session_key(upload_id),
+                PRESIGN_SESSION_TTL,
+                json.dumps(session, default=str),
+            )
+            if session.get("idempotency_key"):
+                await redis.setex(
+                    _presign_session_idx_key(session["user_id"], session["idempotency_key"]),
+                    PRESIGN_SESSION_TTL,
+                    upload_id,
+                )
+    except Exception:
+        pass  # Redis down — the in-memory copy still holds the session
+
+
+async def _delete_presign_session(upload_id: str) -> None:
+    """Remove a completed/abandoned session from both stores."""
+    session = _presign_sessions.pop(upload_id, None)
+    try:
+        redis = await get_redis()
+        if redis is not None:
+            await redis.delete(_presign_session_key(upload_id))
+            if session and session.get("idempotency_key"):
+                await redis.delete(
+                    _presign_session_idx_key(session["user_id"], session["idempotency_key"])
+                )
+    except Exception:
+        pass
+
+
+async def _find_presign_session_by_key(user_id: UUID, idempotency_key: str):
+    """Reuse a PENDING session for the same (user, idempotency_key) — same
+    upload_id/object key, fresh URL. Checks the in-memory dict first, then the
+    Redis index (covers a fresh instance whose memory is cold)."""
+    for uid, s in _presign_sessions.items():
+        if str(s.get("user_id")) == str(user_id) and s.get("idempotency_key") == idempotency_key:
+            return uid, s
+    try:
+        redis = await get_redis()
+        if redis is not None:
+            found_id = await redis.get(_presign_session_idx_key(user_id, idempotency_key))
+            if found_id:
+                session = await _load_presign_session(found_id)
+                if session:
+                    return found_id, session
+    except Exception:
+        pass
+    return None
 
 
 def _prune_chunk_sessions(now: Optional[float] = None) -> None:
@@ -821,13 +913,9 @@ async def presign_upload(
 
     # Reuse a pending session for the same key (idempotent presign) — same
     # upload_id/object key, just a fresh URL so a near-expired one can't stall
-    # the PUT.
-    reuse = None
-    if key:
-        for uid, s in _presign_sessions.items():
-            if s["user_id"] == user_id and s["idempotency_key"] == key:
-                reuse = (uid, s)
-                break
+    # the PUT. Checks the in-memory copy first, then the Redis index (a fresh
+    # instance whose memory is cold still finds the pending session).
+    reuse = await _find_presign_session_by_key(user_id, key) if key else None
 
     if reuse:
         upload_id, session = reuse
@@ -859,7 +947,7 @@ async def presign_upload(
         HttpMethod="PUT",
     )
 
-    _presign_sessions[upload_id] = {
+    await _save_presign_session(upload_id, {
         "user_id": user_id,
         "filename": safe_filename,
         "file_size": body.file_size,
@@ -867,7 +955,7 @@ async def presign_upload(
         "idempotency_key": key,
         "object_key": object_key,
         "created_at": time.time(),
-    }
+    })
     return UploadPresignResponse(
         upload_id=upload_id,
         presigned_url=presigned_url,
@@ -892,8 +980,8 @@ async def presign_finalize(
     the rate-limit budget, and any rejected object is deleted from storage so a
     retry starts clean."""
     _prune_presign_sessions()
-    session = _presign_sessions.get(upload_id)
-    if session is None or session["user_id"] != user_id:
+    session = await _load_presign_session(upload_id)
+    if session is None or str(session.get("user_id")) != str(user_id):
         raise HTTPException(status_code=404, detail="Upload session not found")
 
     pool = await get_db_pool()
@@ -979,7 +1067,7 @@ async def presign_finalize(
             magnet_link, thumbnail_url = _torrent_and_thumbnail(
                 f, session["filename"], user_id, upload_id, s3
             )
-            return await _insert_upload_record(
+            result = await _insert_upload_record(
                 pool,
                 user_id,
                 upload_id,
@@ -993,14 +1081,23 @@ async def presign_finalize(
                 limit_gb,
                 used_gb,
             )
+            # Session complete — drop it from both stores. (The orphan sweep
+            # only deletes objects with NO uploads row, so a lingering session
+            # could never cause a wrong deletion — this is hygiene so the
+            # idempotency-key index stops pointing at a stale session.)
+            await _delete_presign_session(upload_id)
+            return result
     except HTTPException:
         # Rejected for a real reason — the object in storage is garbage; remove
         # it so a retry (new presign → new object key) starts clean and no
-        # orphan accumulates.
+        # orphan accumulates. The session is consumed too, so a later presign
+        # with the same idempotency key starts a fresh session/object key
+        # instead of reusing a dead one.
         try:
             s3.delete_object(Bucket=settings.minio_bucket, Key=object_key)
         except Exception:
             pass
+        await _delete_presign_session(upload_id)
         raise
     except Exception:
         logger.exception("Presign finalize failed for session %s", upload_id)
@@ -1011,3 +1108,116 @@ async def presign_finalize(
                 os.remove(temp_path)
             except OSError:
                 pass
+
+
+def _extract_upload_id_from_key(key: str) -> Optional[UUID]:
+    """Object keys are {user_id}/{upload_id}/{filename} (and thumbnails
+    {user_id}/{file_id}/thumbnail.jpg) — the 2nd path segment IS the
+    uploads.id, for every upload path. Returns None for non-upload keys."""
+    parts = key.split("/")
+    if len(parts) < 3:
+        return None
+    try:
+        return uuid.UUID(parts[1])
+    except (ValueError, AttributeError):
+        return None
+
+
+async def sweep_orphan_objects() -> int:
+    """Delete storage objects that belong to NO finalized upload and NO pending
+    presign session, and are older than ORPHAN_GRACE_SECONDS. Returns how many
+    objects were deleted.
+
+    This is the single place storage objects get garbage-collected. Covers:
+    presign PUTs never finalized (session expired), and objects whose DB insert
+    crashed after the storage write. Safety rules:
+      - objects with an uploads row (id == key's 2nd segment) are NEVER deleted;
+      - objects with a pending presign session are left alone (the browser may
+        still be finalizing);
+      - objects younger than the grace window are left alone (in-flight
+        direct/chunked uploads — multipart parts aren't listed, and the
+        storage-write → DB-insert gap is milliseconds, not an hour).
+    S3 delete of a missing key is a no-op, so concurrent/duplicate sweeps are
+    harmless."""
+    _prune_presign_sessions()
+    s3 = get_minio_client()
+    pool = await get_db_pool()
+    now = time.time()
+    deleted = 0
+    continuation = None
+
+    while deleted < ORPHAN_SWEEP_MAX_DELETIONS:
+        try:
+            if continuation:
+                resp = s3.list_objects_v2(
+                    Bucket=settings.minio_bucket, ContinuationToken=continuation
+                )
+            else:
+                resp = s3.list_objects_v2(Bucket=settings.minio_bucket)
+        except Exception as e:
+            logger.warning("Orphan sweep: bucket listing failed: %s", e)
+            break
+
+        for obj in resp.get("Contents", []) or []:
+            key = obj.get("Key", "")
+            upload_id = _extract_upload_id_from_key(key)
+            if upload_id is None:
+                continue
+            try:
+                last_modified = obj["LastModified"].timestamp()
+            except Exception:
+                continue
+            if now - last_modified < ORPHAN_GRACE_SECONDS:
+                continue
+            # Pending presign session → the browser may still be finalizing.
+            # FAIL-SAFE: if the session state can't be read (Redis error), SKIP
+            # the object — never delete on ambiguity. (The DB check below also
+            # skips on error, so both gates are conservative.)
+            try:
+                pending = await _load_presign_session(str(upload_id), raise_on_error=True)
+            except Exception:
+                logger.warning("Orphan sweep: session check failed for %s — skipping", key)
+                continue
+            if pending is not None:
+                continue
+            # Finalized upload → the uploads row exists (id == key's 2nd segment).
+            try:
+                async with pool.acquire() as conn:
+                    row = await conn.fetchrow(
+                        "SELECT 1 FROM uploads WHERE id = $1", upload_id
+                    )
+            except Exception as e:
+                logger.warning("Orphan sweep: DB check failed for %s: %s", key, e)
+                continue
+            if row:
+                continue
+            try:
+                s3.delete_object(Bucket=settings.minio_bucket, Key=key)
+                deleted += 1
+                logger.info("Orphan sweep: deleted %s", key)
+            except Exception as e:
+                logger.warning("Orphan sweep: delete failed for %s: %s", key, e)
+            if deleted >= ORPHAN_SWEEP_MAX_DELETIONS:
+                break
+
+        if not resp.get("IsTruncated") or deleted >= ORPHAN_SWEEP_MAX_DELETIONS:
+            break
+        continuation = resp.get("NextContinuationToken")
+
+    if deleted:
+        logger.info("Orphan sweep: deleted %d orphaned object(s)", deleted)
+    return deleted
+
+
+async def run_orphan_sweep_loop() -> None:
+    """Background loop (production only — see main.py lifespan): sweep the
+    bucket for orphaned objects every ORPHAN_SWEEP_INTERVAL_SECONDS. Never
+    raises — a failed sweep is logged and retried next interval."""
+    while True:
+        try:
+            await asyncio.sleep(ORPHAN_SWEEP_INTERVAL_SECONDS)
+            await sweep_orphan_objects()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Orphan sweep loop iteration failed")

@@ -89,6 +89,10 @@ class Settings(BaseSettings):
     rate_limit_uploads: int = 10           # max uploads per IP per window
     rate_limit_uploads_window: int = 3600  # window in seconds (1 hour)
 
+    # Orphaned-object sweep cadence (production background task that deletes
+    # storage objects PUT but never finalized). Env: ORPHAN_SWEEP_INTERVAL_SECONDS.
+    orphan_sweep_interval_seconds: int = 900  # 15 min
+
     # Clock-skew guard (production)
     # JWT exp (email verify 24h, password reset 1h) is minted and validated
     # against the local clock, so a badly drifted instance silently shortens or

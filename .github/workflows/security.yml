@@ -146,6 +146,25 @@ jobs:
       - name: API baseURL guard
         run: bash scripts/check_api_baseurl.sh
 
+  # ── Storage bucket publicity gate (credential-free live check) ──
+  # The app serves every file through the bucket's public object URL; a private
+  # bucket 404s ALL playback (NoSuchBucket) — a regression class that broke
+  # every minio_url until it was caught in a manual E2E. This read-only GET on
+  # the public URL (NoSuchBucket = private = fail; NoSuchKey = public = pass)
+  # runs on push/PR and on the daily cron re-check. Uses repo secrets when set,
+  # with this project's defaults baked in.
+  storage-publicity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF || 'bqbfrgeimurtuyjlfagc' }}
+      STORAGE_BUCKET: ${{ secrets.STORAGE_BUCKET || 'torrent-cdn-files' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Check the storage bucket is public
+        run: bash backend/scripts/check_storage_public.sh
+
   # ── Backend unit test suite (fully mocked — no infra required) ──
   tests:
     runs-on: ubuntu-latest

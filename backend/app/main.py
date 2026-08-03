@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
@@ -62,8 +63,26 @@ async def lifespan(app: FastAPI):
     # readiness, and so tests (which run in development mode) never hit the network.
     if settings.app_env == "production":
         threading.Thread(target=check_clock_skew, daemon=True).start()
+
+    # Production-only background task: periodically delete storage objects that
+    # were PUT but never finalized (presign session expired / DB insert failed).
+    # Never started in development so the tests (TestClient lifespan) stay
+    # hermetic and never list/delete from storage.
+    orphan_sweep_task = None
+    if settings.app_env == "production":
+        orphan_sweep_task = asyncio.create_task(upload.run_orphan_sweep_loop())
+        logger.info(
+            "Orphan storage sweep started (every %ss)",
+            upload.ORPHAN_SWEEP_INTERVAL_SECONDS,
+        )
     yield
     # Shutdown
+    if orphan_sweep_task is not None:
+        orphan_sweep_task.cancel()
+        try:
+            await orphan_sweep_task
+        except asyncio.CancelledError:
+            pass
     await close_db()
     await close_redis()
 
