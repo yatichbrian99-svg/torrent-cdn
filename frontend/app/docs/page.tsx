@@ -136,10 +136,15 @@ export default function DocsPage() {
       {/* 3. Upload File */}
       <section className="mt-10">
         <SectionTitle>3. Upload File</SectionTitle>
+        <div className="mb-4 border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+          <p className="text-sm leading-relaxed" style={{ color: '#555' }}>
+            Two ways to upload. <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /upload</code> sends the file through the API proxy — simple, but the proxy caps request bodies at ~4.5MB, so it only suits small files. For anything real (video), use the <span className="font-bold text-white">presigned flow</span>: <code className="text-white" style={{ fontFamily: 'monospace' }}>presign</code> → PUT the file bytes <span className="font-bold text-white">directly to storage</span> (never through the proxy) → <code className="text-white" style={{ fontFamily: 'monospace' }}>finalize</code>.
+          </p>
+        </div>
         <Endpoint
           method="POST"
           url="/upload"
-          desc="Upload a video or audio file. The file is stored and a magnet link + embed URL are generated."
+          desc="Upload a small file through the API proxy. The file is stored and a magnet link + embed URL are generated. Prefer the presigned flow below for anything over ~4.5MB."
           request={`Headers:
   Authorization: Bearer <YOUR_TOKEN>
 Body:
@@ -158,6 +163,29 @@ Body:
           <CodeBlock code={`curl -X POST ${BASE_URL}/upload \\
   -H "Authorization: Bearer <YOUR_TOKEN>" \\
   -F "file=@video.mp4"`} />
+        </div>
+        <Endpoint
+          method="POST"
+          url="/upload/presign"
+          desc="Step 1 — issue a short-lived (15 min) presigned PUT URL for direct-to-storage upload. The file bytes never touch the API proxy, so any size up to your plan limit works. Idempotent: send the same idempotency_key on retries — if a previous attempt already completed, it returns as `result` and you can skip the upload entirely."
+          request={`Headers:\n  Authorization: Bearer <YOUR_TOKEN>\nBody (JSON):\n{\n  \"filename\": \"video.mp4\",\n  \"file_size\": 134217728,\n  \"content_type\": \"video/mp4\",\n  \"idempotency_key\": \"optional-stable-id\"\n}`}
+          response={`{\n  \"upload_id\": \"3fa85f64-5717-4562-b3fc-2c963f66afa6\",\n  \"presigned_url\": \"https://<project>.supabase.co/storage/v1/s3/...?X-Amz-Signature=...\",\n  \"object_key\": \"<user-id>/3fa85f64-.../video.mp4\",\n  \"content_type\": \"video/mp4\",\n  \"expires_in\": 900,\n  \"result\": null\n}`}
+        />
+        <div className="mt-4">
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Step 2 — PUT the file bytes straight to storage</p>
+          <CodeBlock code={`curl -X PUT \"<presigned_url>\" -H \"Content-Type: video/mp4\" --data-binary @video.mp4`} />
+          <p className="mt-2 text-xs" style={{ color: '#444' }}>
+            No Authorization header here — the signature is in the URL. The Content-Type must exactly match the value returned by presign.
+          </p>
+        </div>
+        <div className="mt-4">
+          <Endpoint
+            method="POST"
+            url="/upload/presign/finalize/{upload_id}"
+            desc="Step 3 — verify + finalize the stored object (size + file-header checks), generate the torrent magnet link and thumbnail, and record the file. Idempotent: retrying after a lost response returns the original result instead of duplicating the file."
+            request={`Headers:\n  Authorization: Bearer <YOUR_TOKEN>`}
+            response={`{\n  \"file_id\": \"3fa85f64-5717-4562-b3fc-2c963f66afa6\",\n  \"filename\": \"video.mp4\",\n  \"minio_url\": \"https://<project>.supabase.co/storage/v1/object/public/...\",\n  \"magnet_link\": \"magnet:?xt=urn:btih:...\",\n  \"file_size_mb\": 128.0,\n  \"embed_url\": \"https://torrentcdn.store/embed/3fa85f64-...\"\n}`}
+          />
         </div>
       </section>
 
