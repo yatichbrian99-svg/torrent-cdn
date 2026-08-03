@@ -1,2 +1,5 @@
 tsbuildinfo
 *.tsbuildinfo
+
+# Playwright e2e artifacts (screenshots + synthesized test media)
+e2e/.artifacts/
