@@ -1,0 +1,18 @@
+diff --git a/node_modules/webtorrent/lib/torrent.js b/node_modules/webtorrent/lib/torrent.js
+index 6ff0780..73f148c 100644
+--- a/node_modules/webtorrent/lib/torrent.js
++++ b/node_modules/webtorrent/lib/torrent.js
+@@ -344,9 +344,11 @@ export default class Torrent extends EventEmitter {
+       parsedTorrent.announce = parsedTorrent.announce.concat(this.client.tracker.announce)
+     }
+ 
+-    if (this.client.tracker && global.WEBTORRENT_ANNOUNCE && !parsedTorrent.private) {
++    if (this.client.tracker && globalThis.WEBTORRENT_ANNOUNCE && !parsedTorrent.private) {
++      // PATCHED (webtorrent globalThis fix): bare `global` does not exist in browsers --
++      // ReferenceError: global is not defined -- breaking the announce-extension path.
+       // So `webtorrent-hybrid` can force specific trackers to be used
+-      parsedTorrent.announce = parsedTorrent.announce.concat(global.WEBTORRENT_ANNOUNCE)
++      parsedTorrent.announce = parsedTorrent.announce.concat(globalThis.WEBTORRENT_ANNOUNCE)
+     }
+ 
+     if (this.urlList) {
