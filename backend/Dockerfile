@@ -14,6 +14,12 @@ COPY . .
 
 EXPOSE 8000
 
-# Production: use gunicorn with uvicorn workers for better concurrency
-# Render sets the PORT env var automatically
-CMD ["sh", "-c", "gunicorn app.main:app --workers 2 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000} --timeout 120 --keep-alive 5"]
+# Production: single gunicorn worker with the async uvicorn worker class.
+# uvicorn is fully async, so ONE worker already handles concurrent requests —
+# and the app keeps chunked-upload sessions / rate-limit / analytics state in
+# PROCESS-LOCAL dicts, so multiple workers would split sessions across
+# processes and 404 chunk uploads (session created on worker A, chunk served
+# by worker B). Single instance (Render free) = single process = consistent
+# in-memory state; Redis backs the presign sessions for instance-recycle
+# durability. Render sets the PORT env var automatically.
+CMD ["sh", "-c", "gunicorn app.main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000} --timeout 120 --keep-alive 5"]
