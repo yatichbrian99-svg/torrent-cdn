@@ -19,9 +19,10 @@ export function middleware(request: NextRequest) {
 
   const connectSources = [
     "'self'",
-    // The three WebTorrent WSS trackers are the only hardcoded cross-origin
-    // connections the app makes. API calls ideally route through the same-origin
-    // Vercel proxy (NEXT_PUBLIC_API_URL defaults to https://www.torrentcdn.store),
+    // The WebTorrent WSS trackers plus the storage host below are the
+    // hardcoded cross-origin connections the app makes. API calls ideally route
+    // through the same-origin Vercel proxy (NEXT_PUBLIC_API_URL defaults to
+    // https://www.torrentcdn.store),
     // BUT the build-time env may point straight at the backend (e.g.
     // https://torrent-cdn.onrender.com). If that origin is cross-origin to the
     // page, it MUST be allow-listed here or the browser silently blocks every
@@ -33,6 +34,12 @@ export function middleware(request: NextRequest) {
     'wss://tracker.openwebtorrent.com',
     'wss://tracker.btorrent.xyz',
     'wss://tracker.fastcast.nz',
+    // File uploads go STRAIGHT to Supabase Storage via a presigned PUT (never
+    // through the same-origin Vercel proxy, whose ~4.5MB body cap rejects real
+    // videos). The presigned URL lives on the storage host (*.supabase.co) and
+    // the browser PUTs to it directly — without this wildcard in connect-src
+    // the browser would silently block the upload via CSP.
+    'https://*.supabase.co',
     // Localhost is allowed for local dev (NEXT_PUBLIC_API_URL=http://localhost:8000);
     // never included in production.
     ...(isProduction ? [] : ['http://localhost:*']),

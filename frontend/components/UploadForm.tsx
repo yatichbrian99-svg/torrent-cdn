@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import { Upload, File, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
-import api from '@/lib/api'
+import api, { apiErrorMessage } from '@/lib/api'
 import EmbedCode from './EmbedCode'
 
 interface UploadResult {
@@ -16,12 +16,19 @@ export default function UploadForm() {
   const [error, setError] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [retrying, setRetrying] = useState(false)
 
   const handleUpload = useCallback(async (file: File) => {
-    setUploading(true); setProgress(0); setError(''); setResult(null)
-    try { const data = await api.uploadFile(file, (pct) => setProgress(pct)); setResult(data) }
-    catch (err: any) { setError(err.response?.data?.detail || 'Upload failed') }
-    finally { setUploading(false) }
+    setUploading(true); setProgress(0); setError(''); setResult(null); setRetrying(false)
+    try {
+      const data = await api.uploadFile(file, {
+        onProgress: (pct) => setProgress(pct),
+        onRetry: () => { setRetrying(true); setProgress(0) }, // retry restarts from 0%
+      })
+      setResult(data)
+    }
+    catch (err: any) { setError(apiErrorMessage(err, 'Upload failed. Please try again.')) }
+    finally { setUploading(false); setRetrying(false) }
   }, [])
 
   const onDrop = useCallback((e: React.DragEvent) => { e.preventDefault(); setDragOver(false); const file = e.dataTransfer.files[0]; if (file) { setSelectedFile(file); handleUpload(file) } }, [handleUpload])
@@ -82,13 +89,13 @@ export default function UploadForm() {
             <Upload size={24} className="mx-auto mb-3" style={{ color: '#555' }} />
             <p className="text-sm" style={{ color: '#555' }}>Drop your video or audio file here</p>
             <p className="mt-1 text-sm" style={{ color: '#555' }}>or click to browse</p>
-            <p className="mt-1 text-xs" style={{ color: '#444' }}>MP4, WebM, MKV, MP3, WAV up to 10GB</p>
+            <p className="mt-1 text-xs" style={{ color: '#444' }}>MP4, WebM, MKV, MP3, WAV up to 1GB</p>
           </div>
         )}
         {uploading && (
           <div className="mx-auto mt-6 max-w-sm">
             <div className="mb-2 flex items-center justify-between text-sm">
-              <span style={{ color: '#555' }}>Uploading...</span>
+              <span style={{ color: retrying ? '#fff' : '#555' }}>{retrying ? 'Connection lost — retrying…' : 'Uploading...'}</span>
               <span className="text-white">{progress}%</span>
             </div>
             <div className="h-1 w-full" style={{ backgroundColor: '#000' }}>

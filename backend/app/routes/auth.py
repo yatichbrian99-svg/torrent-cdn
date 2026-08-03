@@ -83,6 +83,7 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks):
                 torrent_magnet TEXT NOT NULL,
                 file_size_mb FLOAT NOT NULL DEFAULT 0,
                 thumbnail_url TEXT,
+                idempotency_key TEXT,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             );
             CREATE TABLE IF NOT EXISTS analytics (

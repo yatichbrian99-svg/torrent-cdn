@@ -103,6 +103,97 @@ class TestUpload:
         assert resp.status_code == 404
         assert resp.json()["detail"] == "User not found"
 
+    def test_upload_idempotent_retry_returns_existing(self, client, auth_headers, mock_conn, mock_s3_client):
+        """A retry with the same idempotency key returns the original upload — no duplicate."""
+        existing_id = UUID("33333333-3333-4333-8333-333333333333")
+        mock_conn.fetchrow.return_value = {
+            "id": existing_id,
+            "filename": "test-video.mp4",
+            "minio_url": "https://storage.example/bucket/user/test-video.mp4",
+            "torrent_magnet": "magnet:?xt=urn:btih:testhash",
+            "file_size_mb": 0.001,
+            "thumbnail_url": None,
+        }
+
+        resp = client.post(
+            self.UPLOAD_URL,
+            headers=auth_headers,
+            files={"file": ("test-video.mp4", BytesIO(b"\x00\x00\x00\x20ftypmp42"), "video/mp4")},
+            data={"idempotency_key": "retry-key-1"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["file_id"] == str(existing_id)
+        assert data["filename"] == "test-video.mp4"
+        assert data["magnet_link"] == "magnet:?xt=urn:btih:testhash"
+        assert data["embed_url"].endswith(f"/embed/{existing_id}")
+        # The retry must not re-run storage, re-insert, or re-account usage —
+        # no new file, no duplicate, no double-counted bandwidth
+        mock_s3_client.create_multipart_upload.assert_not_called()
+        mock_conn.execute.assert_not_called()
+
+    def test_upload_with_idempotency_key_records_key(self, client, auth_headers, mock_conn, mock_s3_client):
+        """A fresh idempotency key uploads normally and stores the key on the record."""
+        mock_conn.fetchrow.side_effect = [
+            None,  # dedup check — nothing stored for this key yet
+            {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"},  # user
+            None,  # usage record
+            {"id": UUID("22222222-2222-4222-8222-222222222222")},  # INSERT ... RETURNING id
+        ]
+
+        resp = client.post(
+            self.UPLOAD_URL,
+            headers=auth_headers,
+            files={"file": ("test-video.mp4", BytesIO(b"\x00\x00\x00\x20ftypmp42"), "video/mp4")},
+            data={"idempotency_key": "fresh-key-1"},
+        )
+        assert resp.status_code == 200
+        # The INSERT must carry the idempotency key as its last parameter
+        insert_args = mock_conn.fetchrow.call_args_list[3].args
+        assert insert_args[-1] == "fresh-key-1"
+
+    def test_upload_idempotency_race_returns_winner(self, client, auth_headers, mock_conn, mock_s3_client):
+        """If a concurrent same-key upload wins the insert, return its result — no duplicate."""
+        from asyncpg.exceptions import UniqueViolationError
+
+        winner_id = UUID("33333333-3333-4333-8333-333333333333")
+        mock_conn.fetchrow.side_effect = [
+            None,  # dedup check
+            {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"},  # user
+            None,  # usage
+            UniqueViolationError("duplicate key value violates unique constraint"),  # insert loses the race
+            {  # re-fetch: the concurrent winner's completed record
+                "id": winner_id,
+                "filename": "test-video.mp4",
+                "minio_url": "https://storage.example/bucket/user/file.mp4",
+                "torrent_magnet": "magnet:?xt=urn:btih:winnerhash",
+                "file_size_mb": 0.001,
+                "thumbnail_url": None,
+            },
+        ]
+
+        resp = client.post(
+            self.UPLOAD_URL,
+            headers=auth_headers,
+            files={"file": ("test-video.mp4", BytesIO(b"\x00\x00\x00\x20ftypmp42"), "video/mp4")},
+            data={"idempotency_key": "race-key-1"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["file_id"] == str(winner_id)
+        assert data["magnet_link"] == "magnet:?xt=urn:btih:winnerhash"
+
+    def test_upload_rejects_oversized_idempotency_key(self, client, auth_headers):
+        """An idempotency key longer than 64 chars is rejected (400)."""
+        resp = client.post(
+            self.UPLOAD_URL,
+            headers=auth_headers,
+            files={"file": ("test.mp4", BytesIO(b"test"), "video/mp4")},
+            data={"idempotency_key": "k" * 65},
+        )
+        assert resp.status_code == 400
+        assert "idempotency_key too long" in resp.json()["detail"]
+
     def test_upload_exceeds_usage_limit(self, client, auth_headers, mock_conn):
         """Should reject upload when user exceeds their plan's usage limit."""
         mock_conn.fetchrow.side_effect = [

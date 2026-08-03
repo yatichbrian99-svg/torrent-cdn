@@ -20,6 +20,10 @@
       "destination": "https://torrent-cdn.onrender.com/upload"
     },
     {
+      "source": "/upload/(.*)",
+      "destination": "https://torrent-cdn.onrender.com/upload/$1"
+    },
+    {
       "source": "/files",
       "destination": "https://torrent-cdn.onrender.com/files"
     },

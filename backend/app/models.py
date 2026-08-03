@@ -142,3 +142,46 @@ class CheckoutRequest(BaseModel):
 
 class CheckoutResponse(BaseModel):
     url: str
+
+
+class UploadSessionRequest(BaseModel):
+    """Create a chunked-upload session (client-side chunking fallback through the
+    same-origin Vercel proxy — each chunk stays under the proxy's ~4.5MB body cap)."""
+    filename: str
+    file_size: int
+    total_chunks: int
+    content_type: Optional[str] = None
+    idempotency_key: Optional[str] = None
+
+
+class UploadSessionResponse(BaseModel):
+    """Result of session creation. If `result` is set the upload already exists
+    for this idempotency key — the client returns it without uploading chunks."""
+    upload_id: Optional[str] = None
+    result: Optional[UploadResponse] = None
+
+
+class ChunkUploadResponse(BaseModel):
+    received: int
+    total: int
+
+
+class UploadPresignRequest(BaseModel):
+    """Request a presigned direct-to-storage upload. The browser PUTs the file
+    bytes straight to Supabase Storage (never through Render or the Vercel
+    proxy); the backend only issues the short-lived URL and later finalizes."""
+    filename: str
+    file_size: int
+    content_type: Optional[str] = None
+    idempotency_key: Optional[str] = None
+
+
+class UploadPresignResponse(BaseModel):
+    """Result of a presign request. If `result` is set the upload already exists
+    for this idempotency key — the client returns it without uploading."""
+    upload_id: Optional[str] = None
+    presigned_url: str = ""
+    object_key: str = ""
+    content_type: str = ""
+    expires_in: int = 0
+    result: Optional[UploadResponse] = None

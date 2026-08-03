@@ -1,10 +1,21 @@
 import axios from 'axios'
 import { getToken, removeToken } from './auth'
 
-// Production ALWAYS routes through the same-origin Vercel proxy: vercel.json
-// rewrites /api/*, /auth/*, /upload, /files/*, /analytics/*, /billing/*,
-// /admin/*, /notifications/* to the Render backend, so relative URLs are
-// reliable AND avoid the page CSP + CORS entirely.
+// Production ALWAYS routes API calls through the same-origin Vercel proxy:
+// vercel.json rewrites /api/*, /auth/*, /upload/*, /files/*, /analytics/*,
+// /billing/*, /admin/*, /notifications/* to the Render backend, so relative
+// URLs are reliable AND avoid the page CSP + CORS entirely.
+//
+// FILE UPLOADS are the one exception — the file bytes NEVER go through Vercel
+// or Render. The primary path is a presigned direct-to-Supabase-Storage PUT:
+//   1. POST /upload/presign             → backend mints a short-lived presigned PUT URL
+//   2. browser PUTs the raw file straight to Supabase Storage (XHR progress)
+//   3. POST /upload/presign/finalize/id → backend verifies + builds the torrent
+//      magnet/thumbnail, then persists the record
+// Vercel's proxy hard-caps request bodies at ~4.5MB (FUNCTION_PAYLOAD_TOO_LARGE)
+// and Render's free tier is flaky for big POSTs, so routing the upload bytes
+// around both is what makes real video uploads work. middleware.ts's connect-src
+// allow-lists the storage origin (https://*.supabase.co) for the PUT.
 //
 // A cross-origin NEXT_PUBLIC_API_URL (e.g. someone setting it to a direct
 // https://torrent-cdn.onrender.com URL) breaks login in production: the browser
@@ -14,6 +25,194 @@ import { getToken, removeToken } from './auth'
 // local dev, where vercel.json rewrites don't exist.
 const isProduction = process.env.NODE_ENV === 'production'
 const API_BASE = isProduction ? '' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
+
+// Human-friendly error text for UI forms. Backend errors are JSON
+// {detail: "..."}; proxy/platform failures (e.g. Vercel's plain-text 413 page)
+// have no detail, and network errors have no response at all — fall back to the
+// caller's message (or a status-tagged variant) instead of a bare catch-all.
+export function apiErrorMessage(err: any, fallback = 'Something went wrong'): string {
+  const data = err?.response?.data
+  if (data && typeof data.detail === 'string' && data.detail) return data.detail
+  // Platform/proxy failures (e.g. Vercel's plain-text 413 page) return text
+  // bodies. Skip HTML pages and cap length — the UI renders this verbatim.
+  if (typeof data === 'string' && data.trim() && !data.trim().startsWith('<')) {
+    const s = data.trim()
+    return s.length > 160 ? `${s.slice(0, 160)}…` : s
+  }
+  if (err?.response?.status) return `${fallback} (HTTP ${err.response.status})`
+  if (err?.code === 'ECONNABORTED') return 'The request timed out. Please try again.'
+  return fallback
+}
+
+// Chunked-upload fallback: slice size for shipping files through the same-origin
+// Vercel proxy. Each chunk must stay under the proxy's ~4.5MB request-body cap
+// (verified empirically: 4MB passes, 5MB is rejected with 413). MUST match the
+// backend MAX_CLIENT_CHUNK_SIZE in routes/upload.py.
+const CHUNK_SIZE = 4 * 1024 * 1024
+
+// A failure is "transient" when a retry could plausibly succeed: no response at
+// all (timeout / connection reset — a Render cold start or the documented
+// free-tier POST quirk) or a proxy/load-balancer 502/503/504. 4xx
+// (400/401/413/422/429) and app-level 5xx (500) are NOT transient.
+const isTransientUploadError = (err: any) => {
+  const status = err?.response?.status
+  return status === 502 || status === 503 || status === 504 || !err.response
+}
+
+const newIdempotencyKey = () =>
+  typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `up-${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+// Retries fn up to `retries` EXTRA times on transient failures. Safe for the
+// chunked flow because every retried call is idempotent server-side: session
+// create dedupes on the idempotency key, chunk writes are offset-based, and
+// finalize dedupes on the session's key.
+const withTransientRetry = async (fn: () => Promise<any>, retries = 2, delayMs = 1000) => {
+  let lastErr: any
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn()
+    } catch (err: any) {
+      lastErr = err
+      if (!isTransientUploadError(err) || attempt >= retries) throw err
+      await new Promise((resolve) => setTimeout(resolve, delayMs))
+    }
+  }
+}
+
+// Presigned direct-to-storage upload (PRIMARY path). The browser PUTs the file
+// bytes straight to Supabase Storage — they never touch Render or the Vercel
+// proxy. The PUT uses raw XHR, NOT the axios instance: the request interceptor
+// would attach the app JWT (breaking the SigV4 signature on the presigned URL)
+// and the response interceptor would redirect the page on any 401. XHR also
+// gives us upload progress.
+const presignUpload = async (file: File, idempotencyKey: string) =>
+  withTransientRetry(() =>
+    api
+      .post('/upload/presign', {
+        filename: file.name,
+        file_size: file.size,
+        content_type: file.type || undefined,
+        idempotency_key: idempotencyKey,
+      })
+      .then((r) => r.data)
+  )
+
+const putToStorage = (
+  presignedUrl: string,
+  file: File,
+  contentType: string,
+  onProgress?: (pct: number) => void
+) =>
+  new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('PUT', presignedUrl)
+    // ContentType is a SIGNED header on the presigned URL — the backend mints
+    // the URL with this exact value, so the PUT must send it verbatim or
+    // Supabase rejects the signature.
+    xhr.setRequestHeader('Content-Type', contentType)
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100))
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve()
+      else {
+        const err: any = new Error(`Storage upload failed (HTTP ${xhr.status})`)
+        err.response = { status: xhr.status }
+        reject(err)
+      }
+    }
+    xhr.onerror = () => reject(new Error('Network error uploading to storage'))
+    xhr.ontimeout = () => {
+      const err: any = new Error('Storage upload timed out')
+      err.code = 'ECONNABORTED'
+      reject(err)
+    }
+    // 1GB on a slow uplink can outlast every other timeout in this file.
+    xhr.timeout = 600000
+    xhr.send(file)
+  })
+
+const presignedUpload = async (
+  file: File,
+  idempotencyKey: string,
+  onProgress?: (pct: number) => void,
+  onRetry?: () => void
+) => {
+  const presign = await presignUpload(file, idempotencyKey)
+  // A previous attempt with this key already completed (lost response) — the
+  // backend returns it as `result` and we skip the PUT entirely.
+  if (presign.result) return presign.result
+
+  try {
+    await putToStorage(presign.presigned_url, file, presign.content_type, onProgress)
+  } catch (err: any) {
+    // The presigned URL stays valid for ~15 min — retry the PUT once on a
+    // transient failure before giving up to the chunked fallback.
+    if (!isTransientUploadError(err)) throw err
+    if (onRetry) onRetry()
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+    await putToStorage(presign.presigned_url, file, presign.content_type, onProgress)
+  }
+
+  // Finalize is idempotent server-side (dedup on the idempotency key), so a
+  // retry after a lost response can't duplicate the record.
+  return withTransientRetry(() =>
+    api.post(`/upload/presign/finalize/${presign.upload_id}`, null, { timeout: 300000 }).then((r) => r.data)
+  )
+}
+
+// Fallback path: slice the file into ≤4MB chunks and ship them through the
+// same-origin Vercel proxy (/upload/* rewrites to the backend). Used when the
+// direct path fails transiently. Returns the same UploadResponse shape.
+const chunkedUpload = async (
+  file: File,
+  idempotencyKey: string,
+  onProgress?: (pct: number) => void
+) => {
+  const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE))
+
+  // 1. Create the session. If the direct attempt already stored this file (lost
+  // response), the backend returns it as `result` and we skip the chunks.
+  const session = await withTransientRetry(() =>
+    api
+      .post('/upload/session', {
+        filename: file.name,
+        file_size: file.size,
+        total_chunks: totalChunks,
+        content_type: file.type || undefined,
+        idempotency_key: idempotencyKey,
+      })
+      .then((r) => r.data)
+  )
+  if (session.result) return session.result
+
+  // 2. Stream the chunks.
+  for (let i = 0; i < totalChunks; i++) {
+    const blob = file.slice(i * CHUNK_SIZE, Math.min((i + 1) * CHUNK_SIZE, file.size))
+    const form = new FormData()
+    form.append('chunk', blob, `chunk-${i}`)
+    await withTransientRetry(() =>
+      api
+        .post(`/upload/chunk/${session.upload_id}/${i}`, form, {
+          timeout: 60000,
+          onUploadProgress: (e) => {
+            if (onProgress && e.total) {
+              onProgress(Math.round(((i + e.loaded / e.total) / totalChunks) * 100))
+            }
+          },
+        })
+        .then((r) => r.data)
+    )
+    if (onProgress) onProgress(Math.round(((i + 1) / totalChunks) * 100))
+  }
+
+  // 3. Finalize (idempotent server-side, so retrying after a lost response is safe).
+  return withTransientRetry(() =>
+    api.post(`/upload/finalize/${session.upload_id}`, null, { timeout: 300000 }).then((r) => r.data)
+  )
+}
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -76,17 +275,27 @@ export default {
 
   getMe: () => api.get('/auth/me').then((r) => r.data),
 
-  uploadFile: (file: File, onProgress?: (pct: number) => void) => {
-    const form = new FormData()
-    form.append('file', file)
-    return api
-      .post('/upload', form, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        onUploadProgress: (e) => {
-          if (e.total && onProgress) onProgress(Math.round((e.loaded / e.total) * 100))
-        },
-      })
-      .then((r) => r.data)
+  uploadFile: (
+    file: File,
+    opts: { onProgress?: (pct: number) => void; onRetry?: () => void } = {}
+  ) => {
+    const { onProgress, onRetry } = opts
+    // Idempotency key — stable across the presigned attempt AND the chunked
+    // fallback, so whichever path lands first, a retry can never create a
+    // duplicate (the backend dedupes on it).
+    const idempotencyKey = newIdempotencyKey()
+    return presignedUpload(file, idempotencyKey, onProgress, onRetry).catch((err: any) => {
+      // Definitive rejections (unsupported type, over quota, magic-byte
+      // failure, size mismatch) pass through — the chunked fallback would hit
+      // the same wall. Everything else (storage-bucket CORS not configured yet,
+      // storage/network hiccup, backend cold start) falls back to chunked
+      // uploads through the reliable same-origin Vercel proxy (each chunk stays
+      // under the proxy's ~4.5MB body cap).
+      const status = err?.response?.status
+      if (status === 400 || status === 402 || status === 413 || status === 422) throw err
+      if (onRetry) onRetry()
+      return chunkedUpload(file, idempotencyKey, onProgress)
+    })
   },
 
   listFiles: () => api.get('/files').then((r) => r.data),

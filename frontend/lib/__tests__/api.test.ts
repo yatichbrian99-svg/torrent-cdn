@@ -118,6 +118,220 @@ describe('api client interceptors', () => {
     })
   })
 
+  // Minimal fake XHR for the raw storage PUT — the presigned path deliberately
+  // bypasses axios (the app JWT would break the SigV4 signature), so tests
+  // drive the PUT through a stubbed global XMLHttpRequest.
+  class FakeXHR {
+    static instances: FakeXHR[] = []
+    status = 200
+    timeout = 0
+    url = ''
+    method = ''
+    headers: Record<string, string> = {}
+    upload = { onprogress: null as any }
+    onload: any = null
+    onerror: any = null
+    ontimeout: any = null
+    open(method: string, url: string) {
+      this.method = method
+      this.url = url
+    }
+    setRequestHeader(k: string, v: string) {
+      this.headers[k] = v
+    }
+    send(_body: any) {
+      FakeXHR.instances.push(this)
+    }
+    respond(status: number) {
+      this.status = status
+      this.onload?.()
+    }
+    fail() {
+      this.onerror?.()
+    }
+  }
+
+  describe('uploadFile — presigned direct-to-Supabase-Storage', () => {
+    const file = () => new File(['fake mp4 bytes'], 'movie.mp4', { type: 'video/mp4' })
+    const presignResponse = (overrides: any = {}) => ({
+      upload_id: 'up-1',
+      presigned_url: 'https://ref.supabase.co/storage/v1/s3/torrent-cdn-files/user/up-1/movie.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=abc',
+      object_key: 'user/up-1/movie.mp4',
+      content_type: 'video/mp4',
+      expires_in: 900,
+      result: null,
+      ...overrides,
+    })
+
+    beforeEach(() => {
+      mocks.instance.post.mockReset()
+      FakeXHR.instances = []
+      vi.stubGlobal('XMLHttpRequest', FakeXHR)
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('presigns, PUTs straight to storage with the signed Content-Type, then finalizes', async () => {
+      mocks.instance.post.mockImplementation(async (url: string) => {
+        if (url === '/upload/presign') return { data: presignResponse() }
+        if (url === '/upload/presign/finalize/up-1') return { data: { file_id: 'abc', filename: 'movie.mp4' } }
+        throw new Error(`unexpected url ${url}`)
+      })
+
+      const promise = api.uploadFile(file())
+      await vi.advanceTimersByTimeAsync(0)
+
+      const xhr = FakeXHR.instances[0]
+      expect(xhr).toBeTruthy()
+      // The file bytes go straight to Supabase Storage — never through the
+      // same-origin Vercel proxy or Render.
+      expect(xhr.method).toBe('PUT')
+      expect(xhr.url).toContain('supabase.co/storage/v1/s3')
+      // ContentType is signed into the presigned URL — the PUT must echo it.
+      expect(xhr.headers['Content-Type']).toBe('video/mp4')
+      // The app JWT must NEVER leak into the storage PUT (axios interceptors
+      // are bypassed on purpose — a Bearer header would break the signature).
+      expect(xhr.headers.Authorization).toBeUndefined()
+
+      xhr.respond(200)
+      const result = await promise
+      expect(result.file_id).toBe('abc')
+      const urls: string[] = mocks.instance.post.mock.calls.map((c: any[]) => String(c[0]))
+      expect(urls).toEqual(['/upload/presign', '/upload/presign/finalize/up-1'])
+    })
+
+    it('skips the PUT when the backend reports a completed upload (idempotency dedup)', async () => {
+      mocks.instance.post.mockImplementation(async (url: string) => {
+        if (url === '/upload/presign') {
+          return {
+            data: presignResponse({
+              upload_id: null,
+              presigned_url: '',
+              result: { file_id: 'existing', filename: 'movie.mp4' },
+            }),
+          }
+        }
+        throw new Error(`unexpected url ${url}`)
+      })
+
+      const result = await api.uploadFile(file())
+      expect(result.file_id).toBe('existing')
+      expect(FakeXHR.instances).toHaveLength(0)
+      const urls: string[] = mocks.instance.post.mock.calls.map((c: any[]) => String(c[0]))
+      expect(urls).toEqual(['/upload/presign'])
+    })
+
+    it('retries the PUT once on a network failure, then succeeds', async () => {
+      mocks.instance.post.mockImplementation(async (url: string) => {
+        if (url === '/upload/presign') return { data: presignResponse() }
+        if (url === '/upload/presign/finalize/up-1') return { data: { file_id: 'abc' } }
+        throw new Error(`unexpected url ${url}`)
+      })
+      const onRetry = vi.fn()
+
+      const promise = api.uploadFile(file(), { onRetry })
+      await vi.advanceTimersByTimeAsync(0)
+      FakeXHR.instances[0].fail()
+      await vi.advanceTimersByTimeAsync(2000)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(FakeXHR.instances).toHaveLength(2)
+      FakeXHR.instances[1].respond(200)
+      const result = await promise
+      expect(result.file_id).toBe('abc')
+      expect(onRetry).toHaveBeenCalledTimes(1)
+    })
+
+    it('falls back to chunked uploads through the proxy when the storage PUT keeps failing', async () => {
+      mocks.instance.post.mockImplementation(async (url: string) => {
+        if (url === '/upload/presign') return { data: presignResponse() }
+        if (url === '/upload/session') return { data: { upload_id: 'sess-1', result: null } }
+        if (url.startsWith('/upload/chunk/')) return { data: { received: 1, total: 2 } }
+        if (url.startsWith('/upload/finalize/')) return { data: { file_id: 'abc', filename: 'movie.mp4' } }
+        throw new Error(`unexpected url ${url}`)
+      })
+      const bigFile = new File([new Uint8Array(5 * 1024 * 1024)], 'movie.mp4', { type: 'video/mp4' })
+
+      const promise = api.uploadFile(bigFile)
+      await vi.advanceTimersByTimeAsync(0)
+      FakeXHR.instances[0].fail()
+      await vi.advanceTimersByTimeAsync(2000)
+      await vi.advanceTimersByTimeAsync(0)
+      FakeXHR.instances[1].fail() // PUT retry fails too → chunked fallback
+      await vi.advanceTimersByTimeAsync(10000)
+
+      const result = await promise
+      expect(result.file_id).toBe('abc')
+      const urls: string[] = mocks.instance.post.mock.calls.map((c: any[]) => String(c[0]))
+      expect(urls).toContain('/upload/session')
+      expect(urls.filter((u) => u.startsWith('/upload/chunk/'))).toHaveLength(2)
+      expect(urls).toContain('/upload/finalize/sess-1')
+    })
+
+    it('falls back to chunked uploads when presign keeps failing transiently', async () => {
+      mocks.instance.post.mockImplementation(async (url: string) => {
+        if (url === '/upload/presign') throw new Error('Network Error')
+        if (url === '/upload/session') return { data: { upload_id: 'sess-1', result: null } }
+        if (url.startsWith('/upload/chunk/')) return { data: { received: 1, total: 2 } }
+        if (url.startsWith('/upload/finalize/')) return { data: { file_id: 'abc' } }
+        throw new Error(`unexpected url ${url}`)
+      })
+      const bigFile = new File([new Uint8Array(5 * 1024 * 1024)], 'movie.mp4', { type: 'video/mp4' })
+      const onRetry = vi.fn()
+
+      const promise = api.uploadFile(bigFile, { onRetry })
+      await vi.advanceTimersByTimeAsync(10000)
+      const result = await promise
+
+      expect(result.file_id).toBe('abc')
+      const urls: string[] = mocks.instance.post.mock.calls.map((c: any[]) => String(c[0]))
+      // withTransientRetry: 2 extra attempts on /upload/presign, then chunked
+      expect(urls.filter((u) => u === '/upload/presign')).toHaveLength(3)
+      expect(urls).toContain('/upload/session')
+      expect(onRetry).toHaveBeenCalled()
+    })
+
+    it('surfaces definitive 4xx rejections without falling back to chunked', async () => {
+      mocks.instance.post.mockRejectedValueOnce({
+        response: { status: 413, data: { detail: 'File too large. Max size is 1024MB' } },
+      })
+
+      await expect(api.uploadFile(file())).rejects.toMatchObject({ response: { status: 413 } })
+      const urls: string[] = mocks.instance.post.mock.calls.map((c: any[]) => String(c[0]))
+      expect(urls.filter((u) => u.startsWith('/upload/session'))).toHaveLength(0)
+    })
+
+    it('retries a chunk that fails transiently in the fallback path', async () => {
+      let chunkCalls = 0
+      mocks.instance.post.mockImplementation(async (url: string) => {
+        if (url === '/upload/presign') throw new Error('Network Error')
+        if (url === '/upload/session') return { data: { upload_id: 'sess-1', result: null } }
+        if (url.startsWith('/upload/chunk/')) {
+          chunkCalls++
+          if (chunkCalls === 1) throw new Error('Network Error')
+          return { data: { received: 1, total: 2 } }
+        }
+        if (url.startsWith('/upload/finalize/')) return { data: { file_id: 'abc' } }
+        throw new Error(`unexpected url ${url}`)
+      })
+      const bigFile = new File([new Uint8Array(5 * 1024 * 1024)], 'movie.mp4', { type: 'video/mp4' })
+
+      const promise = api.uploadFile(bigFile)
+      await vi.advanceTimersByTimeAsync(10000)
+      const result = await promise
+
+      expect(result.file_id).toBe('abc')
+      const chunkUrls: string[] = mocks.instance.post.mock.calls
+        .map((c: any[]) => String(c[0]))
+        .filter((u: string) => u.startsWith('/upload/chunk/'))
+      // 2 distinct chunks + 1 retry of the first one
+      expect(chunkUrls.length).toBe(3)
+    })
+  })
+
   describe('login retry on transient 5xx (Render cold start)', () => {
     beforeEach(() => {
       mocks.instance.post.mockReset()
