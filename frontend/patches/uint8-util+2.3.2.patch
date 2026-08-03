@@ -1,0 +1,52 @@
+diff --git a/node_modules/uint8-util/dist/src/browser.js b/node_modules/uint8-util/dist/src/browser.js
+index a0d08d7..a91551d 100644
+--- a/node_modules/uint8-util/dist/src/browser.js
++++ b/node_modules/uint8-util/dist/src/browser.js
+@@ -14,11 +14,24 @@ for (let i = 0; i < 16; ++i) {
+         decodeLookup[0x41 - 10 + i] = i; // 'A'-'F'
+     }
+ }
+-export const arr2hex = (data) => data.toHex();
++// PATCHED (webtorrent toHex fix): the upstream `arr2hex = (data) => data.toHex()`
++// relies on the Chrome 149+/Node 22+ `Uint8Array.prototype.toHex` API, which breaks
++// older browsers AND throws when webtorrent passes an already-hex string
++// (lib/torrent.js: `arr2hex(parsedTorrent.infoHash)`). Manual encoding works in every
++// browser and passes strings through unchanged (webtorrent's intended debugId).
++export const arr2hex = (data) => {
++    if (typeof data === 'string')
++        return data;
++    let out = '';
++    for (let i = 0; i < data.length; i++)
++        out += encodeLookup[data[i]];
++    return out;
++};
+ export const hex2arr = (str) => {
+     const len = str.length;
+-    if (len > 64)
+-        return Uint8Array.fromHex(str);
++    // PATCHED: upstream short-circuits to `Uint8Array.fromHex` (Chrome 149+) for
++    // strings longer than 64 chars; the lookup-table loop below is equivalent and
++    // works in every browser.
+     const out = new Uint8Array(len >> 1);
+     let j = 0;
+     let i = 0;
+diff --git a/node_modules/uint8-util/dist/src/node.js b/node_modules/uint8-util/dist/src/node.js
+index cb9a0fa..2caa02a 100644
+--- a/node_modules/uint8-util/dist/src/node.js
++++ b/node_modules/uint8-util/dist/src/node.js
+@@ -9,7 +9,14 @@ export const base2arr = (str) => {
+     const buf = Buffer.from(str, 'base64');
+     return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+ };
+-export const arr2hex = (data) => Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('hex');
++export const arr2hex = (data) => {
++    // PATCHED (webtorrent toHex fix): tolerate already-hex string input (webtorrent
++    // lib/torrent.js passes parsedTorrent.infoHash, a hex string, here). Matches the
++    // browser-entry fix so both runtimes behave identically.
++    if (typeof data === 'string')
++        return data;
++    return Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('hex');
++};
+ export const hex2arr = (str) => {
+     const buf = Buffer.from(str, 'hex');
+     return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);

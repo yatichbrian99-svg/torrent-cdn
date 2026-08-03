@@ -3,9 +3,14 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && node scripts/check_webtorrent_patch.js",
     "start": "next start",
+    "postinstall": "patch-package",
     "test": "vitest run",
+    "test:e2e": "node e2e/run-all.mjs",
+    "test:e2e:upload": "node e2e/upload-direct.mjs",
+    "test:e2e:fallback": "node e2e/upload-fallback.mjs",
+    "test:e2e:embed": "node e2e/embed-playback.mjs",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"
   },
@@ -34,6 +39,8 @@
     "@vitejs/plugin-react": "^6.0.5",
     "@vitest/coverage-v8": "^4.1.10",
     "jsdom": "^29.1.1",
+    "patch-package": "^8.0.1",
+    "playwright": "^1.61.0",
     "vitest": "^4.1.10"
   }
 }
