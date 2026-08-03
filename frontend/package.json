@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "next dev",
-    "build": "next build && node scripts/check_webtorrent_patch.js",
+    "build": "node scripts/ensure_webtorrent_patch.js && next build && node scripts/check_webtorrent_patch.js",
     "start": "next start",
     "postinstall": "patch-package",
     "test": "vitest run",
