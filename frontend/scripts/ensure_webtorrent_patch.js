@@ -27,8 +27,15 @@ const bin = process.platform === 'win32'
   ? path.join(root, 'node_modules', '.bin', 'patch-package.cmd')
   : path.join(root, 'node_modules', '.bin', 'patch-package')
 const r = spawnSync(bin, [], { cwd: root, stdio: 'inherit' })
+if (r.error && r.error.code === 'ENOENT') {
+  console.error('✗ patch-package not found — install devDependencies (npm ci) before building')
+  process.exit(1)
+}
 if (r.status !== 0) {
-  console.error('✗ patch-package failed to apply patches/uint8-util+2.3.2.patch')
+  console.error(
+    '✗ patch-package failed to apply patches/uint8-util+2.3.2.patch — ' +
+      'reset node_modules (npm ci) and retry',
+  )
   process.exit(r.status ?? 1)
 }
 // Verify it actually took

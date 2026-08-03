@@ -124,7 +124,7 @@ try {
     // server-side (e.g. a transient finalize 404 — the app recovering via the
     // chunked path is the resilience layer working as designed, not a bug).
     const directFinalizeFailed = out.apiCalls.some(
-      (c) => /\[4\d\d|5\d\d\] POST \/upload\/presign\/finalize/.test(c),
+      (c) => /\[[45]\d\d\] POST \/upload\/presign\/finalize/.test(c),
     )
     if (out.apiCalls.some((c) => c.includes('/upload/session') || c.includes('/upload/chunk'))) {
       if (!directFinalizeFailed) {
