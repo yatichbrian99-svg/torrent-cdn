@@ -313,6 +313,12 @@ export default {
 
   getBillingStatus: () => api.get('/billing/status').then((r) => r.data),
 
+  getApiKey: () => api.get('/auth/api-key').then((r) => r.data),
+
+  createApiKey: () => api.post('/auth/api-key').then((r) => r.data),
+
+  revokeApiKey: () => api.delete('/auth/api-key').then((r) => r.data),
+
   verifyEmail: (token: string) =>
     api.post('/auth/verify-email', { token }).then((r) => r.data),
 

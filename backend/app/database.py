@@ -44,6 +44,23 @@ CREATE TABLE IF NOT EXISTS users (
 );
 """
 
+# API keys table DDL — long-lived credentials (tcdn_<random>). Only the
+# SHA-256 hash of the token is stored (never the plaintext), so a DB leak
+# exposes hashes, not usable keys. One active key per user (generate rotates).
+API_KEYS_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS api_keys (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key_hash TEXT NOT NULL UNIQUE,
+    prefix VARCHAR(24) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_used_at TIMESTAMP WITH TIME ZONE
+);
+-- Unique per user: enforces the one-active-key invariant AND is the
+-- ON CONFLICT target for the atomic rotate upsert in /auth/api-key.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
+"""
+
 # Connection pools
 pg_pool: Optional[asyncpg.Pool] = None
 redis_client: Optional[Redis] = None

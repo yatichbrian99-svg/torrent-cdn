@@ -69,6 +69,22 @@ class TestStartupMigrations:
                 f"register INSERT — a fresh DB would 500 on registration"
             )
 
+    def test_creates_api_keys_after_users(self, mock_pool, mock_conn, monkeypatch):
+        """api_keys REFERENCES users, so its DDL must run after the users table."""
+        self._run_migrations(mock_pool, monkeypatch)
+
+        executed = [call.args[0] for call in mock_conn.execute.call_args_list]
+        users_idx = next(
+            i for i, sql in enumerate(executed) if "CREATE TABLE IF NOT EXISTS users" in sql
+        )
+        api_keys_idx = next(
+            i for i, sql in enumerate(executed)
+            if "CREATE TABLE IF NOT EXISTS api_keys" in sql
+        )
+        assert users_idx < api_keys_idx, (
+            "api_keys must be created after users (FK dependency)"
+        )
+
     def test_migrations_idempotent_on_existing_schema(self, mock_pool, mock_conn, monkeypatch):
         """Running migrations twice must not raise (safe on existing DBs)."""
         self._run_migrations(mock_pool, monkeypatch)

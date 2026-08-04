@@ -318,6 +318,17 @@ Live-verified the public documentation claims against production and corrected t
 | **Fake API-key credentials advertised** | The docs intro, landing FAQ, and dashboard all presented a derived `tcdn_…` string as an authenticating key — the backend is Bearer-JWT-only (verified: no `tcdn_` auth path), so the key 401'd on use | Docs/FAQ now document Bearer tokens from `/auth/login`; the dashboard's dead API Key box was removed |
 | **Wrong privacy/provider claims** | FAQ said files lived in a "private Cloudflare R2 bucket" (storage is Supabase, deliberately public/unlisted) | Reworded to "stored in object storage and served from unlisted public URLs — links behave like keys" |
 
+### 2026-08-04 — Real API-key auth (tcdn_) + dashboard key management
+
+Implements the long-lived credentials that the `6dadd9d` docs-accuracy pass flagged as missing (the backend was Bearer-JWT-only and the old dashboard "API key" was a derived fake that 401'd). Supersedes that finding.
+
+- **Key model:** one active key per user, format `tcdn_` + `secrets.token_urlsafe(32)` (~256 bits of entropy). The dashboard generates, copies-once, and revokes; generating again **rotates** (the old key dies immediately).
+- **Hash-only storage:** only the SHA-256 hash is stored (`api_keys.key_hash`); the plaintext is returned exactly once at creation and can never be recovered — a DB leak exposes hashes, not usable keys. The dashboard shows a truncated prefix + age.
+- **Validation in `get_current_user_id` / `get_optional_user_id`** (`backend/app/auth.py`): a `Bearer tcdn_…` credential is resolved by hash lookup (indexed equality, fail-closed on DB errors), then treated exactly like a JWT — same ownership-scoped endpoints, same rate limits. Keys intentionally survive password changes (they are long-lived and revoked explicitly); JWT `pw_change` revocation is untouched.
+- **Endpoints:** `POST /auth/api-key` (generate/rotate), `GET /auth/api-key` (metadata only — never the secret), `DELETE /auth/api-key` (revoke). `api_keys` table (FK → users, `ON DELETE CASCADE` so account deletion cleans up) created in `run_startup_migrations` + lazily in the routes, matching the app's fresh-DB pattern.
+- **Frontend:** dashboard API Key box restored with generate/copy-once/revoke (no client-side derivation of a fake key); docs + landing FAQ updated to document Bearer-token **or** API-key auth.
+- Verified: **277 backend tests** (9 new in `backend/tests/test_api_keys.py` covering hash-only storage, rotation, revocation, 401 on unknown/revoked keys, and auth-required; +1 migration-order test), **74 frontend tests** (3 new api-client cases), clean `tsc`, passing `security_audit.py`.
+
 ### Accepted residual risks
 
 Risk is accepted **only** when the fix would break the product or require a breaking change with no safe migration path. Both are continuously re-assessed.

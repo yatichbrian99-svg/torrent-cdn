@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Upload, Loader2, Mail, ShieldCheck, Copy, AlertTriangle, Users, Gift, Activity } from 'lucide-react'
+import { Upload, Loader2, Mail, ShieldCheck, Copy, Check, AlertTriangle, Users, Gift, Activity } from 'lucide-react'
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
 import { isLoggedIn, removeToken } from '@/lib/auth'
 import api from '@/lib/api'
@@ -21,6 +21,10 @@ export default function DashboardPage() {
   const [user, setUser] = useState<{ id: string; email: string; plan: string } | null>(null)
   const [referral, setReferral] = useState<{ referral_code: string; total_referrals: number; bonus_gb_earned: number } | null>(null)
   const [copiedRef, setCopiedRef] = useState(false)
+  const [apiKey, setApiKey] = useState<{ api_key: string | null; prefix: string | null; created_at: string | null } | null>(null)
+  const [generatingKey, setGeneratingKey] = useState(false)
+  const [revokingKey, setRevokingKey] = useState(false)
+  const [copiedKey, setCopiedKey] = useState(false)
   const [bandwidth, setBandwidth] = useState<{ date: string; gb: number }[]>([])
   const [deleteAccountConfirm, setDeleteAccountConfirm] = useState(false)
   const [deletingAccount, setDeletingAccount] = useState(false)
@@ -43,6 +47,12 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!isLoggedIn()) return
     api.getReferral().then(setReferral).catch(() => {})
+  }, [])
+
+  // API key metadata (prefix + age — the secret itself is never returned again).
+  useEffect(() => {
+    if (!isLoggedIn()) return
+    api.getApiKey().then(setApiKey).catch(() => {})
   }, [])
 
   // Verification status + bandwidth history (independent of files)
@@ -96,6 +106,32 @@ export default function DashboardPage() {
       setResending(false)
       setTimeout(() => setResendMsg(''), 5000)
     }
+  }
+
+  const handleGenerateKey = async () => {
+    setGeneratingKey(true)
+    try {
+      const data = await api.createApiKey()
+      setApiKey(data)
+      setCopiedKey(false)
+    } catch { alert('Failed to generate API key. Please try again.') }
+    finally { setGeneratingKey(false) }
+  }
+
+  const handleCopyKey = async () => {
+    if (!apiKey?.api_key) return
+    await navigator.clipboard.writeText(apiKey.api_key)
+    setCopiedKey(true)
+    setTimeout(() => setCopiedKey(false), 3000)
+  }
+
+  const handleRevokeKey = async () => {
+    setRevokingKey(true)
+    try {
+      await api.revokeApiKey()
+      setApiKey(null)
+    } catch { alert('Failed to revoke API key. Please try again.') }
+    finally { setRevokingKey(false) }
   }
 
   const handleDelete = async (id: string) => {
@@ -177,6 +213,66 @@ export default function DashboardPage() {
         <a href="/dashboard/upload" className="border px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80" style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000' }}>
           Upload file &rarr;
         </a>
+      </div>
+
+      {/* API Key — real tcdn_ key: plaintext is shown exactly once at creation
+          and stored only as a hash server-side (never recoverable again). */}
+      <div className="mb-8 border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>API Key</p>
+            <p className="mt-1 text-sm" style={{ color: '#555' }}>
+              {apiKey?.api_key
+                ? 'Authenticate API requests with: Authorization: Bearer <key>'
+                : 'Generate a key to use the REST API programmatically.'}
+            </p>
+          </div>
+          {apiKey?.api_key || apiKey?.prefix ? (
+            <button
+              onClick={handleRevokeKey}
+              disabled={revokingKey}
+              className="border px-4 py-2 text-xs transition-opacity hover:opacity-80 disabled:opacity-50"
+              style={{ borderColor: '#553333', color: '#ef4444' }}
+            >
+              {revokingKey ? <Loader2 size={12} className="animate-spin" /> : 'Revoke'}
+            </button>
+          ) : (
+            <button
+              onClick={handleGenerateKey}
+              disabled={generatingKey}
+              className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
+              style={{ borderColor: '#fff', color: '#fff' }}
+            >
+              {generatingKey ? <Loader2 size={12} className="animate-spin" /> : 'Generate API key'}
+            </button>
+          )}
+        </div>
+
+        {apiKey?.api_key ? (
+          <>
+            <div className="mt-3 flex items-center gap-2">
+              <code className="flex-1 border px-3 py-2 font-mono text-xs text-white" style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}>
+                {apiKey.api_key}
+              </code>
+              <button
+                onClick={handleCopyKey}
+                className="border px-3 py-2 text-xs transition-opacity hover:opacity-80"
+                style={{ borderColor: '#333', color: '#555' }}
+              >
+                {copiedKey ? <><Check size={12} className="inline" style={{ color: '#4ade80' }} /> Copied</> : 'Copy'}
+              </button>
+            </div>
+            <p className="mt-2 text-xs" style={{ color: '#fbbf24' }}>
+              This is the only time the full key is shown — copy it now. It is stored hashed and cannot be recovered.
+            </p>
+          </>
+        ) : apiKey?.prefix ? (
+          <p className="mt-3 text-xs" style={{ color: '#555' }}>
+            Current key: <code className="font-mono text-white">{apiKey.prefix}</code>
+            {apiKey.created_at ? ` (created ${new Date(apiKey.created_at).toLocaleDateString()})` : ''}.
+            Generating a new key revokes the old one.
+          </p>
+        ) : null}
       </div>
 
       {/* Referral */}

@@ -182,7 +182,7 @@ export default function LandingPage() {
               },
               {
                 q: "Do you have an API?",
-                a: "Yes. Authenticate API requests with a Bearer token from POST /auth/login (see the API docs). You can upload files, list files, and generate embed codes programmatically via our REST API."
+                a: "Yes. Create an API key (format: tcdn_…) in your dashboard, or get a Bearer token via POST /auth/login (see the API docs). You can upload files, list files, and generate embed codes programmatically via our REST API."
               },
             ].map((item) => (
               <div key={item.q} className="py-5">

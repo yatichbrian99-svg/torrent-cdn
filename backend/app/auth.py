@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
@@ -8,10 +9,57 @@ import jwt
 from jwt.exceptions import InvalidTokenError
 import bcrypt
 from .config import get_settings
-from .database import get_redis
+from .database import get_db_pool, get_redis
 
 settings = get_settings()
 security = HTTPBearer()
+
+# API keys are long-lived credentials in the form `tcdn_<random>` (see
+# routes/auth.py — generated via secrets.token_urlsafe, so ~256 bits of
+# entropy). Only the SHA-256 hash is stored in api_keys.key_hash, never the
+# plaintext — a database leak exposes hashes that can't be reversed, and the
+# dashboard shows a truncated prefix instead of the secret.
+API_KEY_PREFIX = "tcdn_"
+
+
+def hash_api_key(token: str) -> str:
+    """SHA-256 of the full tcdn_ token — the only form stored in the DB."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+async def _resolve_api_key_user(token: str) -> Optional[UUID]:
+    """Resolve a tcdn_ API key to its owner, or None if unknown/revoked.
+
+    Not constant-time-sensitive in a useful way: the DB equality lookup runs on
+    an indexed column against a 256-bit hash the attacker can't influence
+    beyond trying full tokens (each 401 costs a DB round-trip, and the global
+    rate limiter still applies). Fail-closed on DB errors: a key that can't be
+    verified is never accepted."""
+    if not token.startswith(API_KEY_PREFIX):
+        return None
+    key_hash = hash_api_key(token)
+    try:
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT user_id FROM api_keys WHERE key_hash = $1", key_hash
+            )
+            if row is None:
+                return None
+            # Best-effort last-used timestamp for the dashboard — never fail
+            # the request on a write error.
+            try:
+                await conn.execute(
+                    "UPDATE api_keys SET last_used_at = NOW() WHERE key_hash = $1",
+                    key_hash,
+                )
+            except Exception:
+                pass
+            return UUID(str(row["user_id"]))
+    except Exception:
+        # Table missing (fresh DB before migrations ran) or DB error — fail
+        # closed rather than accepting an unverifiable credential.
+        return None
 
 
 def hash_password(password: str) -> str:
@@ -98,11 +146,23 @@ async def _token_revoked_by_password_change(payload: dict) -> bool:
 async def get_current_user_id(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> UUID:
-    """Dependency that extracts and validates the user ID from JWT.
+    """Dependency that extracts and validates the user ID from a Bearer credential.
 
-    Also rejects sessions invalidated by a password change / privilege change
-    (see _token_revoked_by_password_change)."""
-    payload = decode_access_token(credentials.credentials)
+    Accepts either a JWT (validated signature/exp, with password-change
+    revocation via the pw_change marker) or a tcdn_ API key (validated against
+    the stored hash). API keys intentionally survive password changes — they
+    are long-lived credentials and are revoked explicitly from the dashboard."""
+    token = credentials.credentials
+    if token.startswith(API_KEY_PREFIX):
+        user_id = await _resolve_api_key_user(token)
+        if user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or revoked API key",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return user_id
+    payload = decode_access_token(token)
     if payload is None or "sub" not in payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -123,10 +183,16 @@ async def get_optional_user_id(
         HTTPBearer(auto_error=False)
     ),
 ) -> Optional[UUID]:
-    """Optional auth dependency — returns None if no token provided."""
+    """Optional auth dependency — returns None if no token provided.
+
+    API keys work here too: a valid tcdn_ key resolves to its owner, an invalid
+    one resolves to None (optional — never an error)."""
     if credentials is None:
         return None
-    payload = decode_access_token(credentials.credentials)
+    token = credentials.credentials
+    if token.startswith(API_KEY_PREFIX):
+        return await _resolve_api_key_user(token)
+    payload = decode_access_token(token)
     if payload is None or "sub" not in payload:
         return None
     return UUID(payload["sub"])

@@ -332,6 +332,40 @@ describe('api client interceptors', () => {
     })
   })
 
+  describe('API keys (tcdn_)', () => {
+    beforeEach(() => {
+      mocks.instance.get.mockReset()
+      mocks.instance.post.mockReset()
+      mocks.instance.delete.mockReset()
+    })
+
+    it('getApiKey fetches key metadata (never the secret)', async () => {
+      mocks.instance.get.mockResolvedValueOnce({
+        data: { api_key: null, prefix: 'tcdn_abcd1234ef...', created_at: '2026-08-01T00:00:00Z', last_used_at: null },
+      })
+      const data = await api.getApiKey()
+      expect(mocks.instance.get).toHaveBeenCalledWith('/auth/api-key')
+      expect(data.api_key).toBeNull()
+      expect(data.prefix).toBe('tcdn_abcd1234ef...')
+    })
+
+    it('createApiKey POSTs and returns the plaintext key once', async () => {
+      mocks.instance.post.mockResolvedValueOnce({
+        data: { api_key: 'tcdn_rotate_secret_xyz', prefix: 'tcdn_rotate_secret...', created_at: '2026-08-04T00:00:00Z' },
+      })
+      const data = await api.createApiKey()
+      expect(mocks.instance.post).toHaveBeenCalledWith('/auth/api-key')
+      expect(data.api_key).toBe('tcdn_rotate_secret_xyz')
+    })
+
+    it('revokeApiKey DELETEs the key', async () => {
+      mocks.instance.delete.mockResolvedValueOnce({ data: { detail: 'API key revoked' } })
+      const data = await api.revokeApiKey()
+      expect(mocks.instance.delete).toHaveBeenCalledWith('/auth/api-key')
+      expect(data.detail).toBe('API key revoked')
+    })
+  })
+
   describe('login retry on transient 5xx (Render cold start)', () => {
     beforeEach(() => {
       mocks.instance.post.mockReset()

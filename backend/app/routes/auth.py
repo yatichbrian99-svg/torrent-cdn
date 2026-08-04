@@ -1,4 +1,5 @@
 import re
+import secrets
 import time
 import logging
 import unicodedata
@@ -6,10 +7,24 @@ import uuid
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from uuid import UUID
 
-from ..database import get_db_pool, get_redis, USERS_TABLE_DDL
-from ..auth import hash_password, verify_password, create_access_token, get_current_user_id
+from ..database import get_db_pool, get_redis, USERS_TABLE_DDL, API_KEYS_TABLE_DDL
+from ..auth import (
+    API_KEY_PREFIX,
+    hash_api_key,
+    hash_password,
+    verify_password,
+    create_access_token,
+    get_current_user_id,
+)
 from ..email_service import send_verification_email, send_password_reset_email, decode_password_reset_token
-from ..models import UserRegister, UserLogin, TokenResponse, ForgotPasswordRequest, ResetPasswordRequest
+from ..models import (
+    ApiKeyResponse,
+    UserRegister,
+    UserLogin,
+    TokenResponse,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
+)
 from ..config import get_settings
 from ..security import get_client_ip
 from ..services.email import send_welcome_email
@@ -553,6 +568,70 @@ async def setup_first_admin(
         logger.info("Promoted user %s to admin via /auth/setup", first_user)
 
     return {"detail": "First user promoted to admin. Log in again for the changes to take effect."}
+
+
+@router.post("/api-key", response_model=ApiKeyResponse)
+async def create_api_key(user_id: UUID = Depends(get_current_user_id)):
+    """Generate (or rotate) the current user's API key.
+
+    One active key per user: generating revokes any previous key. The plaintext
+    token is returned exactly ONCE — only its SHA-256 hash is stored, so it can
+    never be recovered again (generate again to rotate). Keys authenticate as
+    ``Authorization: Bearer tcdn_…`` and intentionally survive password changes
+    (they are revoked explicitly from the dashboard)."""
+    token = API_KEY_PREFIX + secrets.token_urlsafe(32)
+    key_hash = hash_api_key(token)
+    prefix = token[:16] + "..."
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        # Lazy table creation (fresh-DB safety, same pattern as register).
+        await conn.execute(API_KEYS_TABLE_DDL)
+        # Atomic rotate: a single upsert keyed on the unique user_id index
+        # replaces any previous key in one statement. (A DELETE + INSERT pair
+        # would race under concurrent generates and could leave two keys.)
+        row = await conn.fetchrow(
+            """INSERT INTO api_keys (user_id, key_hash, prefix)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (user_id)
+               DO UPDATE SET key_hash = EXCLUDED.key_hash,
+                             prefix = EXCLUDED.prefix,
+                             last_used_at = NULL
+               RETURNING created_at""",
+            user_id,
+            key_hash,
+            prefix,
+        )
+    return ApiKeyResponse(api_key=token, prefix=prefix, created_at=row["created_at"])
+
+
+@router.get("/api-key", response_model=ApiKeyResponse)
+async def get_api_key(user_id: UUID = Depends(get_current_user_id)):
+    """Return API-key metadata WITHOUT the secret — the plaintext is stored only
+    as a hash and can never be shown again. The dashboard shows the prefix + age."""
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(API_KEYS_TABLE_DDL)
+        row = await conn.fetchrow(
+            "SELECT prefix, created_at, last_used_at FROM api_keys WHERE user_id = $1",
+            user_id,
+        )
+        if not row:
+            return ApiKeyResponse()
+        return ApiKeyResponse(
+            prefix=row["prefix"],
+            created_at=row["created_at"],
+            last_used_at=row["last_used_at"],
+        )
+
+
+@router.delete("/api-key")
+async def revoke_api_key(user_id: UUID = Depends(get_current_user_id)):
+    """Revoke the current user's API key. Subsequent uses return 401."""
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(API_KEYS_TABLE_DDL)
+        await conn.execute("DELETE FROM api_keys WHERE user_id = $1", user_id)
+    return {"detail": "API key revoked"}
 
 
 @router.get("/referral")

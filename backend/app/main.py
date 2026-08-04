@@ -17,7 +17,7 @@ import os
 import threading
 
 from .routes import auth, upload, files, analytics, billing, csp, admin, verification, notifications
-from .database import NOTIFICATIONS_TABLE_DDL, USERS_TABLE_DDL
+from .database import API_KEYS_TABLE_DDL, NOTIFICATIONS_TABLE_DDL, USERS_TABLE_DDL
 
 settings = get_settings()
 
@@ -32,6 +32,8 @@ async def run_startup_migrations():
             # (which REFERENCES users) can be created. Idempotent on existing DBs.
             await conn.execute(USERS_TABLE_DDL)
             await conn.execute(NOTIFICATIONS_TABLE_DDL)
+            # API keys reference users — create after both (idempotent on existing DBs).
+            await conn.execute(API_KEYS_TABLE_DDL)
             await conn.execute("""
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT FALSE;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;

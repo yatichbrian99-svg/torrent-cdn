@@ -98,9 +98,9 @@ export default function DocsPage() {
           <p className="mb-3 text-sm" style={{ color: '#555' }}>All endpoints use the following base URL:</p>
           <CodeBlock code={`${BASE_URL}`} />
           <div className="mt-4 space-y-2 text-sm" style={{ color: '#555' }}>
-            <p><span className="font-bold text-white">Authentication:</span> Bearer token in the <code className="text-white" style={{ fontFamily: 'monospace' }}>Authorization</code> header.</p>
+            <p><span className="font-bold text-white">Authentication:</span> Bearer token <em>or</em> API key in the <code className="text-white" style={{ fontFamily: 'monospace' }}>Authorization</code> header.</p>
             <p><span className="font-bold text-white">Format:</span> All requests and responses are JSON.</p>
-            <p>Get a token via <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /auth/login</code> (or <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /auth/register</code>) and send it on every request as <code className="text-white" style={{ fontFamily: 'monospace' }}>Authorization: Bearer &lt;token&gt;</code>. There is no separate API key — the dashboard's displayed <code className="text-white" style={{ fontFamily: 'monospace' }}>tcdn_…</code> string is derived from your account id and is NOT accepted as a credential.</p>
+            <p>Two credential types work: a short-lived token from <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /auth/login</code> (or <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /auth/register</code>), or an <span className="font-bold text-white">API key</span> created in your dashboard (<code className="text-white" style={{ fontFamily: 'monospace' }}>tcdn_…</code>). Keys are shown once at creation, stored only as a hash, and sent exactly like a token: <code className="text-white" style={{ fontFamily: 'monospace' }}>Authorization: Bearer tcdn_…</code>. Revoke or rotate them any time from the dashboard.</p>
           </div>
         </div>
       </section>

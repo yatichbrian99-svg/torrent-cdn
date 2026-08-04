@@ -110,6 +110,15 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class ApiKeyResponse(BaseModel):
+    """API-key info. `api_key` (the plaintext) is ONLY present on creation — the
+    server stores just a hash, so the secret can never be retrieved again."""
+    api_key: Optional[str] = None
+    prefix: Optional[str] = None
+    created_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
+
+
 class UploadResponse(BaseModel):
     file_id: UUID
     filename: str
