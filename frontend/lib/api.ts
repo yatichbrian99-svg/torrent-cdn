@@ -315,9 +315,16 @@ export default {
 
   getApiKey: () => api.get('/auth/api-key').then((r) => r.data),
 
-  createApiKey: () => api.post('/auth/api-key').then((r) => r.data),
+  // Generate + revoke retry once on transient failures (Render cold start: a
+  // 502/503/504 from the proxy or no response while the instance wakes) — the
+  // same condition the login flow auto-retries. Both operations are safe to
+  // retry: create is an atomic rotate (one key per user, so a duplicate can't
+  // appear) and revoke is an idempotent DELETE.
+  createApiKey: () =>
+    withTransientRetry(() => api.post('/auth/api-key').then((r) => r.data)),
 
-  revokeApiKey: () => api.delete('/auth/api-key').then((r) => r.data),
+  revokeApiKey: () =>
+    withTransientRetry(() => api.delete('/auth/api-key').then((r) => r.data)),
 
   verifyEmail: (token: string) =>
     api.post('/auth/verify-email', { token }).then((r) => r.data),

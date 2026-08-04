@@ -73,9 +73,24 @@ try {
 
   // 2) Generate → full key revealed once. The key lives in its own <code> box;
   // scope by content (tcdn_ prefix) so the selection is reorder-proof even if
-  // the referral <code> ever moves above it in the DOM.
+  // the referral <code> ever moves above it in the DOM. The app auto-retries
+  // the request on a Render cold start (502), but if a cold start outlasts the
+  // built-in retry the failure alert fires — re-click Generate rather than
+  // failing the suite (the alert handler above dismisses + records it).
+  const dialogsBefore = out.dialogs.length
   await page.click('text=Generate API key')
-  await page.waitForSelector('text=This is the only time the full key is shown', { timeout: 30000 })
+  try {
+    await page.waitForSelector('text=This is the only time the full key is shown', { timeout: 30000 })
+  } catch {
+    if (out.dialogs.length > dialogsBefore) {
+      out.steps.push('cold-start alert on first Generate — retrying')
+      await page.waitForTimeout(5000)
+      await page.click('text=Generate API key')
+      await page.waitForSelector('text=This is the only time the full key is shown', { timeout: 45000 })
+    } else {
+      throw new Error('Generate never revealed the key and no alert fired')
+    }
+  }
   const fullKey = (await page.locator('code:has-text("tcdn_")').first().innerText()).trim()
   out.keyLength = fullKey.length
   out.keyPrefix = fullKey.slice(0, 8)
