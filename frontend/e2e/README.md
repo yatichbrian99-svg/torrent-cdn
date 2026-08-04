@@ -12,6 +12,7 @@ development, now saved as a repeatable suite.
 | Direct upload | `npm run test:e2e:upload` | Primary upload path: `/dashboard/upload` → progress bar advances → `PUT` goes **direct to Supabase Storage** (no fallback) → success screen with real 40-hex magnet + embed code, zero JS errors |
 | Chunked fallback | `npm run test:e2e:fallback` | Resilience path: blocks every `*.supabase.co` request so the direct PUT dies → "Connection lost — retrying…" → chunked upload via `/upload/session` + `/upload/chunk/*` + `/upload/finalize` → same success screen, real magnet |
 | Embed playback | `npm run test:e2e:embed` | `/embed/{file_id}`: `<video>` renders, playback starts (`currentTime` advances), streams from Supabase (HTTP 200/206), and the WebTorrent P2P attempt does **not** throw `TypeError: e.toHex is not a function` (regression guard for `patches/uint8-util+2.3.2.patch`) |
+| 2-peer P2P | `npm run test:e2e:p2p` | **Real WebTorrent P2P between two browsers**: a seeder reproduces the backend's exact infohash (name + 256 KiB pieces) and seeds the file; a leecher plays `/embed/{file_id}` with every `*.supabase.co` request **blocked** (so only WebRTC can deliver bytes) → "N peers connected" on both sides, video plays, and the backend records `chunk_downloaded` analytics with `bytes_p2p > 0` |
 
 All suites:
 - create a **throwaway account + test file** and delete them in cleanup (safe to
@@ -33,10 +34,11 @@ npx playwright install chromium   # one-time: installs the headless browser
 ## Running
 
 ```bash
-npm run test:e2e            # all three suites
+npm run test:e2e            # all four suites
 npm run test:e2e:upload     # direct upload only
 npm run test:e2e:fallback   # chunked fallback only
 npm run test:e2e:embed      # embed playback only
+npm run test:e2e:p2p        # real 2-peer P2P (seeder + leecher)
 ```
 
 `node e2e/run-all.mjs <prefix>` also runs a single suite (e.g. `node e2e/run-all.mjs embed`).
@@ -49,6 +51,7 @@ npm run test:e2e:embed      # embed playback only
 | `E2E_TOKEN` | Existing account token — skips registration **and** user cleanup |
 | `E2E_FILE` | Path to a pre-made file — skips ffmpeg synthesis |
 | `E2E_FILE_ID` | (embed suite) Existing file id — skips the API upload |
+| `E2E_FILE` | (p2p suite) The seeder reproduces the backend infohash, so a pre-made file must have been uploaded with the same bytes — prefer the default synthesis |
 | `FFMPEG_PATH` | ffmpeg binary path (default `ffmpeg`) |
 
 ## Notes

@@ -6,6 +6,47 @@ import api from '@/lib/api'
 
 interface FileData { id: string; filename: string; minio_url: string; magnet_link: string; file_size_mb: number }
 
+/**
+ * Stream a webtorrent 2.x File progressively via MediaSource (pieces arrive
+ * live from peers), falling back to a full-file blob once downloaded.
+ *
+ * webtorrent 2.x REMOVED `File.renderTo` (it was dropped from the core around
+ * 2.0), so the old `f.renderTo(video, { autoplay: true })` call threw
+ * `TypeError: f.renderTo is not a function` the moment a P2P swarm actually
+ * connected — the P2P render path had never been reachable before (no trackers
+ * in the magnet meant no peers, so every embed fell back to direct). MediaSource
+ * is only used for codecs Chrome accepts in a SourceBuffer (WebM/VP8/Opus);
+ * anything else (e.g. non-fragmented MP4) throws on the first append and the
+ * caller falls back to direct origin streaming.
+ */
+async function streamP2pFile(file: any, video: HTMLVideoElement): Promise<void> {
+  if (typeof MediaSource !== 'undefined' && file.type && MediaSource.isTypeSupported(file.type)) {
+    const ms = new MediaSource()
+    video.src = URL.createObjectURL(ms)
+    await new Promise<void>((resolve, reject) => {
+      ms.addEventListener('sourceopen', () => resolve(), { once: true })
+      ms.addEventListener('error', () => reject(new Error('MediaSource error')), { once: true })
+    })
+    const sb = ms.addSourceBuffer(file.type)
+    const reader = file.stream().getReader()
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      if (value) {
+        if (sb.updating) await new Promise((r) => sb.addEventListener('updateend', r, { once: true }))
+        sb.appendBuffer(value)
+        if (video.paused) video.play().catch(() => {})
+      }
+    }
+    if (ms.readyState === 'open') ms.endOfStream()
+    return
+  }
+  // Codec not accepted by MediaSource — play once the whole file is downloaded.
+  const blob = await file.blob()
+  video.src = URL.createObjectURL(blob)
+  await video.play().catch(() => {})
+}
+
 export default function VideoPlayer({ fileId }: { fileId: string }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [fileData, setFileData] = useState<FileData | null>(null)
@@ -48,17 +89,32 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
 
         const torrent = client.add(fileData.magnet_link)
         torrent.on('wire', () => { if (!mounted) return; setPeers(torrent.numPeers) })
+        // webtorrent's 'download' fires per 16KiB block received — dozens per
+        // second on a fast P2P transfer. Throttle chunk_downloaded analytics to
+        // ONE POST per second (accumulated bytes) — otherwise the per-IP
+        // analytics rate limit (60/min) 429s the flood and total_p2p never
+        // accrues in the bandwidth charts.
+        let pendingP2pBytes = 0
+        let lastAnalyticsFlush = 0
         torrent.on('download', (bytes: number) => {
           if (!mounted) return
           clearTimeout(fallbackTimer.current)
           setStatus('p2p'); statusRef.current = 'p2p'
           setPeers(torrent.numPeers)
-          api.trackEvent(fileData.id, 'chunk_downloaded', bytes, 0).catch(() => {})
+          pendingP2pBytes += bytes
+          const now = Date.now()
+          if (now - lastAnalyticsFlush >= 1000) {
+            api.trackEvent(fileData.id, 'chunk_downloaded', pendingP2pBytes, 0).catch(() => {})
+            lastAnalyticsFlush = now
+            pendingP2pBytes = 0
+          }
         })
         torrent.on('ready', () => {
           if (!mounted) return
           const f = torrent.files.find((f: any) => f.name.match(/\.(mp4|webm|ogv|mov|mkv|mp3|ogg|wav)$/i)) || torrent.files[0]
-          if (f && videoRef.current) { f.renderTo(videoRef.current, { autoplay: true }); setStatus('p2p'); statusRef.current = 'p2p' }
+          if (!f || !videoRef.current) return
+          setStatus('p2p'); statusRef.current = 'p2p'
+          streamP2pFile(f, videoRef.current).catch(() => { if (mounted) fallbackToDirect() })
         })
         pollTimer.current = setInterval(() => { if (!mounted) return; setPeers(torrent.numPeers || peers) }, 2000)
       } catch { if (mounted) fallbackToDirect() }

@@ -11,6 +11,7 @@
     "test:e2e:upload": "node e2e/upload-direct.mjs",
     "test:e2e:fallback": "node e2e/upload-fallback.mjs",
     "test:e2e:embed": "node e2e/embed-playback.mjs",
+    "test:e2e:p2p": "node e2e/p2p-two-peer.mjs",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"
   },
