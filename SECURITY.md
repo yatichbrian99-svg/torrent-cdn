@@ -186,6 +186,68 @@ CI keeps the frontend fast: npm packages are cached via `setup-node`'s `cache: n
 
 ---
 
+## Hardening Log
+
+A chronological record of security hardening work. Each entry lists what was fixed, the severity, and how it was verified — so a future reviewer can tell at a glance whether a finding was already addressed and which tests/commits prove it.
+
+### 2026-08-04 — Full audit hardening pass (`78eff90`)
+
+A systematic security audit (OWASP-style, zero-trust assumptions) produced the fixes below. Verified by 221 backend tests (23 new regression tests in `backend/tests/test_audit_hardening.py`), 53/53 frontend vitest tests, clean `tsc`, a green production build, and green embed/auto-seed/P2P E2E suites; `pip-audit` clean.
+
+#### Critical / High
+
+| Finding | Impact | Fix |
+|---|---|---|
+| **Next.js 14.2.0 advisory batch** — SSRF in Server Actions, cache-confusion ×3, unbounded Server Action payload, Server Function endpoint disclosure (1 critical + 5 high, June-2026 batch) | SSRF / cache poisoning / DoS | Bumped `next` 14.2.0 → **14.2.35** (closes that advisory batch) + `postcss` 8.5.24; `poweredByHeader: false` (no `X-Powered-By` fingerprint). *Subsequently superseded by the Next 15 migration — see `aceaa97` below.* |
+| **`passlib` 1.7.4** — unmaintained since 2020, breaks with modern bcrypt | Unmaintained password hashing; supply-chain risk | Replaced with **direct `bcrypt` 4.x** (cost 12, `$2b$` format preserved — existing hashes still verify) |
+| **`python-jose` → `ecdsa`** — `PYSEC-2026-1325`, **no patched release** | Known vulnerable transitive dependency | Migrated to **PyJWT 2.x** (maintained); HS256-only with an explicit `algorithms` list (blocks algorithm-confusion attacks); removes RSA/ECDSA transitive deps entirely |
+
+#### Medium
+
+| Finding | Impact | Fix |
+|---|---|---|
+| **No input length caps** (email / password / token / filename / ref_code) | Huge emails poisoned Redis rate-limit keys; 2 GB passwords were a memory DoS; >255-char emails/filenames 500'd the `VARCHAR(255)` inserts | Caps added in the Pydantic models: email 255, password 72, token 2048, filename 255, ref_code 20 |
+| **bcrypt 72-byte silent truncation** | Two distinct long passwords could hash identically (multibyte UTF-8 ≠ 72 chars) | 72-**byte** limit enforced at register/reset with a clear 400 — a valid-length-but-over-bytes password no longer silently truncates or collides |
+| **Login timing-oracle (user enumeration)** | Attacker distinguishes registered emails by response time (no bcrypt work on unknown email) | Unknown-email logins now run a **real bcrypt verify against a fixed dummy hash**, equalizing timing |
+| **Unbounded in-memory rate-limit stores** | Rotated/forged `X-Forwarded-For` could grow memory without bound | Opportunistic pruning in the global middleware + login/forgot/resend/public-file/analytics/upload fallback stores (bounded by live-IP count) |
+| **Dead CORS origins** (`torrentcdn.com` / `api.torrentcdn.com` — domain no longer owned) | Re-registering the domain would grant credentialed cross-origin reads (`allow_credentials=True`) | Origins removed from the CORS allow-list; env-supplied origins still pass through `CORS_ORIGINS` |
+| **CSP-report log injection** | Attacker-controlled `blocked_uri`/`document_uri` could forge log lines | Report fields sanitized (control chars stripped, length-capped) before logging |
+
+#### Low / Functionality
+
+| Finding | Impact | Fix |
+|---|---|---|
+| **`docker-compose` exposed ports on `0.0.0.0`** | LAN-visible Postgres/Redis/MinIO with default creds | All three bound to `127.0.0.1` |
+| **`sdk.js` used removed `file.renderTo`** (webtorrent 2.x) | SDK embeds silently lost P2P | Replaced with MediaSource streaming so SDK embeds keep working P2P |
+
+#### Already solid (verified, no changes needed)
+
+- **SQL injection:** all queries parameterized (asyncpg `$1`), zero string concatenation.
+- **Uploads:** magic-byte + content-type validation, blocked signatures (ZIP/ELF/PE/tar…), compression-bomb check, sanitized filenames, UUID object keys, server-side size enforcement, per-IP upload caps, idempotent presign/chunk/finalize.
+- **Auth:** bcrypt hashing, fail-closed JWT secret (>32 chars, `changeme` rejected), per-IP+email login lockout, anti-enumeration forgot-password, one-time reset tokens (Redis tombstone), admin bootstrap gated by env, admin-only routes server-verified.
+- **Ownership:** every file/analytics/notification query scoped by `user_id` (no IDOR).
+- **Headers:** nonce-CSP with `strict-dynamic`, HSTS, X-Frame-Options, CORP, Permissions-Policy; API docs disabled in production; `security.txt` present.
+
+### 2026-08-04 — Next.js 15 migration (`aceaa97`) + chunk-upload rate-limit fix
+
+- **Next 14.2.35 → 15.5.21, React 19.2.x, recharts 3.10.1, lucide-react 1.28.0** — clears the **July-2026 Next.js advisory batch** (see Accepted Residual Risk #1 below), which had **no 14.x patch** (requires 15.5.21+ / 16.2.11+). Async route params migrated (`useParams()`), React 19 `useRef` fixes, recharts 3 formatter types; `npm` overrides force `postcss`/`sharp` out of vulnerable ranges. `npm audit` now reports only the accepted `ip`-via-webtorrent advisories.
+- **Global rate limiter vs. chunked uploads:** the global 5 req/10s per-IP limiter counted every chunk PUT, 429-ing any multi-chunk file mid-upload. `/upload/chunk/*` is now exempt from the **global** limiter (route-layer protections remain: JWT auth, session ownership, index bounds, size cap, plus the per-IP upload limiter + usage gate at finalize; session **creation** stays rate-limited). Regression test: `test_global_middleware_exempts_chunk_uploads`.
+- Verified: 222 backend tests, 53 frontend tests, **5/5 E2E suites against production** (direct, fallback, embed, auto-seed, 2-peer P2P), all 7 CI jobs green (incl. real 2-peer `p2p-e2e`).
+
+### Accepted residual risks
+
+Risk is accepted **only** when the fix would break the product or require a breaking change with no safe migration path. Both are continuously re-assessed.
+
+#### 1. July-2026 Next.js advisories on 14.x — **RESOLVED by `aceaa97` (Next 15.5.21)**
+
+The advisory database updated *after* the 14.2.35 fix shipped a new batch with **no 14.x patch** (SSRF class; requires 15.5.21+/16.2.11+). At the time it was **not exploitable in this app's configuration** (no Server Actions, no `next/image`, all rewrites use static destinations), and the long-term fix was the Next 15 major migration — which has since landed in `aceaa97`. Kept on this list for the historical record and because the migration must not be reverted.
+
+#### 2. `ip` advisory (transitive via `webtorrent`) — **accepted**
+
+`npm audit` reports `ip` (DoS via malformed IP string) as a transitive dependency of `webtorrent`. The only "fix" npm offers is downgrading `webtorrent` to 0.7.3, which would **destroy the entire P2P delivery feature** (the product's core differentiator). Exposure is minimal: it executes in the browser client (not the server), and the malformed-input path is not reachable from user-controlled surfaces in the embed player. Revisit if `webtorrent` upstreams a fix or drops the `ip` dependency.
+
+---
+
 ## Production Deployment Checklist
 
 ### 1. Purge secrets from git history (one-time)
