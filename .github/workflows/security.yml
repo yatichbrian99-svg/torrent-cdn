@@ -146,6 +146,105 @@ jobs:
       - name: API baseURL guard
         run: bash scripts/check_api_baseurl.sh
 
+  # ── P2P delivery gate (real 2-peer WebTorrent swarm) ──
+  # Every push must still deliver video over WebTorrent. Vercel deploys LAG the
+  # push (production often serves the previous build for a while), so hitting
+  # www.torrentcdn.store here would validate the LAST deploy, not this push.
+  # Instead this job BUILDS the pushed frontend, serves it locally (next start)
+  # behind the same-origin proxy (e2e/local-proxy.mjs — a vercel.json rewrite
+  # mirror), and runs the 2-peer suite against that build with the PRODUCTION
+  # Render backend underneath (the magnet/tracker/analytics contract is
+  # production's):
+  #   - seeder reproduces the backend infohash (magnet dn + 256KiB pieces + tr
+  #     trackers) and seeds the file
+  #   - leecher plays /embed/{id} with every *.supabase.co request BLOCKED
+  #     (only WebRTC can deliver bytes) → peers connect, video plays
+  #   - backend records chunk_downloaded bytes_p2p > 0
+  # The suite creates a throwaway account + file and deletes them in cleanup.
+  # Requires Playwright Chromium + ffmpeg (installed below).
+  # NOTE: production rate limits are per-IP (10 uploads/hr, 5 req/10s); GitHub
+  # runners egress from a shared Azure IP pool, so rare concurrent runs could
+  # 429 — the suite paces its calls well under the limits per run. If the
+  # public trackers ever prove flaky here, soften with continue-on-error.
+  # Push + manual dispatch only (NOT pull_request): this job WRITES to
+  # production (throwaway account registration + test uploads). On a public
+  # repo, a fork PR could otherwise trigger unlimited production writes from
+  # untrusted code with no secrets to gate it.
+  p2p-e2e:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Playwright ships without a postinstall, so `npm ci` never downloads
+      # browsers — install Chromium explicitly (--with-deps pulls the system
+      # libraries headless Chromium needs on ubuntu-latest).
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Install ffmpeg (test media synthesis)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Build
+        run: npm run build
+
+      # Everything in ONE step so the local stack lives for the suite: next
+      # start on :3001, the same-origin proxy on :3000 (vercel.json rewrite
+      # mirror → production Render), wait for readiness, then run the suite
+      # with E2E_BASE_URL pointed at the local build. The trap guarantees the
+      # background processes die even when the suite fails. Invoke the next
+      # binary directly (not via npx) so $NEXT_PID IS the server process — npx
+      # would wrap it and killing the wrapper could orphan next-server.
+      - name: Run 2-peer P2P suite (pushed build → production backend)
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/next start -p 3001 > /tmp/next.log 2>&1 &
+          NEXT_PID=$!
+          node e2e/local-proxy.mjs > /tmp/proxy.log 2>&1 &
+          PROXY_PID=$!
+          trap 'kill $NEXT_PID $PROXY_PID 2>/dev/null || true; pkill -f "next-server" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:3000/; then
+              echo "local stack ready (:3000)"
+              break
+            fi
+            sleep 2
+          done
+          curl -sf -o /dev/null http://localhost:3000/ || {
+            echo "local stack never became ready" >&2
+            tail -20 /tmp/next.log /tmp/proxy.log 2>&1
+            exit 1
+          }
+          E2E_BASE_URL=http://localhost:3000 node e2e/p2p-two-peer.mjs
+
+      # Surface the local stack logs whenever the suite fails (the readiness
+      # branch above only dumps them when the stack itself never came up).
+      - name: Dump stack logs
+        if: failure()
+        run: |
+          echo "===== /tmp/next.log ====="
+          tail -40 /tmp/next.log 2>/dev/null || true
+          echo "===== /tmp/proxy.log ====="
+          tail -40 /tmp/proxy.log 2>/dev/null || true
+
   # ── Storage bucket publicity gate (credential-free live check) ──
   # The app serves every file through the bucket's public object URL; a private
   # bucket 404s ALL playback (NoSuchBucket) — a regression class that broke

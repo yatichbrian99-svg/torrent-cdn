@@ -44,6 +44,8 @@ npm run test:e2e:p2p        # real 2-peer P2P (seeder + leecher)
 ```
 
 `node e2e/run-all.mjs <prefix>` also runs a single suite (e.g. `node e2e/run-all.mjs embed`).
+The `p2p-two-peer` suite additionally runs on every push/PR via the `p2p-e2e`
+GitHub Actions job (see "CI wiring" below).
 
 ## Env overrides
 
@@ -56,10 +58,28 @@ npm run test:e2e:p2p        # real 2-peer P2P (seeder + leecher)
 | `E2E_FILE` | (p2p suite) The seeder reproduces the backend infohash, so a pre-made file must have been uploaded with the same bytes — prefer the default synthesis |
 | `FFMPEG_PATH` | ffmpeg binary path (default `ffmpeg`) |
 
+## CI wiring
+
+The **2-peer P2P suite is wired into GitHub Actions** (`.github/workflows/security.yml`
+job `p2p-e2e`, runs on every push/PR to `main`). Because Vercel deploys lag the
+push, the job does NOT hit the deployed site — it **builds the pushed code**,
+serves it locally (`next start` behind `e2e/local-proxy.mjs`, which mirrors
+vercel.json's rewrites), and runs the suite against that build with the
+**production Render backend** underneath. So every push validates:
+- the pushed player's P2P path against production's magnet/tracker/analytics
+  contract,
+- infohash reproducibility (seeder == backend),
+- real WebRTC delivery with origin streaming blocked,
+- `chunk_downloaded` analytics with `bytes_p2p > 0`.
+
+The job installs Playwright Chromium + ffmpeg itself. The other suites remain
+manual post-deploy tools (they exercise deployed-production behavior that CI's
+local build can't cover, e.g. the exact shipped Vercel proxy).
+
 ## Notes
 
-- These suites **hit production** and are intentionally **not** part of CI or
-  the Vercel build (they need live accounts + real storage). They're the
+- These suites **hit production** (they need live accounts + real storage). The
+  `p2p-e2e` CI job uses them against the production backend; the rest are the
   post-deploy verification tool: run them after any upload/player change.
 - The upload suites use CDP network throttling so the progress bar is
   observable; the fallback suite also blocks `*.supabase.co` to force the
