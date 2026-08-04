@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { Upload, File, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
 import api, { apiErrorMessage } from '@/lib/api'
+import { startSeeding, SeederHandle } from '@/lib/seeder'
 import EmbedCode from './EmbedCode'
 
 interface UploadResult {
@@ -17,8 +18,26 @@ export default function UploadForm() {
   const [dragOver, setDragOver] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [retrying, setRetrying] = useState(false)
+  // Auto-seed status: after a successful upload this tab shares the file back
+  // into the WebTorrent swarm so the FIRST viewer can play via P2P.
+  const [seeding, setSeeding] = useState(false)
+  const [seedPeers, setSeedPeers] = useState(0)
+  const seederRef = useRef<SeederHandle | null>(null)
+
+  const stopSeeding = useCallback(() => {
+    if (seederRef.current) {
+      try { seederRef.current.destroy() } catch {}
+      seederRef.current = null
+    }
+    setSeeding(false); setSeedPeers(0)
+  }, [])
+
+  // If the user navigates away while seeding, tear the swarm down (browsers
+  // cannot seed after the tab closes anyway — don't leak the webtorrent client).
+  useEffect(() => stopSeeding, [stopSeeding])
 
   const handleUpload = useCallback(async (file: File) => {
+    stopSeeding()
     setUploading(true); setProgress(0); setError(''); setResult(null); setRetrying(false)
     try {
       const data = await api.uploadFile(file, {
@@ -26,10 +45,25 @@ export default function UploadForm() {
         onRetry: () => { setRetrying(true); setProgress(0) }, // retry restarts from 0%
       })
       setResult(data)
+      // Seed the freshly-uploaded file back to peers so the first viewer can
+      // fetch it over WebRTC without a manual seeder. Best-effort: if the
+      // webtorrent bundle fails to load or no swarm forms, playback still
+      // falls back to direct origin streaming.
+      const seeder = await startSeeding(file, data.magnet_link)
+      if (seeder) {
+        seederRef.current = seeder
+        setSeeding(true)
+        setSeedPeers(seeder.peers())
+        const poll = setInterval(() => setSeedPeers(seeder.peers()), 2000)
+        seederRef.current = {
+          destroy: () => { clearInterval(poll); seeder.destroy() },
+          peers: () => seeder.peers(),
+        }
+      }
     }
     catch (err: any) { setError(apiErrorMessage(err, 'Upload failed. Please try again.')) }
     finally { setUploading(false); setRetrying(false) }
-  }, [])
+  }, [stopSeeding])
 
   const onDrop = useCallback((e: React.DragEvent) => { e.preventDefault(); setDragOver(false); const file = e.dataTransfer.files[0]; if (file) { setSelectedFile(file); handleUpload(file) } }, [handleUpload])
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) { setSelectedFile(file); handleUpload(file) } }
@@ -62,7 +96,15 @@ export default function UploadForm() {
             <button onClick={() => navigator.clipboard.writeText(result.magnet_link)} className="border px-4 py-2 text-sm" style={{ borderColor: '#333', color: '#fff' }}>Copy</button>
           </div>
         </div>
-        <button onClick={() => { setResult(null); setSelectedFile(null); setProgress(0) }}
+        {seeding && (
+          <div className="mb-6 flex items-center gap-2 border-t pt-4" style={{ borderColor: '#222' }}>
+            <span className="h-2 w-2 animate-pulse rounded-full" style={{ backgroundColor: seedPeers > 0 ? '#fff' : '#444' }} />
+            <span className="text-xs" style={{ color: '#555', fontFamily: 'monospace' }}>
+              {seedPeers > 0 ? `seeding to ${seedPeers} peer${seedPeers === 1 ? '' : 's'}` : 'seeding this file to peers…'}
+            </span>
+          </div>
+        )}
+        <button onClick={() => { stopSeeding(); setResult(null); setSelectedFile(null); setProgress(0) }}
           className="w-full border py-2 text-sm font-medium" style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000' }}>
           Upload another file
         </button>

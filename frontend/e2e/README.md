@@ -12,6 +12,7 @@ development, now saved as a repeatable suite.
 | Direct upload | `npm run test:e2e:upload` | Primary upload path: `/dashboard/upload` → progress bar advances → `PUT` goes **direct to Supabase Storage** (no fallback) → success screen with real 40-hex magnet + embed code, zero JS errors |
 | Chunked fallback | `npm run test:e2e:fallback` | Resilience path: blocks every `*.supabase.co` request so the direct PUT dies → "Connection lost — retrying…" → chunked upload via `/upload/session` + `/upload/chunk/*` + `/upload/finalize` → same success screen, real magnet |
 | Embed playback | `npm run test:e2e:embed` | `/embed/{file_id}`: `<video>` renders, playback starts (`currentTime` advances), streams from Supabase (HTTP 200/206), and the WebTorrent P2P attempt does **not** throw `TypeError: e.toHex is not a function` (regression guard for `patches/uint8-util+2.3.2.patch`) |
+| Auto-seed after upload | `npm run test:e2e:autoseed` | The uploader's tab becomes the seeder: upload through the real `/dashboard/upload` UI, the success screen shows the "seeding…" indicator (`lib/seeder.ts` reproduces the backend infohash from the magnet), then a leecher in a second browser plays `/embed/{file_id}` with every `*.supabase.co` request **blocked** — the only way it can play is WebRTC from the uploader's seed → "N peers connected", video plays, `chunk_downloaded` records `bytes_p2p > 0` |
 | 2-peer P2P | `npm run test:e2e:p2p` | **Real WebTorrent P2P between two browsers**: a seeder reproduces the backend's exact infohash (name + 256 KiB pieces) and seeds the file; a leecher plays `/embed/{file_id}` with every `*.supabase.co` request **blocked** (so only WebRTC can deliver bytes) → "N peers connected" on both sides, video plays, and the backend records `chunk_downloaded` analytics with `bytes_p2p > 0` |
 
 All suites:
@@ -34,10 +35,11 @@ npx playwright install chromium   # one-time: installs the headless browser
 ## Running
 
 ```bash
-npm run test:e2e            # all four suites
+npm run test:e2e            # all five suites
 npm run test:e2e:upload     # direct upload only
 npm run test:e2e:fallback   # chunked fallback only
 npm run test:e2e:embed      # embed playback only
+npm run test:e2e:autoseed   # uploader auto-seeds; leecher plays via P2P
 npm run test:e2e:p2p        # real 2-peer P2P (seeder + leecher)
 ```
 

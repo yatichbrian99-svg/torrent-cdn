@@ -13,7 +13,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
-const suites = ['upload-direct.mjs', 'upload-fallback.mjs', 'embed-playback.mjs', 'p2p-two-peer.mjs']
+const suites = ['upload-direct.mjs', 'upload-fallback.mjs', 'embed-playback.mjs', 'auto-seed.mjs', 'p2p-two-peer.mjs']
 const requested = process.argv[2]
 const toRun = requested ? suites.filter((s) => s.startsWith(requested)) : suites
 if (!toRun.length) {
