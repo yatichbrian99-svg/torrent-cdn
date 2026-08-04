@@ -173,7 +173,11 @@ jobs:
   p2p-e2e:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Next 15's larger dependency tree made npm ci + build noticeably slower; 25
+    # minutes was consistently blowing up on the setup steps before the suite
+    # even ran. 45 minutes keeps the real 2-peer gate (the point of this job)
+    # without letting a hung suite run forever.
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: frontend
