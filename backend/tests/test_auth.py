@@ -136,9 +136,8 @@ class TestLogin:
 
     def _mock_bcrypt_user(self, mock_conn, password="securePass123"):
         """Set up mock_conn with a bcrypt-hashed password that will pass verification."""
-        from passlib.context import CryptContext
-        pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
-        hashed = pwd.hash(password)
+        from app.auth import hash_password
+        hashed = hash_password(password)
         mock_conn.fetchrow.return_value = {
             "id": UUID("11111111-1111-4111-8111-111111111111"),
             "email": "user@example.com",
@@ -194,9 +193,8 @@ class TestLogin:
 
     def test_login_unverified_blocked(self, client, mock_conn, monkeypatch):
         """Should block login for unverified users when verification is required."""
-        from passlib.context import CryptContext
-        pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
-        hashed = pwd.hash("securePass123")
+        from app.auth import hash_password
+        hashed = hash_password("securePass123")
         mock_conn.fetchrow.return_value = {
             "id": UUID("11111111-1111-4111-8111-111111111111"),
             "email": "unverified@example.com",

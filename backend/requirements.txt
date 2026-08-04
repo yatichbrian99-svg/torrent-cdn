@@ -6,9 +6,12 @@ asyncpg>=0.29.0
 redis>=5.0.0
 python-dotenv>=1.0.0
 python-multipart>=0.0.6
-python-jose[cryptography]>=3.3.0
-passlib[bcrypt]>=1.7.4
-bcrypt>=3.2,<4.1
+# PyJWT (maintained; python-jose is unmaintained and pulls in ecdsa with no
+# patched release for PYSEC-2026-1325). Tokens are HS256-only (HMAC via the
+# stdlib) — PyJWT's optional [crypto] extra is NOT installed, so there are no
+# RSA/ECDSA transitive deps to audit.
+PyJWT>=2.8.0,<3.0.0
+bcrypt>=4.0.1,<5.0.0
 stripe>=7.4.0
 torrentool>=1.2.0
 httpx>=0.25.2

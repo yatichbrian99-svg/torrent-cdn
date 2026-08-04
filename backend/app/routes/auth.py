@@ -41,15 +41,23 @@ def _prune_forgot_requests(now: float) -> None:
 
 @router.post("/register", response_model=TokenResponse)
 async def register(data: UserRegister, background_tasks: BackgroundTasks):
-    # Validate email format
+    # Validate email format (length already capped at 255 by the model — a
+    # >255-char email would otherwise 500 the users.email VARCHAR(255) insert).
     if not re.match(r'^[^@]+@[^@]+\.[^@]+$', data.email):
         raise HTTPException(status_code=400, detail="Invalid email address")
 
-    # Validate password: min 8 chars, must have letter + number
+    # Validate password: min 8 chars, must have letter + number.
+    # The pydantic model already caps the CHARACTER length at 72; bcrypt's hard
+    # limit is 72 BYTES, so reject multi-byte passwords that would silently
+    # truncate (two distinct long passwords could otherwise collide).
     pwd = data.password
     if len(pwd) < 8:
         raise HTTPException(
             status_code=400, detail="Password must be at least 8 characters"
+        )
+    if len(pwd.encode("utf-8")) > 72:
+        raise HTTPException(
+            status_code=400, detail="Password must be at most 72 bytes (UTF-8)"
         )
     if not re.search(r'[A-Za-z]', pwd):
         raise HTTPException(
@@ -226,6 +234,14 @@ async def login(data: UserLogin, request: Request):
             "SELECT id, email, password_hash, verified FROM users WHERE email = $1",
             data.email,
         )
+        # Constant-ish-time anti-enumeration: when the email is unknown there is
+        # no stored hash to verify against, so a bare early return would let an
+        # attacker distinguish registered emails by response timing (a bcrypt
+        # check costs ~100-250ms). Verify against a fixed dummy bcrypt hash so
+        # the "unknown user" path does the same work as a wrong-password path.
+        _DUMMY_HASH = "$2b$12$C6UzMDM.H6dfI/f/IKcEeO7Dkz9nWlG5vXqgLbB5fQzY3S0YvX9nS"
+        if not user:
+            verify_password(data.password, _DUMMY_HASH)
         if not user or not verify_password(data.password, user["password_hash"]):
             # Increment failed attempt counter (Redis primary, in-memory fallback)
             if redis is not None:
@@ -314,6 +330,10 @@ async def reset_password(data: ResetPasswordRequest):
     if len(data.password) < 8:
         raise HTTPException(
             status_code=400, detail="Password must be at least 8 characters"
+        )
+    if len(data.password.encode("utf-8")) > 72:
+        raise HTTPException(
+            status_code=400, detail="Password must be at most 72 bytes (UTF-8)"
         )
     if not re.search(r'[A-Za-z]', data.password):
         raise HTTPException(

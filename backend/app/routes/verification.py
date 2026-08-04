@@ -8,8 +8,18 @@ from ..models import EmailVerifyRequest
 from ..email_service import decode_verification_token, send_verification_email
 
 # Simple in-memory rate limiting for resend (Redis not required)
+# Bounded: entries older than the 60s cooldown window are dropped on every
+# write, so a flood of distinct authenticated user_ids can't grow the dict
+# without bound (the global per-IP limiter still paces request volume).
 _resend_cooldowns: dict[str, float] = {}
+_RESEND_COOLDOWN_SECONDS = 60
 from time import time
+
+
+def _prune_resend_cooldowns(now: float) -> None:
+    expired = [k for k, ts in _resend_cooldowns.items() if now - ts >= _RESEND_COOLDOWN_SECONDS]
+    for k in expired:
+        del _resend_cooldowns[k]
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["verification"])
@@ -45,11 +55,12 @@ async def verify_email(data: EmailVerifyRequest):
 @router.post("/resend-verification")
 async def resend_verification(user_id: UUID = Depends(get_current_user_id)):
     """Resend the verification email to the current user (max once per 60 seconds)."""
-    # Rate limit: check cooldown
+    # Rate limit: check cooldown (bounded store — expired entries pruned first)
     now = time()
+    _prune_resend_cooldowns(now)
     last_send = _resend_cooldowns.get(str(user_id), 0)
-    if now - last_send < 60:
-        remaining = int(60 - (now - last_send))
+    if now - last_send < _RESEND_COOLDOWN_SECONDS:
+        remaining = int(_RESEND_COOLDOWN_SECONDS - (now - last_send))
         raise HTTPException(
             status_code=429,
             detail=f"Please wait {remaining}s before requesting another email",

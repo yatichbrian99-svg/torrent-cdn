@@ -4,7 +4,8 @@ from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import InvalidTokenError
 from .config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ def create_verification_token(user_id: UUID) -> str:
     """
     secret = settings.jwt_verify_secret or settings.jwt_secret
     expire = datetime.utcnow() + timedelta(hours=24)
+    # PyJWT 2.x returns a str token.
     return jwt.encode(
         {"sub": str(user_id), "purpose": "email_verify", "exp": expire},
         secret,
@@ -49,7 +51,7 @@ def decode_verification_token(token: str) -> Optional[str]:
         if payload.get("purpose") != "email_verify":
             return None
         return payload.get("sub")
-    except JWTError:
+    except InvalidTokenError:
         return None
 
 
@@ -82,7 +84,7 @@ def decode_password_reset_token(token: str) -> Optional[str]:
         if payload.get("purpose") != "reset_password":
             return None
         return payload.get("sub")
-    except JWTError:
+    except InvalidTokenError:
         return None
 
 

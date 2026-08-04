@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
@@ -94,6 +95,15 @@ def _process_report(report: dict):
 
     # Remove None values for cleaner logging
     details = {k: v for k, v in details.items() if v is not None}
+
+    # Log-injection hygiene: every value above is attacker-controlled report
+    # content. Strip control characters (esp. newlines) so a crafted
+    # blocked_uri/document_uri can't forge additional log lines or corrupt
+    # structured log output.
+    details = {
+        k: re.sub(r"[\r\n\x00-\x1f\x7f]", " ", str(v))[:500]
+        for k, v in details.items()
+    }
 
     if details.get("blocked_uri"):
         logger.warning(

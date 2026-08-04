@@ -16,12 +16,11 @@ import pytest
 
 def _mock_bcrypt_user(mock_conn, email="user@example.com", password="securePass123"):
     """Set mock_conn.fetchrow to a bcrypt-hashed user that passes password verification."""
-    from passlib.context import CryptContext
-    pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    from app.auth import hash_password
     mock_conn.fetchrow.return_value = {
         "id": UUID("11111111-1111-4111-8111-111111111111"),
         "email": email,
-        "password_hash": pwd.hash(password),
+        "password_hash": hash_password(password),
         "verified": True,
     }
 

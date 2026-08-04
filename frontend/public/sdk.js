@@ -90,8 +90,48 @@
             return f.name.match(/\.(mp4|webm|ogv|mov|mkv|mp3|ogg|wav)$/i);
           })[0] || torrent.files[0];
 
-          if (file) {
-            file.renderTo(media, { autoplay: true });
+          if (!file) return;
+          // webtorrent 2.x REMOVED File.renderTo (gone around 2.0), so calling
+          // it throws 'file.renderTo is not a function' and the embed silently
+          // falls back to direct origin streaming after the 5s timer — P2P
+          // never engages. Stream via MediaSource instead (same approach as the
+          // /embed page player): pieces arrive live from peers. If the browser
+          // won't accept the codec in a SourceBuffer, fall back to the direct
+          // URL when the whole file has downloaded.
+          if (typeof MediaSource !== 'undefined' && file.type && MediaSource.isTypeSupported(file.type)) {
+            var ms = new MediaSource();
+            media.src = URL.createObjectURL(ms);
+            ms.addEventListener('sourceopen', function onopen() {
+              var sb;
+              try { sb = ms.addSourceBuffer(file.type); } catch (e) { media.src = fileData.minio_url; return; }
+              var reader = file.stream().getReader();
+              function pump() {
+                reader.read().then(function (res) {
+                  if (res.done) {
+                    if (ms.readyState === 'open') ms.endOfStream();
+                    return;
+                  }
+                  if (res.value) {
+                    function append() {
+                      try {
+                        sb.appendBuffer(res.value);
+                      } catch (e) { /* ignore */ }
+                    }
+                    if (sb.updating) sb.addEventListener('updateend', append, { once: true });
+                    else append();
+                    if (media.paused) media.play().catch(function () {});
+                  }
+                  pump();
+                }).catch(function () {});
+              }
+              pump();
+            });
+          } else {
+            // Codec not accepted by MediaSource — play once downloaded.
+            file.blob().then(function (blob) {
+              media.src = URL.createObjectURL(blob);
+              media.play().catch(function () {});
+            }).catch(function () {});
           }
         });
       } catch (e) {

@@ -3,6 +3,19 @@ from typing import Optional
 from uuid import UUID
 from datetime import datetime
 
+# Auth input caps. These bound attacker-controlled strings BEFORE they reach
+# rate-limit keys (huge emails poison Redis), bcrypt (passwords beyond bcrypt's
+# 72-byte input limit are truncated, which can make distinct long passwords
+# collide), or VARCHAR columns (a >255-char email/filename otherwise 500s the
+# INSERT with a database error). Values are enforced by pydantic (422), so the
+# route handlers can assume sane inputs.
+MAX_EMAIL_LEN = 255        # users.email is VARCHAR(255)
+MAX_PASSWORD_LEN = 72      # bcrypt's hard input limit (bytes)
+MAX_TOKEN_LEN = 2048       # JWTs: verify (~200 chars) / reset (~200 chars) + headroom
+MAX_FILENAME_LEN = 255     # uploads.filename is VARCHAR(255)
+MAX_IDEMPOTENCY_KEY_LEN = 64
+MAX_REF_CODE_LEN = 20      # users.referral_code is VARCHAR(20)
+
 
 class UserInDB(BaseModel):
     id: UUID
@@ -41,15 +54,18 @@ class UsageRecord(BaseModel):
 
 # Request/Response models
 class UserRegister(BaseModel):
-    email: str
-    password: str
+    # MAX caps only — min-length/format rules live in the route handlers so the
+    # friendly 400 messages ("Password must be at least 8 characters", "Invalid
+    # email address") are preserved instead of becoming generic 422s.
+    email: str = Field(max_length=MAX_EMAIL_LEN)
+    password: str = Field(max_length=MAX_PASSWORD_LEN)
     terms_accepted: bool = False
-    ref_code: Optional[str] = None
+    ref_code: Optional[str] = Field(default=None, max_length=MAX_REF_CODE_LEN)
 
 
 class UserLogin(BaseModel):
-    email: str
-    password: str
+    email: str = Field(max_length=MAX_EMAIL_LEN)
+    password: str = Field(max_length=MAX_PASSWORD_LEN)
 
 
 class UserAdminResponse(BaseModel):
@@ -68,16 +84,16 @@ class UpdateUserPlanRequest(BaseModel):
 
 
 class EmailVerifyRequest(BaseModel):
-    token: str
+    token: str = Field(max_length=MAX_TOKEN_LEN)
 
 
 class ForgotPasswordRequest(BaseModel):
-    email: str
+    email: str = Field(max_length=MAX_EMAIL_LEN)
 
 
 class ResetPasswordRequest(BaseModel):
-    token: str
-    password: str
+    token: str = Field(max_length=MAX_TOKEN_LEN)
+    password: str = Field(max_length=MAX_PASSWORD_LEN)
 
 
 class AdminAnalyticsResponse(BaseModel):
@@ -147,11 +163,11 @@ class CheckoutResponse(BaseModel):
 class UploadSessionRequest(BaseModel):
     """Create a chunked-upload session (client-side chunking fallback through the
     same-origin Vercel proxy — each chunk stays under the proxy's ~4.5MB body cap)."""
-    filename: str
+    filename: str = Field(max_length=MAX_FILENAME_LEN)
     file_size: int
     total_chunks: int
     content_type: Optional[str] = None
-    idempotency_key: Optional[str] = None
+    idempotency_key: Optional[str] = Field(default=None, max_length=MAX_IDEMPOTENCY_KEY_LEN)
 
 
 class UploadSessionResponse(BaseModel):
@@ -170,10 +186,10 @@ class UploadPresignRequest(BaseModel):
     """Request a presigned direct-to-storage upload. The browser PUTs the file
     bytes straight to Supabase Storage (never through Render or the Vercel
     proxy); the backend only issues the short-lived URL and later finalizes."""
-    filename: str
+    filename: str = Field(max_length=MAX_FILENAME_LEN)
     file_size: int
     content_type: Optional[str] = None
-    idempotency_key: Optional[str] = None
+    idempotency_key: Optional[str] = Field(default=None, max_length=MAX_IDEMPOTENCY_KEY_LEN)
 
 
 class UploadPresignResponse(BaseModel):

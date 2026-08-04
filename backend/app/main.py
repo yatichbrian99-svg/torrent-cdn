@@ -104,14 +104,17 @@ app = FastAPI(
 )
 
 # CORS
+# NOTE: torrentcdn.com / api.torrentcdn.com were REMOVED — the domain is no
+# longer owned, so a stale allow-list entry would grant credential-bearing
+# cross-origin reads to whoever re-registers it (CORS + allow_credentials).
+# With allow_credentials=True the allow-list must only ever contain origins we
+# control; any env-supplied origins (CORS_ORIGINS) get the same scrutiny.
 cors_origins = [
     "http://localhost:3000",
     "http://frontend:3000",
     "https://torrent-cdn.vercel.app",
     "https://torrentcdn.store",
     "https://www.torrentcdn.store",
-    "https://torrentcdn.com",
-    "https://api.torrentcdn.com",
 ]
 
 extra = os.getenv("CORS_ORIGINS", "")
@@ -263,6 +266,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._limit = settings.rate_limit_global  # 5 requests
         # In-memory fallback: {ip: [(timestamp, count), ...]}
         self._memory_store: dict[str, list[float]] = {}
+        # Bounded-store hygiene: the client IP feeds this dict (via X-Forwarded-
+        # For, which a direct-to-backend attacker can rotate freely), so a key
+        # whose whole window has expired must eventually be dropped — otherwise
+        # an attacker could grow memory without bound. Pruning is opportunistic
+        # (only once the store passes this threshold) so the hot path stays O(1)
+        # while a degraded/Redis-down state can't balloon.
+        self._prune_threshold = 512
 
     async def dispatch(self, request: Request, call_next):
         # Skip rate limiting for static/no-state endpoints: health check, CSP
@@ -314,6 +324,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 )
             timestamps.append(now)
             self._memory_store[client_ip] = timestamps
+
+            # Opportunistic prune: once the store outgrows the threshold, drop
+            # every key whose newest entry has fully expired (same pattern as
+            # the per-route fallback limiters). Keeps memory O(live IPs) even
+            # under rotated-XFF abuse while staying off the hot path.
+            if len(self._memory_store) > self._prune_threshold:
+                expired = [
+                    k for k, v in self._memory_store.items()
+                    if not v or now - v[-1] > self._window
+                ]
+                for k in expired:
+                    del self._memory_store[k]
 
         return await call_next(request)
 
