@@ -179,6 +179,19 @@ try {
     const leechCtx = await browser2.newContext({ viewport: { width: 1280, height: 900 } })
     const page2 = await leechCtx.newPage()
     attachDiagnostics(page2, out)
+    // Capture the app's analytics POSTs so a missing chunk_downloaded event is
+    // diagnosable (was it never fired, or did the POST fail?).
+    out.analyticsPosts = out.analyticsPosts || []
+    page2.on('request', (r) => {
+      if (r.url().includes('/analytics/event')) {
+        out.analyticsPosts.push(`-> ${r.postData() ? r.postData().slice(0, 120) : '(no body)'}`)
+      }
+    })
+    page2.on('response', (r) => {
+      if (r.url().includes('/analytics/event')) {
+        out.analyticsPosts.push(`<- [${r.status()}]`)
+      }
+    })
     // Deliberately-blocked direct GETs log console noise — filtered at assert time.
     await page2.route('**/*', (route) => {
       if (route.request().url().includes('supabase.co')) return route.abort()
@@ -191,6 +204,7 @@ try {
     let peerConnected = false
     let sawConnecting = false
     let finalState = null
+    const timing = { pageLoadedAt: Date.now() }
     const deadline = Date.now() + 150000
     while (Date.now() < deadline) {
       const st = await page2.evaluate(() => {
@@ -204,15 +218,17 @@ try {
         }
       })
       const body = await page2.evaluate(() => document.body.innerText)
-      if (body.includes('connecting to peers')) sawConnecting = true
-      if (/peers? connected/.test(body)) peerConnected = true
+      if (body.includes('connecting to peers') && !sawConnecting) { sawConnecting = true; timing.connectingAt = Date.now() }
+      if (/peers? connected/.test(body) && !peerConnected) { peerConnected = true; timing.peersAt = Date.now() }
       if (st.videoWidth > 0 && st.currentTime > 0.5 && peerConnected) {
         playing = true
         finalState = st
+        timing.playingAt = Date.now()
         break
       }
       await page2.waitForTimeout(1000)
     }
+    out.timing = timing
     const seederPeers = await seedPage.evaluate(() => window.__seederPeers())
     out.leecherPeerConnected = peerConnected
     out.leecherPlaying = playing
@@ -263,11 +279,11 @@ try {
     }
   }
 
-  // Deliberately-blocked direct GETs log console noise; a CSP violation for a
-  // tracker (rollout artifact — the live CSP may lag the backend's tr= list) is
-  // a soft signal, not a product failure.
+  // Deliberately-blocked direct GETs log console noise; a CSP violation or a
+  // flaky public tracker's WS failure is a soft signal (peers may still connect
+  // through another tracker), not a product failure.
   const nonBlockedConsole = out.consoleErrors.filter(
-    (e) => !/Failed to load resource|net::ERR|CORS|Content Security Policy/i.test(e),
+    (e) => !/Failed to load resource|net::ERR|CORS|Content Security Policy|WebSocket connection to/i.test(e),
   )
   if (nonBlockedConsole.length) {
     failures.push(`console errors: ${nonBlockedConsole.slice(0, 3).join(' | ')}`)
@@ -287,7 +303,10 @@ try {
     const res = await api(`/analytics/${fileId}`, { token: authToken })
     if (res.ok) {
       analytics = res.data
-      if ((analytics.total_p2p || 0) > 0 && (analytics.total_views || 0) >= 1) break
+      // The GET returns derived stats only (total_p2p/total_origin are internal) —
+      // a p2p_offload_percent > 0 proves chunk_downloaded events with bytes_p2p
+      // were recorded.
+      if ((analytics.p2p_offload_percent || 0) > 0 && (analytics.total_views || 0) >= 1) break
     }
     await new Promise((r) => setTimeout(r, 3000))
   }
@@ -296,8 +315,7 @@ try {
     failures.push('analytics endpoint returned nothing for the uploaded file')
   } else {
     if (!(analytics.total_views >= 1)) failures.push(`no peer_joined recorded (total_views=${analytics.total_views})`)
-    if (!(analytics.total_p2p > 0)) failures.push(`no P2P bytes recorded (total_p2p=${analytics.total_p2p}, origin=${analytics.total_origin})`)
-    if (!(analytics.p2p_offload_percent > 0)) failures.push(`p2p_offload_percent not > 0 (${analytics.p2p_offload_percent})`)
+    if (!(analytics.p2p_offload_percent > 0)) failures.push(`p2p_offload_percent not > 0 (${analytics.p2p_offload_percent}) — chunk_downloaded events recorded no P2P bytes`)
   }
 
   if (out.leechPage) {

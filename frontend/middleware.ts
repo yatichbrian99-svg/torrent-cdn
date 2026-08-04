@@ -31,9 +31,14 @@ export function middleware(request: NextRequest) {
     // can never drift from the configured API URL. Storage media/thumbnails are
     // governed by img-src/media-src (not connect-src). No bare https: — keeps
     // the blast radius of any script injection minimal.
+    // These MUST match the tr= trackers the backend bakes into every magnet
+    // (routes/upload.py `torrent.announce_urls`) — the embed player announces
+    // to exactly that list, and a tracker not in connect-src is silently
+    // blocked by CSP (P2P then never connects). fastcast.nz was dropped: it is
+    // defunct.
+    'wss://tracker.webtorrent.dev',
     'wss://tracker.openwebtorrent.com',
     'wss://tracker.btorrent.xyz',
-    'wss://tracker.fastcast.nz',
     // File uploads go STRAIGHT to Supabase Storage via a presigned PUT (never
     // through the same-origin Vercel proxy, whose ~4.5MB body cap rejects real
     // videos). The presigned URL lives on the storage host (*.supabase.co) and

@@ -24,6 +24,11 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const BASE = (process.env.E2E_BASE_URL || 'https://www.torrentcdn.store').replace(/\/+$/, '')
+// API calls normally go to BASE (the same-origin Vercel proxy). Override with
+// E2E_API_URL to hit a different backend directly — used to validate a NEW
+// frontend build locally (E2E_BASE_URL=http://localhost:3000) against the live
+// Render backend while Vercel is mid-deploy.
+export const API_BASE = (process.env.E2E_API_URL || BASE).replace(/\/+$/, '')
 export const ARTIFACTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '.artifacts')
 export const MEDIA_DIR = path.join(ARTIFACTS_DIR, 'media')
 
@@ -33,7 +38,7 @@ export function ensureArtifacts() {
 
 /** Minimal JSON fetch helper against the API (Bearer auth, JSON body). */
 export async function api(pathname, { method = 'GET', token, body } = {}) {
-  const res = await fetch(`${BASE}${pathname}`, {
+  const res = await fetch(`${API_BASE}${pathname}`, {
     method,
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
