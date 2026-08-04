@@ -180,8 +180,12 @@ class TestLogin:
         assert resp.status_code == 401
         assert resp.json()["detail"] == "Invalid email or password"
 
-    def test_login_rate_limiting(self, client, mock_conn, mock_redis):
-        """Should 429 once the GLOBAL per-IP budget is exhausted."""
+    def test_global_budget_exhausted_blocks_login(self, client, mock_conn, mock_redis):
+        """A request 429s once the GLOBAL per-IP budget is exhausted.
+
+        (The per-route login LOCKOUT — 5 failures for IP+email — is covered in
+        test_security.py::TestLoginLockout; this exercises the middleware gate
+        that runs before the route.)"""
         from app.config import get_settings
         # The global RateLimitMiddleware reads ratelimit:{ip}:global from the
         # same mock — seed it AT the configured limit so the request is blocked.
@@ -192,7 +196,7 @@ class TestLogin:
             "password": "bruteForce123",
         })
         assert resp.status_code == 429
-        assert "Rate limit" in resp.json()["detail"]  # Matches both global and login-specific messages
+        assert "Rate limit" in resp.json()["detail"]
 
     def test_login_unverified_blocked(self, client, mock_conn, monkeypatch):
         """Should block login for unverified users when verification is required."""
