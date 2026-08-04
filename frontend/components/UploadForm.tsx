@@ -23,6 +23,12 @@ export default function UploadForm() {
   const [seeding, setSeeding] = useState(false)
   const [seedPeers, setSeedPeers] = useState(0)
   const seederRef = useRef<SeederHandle | null>(null)
+  // True until unmount. Guards the ASYNC seeding continuation: handleUpload
+  // awaits api.uploadFile then startSeeding, and if the user navigates away in
+  // that window the unmount cleanup runs with seederRef.current still null —
+  // without this flag the continuation would then attach a live webtorrent
+  // client + interval with NO teardown path (a leak and a phantom seed).
+  const mountedRef = useRef(true)
 
   const stopSeeding = useCallback(() => {
     if (seederRef.current) {
@@ -34,7 +40,7 @@ export default function UploadForm() {
 
   // If the user navigates away while seeding, tear the swarm down (browsers
   // cannot seed after the tab closes anyway — don't leak the webtorrent client).
-  useEffect(() => stopSeeding, [stopSeeding])
+  useEffect(() => () => { mountedRef.current = false; stopSeeding() }, [stopSeeding])
 
   const handleUpload = useCallback(async (file: File) => {
     stopSeeding()
@@ -44,21 +50,20 @@ export default function UploadForm() {
         onProgress: (pct) => setProgress(pct),
         onRetry: () => { setRetrying(true); setProgress(0) }, // retry restarts from 0%
       })
+      if (!mountedRef.current) return
       setResult(data)
       // Seed the freshly-uploaded file back to peers so the first viewer can
       // fetch it over WebRTC without a manual seeder. Best-effort: if the
       // webtorrent bundle fails to load or no swarm forms, playback still
       // falls back to direct origin streaming.
       const seeder = await startSeeding(file, data.magnet_link)
-      if (seeder) {
-        seederRef.current = seeder
-        setSeeding(true)
-        setSeedPeers(seeder.peers())
-        const poll = setInterval(() => setSeedPeers(seeder.peers()), 2000)
-        seederRef.current = {
-          destroy: () => { clearInterval(poll); seeder.destroy() },
-          peers: () => seeder.peers(),
-        }
+      if (!mountedRef.current || !seeder) return
+      setSeeding(true)
+      setSeedPeers(seeder.peers())
+      const poll = setInterval(() => setSeedPeers(seeder.peers()), 2000)
+      seederRef.current = {
+        destroy: () => { clearInterval(poll); seeder.destroy() },
+        peers: () => seeder.peers(),
       }
     }
     catch (err: any) { setError(apiErrorMessage(err, 'Upload failed. Please try again.')) }
