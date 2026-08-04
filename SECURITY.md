@@ -244,6 +244,15 @@ A systematic security audit (OWASP-style, zero-trust assumptions) produced the f
 - **Global rate limiter vs. chunked uploads:** the global 5 req/10s per-IP limiter counted every chunk PUT, 429-ing any multi-chunk file mid-upload. `/upload/chunk/*` is now exempt from the **global** limiter (route-layer protections remain: JWT auth, session ownership, index bounds, size cap, plus the per-IP upload limiter + usage gate at finalize; session **creation** stays rate-limited). Regression test: `test_global_middleware_exempts_chunk_uploads`.
 - Verified: 222 backend tests, 53 frontend tests, **5/5 E2E suites against production** (direct, fallback, embed, auto-seed, 2-peer P2P), all 7 CI jobs green (incl. real 2-peer `p2p-e2e`).
 
+### 2026-08-04 — Scheduled dependency-audit job + baseline-file gate (`0c2fca7`, `e3308e7`, `664175d`)
+
+Supply-chain advisories are now caught **automatically**, not just during manual audits:
+
+- **New `dependency-audit` CI job** (`.github/workflows/dependency-audit.yml`, `0c2fca7`): runs `pip-audit` (backend env) + `npm audit` (frontend lockfile) on a **daily 06:00 UTC cron**, on every PR, and via manual dispatch. It renders a combined markdown report (`backend/scripts/dependency_audit_report.py`), **posts it as a PR comment** (marker-based upsert — no comment stacking), writes it to the run summary, and uploads it as an artifact.
+- **Baseline-file gate** (`e3308e7`): the job fails when advisories appear **beyond the accepted baseline** (`backend/scripts/dependency-audit-baseline.json`), not only on criticals. The baseline captures the current accepted risk set (the `ip`-via-webtorrent highs, `new=0`); anything new shows a "New since last baseline" section in the report/comment and turns CI red. The critical gate remains as a second, always-on check. Baseline identity rules: pip keys on advisory-ID, npm on package+severity (so a severity escalation is also caught). Regenerate the baseline when accepting a risk with `--write-baseline` (see the callout under Pre-merge CI Gates).
+- **Unit tests** (`664175d`, `backend/tests/test_dependency_audit.py`): 17 tests covering finding normalization, identity rules, baseline save/load round-trip, new-finding detection (new npm package / second pip advisory / npm severity escalation), fix-not-new, and `main()` exit codes.
+- Verified: 239 backend tests, the workflow ran green end-to-end on a real GitHub Actions `workflow_dispatch`, and a real test PR confirmed the comment posts and updates in place across pushes.
+
 ### Accepted residual risks
 
 Risk is accepted **only** when the fix would break the product or require a breaking change with no safe migration path. Both are continuously re-assessed.
