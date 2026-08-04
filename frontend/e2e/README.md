@@ -14,6 +14,7 @@ development, now saved as a repeatable suite.
 | Embed playback | `npm run test:e2e:embed` | `/embed/{file_id}`: `<video>` renders, playback starts (`currentTime` advances), streams from Supabase (HTTP 200/206), and the WebTorrent P2P attempt does **not** throw `TypeError: e.toHex is not a function` (regression guard for `patches/uint8-util+2.3.2.patch`) |
 | Auto-seed after upload | `npm run test:e2e:autoseed` | The uploader's tab becomes the seeder: upload through the real `/dashboard/upload` UI, the success screen shows the "seeding…" indicator (`lib/seeder.ts` reproduces the backend infohash from the magnet), then a leecher in a second browser plays `/embed/{file_id}` with every `*.supabase.co` request **blocked** — the only way it can play is WebRTC from the uploader's seed → "N peers connected", video plays, `chunk_downloaded` records `bytes_p2p > 0` |
 | 2-peer P2P | `npm run test:e2e:p2p` | **Real WebTorrent P2P between two browsers**: a seeder reproduces the backend's exact infohash (name + 256 KiB pieces) and seeds the file; a leecher plays `/embed/{file_id}` with every `*.supabase.co` request **blocked** (so only WebRTC can deliver bytes) → "N peers connected" on both sides, video plays, and the backend records `chunk_downloaded` analytics with `bytes_p2p > 0` |
+| API-key UI | `npm run test:e2e:apikey` | Dashboard API Key lifecycle through the real UI: Generate reveals the full `tcdn_` key + "only time shown" warning → Copy puts the exact key on the clipboard and flips to "Copied" → **reload shows only the prefix + date (the secret never returns)** → Revoke resets the button → the revoked key 401s on `/files` (fail-closed) |
 
 All suites:
 - create a **throwaway account + test file** and delete them in cleanup (safe to
@@ -41,6 +42,7 @@ npm run test:e2e:fallback   # chunked fallback only
 npm run test:e2e:embed      # embed playback only
 npm run test:e2e:autoseed   # uploader auto-seeds; leecher plays via P2P
 npm run test:e2e:p2p        # real 2-peer P2P (seeder + leecher)
+npm run test:e2e:apikey     # dashboard API-key lifecycle (generate/copy/revoke)
 ```
 
 `node e2e/run-all.mjs <prefix>` also runs a single suite (e.g. `node e2e/run-all.mjs embed`).

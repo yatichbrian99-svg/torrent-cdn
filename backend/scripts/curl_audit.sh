@@ -1,7 +1,7 @@
 #!/bin/bash
 # Full-stack security audit — curls a live API and checks all endpoints.
 # Adapts to the app's current behavior:
-#   - Paces requests (~2.2s apart) so the global rate limiter (5 req / 10s per IP,
+#   - Paces requests (~2.2s apart) so the global rate limiter (30 req / 10s per IP,
 #     /health and /csp-report exempt) doesn't produce false 429 failures.
 #   - Registration requires terms_accepted: true.
 #   - When the backend runs with APP_ENV=production, email verification is
@@ -109,7 +109,7 @@ if [ -n "$TOKEN" ]; then
     -H "Content-Type: application/json" \
     -d "{\"email\":\"$EMAIL\",\"password\":\"testpass123\",\"terms_accepted\":true}" 2>/dev/null || echo "000")
   # Note: only the status is checked (no second unpaced body request) so the
-  # 5 req/10s global limiter can't turn this into a false 429.
+  # the global limiter can't turn this into a false 429.
   [ "$DUPE_CODE" = "400" ] && check 0 "Duplicate registration → $DUPE_CODE" || check 1 "Duplicate registration → $DUPE_CODE"
 
   # Cleanup the throwaway user (also verifies DELETE /auth/me)

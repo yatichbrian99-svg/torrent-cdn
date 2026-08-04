@@ -258,17 +258,17 @@ class CSPMiddleware(BaseHTTPMiddleware):
 app.add_middleware(CSPMiddleware)
 
 
-# Rate limiting middleware (5 requests per 10 seconds per IP)
+# Rate limiting middleware (30 requests per 10 seconds per IP)
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
-    Global rate limiting — 5 requests per 10 seconds per IP.
+    Global rate limiting — 30 requests per 10 seconds per IP (3 req/s sustained).
     Uses Redis when available, falls back to in-memory.
     Excludes /health from rate limiting.
     """
     def __init__(self, app):
         super().__init__(app)
         self._window = settings.rate_limit_window_seconds  # 10s
-        self._limit = settings.rate_limit_global  # 5 requests
+        self._limit = settings.rate_limit_global  # 30 requests
         # In-memory fallback: {ip: [(timestamp, count), ...]}
         self._memory_store: dict[str, list[float]] = {}
         # Bounded-store hygiene: the client IP feeds this dict (via X-Forwarded-
@@ -289,8 +289,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         # Chunked-upload chunk PUTs are exempt from the GLOBAL per-IP limiter:
         # a real file legitimately ships dozens-to-hundreds of ≤4MB chunks in a
-        # burst (a 100MB video = 25+ requests), which would blow the 5 req/10s
-        # budget and 429 mid-upload. These endpoints are already protected at
+        # burst (a 100MB video = 25+ requests), which would blow the budget and
+        # 429 mid-upload. These endpoints are already protected at
         # the route layer — JWT auth, session-ownership + index-bounds checks,
         # per-chunk size cap — and the per-IP upload limiter (10/hour) + usage
         # gate still apply at finalize. Session CREATION stays under the global

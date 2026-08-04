@@ -243,7 +243,7 @@ A systematic security audit (OWASP-style, zero-trust assumptions) produced the f
 ### 2026-08-04 — Next.js 15 migration (`aceaa97`) + chunk-upload rate-limit fix
 
 - **Next 14.2.35 → 15.5.21, React 19.2.x, recharts 3.10.1, lucide-react 1.28.0** — clears the **July-2026 Next.js advisory batch** (see Accepted Residual Risk #1 below), which had **no 14.x patch** (requires 15.5.21+ / 16.2.11+). Async route params migrated (`useParams()`), React 19 `useRef` fixes, recharts 3 formatter types; `npm` overrides force `postcss`/`sharp` out of vulnerable ranges. `npm audit` now reports only the accepted `ip`-via-webtorrent advisories.
-- **Global rate limiter vs. chunked uploads:** the global 5 req/10s per-IP limiter counted every chunk PUT, 429-ing any multi-chunk file mid-upload. `/upload/chunk/*` is now exempt from the **global** limiter (route-layer protections remain: JWT auth, session ownership, index bounds, size cap, plus the per-IP upload limiter + usage gate at finalize; session **creation** stays rate-limited). Regression test: `test_global_middleware_exempts_chunk_uploads`.
+- **Global rate limiter vs. chunked uploads:** the global per-IP limiter counted every chunk PUT, 429-ing any multi-chunk file mid-upload. `/upload/chunk/*` is now exempt from the **global** limiter (route-layer protections remain: JWT auth, session ownership, index bounds, size cap, plus the per-IP upload limiter + usage gate at finalize; session **creation** stays rate-limited). Regression test: `test_global_middleware_exempts_chunk_uploads`.
 - Verified: 222 backend tests, 53 frontend tests, **5/5 E2E suites against production** (direct, fallback, embed, auto-seed, 2-peer P2P), all 7 CI jobs green (incl. real 2-peer `p2p-e2e`).
 
 ### 2026-08-04 — Scheduled dependency-audit job + baseline-file gate (`0c2fca7`, `e3308e7`, `664175d`)
@@ -481,7 +481,7 @@ Vercel proxies every `/api/*` request, and its edge IPs **vary per request**. Ke
 
 | Limiter | Where | Limit |
 |---|---|---|
-| Global | `backend/app/main.py` (`RateLimitMiddleware`) | 5 req / 10s per IP (static/no-state endpoints exempt: `/health`, `/csp-report`, `/docs`, `/redoc`, `/openapi.json`, `/.well-known/security.txt`) |
+| Global | `backend/app/main.py` (`RateLimitMiddleware`) | 30 req / 10s per IP — raised from 5 after the dashboard's 6 concurrent mount calls self-tripped every page load (static/no-state endpoints exempt: `/health`, `/csp-report`, `/docs`, `/redoc`, `/openapi.json`, `/.well-known/security.txt`) |
 | Login lockout | `backend/app/routes/auth.py` | 5 failed attempts / 15 min per **IP+email** (reset on success) |
 | Forgot password | `backend/app/routes/auth.py` | 1 request / 60s per IP |
 | Registration | `backend/app/routes/auth.py` | 10 / hour per IP |

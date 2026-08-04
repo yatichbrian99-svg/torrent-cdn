@@ -181,8 +181,11 @@ class TestLogin:
         assert resp.json()["detail"] == "Invalid email or password"
 
     def test_login_rate_limiting(self, client, mock_conn, mock_redis):
-        """Should rate-limit after 5 failed login attempts."""
-        mock_redis.get.return_value = "5"
+        """Should 429 once the GLOBAL per-IP budget is exhausted."""
+        from app.config import get_settings
+        # The global RateLimitMiddleware reads ratelimit:{ip}:global from the
+        # same mock — seed it AT the configured limit so the request is blocked.
+        mock_redis.get.return_value = str(get_settings().rate_limit_global)
 
         resp = client.post(self.LOGIN_URL, json={
             "email": "hacker@example.com",

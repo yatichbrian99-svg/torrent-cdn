@@ -81,7 +81,13 @@ class Settings(BaseSettings):
     # Limits
     max_upload_size_mb: int = 1024  # 1 GB max file size (reduced from 2GB)
     rate_limit_analytics: int = 60  # max events per minute per IP
-    rate_limit_global: int = 5      # max requests per window per IP
+    # Global per-IP request budget. 30/10s (3 req/s sustained) — the dashboard
+    # fires 6 concurrent authed GETs on mount (me/referral/api-key/verification/
+    # bandwidth/files), so a budget below that self-tripped every page load on
+    # the 6th call. 30 still caps floods (a browser page does ~1-2 bursts of
+    # <10); the fine-grained per-route limiters (login lockout, register,
+    # uploads/hour, analytics/min, public-file/min) remain the real abuse gate.
+    rate_limit_global: int = 30     # max requests per window per IP
     rate_limit_window_seconds: int = 10  # sliding window for global rate limit
     # Per-IP upload throttling (F-05 hardening): max upload requests per IP per
     # window. Protects storage/bandwidth from bulk-automated upload abuse — the

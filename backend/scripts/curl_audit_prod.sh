@@ -1,7 +1,7 @@
 #!/bin/bash
 # Full-stack security audit — runs against the LIVE production deployment.
 # Adapts the CI/localhost curl_audit.sh for production realities:
-#   - Paces requests (~2.2s apart) so the global rate limiter (5 req / 10s per IP)
+#   - Paces requests (~2.2s apart) so the global rate limiter (30 req / 10s per IP)
 #     doesn't produce false 429 failures.
 #   - Production requires email verification, so a fresh user's LOGIN must be
 #     BLOCKED with 403 (the verification gate working) rather than returning a token.

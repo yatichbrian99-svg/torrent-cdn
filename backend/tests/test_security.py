@@ -712,7 +712,7 @@ class TestInMemoryRateLimitFallbacks:
             upload_route._upload_requests.update(saved)
 
     def test_global_middleware_in_memory_fallback(self, client, monkeypatch):
-        """The global 5 req/10s middleware limiter still works when Redis is down.
+        """The global middleware limiter still works when Redis is down.
 
         Note: the FastAPI app is a module singleton, so mw._memory_store persists for
         the whole session. Only this test forces app.database.get_redis → None, so
@@ -729,20 +729,21 @@ class TestInMemoryRateLimitFallbacks:
         saved = dict(mw._memory_store)
         mw._memory_store.clear()
         try:
+            limit = mw._limit
             responses = []
-            for _ in range(6):
+            for _ in range(limit + 1):
                 # /files is not rate-limit-exempt (unlike /health); auth returns 401,
                 # but the middleware still counts the request before the route runs.
                 responses.append(client.get("/files"))
-            assert [r.status_code for r in responses[:5]] == [401] * 5
-            assert responses[5].status_code == 429
-            assert "Rate limit exceeded" in responses[5].json()["detail"]
+            assert [r.status_code for r in responses[:limit]] == [401] * limit
+            assert responses[limit].status_code == 429
+            assert "Rate limit exceeded" in responses[limit].json()["detail"]
         finally:
             mw._memory_store.clear()
             mw._memory_store.update(saved)
 
     def test_global_middleware_exempts_chunk_uploads(self, client, auth_headers, monkeypatch):
-        """POST /upload/chunk/* is exempt from the global 5 req/10s limiter.
+        """POST /upload/chunk/* is exempt from the global middleware limiter.
 
         A real file ships one request per ≤4MB chunk (a 100MB video = 25+), so
         counting every chunk against the global per-IP budget would 429 the
@@ -760,8 +761,8 @@ class TestInMemoryRateLimitFallbacks:
         saved = dict(mw._memory_store)
         mw._memory_store.clear()
         try:
-            # Saturate the IP's global budget: 5 requests already recorded.
-            mw._memory_store["testclient"] = [time.time()] * 5
+            # Saturate the IP's global budget: the full window of requests already recorded.
+            mw._memory_store["testclient"] = [time.time()] * mw._limit
 
             # A non-exempt endpoint is still blocked (6th request in the window).
             resp = client.get("/files")

@@ -13,6 +13,7 @@
     "test:e2e:embed": "node e2e/embed-playback.mjs",
     "test:e2e:autoseed": "node e2e/auto-seed.mjs",
     "test:e2e:p2p": "node e2e/p2p-two-peer.mjs",
+    "test:e2e:apikey": "node e2e/api-key-ui.mjs",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"
   },

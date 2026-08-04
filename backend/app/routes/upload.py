@@ -640,7 +640,7 @@ async def _store_and_finalize(
     # Counts uploads that are ABOUT to hit storage — validation/usage rejections
     # (400/413/402) do not consume the budget, so a user debugging an oversized
     # or mis-typed file can't lock themselves out of uploads (F-05 hardening).
-    # The global 5 req/10s limiter still paces all request traffic.
+    # The global limiter still paces all request traffic.
     await _check_upload_rate_limit(request)
 
     # --- Chunked multipart upload to MinIO ---

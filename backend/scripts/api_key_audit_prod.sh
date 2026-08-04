@@ -6,7 +6,7 @@
 #   throwaway-account cleanup.
 #
 # Mirrors curl_audit_prod.sh conventions:
-#   - Paces requests (~2.2s apart) so the global rate limiter (5 req / 10s per IP)
+#   - Paces requests (~2.2s apart) so the global rate limiter (30 req / 10s per IP)
 #     doesn't produce false 429 failures.
 #   - Auth POSTs go through the VERCEL PROXY ($FE/auth/*) — the exact same-origin
 #     path the browser uses. Direct POSTs to the Render origin can fail at the
