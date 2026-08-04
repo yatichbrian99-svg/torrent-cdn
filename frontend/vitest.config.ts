@@ -27,13 +27,16 @@ export default defineConfig({
       // lib/ and components/ counts, tested or not.
       exclude: ['**/VideoPlayer.tsx'],
       reporter: ['text-summary'],
-      // Thresholds = measured baseline with all untested components counted
-      // (Navbar/AuthModal/UploadForm at 0%) — raise them as coverage grows.
+      // Thresholds = measured app-code baseline (v8 skips test files by
+      // default, so these numbers exclude the spec files themselves). Raised
+      // after lib/security.ts landed fully tested: measured 46.7/50.7/35.4/54.7
+      // — thresholds sit ~4-5pts under to absorb minor run-to-run variance
+      // (Navbar/AuthModal/UploadForm remain untested components).
       thresholds: {
-        statements: 25,
-        branches: 33,
-        functions: 14,
-        lines: 32,
+        statements: 42,
+        branches: 45,
+        functions: 30,
+        lines: 48,
       },
     },
   },
