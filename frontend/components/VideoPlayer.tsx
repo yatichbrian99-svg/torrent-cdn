@@ -63,6 +63,11 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
   // progress listener must only bill while the direct src is actually active.
   const activeSourceRef = useRef<'p2p' | 'direct'>('p2p')
   const originBillCleanupRef = useRef<(() => void) | null>(null)
+  // Holds a final-flush callback for whatever billing path is active, so the
+  // unmount cleanup never drops the last <1s of accumulated bytes (a page
+  // closed mid-transfer used to silently lose pending P2P/origin bytes, which
+  // distorted p2p_offload_percent).
+  const finalFlushRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
     if (fileId === 'demo') { setFileData({ id: 'demo', filename: 'Demo Video.mp4', minio_url: '', magnet_link: '', file_size_mb: 0 }); setLoading(false); return }
@@ -104,7 +109,13 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
       }
     }
     video.addEventListener('progress', billOrigin)
-    originBillCleanupRef.current = () => video.removeEventListener('progress', billOrigin)
+    const cleanup = () => {
+      video.removeEventListener('progress', billOrigin)
+      // Final flush: bill whatever buffered progress we have at teardown.
+      billOrigin()
+    }
+    originBillCleanupRef.current = cleanup
+    finalFlushRef.current = billOrigin
   }, [fileData])
 
   useEffect(() => {
@@ -145,6 +156,12 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
         // accrues in the bandwidth charts.
         let pendingP2pBytes = 0
         let lastAnalyticsFlush = 0
+        const flushP2p = () => {
+          if (pendingP2pBytes > 0) {
+            api.trackEvent(fileData.id, 'chunk_downloaded', pendingP2pBytes, 0).catch(() => {})
+            pendingP2pBytes = 0
+          }
+        }
         torrent.on('download', (bytes: number) => {
           if (!mounted) return
           clearTimeout(fallbackTimer.current)
@@ -153,11 +170,11 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
           pendingP2pBytes += bytes
           const now = Date.now()
           if (now - lastAnalyticsFlush >= 1000) {
-            api.trackEvent(fileData.id, 'chunk_downloaded', pendingP2pBytes, 0).catch(() => {})
             lastAnalyticsFlush = now
-            pendingP2pBytes = 0
+            flushP2p()
           }
         })
+        finalFlushRef.current = flushP2p
         torrent.on('ready', () => {
           if (!mounted) return
           const f = torrent.files.find((f: any) => f.name.match(/\.(mp4|webm|ogv|mov|mkv|mp3|ogg|wav)$/i)) || torrent.files[0]
@@ -183,6 +200,8 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
       mounted = false
       clearTimeout(fallbackTimer.current)
       clearInterval(pollTimer.current)
+      // Final flush before teardown so the last <1s of bytes aren't dropped.
+      if (finalFlushRef.current) { try { finalFlushRef.current() } catch {} finalFlushRef.current = null }
       if (originBillCleanupRef.current) { originBillCleanupRef.current(); originBillCleanupRef.current = null }
       if (clientRef.current) {
         try { clientRef.current.destroy() } catch {}
