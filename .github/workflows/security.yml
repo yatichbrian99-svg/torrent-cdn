@@ -146,6 +146,16 @@ jobs:
       - name: API baseURL guard
         run: bash scripts/check_api_baseurl.sh
 
+      # Fails if the frontend SOURCE references the dead api.torrentcdn.store
+      # host (no DNS record — the docs BASE_URL once pointed there and every
+      # curl example was broken) or apex-only torrentcdn.store URLs (the apex
+      # 308-redirects to www, adding a redirect hop and breaking the embed
+      # SDK's origin resolution). The canonical origin is
+      # https://www.torrentcdn.store. Source-level grep, so it catches a broken
+      # base URL / pasted URL before the build even runs.
+      - name: Domain guard (dead host + apex URLs)
+        run: bash scripts/check_domains.sh
+
   # ── P2P delivery gate (real 2-peer WebTorrent swarm) ──
   # Every push must still deliver video over WebTorrent. Vercel deploys LAG the
   # push (production often serves the previous build for a while), so hitting
