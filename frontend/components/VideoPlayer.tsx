@@ -58,6 +58,11 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
   const clientRef = useRef<any>(null)
   const fallbackTimer = useRef<NodeJS.Timeout>()
   const pollTimer = useRef<NodeJS.Timeout>()
+  // Which source the <video> element is currently consuming: 'p2p' (MediaSource
+  // blob) or 'direct' (the origin URL). Gates origin-byte billing — the
+  // progress listener must only bill while the direct src is actually active.
+  const activeSourceRef = useRef<'p2p' | 'direct'>('p2p')
+  const originBillCleanupRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
     if (fileId === 'demo') { setFileData({ id: 'demo', filename: 'Demo Video.mp4', minio_url: '', magnet_link: '', file_size_mb: 0 }); setLoading(false); return }
@@ -66,9 +71,40 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
 
   const fallbackToDirect = useCallback(() => {
     if (!videoRef.current || !fileData?.minio_url) return
-    videoRef.current.src = fileData.minio_url; videoRef.current.play().catch(() => {})
+    const video = videoRef.current
+    video.src = fileData.minio_url; video.play().catch(() => {})
     setStatus('direct'); statusRef.current = 'direct'
-    api.trackEvent(fileData.id, 'chunk_downloaded', 0, Math.round(fileData.file_size_mb * 1024 * 1024)).catch(() => {})
+    activeSourceRef.current = 'direct'
+    // Bill origin bytes as they ACTUALLY download (progress event, throttled to
+    // 1/sec), NOT the full file size at fallback time. P2P signaling + WebRTC
+    // can take 5-15s before the first piece arrives, so the fallback usually
+    // fires first — billing the whole file as origin then would dwarf the real
+    // P2P bytes and zero out p2p_offload_percent even though P2P delivered the
+    // video. With progress-based billing, origin only counts what origin really
+    // served (≈0 when P2P takes over), so the offload metric stays honest.
+    const totalBytes = Math.round((fileData.file_size_mb || 0) * 1024 * 1024)
+    let billed = 0
+    let lastBill = 0
+    const billOrigin = () => {
+      if (activeSourceRef.current !== 'direct') return
+      const now = Date.now()
+      if (now - lastBill < 1000) return
+      lastBill = now
+      let bufferedEnd = 0
+      try {
+        const b = video.buffered
+        if (b && b.length) bufferedEnd = b.end(b.length - 1)
+      } catch {}
+      const dur = video.duration
+      if (!(dur > 0) || !(bufferedEnd > 0) || totalBytes <= 0) return
+      const bytes = Math.min(totalBytes, Math.round((bufferedEnd / dur) * totalBytes))
+      if (bytes > billed) {
+        api.trackEvent(fileData.id, 'chunk_downloaded', 0, bytes - billed).catch(() => {})
+        billed = bytes
+      }
+    }
+    video.addEventListener('progress', billOrigin)
+    originBillCleanupRef.current = () => video.removeEventListener('progress', billOrigin)
   }, [fileData])
 
   useEffect(() => {
@@ -88,7 +124,20 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
         }, 5000)
 
         const torrent = client.add(fileData.magnet_link)
-        torrent.on('wire', () => { if (!mounted) return; setPeers(torrent.numPeers) })
+        // A connected wire means the swarm is alive — P2P is progressing (signaling +
+        // WebRTC + metadata can take 5-15s before the first piece arrives), so give
+        // it more time instead of letting the 5s fallback fire and bill the WHOLE
+        // file as origin bytes. Only fall back when nothing has happened at all.
+        torrent.on('wire', () => {
+          if (!mounted) return
+          setPeers(torrent.numPeers)
+          if (statusRef.current === 'connecting') {
+            clearTimeout(fallbackTimer.current)
+            fallbackTimer.current = setTimeout(() => {
+              if (mounted && statusRef.current === 'connecting') fallbackToDirect()
+            }, 15000)
+          }
+        })
         // webtorrent's 'download' fires per 16KiB block received — dozens per
         // second on a fast P2P transfer. Throttle chunk_downloaded analytics to
         // ONE POST per second (accumulated bytes) — otherwise the per-IP
@@ -113,8 +162,17 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
           if (!mounted) return
           const f = torrent.files.find((f: any) => f.name.match(/\.(mp4|webm|ogv|mov|mkv|mp3|ogg|wav)$/i)) || torrent.files[0]
           if (!f || !videoRef.current) return
+          const video = videoRef.current
+          // The direct fallback may already be streaming the video (it fires at
+          // 5s; signaling + WebRTC can take 5-15s). Don't yank a working stream
+          // — that restarts playback for the viewer. The torrent keeps
+          // downloading in the background, so bytes_p2p still accrues and the
+          // offload split stays honest.
+          const directAlreadyStreaming = activeSourceRef.current === 'direct' && video.readyState >= 2 && video.currentTime > 0.1
           setStatus('p2p'); statusRef.current = 'p2p'
-          streamP2pFile(f, videoRef.current).catch(() => { if (mounted) fallbackToDirect() })
+          if (directAlreadyStreaming) return
+          activeSourceRef.current = 'p2p'
+          streamP2pFile(f, video).catch(() => { if (mounted) fallbackToDirect() })
         })
         pollTimer.current = setInterval(() => { if (!mounted) return; setPeers(torrent.numPeers || peers) }, 2000)
       } catch { if (mounted) fallbackToDirect() }
@@ -125,6 +183,7 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
       mounted = false
       clearTimeout(fallbackTimer.current)
       clearInterval(pollTimer.current)
+      if (originBillCleanupRef.current) { originBillCleanupRef.current(); originBillCleanupRef.current = null }
       if (clientRef.current) {
         try { clientRef.current.destroy() } catch {}
         clientRef.current = null
