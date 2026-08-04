@@ -291,6 +291,33 @@ A follow-up audit pass (zero-trust checklist: dead code, session lifecycle, paym
 - **Insecure redirects / host-header injection:** `TrustedHostMiddleware` (prod), redirect URLs built only from validated `APP_URL`.
 - **Secrets hygiene:** no hardcoded credentials in source (gitleaks + secret_scan CI gates remain green).
 
+### 2026-08-04 — Frontend zero-trust audit round (`fdffe94`)
+
+A client-side audit pass (components, SDK, embed player, middleware, configs) under the same zero-trust assumptions as the backend rounds. No XSS sinks existed — React escapes everywhere, the only `dangerouslySetInnerHTML` is static JSON-LD with `<` escaped, and the vendored WebTorrent bundle is SRI-pinned — so the fixes focus on **validating attacker-influenceable boundary values** before they shape request URLs, redirect targets, or storage.
+
+#### Low / Defense-in-depth
+
+| Finding | Impact | Fix |
+|---|---|---|
+| **`/embed/{file_id}` accepted arbitrary ids** | A crafted `file_id` (e.g. `../../admin/stats`) reached the request URL — browser URL normalization could redirect the fetch to a different same-origin route (path confusion) | New `frontend/lib/security.ts` `isUuid()` gate: `VideoPlayer` rejects non-UUID ids before `api.getPublicFile` (the `demo` route still short-circuits) |
+| **SDK trusted DOM attributes blindly** (`public/sdk.js`) | `data-torrent-cdn` (file id) and `data-api-url` arrive from the customer's page (attacker-influenceable) yet shaped XHR/sendBeacon destinations | Both validated at the boundary (UUID / absolute http(s) origin); invalid file ids render the error div instead of fetching; error rendering deduped into one helper (mirrors `lib/security.ts` — keep the two in sync) |
+| **Checkout redirect accepted any server-returned URL** | `window.location.href = data.url` — a `javascript:`/`data:`/relative value would execute or mis-navigate | `isSafeHttpsUrl()` gate: only absolute `https://` checkout URLs are navigated; unsafe/missing URLs now error + reset loading instead of hanging |
+| **`?ref=` referral param stored raw** | Arbitrary junk persisted to sessionStorage, then echoed into the register flow | `sanitizeRefCode()` — alphanumeric only, capped at the backend's 20-char `UPPER(referral_code)` lookup |
+| **`target="_blank"` without `rel`** | Reverse-tabnabbing hygiene on the Terms/Privacy links | `rel="noopener noreferrer"` added |
+| **CSP missing frame/form directives** | `X-Frame-Options` was the only frame protection; no `form-action` bound | `frame-ancestors 'self'` + `form-action 'self'` added to `frontend/middleware.ts` (embedding is SDK-based — no iframes or native cross-origin forms exist) |
+
+**Tests** (`fdffe94` + `1ce4c87`): 13 guard cases in `frontend/lib/__tests__/security.test.ts` + a PricingTable unsafe-URL rejection case; `1ce4c87` added 5 `VideoPlayer` component tests (invalid / empty / demo / valid-success / fetch-failure) locking in the UUID gate and raised the vitest coverage thresholds from 25/33/14/32 → **42/45/30/48** (measured 46.7/50.7/35.4/54.7 once `security.ts` landed fully tested; `VideoPlayer.tsx` stays coverage-excluded as WebRTC glue). Verified: 71 frontend tests, clean `tsc`, all 7 CI jobs green (incl. the real 2-peer `p2p-e2e`).
+
+### 2026-08-04 — Docs/FAQ/dashboard accuracy (`6dadd9d`)
+
+Live-verified the public documentation claims against production and corrected three misleading items:
+
+| Finding | Impact | Fix |
+|---|---|---|
+| **Docs `BASE_URL` pointed at a dead host** (`https://api.torrentcdn.store` — no DNS record, curl 000) | Every curl example in the API docs was broken | Pointed at the real same-origin Vercel proxy `https://www.torrentcdn.store` (live-probed: every documented endpoint answers through it), with a warning never to document a cross-origin API base (page CSP `connect-src` + CORS would block it); added a working "Get a token" curl example; embed snippets moved off the apex domain (which 308-redirects) to `www` |
+| **Fake API-key credentials advertised** | The docs intro, landing FAQ, and dashboard all presented a derived `tcdn_…` string as an authenticating key — the backend is Bearer-JWT-only (verified: no `tcdn_` auth path), so the key 401'd on use | Docs/FAQ now document Bearer tokens from `/auth/login`; the dashboard's dead API Key box was removed |
+| **Wrong privacy/provider claims** | FAQ said files lived in a "private Cloudflare R2 bucket" (storage is Supabase, deliberately public/unlisted) | Reworded to "stored in object storage and served from unlisted public URLs — links behave like keys" |
+
 ### Accepted residual risks
 
 Risk is accepted **only** when the fix would break the product or require a breaking change with no safe migration path. Both are continuously re-assessed.
