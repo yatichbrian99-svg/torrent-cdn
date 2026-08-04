@@ -111,11 +111,14 @@ app = FastAPI(
 # cross-origin reads to whoever re-registers it (CORS + allow_credentials).
 # With allow_credentials=True the allow-list must only ever contain origins we
 # control; any env-supplied origins (CORS_ORIGINS) get the same scrutiny.
+# The apex (the bare torrentcdn.store host, no www) is intentionally NOT
+# allow-listed: it 308-redirects to www, so no page is ever served from the
+# apex origin and its Origin header never legitimately occurs
+# (backend/scripts/check_domains.sh enforces this).
 cors_origins = [
     "http://localhost:3000",
     "http://frontend:3000",
     "https://torrent-cdn.vercel.app",
-    "https://torrentcdn.store",
     "https://www.torrentcdn.store",
 ]
 

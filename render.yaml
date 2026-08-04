@@ -20,7 +20,10 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: CORS_ORIGINS
-        value: "https://torrent-cdn.vercel.app,https://torrentcdn.store,https://www.torrentcdn.store"
+        # Canonical origins only — the apex (the bare torrentcdn.store host, no
+        # www) 308-redirects to www so its Origin never occurs; check_domains.sh
+        # enforces this.
+        value: "https://torrent-cdn.vercel.app,https://www.torrentcdn.store"
       - key: TRUSTED_HOSTS
         value: ".onrender.com,.vercel.app,.torrentcdn.store,localhost"
       - key: CSP_REPORT_URL

@@ -31,13 +31,13 @@ async def send_welcome_email(email: str, name: str) -> bool:
       <h1 style='font-size:20px;'>Welcome to TorrentCDN</h1>
       <p style='color:#999;'>Your account is ready. Here's how to get started:</p>
       <ol style='color:#999;line-height:2;'>
-        <li>Upload your first video at torrentcdn.store/dashboard/upload</li>
+        <li>Upload your first video at www.torrentcdn.store/dashboard/upload</li>
         <li>Copy your embed code</li>
         <li>Paste it on your website</li>
         <li>Watch your bandwidth costs drop</li>
       </ol>
       <p style='color:#999;'>Free tier includes 100GB/month. No credit card needed.</p>
-      <a href='https://torrentcdn.store/dashboard'
+      <a href='https://www.torrentcdn.store/dashboard'
          style='display:inline-block;background:#fff;color:#000;padding:10px 20px;text-decoration:none;margin-top:20px;font-weight:bold;'>
         Go to Dashboard →
       </a>

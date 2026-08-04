@@ -166,7 +166,7 @@ Every push/PR to `main` runs `.github/workflows/security.yml` + `.github/workflo
 
 | Job | What it gates |
 |---|---|
-| `tests` | Backend unit suite (pytest, fully mocked — no infra) |
+| `tests` | Backend unit suite (pytest, fully mocked — no infra) + **domain guard** (dead `api.torrentcdn.store` host / apex-only `torrentcdn.store` URLs in `backend/app`, `Caddyfile`, `render.yaml`) |
 | `secret-scan` | Diff-scoped high-signal secret gate (`backend/scripts/secret_scan.sh`) + whole-tree scan — GitHub PATs, AWS/Stripe/SendGrid/Resend keys, private keys, webhooks |
 | `static-audit` | Gitleaks secret scan (pushed-range on push, **full history** on the daily cron/dispatch; posts inline PR comments, uploads SARIF) + `security_audit.py` header/CSP/auth/API-docs-gating checks |
 | `frontend-checks` | **Frontend pipeline:** `npm ci` → `tsc --noEmit` → vitest unit tests **+ coverage gate** → `next build` → **OG image guard** + **API baseURL guard** + **domain guard** (dead `api.torrentcdn.store` host / apex-only `torrentcdn.store` URLs) |
@@ -192,6 +192,7 @@ The `frontend-checks` job compiles the Next.js app exactly like production (Node
 - `npm run build` — full `next build`; a type error or build break now fails CI instead of shipping.
 - **OG image guard** (`frontend/scripts/check_og_image.sh`) — the `og:image` / `twitter:image` URLs in `app/layout.tsx` must resolve to a real, non-empty PNG under `public/`. A prior regression shipped a 0-byte dynamic route + a 404 twitter image that blanked every preview card on Twitter/X, LinkedIn, Slack, Discord, and WhatsApp — this guard exists so that can't happen again.
 - **Domain guard** (`frontend/scripts/check_domains.sh`) — the frontend **source** must never reference the dead `api.torrentcdn.store` host (no DNS record — the docs `BASE_URL` once pointed there and every curl example was broken) or apex-only `torrentcdn.store` URLs (the apex 308-redirects to `www`, adding a redirect hop and breaking the embed SDK's origin resolution). Only the documented warning comment in `docs/page.tsx` is exempt; `scripts/` guard files are intentionally not scanned (they legitimately document hosts, e.g. `check_api_baseurl.sh`'s same-origin allow-list).
+- **Backend domain guard** (`backend/scripts/check_domains.sh`, runs in the `tests` job) — the backend **source and IaC** (`backend/app/`, `Caddyfile`, `render.yaml`) must never reference the dead `api.torrentcdn.store` host or apex-only `torrentcdn.store` URLs. A stale apex entry in the CORS allow-list is dead weight (the apex 308-redirects to `www`, so its `Origin` header never legitimately occurs — `backend/app/main.py` and `render.yaml` now list only the canonical `www` origin); the welcome-email template likewise links to `www`. Bare words (`noreply@torrentcdn.store` from-addresses, `.torrentcdn.store` in `TRUSTED_HOSTS`) are fine — only URLs fail; documented `torrentcdn.com` removal notes pass because that dead TLD doesn't match the patterns.
 
 CI keeps the frontend fast: npm packages are cached via `setup-node`'s `cache: npm`, and Next.js' persistent build cache (`.next/cache`) is cached between runs (`actions/cache`) so warm builds skip recompiling unchanged modules (~2× faster Build step).
 

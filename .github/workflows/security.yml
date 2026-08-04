@@ -302,6 +302,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # Fails if the backend SOURCE or IaC references the dead
+      # api.torrentcdn.store host (no DNS record — the docs BASE_URL once
+      # pointed there and every curl example was broken) or apex-only
+      # torrentcdn.store URLs (the apex 308-redirects to www; a stale apex
+      # entry in the CORS allow-list is dead weight since its Origin never
+      # occurs). The canonical origin is https://www.torrentcdn.store. Mirrors
+      # the frontend domain guard (frontend-checks) across backend/app,
+      # Caddyfile, and render.yaml.
+      - name: Domain guard (dead host + apex URLs)
+        run: bash scripts/check_domains.sh
+
       - name: Run test suite
         run: python -m pytest -q
         env:
