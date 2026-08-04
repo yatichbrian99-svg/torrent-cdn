@@ -6,21 +6,33 @@ report.
 
 Used by the `dependency-audit` CI job (see .github/workflows/dependency-audit.yml)
 on a daily schedule, on manual dispatch, and on pull requests (where the report
-is also posted as a PR comment). The job fails the build ONLY when a CRITICAL
-advisory appears — the accepted `ip`-via-webtorrent highs stay green by design
-(the report still lists them).
+is also posted as a PR comment).
+
+Baseline mode (--baseline): the job must fail when NEW advisories appear, not
+just criticals — but the known accepted risks (e.g. the `ip`-via-webtorrent
+highs, tracked in SECURITY.md → Hardening Log) must stay green. A committed
+baseline file captures the CURRENT accepted finding set; each run compares
+against it and reports new findings (`new=N` in the summary, plus a "New since
+baseline" section in the report). Regenerate the baseline with
+--write-baseline whenever a risk is accepted or fixed:
+    python dependency_audit_report.py --write-baseline backend/scripts/dependency-audit-baseline.json
+
+The CI workflow gates on `new != 0` (a separate step, so the report/comment are
+still posted showing WHAT is new) and on `critical != 0`.
 
 Exit codes:
   0  audits ran and the report was written (findings may exist — the caller
      decides whether to gate on them via the printed summary)
-  2  a required audit tool is missing or failed to run (broken environment)
+  2  a required audit tool is missing/failed, or --baseline was given but the
+     baseline file does not exist (broken environment / stale checkout)
 
 Usage:
   python dependency_audit_report.py [--output report.md] [--repo-root /path]
+                                    [--baseline baseline.json] [--write-baseline out.json]
 
 Prints the report to stdout (or --output) and a single machine-readable line
 to stdout:
-  AUDIT_SUMMARY critical=0 high=4 moderate=0 low=0 info=0 pip=0 npm=4
+  AUDIT_SUMMARY critical=0 high=4 moderate=0 low=0 info=0 pip=0 npm=4 new=0
 """
 from __future__ import annotations
 
@@ -84,21 +96,24 @@ def run_npm_audit(repo_root: Path) -> dict | None:
         return None
 
 
-def _pip_vuln_rows(data: dict) -> list[tuple[str, str, str]]:
-    """[(package, severity, id)] — one row per vulnerable backend package."""
-    rows: list[tuple[str, str, str]] = []
+def _pip_findings(data: dict) -> list[dict]:
+    """Normalized backend findings: {ecosystem, package, id, severity}."""
+    findings: list[dict] = []
     for dep in data.get("dependencies", []) or []:
         for vuln in dep.get("vulns", []) or []:
-            sev = str(vuln.get("severity") or "unknown").lower()
-            rows.append((dep["name"], sev, str(vuln.get("id") or vuln.get("advisory") or "?")))
-    return rows
+            findings.append({
+                "ecosystem": "pip",
+                "package": dep["name"],
+                "id": str(vuln.get("id") or vuln.get("advisory") or "?"),
+                "severity": str(vuln.get("severity") or "unknown").lower(),
+            })
+    return findings
 
 
-def _npm_vuln_rows(data: dict) -> list[tuple[str, str, str, bool, str]]:
-    """[(package, severity, via, isDirect, fixSummary)] — one row per vulnerable npm package."""
-    rows: list[tuple[str, str, str, bool, str]] = []
+def _npm_findings(data: dict) -> list[dict]:
+    """Normalized frontend findings: {ecosystem, package, id, severity, direct, via, fix}."""
+    findings: list[dict] = []
     for name, info in (data.get("vulnerabilities", {}) or {}).items():
-        sev = str(info.get("severity") or "unknown").lower()
         via = info.get("via") or []
         via_titles = []
         for v in via:
@@ -115,12 +130,73 @@ def _npm_vuln_rows(data: dict) -> list[tuple[str, str, str, bool, str]]:
             fix_summary = "update available"
         else:
             fix_summary = "no fix"
-        rows.append((name, sev, "; ".join(via_titles)[:160] or "?", bool(info.get("isDirect")), fix_summary))
-    return rows
+        findings.append({
+            "ecosystem": "npm",
+            "package": name,
+            "id": "; ".join(via_titles)[:160] or name,
+            "severity": str(info.get("severity") or "unknown").lower(),
+            "direct": bool(info.get("isDirect")),
+            "via": "; ".join(via_titles)[:160] or "?",
+            "fix": fix_summary,
+        })
+    return findings
 
 
-def render_report(pip_data: dict | None, npm_data: dict | None, repo_root: Path) -> tuple[str, dict[str, int]]:
-    """Build the markdown report and the severity-count summary."""
+def collect_findings(pip_data: dict | None, npm_data: dict | None) -> list[dict]:
+    """All normalized findings across both ecosystems."""
+    findings: list[dict] = []
+    if pip_data is not None:
+        findings.extend(_pip_findings(pip_data))
+    if npm_data is not None:
+        findings.extend(_npm_findings(npm_data))
+    return findings
+
+
+def _identity(f: dict) -> tuple:
+    """Stable identity for a finding — used for baseline set comparison.
+
+    pip: (ecosystem, package, advisory-id) — IDs are stable (PYSEC-…).
+    npm: (ecosystem, package, severity) — one audit entry per package.
+    """
+    if f["ecosystem"] == "pip":
+        return (f["ecosystem"], f["package"], f["id"])
+    return (f["ecosystem"], f["package"], f["severity"])
+
+
+def load_baseline(path: Path) -> tuple[set, dict[str, int]]:
+    """Load a baseline file → (identity set, severity counts). Raises if missing/invalid."""
+    data = json.loads(path.read_text())
+    baseline_ids = {tuple(entry) for entry in data.get("findings", [])}
+    counts = {k: int(data.get(k, 0)) for k in ("critical", "high", "moderate", "low", "info", "pip", "npm")}
+    return baseline_ids, counts
+
+
+def save_baseline(path: Path, findings: list[dict], counts: dict[str, int]) -> None:
+    """Write the current finding set as a baseline file."""
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "critical": counts["critical"],
+        "high": counts["high"],
+        "moderate": counts["moderate"],
+        "low": counts["low"],
+        "info": counts["info"],
+        "pip": counts["pip"],
+        "npm": counts["npm"],
+        "total": sum(counts[k] for k in ("critical", "high", "moderate", "low")),
+        # findings: [identity-tuples...] — the set the job must not regress beyond.
+        "findings": [list(_identity(f)) for f in findings],
+    }
+    path.write_text(json.dumps(payload, indent=2) + "\n")
+
+
+def render_report(
+    pip_data: dict | None,
+    npm_data: dict | None,
+    repo_root: Path,
+    baseline: tuple[set, dict[str, int]] | None,
+) -> tuple[str, dict[str, int], int]:
+    """Build the markdown report, the severity-count summary, and the count of
+    NEW findings vs the baseline (0 when no baseline is given)."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     counts = {"critical": 0, "high": 0, "moderate": 0, "low": 0, "info": 0, "pip": 0, "npm": 0}
 
@@ -136,10 +212,10 @@ def render_report(pip_data: dict | None, npm_data: dict | None, repo_root: Path)
     if pip_data is None:
         lines.append("\n⚠️ pip-audit could not run (missing tool or broken output).")
     else:
-        rows = _pip_vuln_rows(pip_data)
+        rows = _pip_findings(pip_data)
         counts["pip"] = len(rows)
-        for _, sev, _ in rows:
-            sev = sev if sev in counts else "low"
+        for f in rows:
+            sev = f["severity"] if f["severity"] in counts else "low"
             counts[sev] += 1
         if not rows:
             lines.append("\n✅ **No known vulnerabilities** in the pinned backend dependencies.")
@@ -147,8 +223,8 @@ def render_report(pip_data: dict | None, npm_data: dict | None, repo_root: Path)
             lines.append(f"\n⚠️ {len(rows)} vulnerable package(s) found:\n")
             lines.append("| Package | Severity | Advisory |")
             lines.append("|---|---|---|")
-            for pkg, sev, adv in sorted(rows, key=lambda r: (SEVERITY_ORDER.get(r[1], 9), r[0])):
-                lines.append(f"| `{pkg}` | **{sev.upper()}** | `{adv}` |")
+            for f in sorted(rows, key=lambda r: (SEVERITY_ORDER.get(r["severity"], 9), r["package"])):
+                lines.append(f"| `{f['package']}` | **{f['severity'].upper()}** | `{f['id']}` |")
         lines.append("")
 
     # ── Frontend (npm audit) ──
@@ -158,9 +234,9 @@ def render_report(pip_data: dict | None, npm_data: dict | None, repo_root: Path)
     else:
         meta = (npm_data.get("metadata") or {}).get("vulnerabilities") or {}
         counts["npm"] = int(meta.get("total", 0))
-        rows = _npm_vuln_rows(npm_data)
-        for _, sev, _, _, _ in rows:
-            sev = sev if sev in counts else "low"
+        rows = _npm_findings(npm_data)
+        for f in rows:
+            sev = f["severity"] if f["severity"] in counts else "low"
             counts[sev] += 1
         if not rows:
             lines.append("\n✅ **No known vulnerabilities** in the frontend dependency tree.")
@@ -168,36 +244,101 @@ def render_report(pip_data: dict | None, npm_data: dict | None, repo_root: Path)
             lines.append(f"\n⚠️ {len(rows)} vulnerable package(s) found:\n")
             lines.append("| Package | Severity | Direct? | Via / advisory | Fix |")
             lines.append("|---|---|---|---|---|")
-            for pkg, sev, via, direct, fix in sorted(rows, key=lambda r: (SEVERITY_ORDER.get(r[1], 9), r[0])):
-                lines.append(f"| `{pkg}` | **{sev.upper()}** | {'yes' if direct else 'no (transitive)'} | {via} | {fix} |")
+            for f in sorted(rows, key=lambda r: (SEVERITY_ORDER.get(r["severity"], 9), r["package"])):
+                lines.append(
+                    f"| `{f['package']}` | **{f['severity'].upper()}** | "
+                    f"{'yes' if f['direct'] else 'no (transitive)'} | {f['via']} | {f['fix']} |"
+                )
+        lines.append("")
+
+    # ── Baseline comparison ──
+    findings = collect_findings(pip_data, npm_data)
+    new_count = 0
+    if baseline is not None:
+        baseline_ids, _bl_counts = baseline
+        new_findings = [f for f in findings if _identity(f) not in baseline_ids]
+        new_count = len(new_findings)
+        lines.append("### New since last baseline")
+        if new_findings:
+            lines.append(
+                f"\n🚨 **{new_count} NEW finding(s)** not present in the committed baseline "
+                "(`backend/scripts/dependency-audit-baseline.json`):\n"
+            )
+            lines.append("| Ecosystem | Package | Severity | Advisory |")
+            lines.append("|---|---|---|---|")
+            for f in sorted(new_findings, key=lambda r: (SEVERITY_ORDER.get(r["severity"], 9), r["ecosystem"], r["package"])):
+                lines.append(
+                    f"| {f['ecosystem']} | `{f['package']}` | **{f['severity'].upper()}** | `{f['id']}` |"
+                )
+            lines.append(
+                "\nIf this is a newly accepted risk, regenerate the baseline:\n"
+                "`python backend/scripts/dependency_audit_report.py --write-baseline backend/scripts/dependency-audit-baseline.json`"
+            )
+        else:
+            lines.append("\n✅ No new findings — the current advisory set matches the accepted baseline.")
         lines.append("")
 
     # ── Bottom line ──
     total = sum(counts[k] for k in ("critical", "high", "moderate", "low"))
-    if counts["critical"]:
+    if new_count:
+        lines.append(f"🚨 **{new_count} new advisory(ies) vs baseline.** This run is RED — investigate before merge.")
+    elif counts["critical"]:
         lines.append(f"🚨 **{counts['critical']} CRITICAL advisory(ies).** This run is RED by design — investigate immediately.")
     elif total:
-        lines.append(f"⚠️ {total} non-critical finding(s). Known accepted risks (e.g. `ip` via `webtorrent`) are tracked in SECURITY.md → Hardening Log.")
+        lines.append(f"⚠️ {total} non-critical finding(s) — all within the accepted baseline (see SECURITY.md → Hardening Log).")
     else:
         lines.append("✅ All clear — no known advisories in either tree.")
 
-    summary = " ".join(f"{k}={counts[k]}" for k in ("critical", "high", "moderate", "low", "info", "pip", "npm"))
-    return "\n".join(lines) + "\n", counts
+    return "\n".join(lines) + "\n", counts, new_count
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="pip-audit + npm audit report generator")
     ap.add_argument("--output", default=None, help="write the markdown report to this file (default: stdout)")
     ap.add_argument("--repo-root", default=str(REPO_ROOT), help="repository root (defaults to repo layout)")
+    ap.add_argument(
+        "--baseline", default=None,
+        help="baseline JSON to compare against (fails the report with new=N when findings regress beyond it)",
+    )
+    ap.add_argument(
+        "--write-baseline", default=None,
+        help="write the CURRENT finding set as a baseline JSON and exit (use when accepting/fixing risks)",
+    )
     args = ap.parse_args()
+
+    if args.write_baseline and args.baseline:
+        print("[dependency-audit] --write-baseline and --baseline are mutually exclusive", file=sys.stderr)
+        return 2
 
     repo_root = Path(args.repo_root).resolve()
     pip_data = run_pip_audit(repo_root)
     npm_data = run_npm_audit(repo_root)
 
-    report, counts = render_report(pip_data, npm_data, repo_root)
+    baseline = None
+    if args.baseline:
+        baseline_path = Path(args.baseline)
+        if not baseline_path.exists():
+            print(f"[dependency-audit] baseline file not found: {baseline_path}", file=sys.stderr)
+            return 2
+        baseline = load_baseline(baseline_path)
+
+    if args.write_baseline:
+        findings = collect_findings(pip_data, npm_data)
+        counts = {"critical": 0, "high": 0, "moderate": 0, "low": 0, "info": 0, "pip": 0, "npm": 0}
+        for f in findings:
+            sev = f["severity"] if f["severity"] in counts else "low"
+            counts[sev] += 1
+            counts[f["ecosystem"]] += 1
+        save_baseline(Path(args.write_baseline), findings, counts)
+        print(f"[dependency-audit] baseline written: {args.write_baseline}")
+        print(f"AUDIT_SUMMARY critical={counts['critical']} high={counts['high']} moderate={counts['moderate']} "
+              f"low={counts['low']} info={counts['info']} pip={counts['pip']} npm={counts['npm']} new=0")
+        return 0
+
+    report, counts, new_count = render_report(pip_data, npm_data, repo_root, baseline)
 
     summary = " ".join(f"{k}={counts[k]}" for k in ("critical", "high", "moderate", "low", "info", "pip", "npm"))
+    summary += f" new={new_count}"
     if args.output:
         Path(args.output).write_text(report)
         # With --output, stdout carries ONLY the machine-readable line so the

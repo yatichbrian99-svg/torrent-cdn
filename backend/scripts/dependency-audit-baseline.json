@@ -1,0 +1,33 @@
+{
+  "generated_at": "2026-08-04T14:12:07+00:00",
+  "critical": 0,
+  "high": 4,
+  "moderate": 0,
+  "low": 0,
+  "info": 0,
+  "pip": 0,
+  "npm": 4,
+  "total": 4,
+  "findings": [
+    [
+      "npm",
+      "bittorrent-tracker",
+      "high"
+    ],
+    [
+      "npm",
+      "ip",
+      "high"
+    ],
+    [
+      "npm",
+      "torrent-discovery",
+      "high"
+    ],
+    [
+      "npm",
+      "webtorrent",
+      "high"
+    ]
+  ]
+}

@@ -8,12 +8,17 @@ name: "Dependency Audit"
 #     so a dependency bump that drags in a new advisory is visible in review.
 #   - workflow_dispatch — manual "audit now" button.
 #
-# The job fails the build ONLY on CRITICAL advisories. The known accepted
-# `ip`-via-webtorrent highs (tracked in SECURITY.md → Hardening Log) stay green
-# but are listed in every report — hard-failing on them would make CI
-# permanently red with no action possible (the only "fix" is a webtorrent
-# downgrade that destroys P2P). New critical advisories, by contrast, deserve
-# to block a merge.
+# The job fails the build on:
+#   1. NEW advisories vs the committed baseline
+#      (backend/scripts/dependency-audit-baseline.json) — the accepted risks
+#      (e.g. `ip`-via-webtorrent highs, tracked in SECURITY.md → Hardening Log)
+#      are in the baseline so they stay green, but any advisory beyond them
+#      blocks the merge.
+#   2. CRITICAL advisories, even if baselined (a baselined critical is still a
+#      must-fix).
+# Regenerate the baseline when accepting/fixing a risk:
+#   python backend/scripts/dependency_audit_report.py \
+#     --write-baseline backend/scripts/dependency-audit-baseline.json
 on:
   schedule:
     - cron: "0 6 * * *"  # daily 06:00 UTC
@@ -73,16 +78,22 @@ jobs:
       # Run both audits; capture the report + summary line. The script lives in
       # backend/scripts so the same report can be produced locally:
       #   python backend/scripts/dependency_audit_report.py
+      # --baseline compares against the committed accepted-risk file and adds
+      # new=N to the summary (0 = nothing beyond the accepted risks).
       - name: Run pip-audit + npm audit
         id: audit
         run: |
-          AUDIT_SUMMARY=$(python scripts/dependency_audit_report.py --output /tmp/audit-report.md)
+          AUDIT_SUMMARY=$(python scripts/dependency_audit_report.py \
+            --output /tmp/audit-report.md \
+            --baseline scripts/dependency-audit-baseline.json)
           echo "$AUDIT_SUMMARY"
           echo "summary=$AUDIT_SUMMARY" >> "$GITHUB_OUTPUT"
-          # Machine-gate: fail only on critical. (Script exit is always 0 when
-          # the tools ran; non-critical findings are reported, not fatal.)
+          # Machine-gates for the steps below. (Script exit is always 0 when
+          # the tools ran; findings are reported via the summary, not fatal.)
           CRIT=$(echo "$AUDIT_SUMMARY" | awk -F'critical=' '{print $2}' | awk '{print $1}')
           echo "critical=$CRIT" >> "$GITHUB_OUTPUT"
+          NEW=$(echo "$AUDIT_SUMMARY" | awk -F'new=' '{print $2}' | awk '{print $1}')
+          echo "new=$NEW" >> "$GITHUB_OUTPUT"
           echo "Report preview:"
           head -8 /tmp/audit-report.md
 
@@ -140,8 +151,19 @@ jobs:
               console.log('Created audit comment');
             }
 
-      # Fail the build on new critical advisories (PRs AND the daily cron, so a
-      # red morning run is the alert that a critical advisory landed upstream).
+      # Fail the build when advisories appear BEYOND the accepted baseline
+      # (PRs AND the daily cron, so a red morning run is the alert that a new
+      # advisory landed upstream). The report/comment above are still posted
+      # first, so the failure message points at what is actually new.
+      - name: Fail on new advisories vs baseline
+        if: steps.audit.outputs.new != '0'
+        run: |
+          echo "::error::${{ steps.audit.outputs.new }} NEW dependency advisory(ies) found beyond the accepted baseline — see the audit report above. If newly accepted, regenerate the baseline:"
+          echo "  python backend/scripts/dependency_audit_report.py --write-baseline backend/scripts/dependency-audit-baseline.json"
+          exit 1
+
+      # Fail on critical advisories even when baselined (a baselined critical
+      # is still a must-fix).
       - name: Fail on critical advisories
         if: steps.audit.outputs.critical != '0'
         run: |
