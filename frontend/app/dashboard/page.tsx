@@ -318,7 +318,8 @@ export default function DashboardPage() {
                 contentStyle={{ backgroundColor: '#111', border: '1px solid #222', color: '#fff' }}
                 labelStyle={{ color: '#fff' }}
                 itemStyle={{ color: '#fff' }}
-                formatter={(value: number) => [`${Number(value).toFixed(2)} GB`, 'Bandwidth']}
+                // recharts 3 types: value can be undefined/unknown — coerce safely.
+                formatter={(value: unknown) => [`${Number(value ?? 0).toFixed(2)} GB`, 'Bandwidth']}
               />
               <Line type="monotone" dataKey="gb" stroke="#fff" strokeWidth={2} dot={false} />
             </LineChart>

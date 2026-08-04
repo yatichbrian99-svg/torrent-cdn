@@ -1,10 +1,16 @@
 'use client'
 
 import { Suspense } from 'react'
+import { useParams } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import VideoPlayer from '@/components/VideoPlayer'
 
-export default function EmbedPage({ params }: { params: { file_id: string } }) {
+export default function EmbedPage() {
+  // Next 15: route params are async — useParams() is the canonical client-side
+  // hook (params props are Promises in pages, which client components can't await).
+  const params = useParams<{ file_id: string }>()
+  const fileId = params?.file_id
+
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#000' }}>
       <div className="mx-auto max-w-5xl px-6 py-4">
@@ -18,7 +24,7 @@ export default function EmbedPage({ params }: { params: { file_id: string } }) {
             </div>
           }
         >
-          <VideoPlayer fileId={params.file_id} />
+          <VideoPlayer fileId={fileId} />
         </Suspense>
       </div>
     </div>

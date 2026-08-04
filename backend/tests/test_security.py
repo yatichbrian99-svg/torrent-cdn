@@ -741,6 +741,47 @@ class TestInMemoryRateLimitFallbacks:
             mw._memory_store.clear()
             mw._memory_store.update(saved)
 
+    def test_global_middleware_exempts_chunk_uploads(self, client, auth_headers, monkeypatch):
+        """POST /upload/chunk/* is exempt from the global 5 req/10s limiter.
+
+        A real file ships one request per ≤4MB chunk (a 100MB video = 25+), so
+        counting every chunk against the global per-IP budget would 429 the
+        upload mid-stream. The chunk endpoints keep their own protection (JWT,
+        session ownership, index bounds, size cap, per-IP upload limiter at
+        finalize) — only the bursty chunk data path is exempt.
+        """
+        import app.database
+        monkeypatch.setattr(app.database, "get_redis", AsyncMock(return_value=None))
+
+        from app.main import RateLimitMiddleware
+        mw = self._find_rate_limit_middleware(client.app)
+        assert mw is not None, "RateLimitMiddleware not found in middleware stack"
+
+        saved = dict(mw._memory_store)
+        mw._memory_store.clear()
+        try:
+            # Saturate the IP's global budget: 5 requests already recorded.
+            mw._memory_store["testclient"] = [time.time()] * 5
+
+            # A non-exempt endpoint is still blocked (6th request in the window).
+            resp = client.get("/files")
+            assert resp.status_code == 429
+
+            # A chunk PUT sails through the global limiter — it reaches the
+            # route and is rejected there (no session) instead of being 429'd
+            # by middleware. 404 (session not found) proves the middleware let
+            # it pass; a 429 would mean the exemption failed.
+            resp = client.post(
+                "/upload/chunk/22222222-2222-4222-8222-222222222222/0",
+                headers=auth_headers,
+                files={"chunk": ("c", BytesIO(b"data"), "application/octet-stream")},
+            )
+            assert resp.status_code == 404
+            assert "Upload session not found" in resp.json()["detail"]
+        finally:
+            mw._memory_store.clear()
+            mw._memory_store.update(saved)
+
     @staticmethod
     def _find_rate_limit_middleware(app):
         """Walk the ASGI middleware chain to find the RateLimitMiddleware instance."""

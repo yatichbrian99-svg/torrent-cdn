@@ -56,8 +56,8 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
   const [status, setStatus] = useState<'connecting' | 'p2p' | 'direct' | 'error'>('connecting')
   const statusRef = useRef<string>('connecting')
   const clientRef = useRef<any>(null)
-  const fallbackTimer = useRef<NodeJS.Timeout>()
-  const pollTimer = useRef<NodeJS.Timeout>()
+  const fallbackTimer = useRef<NodeJS.Timeout | undefined>(undefined)
+  const pollTimer = useRef<NodeJS.Timeout | undefined>(undefined)
   // Which source the <video> element is currently consuming: 'p2p' (MediaSource
   // blob) or 'direct' (the origin URL). Gates origin-byte billing — the
   // progress listener must only bill while the direct src is actually active.

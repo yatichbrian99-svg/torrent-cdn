@@ -282,6 +282,17 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if path in {"/health", "/csp-report", "/docs", "/redoc", "/openapi.json", "/.well-known/security.txt"}:
             return await call_next(request)
 
+        # Chunked-upload chunk PUTs are exempt from the GLOBAL per-IP limiter:
+        # a real file legitimately ships dozens-to-hundreds of ≤4MB chunks in a
+        # burst (a 100MB video = 25+ requests), which would blow the 5 req/10s
+        # budget and 429 mid-upload. These endpoints are already protected at
+        # the route layer — JWT auth, session-ownership + index-bounds checks,
+        # per-chunk size cap — and the per-IP upload limiter (10/hour) + usage
+        # gate still apply at finalize. Session CREATION stays under the global
+        # limiter, so an attacker can't mint unbounded sessions either.
+        if path.startswith("/upload/chunk/"):
+            return await call_next(request)
+
         import time
         client_ip = get_client_ip(request)
         now = time.time()
