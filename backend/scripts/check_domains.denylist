@@ -1,0 +1,48 @@
+# =============================================================================
+# check_domains.denylist — dead / placeholder hosts that must NEVER appear in
+# backend source or IaC.
+#
+# Consumed by backend/scripts/check_domains.sh (denylist check): every host
+# listed below is grepped across backend/app, Caddyfile, and render.yaml, and
+# ANY occurrence fails the build. This catches the regression class where a
+# dead host or placeholder URL gets baked into a CORS origin, a response
+# sample, an email template, or an IaC env value.
+#
+# Format: one host per line. Blank lines and '#' comments are ignored. Hosts
+# are matched as literal substrings (no regex) — add the host exactly as it
+# should never appear (e.g. "storage.example.com", not just "example.com").
+#
+# ── NOT in this list (deliberately — read before adding) ──────────────────────
+#   torrent-cdn.onrender.com   LIVE Render backend origin (health 200). The
+#     Vercel proxy (frontend/vercel.json) rewrites to it and the p2p-e2e CI
+#     uses it as the production backend — it is NOT dead. Do not add.
+#   torrentcdn.com / www.torrentcdn.com / api.torrentcdn.com — dead DNS, but
+#     referenced in backend comments/tests DOCUMENTING their removal (the
+#     guard's docstring explains why those pass). A denylist entry here would
+#     false-positive the removal notes. The app's own dead-DNS auto-correction
+#     in config.py handles the runtime case.
+#   project-ref.supabase.co / postgres.xxxxx / aws-0-xxx.pooler.supabase.com —
+#     documented CONFIG placeholders (config.py comments + render.yaml), not
+#     shipped references. Denylisting them would flag the docs that tell the
+#     deployer what to set. The guard is for shipped source/IaC references.
+# =============================================================================
+
+# Placeholder storage hosts — never real, must never ship in a CORS origin,
+# presigned URL, or response sample.
+storage.example.com
+storage.example
+proj.supabase.co
+placeholder.example
+minio.example
+bucket.example.com
+
+# Generic example hosts — a dead giveaway that a real value was left as a
+# template placeholder.
+example.org
+www.example.org
+
+# Dead API hosts from the docs-accuracy audit (6dadd9d) — the api.* variants
+# of owned domains. NOTE: api.torrentcdn.store is ALSO hard-checked separately
+# in the script (with a documented-warning exemption); listed here too so a
+# future reader sees the full dead-host set in one place.
+api.torrentcdn.store

@@ -12,6 +12,10 @@
 #     apex into a URL adds a redirect hop; a stale apex entry in the CORS
 #     allow-list is dead weight (no browser page is ever served from the apex
 #     origin — it always redirects).
+#   - Any host listed in check_domains.denylist (dead hosts / placeholder
+#     hosts like storage.example.com) must never appear in backend source or
+#     IaC. NOTE: torrent-cdn.onrender.com is LIVE (the Render backend the Vercel
+#     proxy rewrites to) and is deliberately NOT denylisted.
 # The canonical frontend origin is https://www.torrentcdn.store. A dead or
 # apex-only reference in backend source or IaC must never ship again.
 #
@@ -100,6 +104,49 @@ if [ -n "$APEX_HITS" ]; then
   check 1 "no apex-only torrentcdn.store URLs (must be https://www.torrentcdn.store)"
 else
   check 0 "no apex-only torrentcdn.store URLs"
+fi
+
+# --- 3) Denylisted dead / placeholder hosts -------------------------------------
+# Reads check_domains.denylist (one host per line, '#' comments and blank lines
+# ignored) and greps each host as a literal substring across the scanned
+# surfaces. Any occurrence fails — a dead host or placeholder URL baked into a
+# CORS origin, response sample, email template, or IaC env value must never
+# ship. The dead torrentcdn.com domain is referenced in comments/tests
+# DOCUMENTING its removal and is deliberately not denylisted (see the file's
+# header); the app's dead-DNS auto-correction in config.py handles the runtime
+# case.
+DENYLIST_FILE="$SCRIPT_DIR/check_domains.denylist"
+if [ ! -f "$DENYLIST_FILE" ]; then
+  echo "Denylist file missing: $DENYLIST_FILE" >&2
+  exit 2
+fi
+
+DENY_HITS=""
+while IFS= read -r HOST || [ -n "$HOST" ]; do
+  # Tolerate casual editing: strip inline comments and surrounding whitespace
+  # so a line like "  storage.example.com  # placeholder " still matches the
+  # host (hosts never contain '#'). A line that is ONLY a comment becomes ''
+  # and is skipped below.
+  HOST="${HOST%%\#*}"
+  HOST="${HOST#"${HOST%%[![:space:]]*}"}"
+  HOST="${HOST%"${HOST##*[![:space:]]}"}"
+  case "$HOST" in
+    ''|\#*) continue ;;
+  esac
+  HITS="$(grep -rnF "$HOST" "${FILES[@]}" 2>/dev/null \
+    | grep -v 'NO separate api\.torrentcdn\.store host' \
+    || true)"
+  if [ -n "$HITS" ]; then
+    DENY_HITS="${DENY_HITS}${HITS}"$'\n'
+  fi
+done < "$DENYLIST_FILE"
+
+if [ -n "$DENY_HITS" ]; then
+  echo "Denylisted host references found:"
+  echo "$DENY_HITS"
+  check 1 "no references to denylisted dead/placeholder hosts (see check_domains.denylist)"
+else
+  check 0 "no references to denylisted dead/placeholder hosts"
 fi
 
 echo
