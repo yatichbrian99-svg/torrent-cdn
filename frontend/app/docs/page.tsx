@@ -3,7 +3,12 @@
 import { useState, type ReactNode } from 'react'
 import { Copy, Check } from 'lucide-react'
 
-const BASE_URL = 'https://api.torrentcdn.store'
+// The API is served same-origin through the Vercel proxy (vercel.json rewrites
+// /auth, /upload, /files, /analytics, /billing, /admin, /notifications to the
+// backend). There is NO separate api.torrentcdn.store host — use the www
+// origin for every endpoint below. Never document a cross-origin API base:
+// it would be silently blocked by the page CSP (connect-src) and by CORS.
+const BASE_URL = 'https://www.torrentcdn.store'
 
 function CodeBlock({ code }: { code: string }) {
   const [copied, setCopied] = useState(false)
@@ -95,7 +100,7 @@ export default function DocsPage() {
           <div className="mt-4 space-y-2 text-sm" style={{ color: '#555' }}>
             <p><span className="font-bold text-white">Authentication:</span> Bearer token in the <code className="text-white" style={{ fontFamily: 'monospace' }}>Authorization</code> header.</p>
             <p><span className="font-bold text-white">Format:</span> All requests and responses are JSON.</p>
-            <p>You can find your API key in your dashboard, or get a token via <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /auth/login</code>.</p>
+            <p>Get a token via <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /auth/login</code> (or <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /auth/register</code>) and send it on every request as <code className="text-white" style={{ fontFamily: 'monospace' }}>Authorization: Bearer &lt;token&gt;</code>. There is no separate API key — the dashboard's displayed <code className="text-white" style={{ fontFamily: 'monospace' }}>tcdn_…</code> string is derived from your account id and is NOT accepted as a credential.</p>
           </div>
         </div>
       </section>
@@ -130,6 +135,10 @@ export default function DocsPage() {
   "token_type": "bearer"
 }`}
           />
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Get a token (then use it as the Bearer header on every call)</p>
+          <CodeBlock code={`curl -X POST ${BASE_URL}/auth/login \\
+  -H "Content-Type: application/json" \\
+  -d '{"email":"you@example.com","password":"yourpassword1"}'`} />
         </div>
       </section>
 
@@ -152,10 +161,10 @@ Body:
           response={`{
   "file_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
   "filename": "video.mp4",
-  "minio_url": "https://storage.example.com/...",
+  "minio_url": "https://<project>.supabase.co/storage/v1/object/public/...",
   "magnet_link": "magnet:?xt=urn:btih:...",
   "file_size_mb": 12.4,
-  "embed_url": "https://torrentcdn.store/embed/3fa85f64-..."
+  "embed_url": "https://www.torrentcdn.store/embed/3fa85f64-..."
 }`}
         />
         <div className="mt-4">
@@ -184,7 +193,7 @@ Body:
             url="/upload/presign/finalize/{upload_id}"
             desc="Step 3 — verify + finalize the stored object (size + file-header checks), generate the torrent magnet link and thumbnail, and record the file. Idempotent: retrying after a lost response returns the original result instead of duplicating the file."
             request={`Headers:\n  Authorization: Bearer <YOUR_TOKEN>`}
-            response={`{\n  \"file_id\": \"3fa85f64-5717-4562-b3fc-2c963f66afa6\",\n  \"filename\": \"video.mp4\",\n  \"minio_url\": \"https://<project>.supabase.co/storage/v1/object/public/...\",\n  \"magnet_link\": \"magnet:?xt=urn:btih:...\",\n  \"file_size_mb\": 128.0,\n  \"embed_url\": \"https://torrentcdn.store/embed/3fa85f64-...\"\n}`}
+            response={`{\n  \"file_id\": \"3fa85f64-5717-4562-b3fc-2c963f66afa6\",\n  \"filename\": \"video.mp4\",\n  \"minio_url\": \"https://<project>.supabase.co/storage/v1/object/public/...\",\n  \"magnet_link\": \"magnet:?xt=urn:btih:...\",\n  \"file_size_mb\": 128.0,\n  \"embed_url\": \"https://www.torrentcdn.store/embed/3fa85f64-...\"\n}`}
           />
         </div>
       </section>
@@ -272,7 +281,7 @@ Body:
             Drop the SDK script on your page and add a single div. The player auto-mounts and streams via P2P.
           </p>
           <CodeBlock code={`<!-- Add to your HTML -->
-<script src="https://torrentcdn.store/sdk.js"></script>
+<script src="https://www.torrentcdn.store/sdk.js"></script>
 <div data-torrent-cdn="FILE_ID"></div>`} />
         </div>
       </section>

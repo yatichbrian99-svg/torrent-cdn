@@ -170,7 +170,7 @@ export default function LandingPage() {
               },
               {
                 q: "Is my content private?",
-                a: "Your files are stored in a private Cloudflare R2 bucket and are unlisted — there's no public index or search, and only people with your embed link or magnet can access them. But links and magnets behave like keys: anyone who has one can view and re-share your content, and P2P delivery means viewers pass chunks directly between peers. Treat your links like a shared secret — TorrentCDN is for content you're comfortable sharing, not for confidential or DRM-protected material."
+                a: "Your files are stored in object storage and served from unlisted public URLs — there's no public index or search, and only people with your embed link or magnet can access them. But links and magnets behave like keys: anyone who has one can view and re-share your content, and P2P delivery means viewers pass chunks directly between peers. Treat your links like a shared secret — TorrentCDN is for content you're comfortable sharing, not for confidential or DRM-protected material."
               },
               {
                 q: "How does billing work?",
@@ -182,7 +182,7 @@ export default function LandingPage() {
               },
               {
                 q: "Do you have an API?",
-                a: "Yes. Every account gets an API key (format: tcdn_xxx) visible in your dashboard. Use it to authenticate API requests. You can upload files, list files, and generate embed codes programmatically via our REST API."
+                a: "Yes. Authenticate API requests with a Bearer token from POST /auth/login (see the API docs). You can upload files, list files, and generate embed codes programmatically via our REST API."
               },
             ].map((item) => (
               <div key={item.q} className="py-5">
