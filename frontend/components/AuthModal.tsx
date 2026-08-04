@@ -111,11 +111,11 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
               />
               <span>
                 I accept the{' '}
-                <a href="/terms" target="_blank" className="underline transition-colors hover:text-white" style={{ color: '#888' }}>
+                <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline transition-colors hover:text-white" style={{ color: '#888' }}>
                   Terms of Service
                 </a>
                 {' '}and{' '}
-                <a href="/privacy" target="_blank" className="underline transition-colors hover:text-white" style={{ color: '#888' }}>
+                <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline transition-colors hover:text-white" style={{ color: '#888' }}>
                   Privacy Policy
                 </a>
               </span>

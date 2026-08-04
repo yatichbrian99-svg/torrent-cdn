@@ -79,7 +79,13 @@ export function middleware(request: NextRequest) {
     // regardless of the storage endpoint; blob: is used by WebTorrent streaming
     "media-src 'self' blob: https:",
     `connect-src ${connectSourcesJoined}`,
+    // Embedding is SDK-based (the <div data-torrent-cdn> snippet + sdk.js — no
+    // iframes anywhere in the app), so both forms of clickjacking protection
+    // are safe to lock down. form-action 'self' keeps any future form payload
+    // from being exfiltrated to a cross-origin endpoint.
     "frame-src 'self'",
+    "frame-ancestors 'self'",
+    "form-action 'self'",
     "worker-src 'self' blob:",
     "base-uri 'self'",
     "object-src 'none'",

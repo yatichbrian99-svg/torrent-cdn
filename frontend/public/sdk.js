@@ -3,10 +3,42 @@
 
   var API_BASE = 'https://www.torrentcdn.store';
 
+  // Zero-trust guards: both values arrive from the customer's page DOM (the
+  // embed div attributes) and are therefore attacker-influenceable at the
+  // boundary. Never let them shape request URLs or beacons beyond a UUID /
+  // http(s) origin. (Mirrors lib/security.ts in the app bundle — keep the two
+  // in sync when changing the rules; this file is vanilla JS by design.)
+  var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  function isValidFileId(id) {
+    return UUID_RE.test(id || '');
+  }
+
+  function isValidApiUrl(url) {
+    try {
+      var u = new URL(url);
+      return u.protocol === 'https:' || u.protocol === 'http:';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function showError(el, message) {
+    var errDiv = document.createElement('div');
+    errDiv.textContent = message || 'Failed to load file. Please try again later.';
+    errDiv.style.padding = '20px';
+    errDiv.style.color = '#555';
+    errDiv.style.textAlign = 'center';
+    errDiv.style.border = '1px solid #222';
+    el.appendChild(errDiv);
+  }
+
   function getConfig(el) {
+    var fileId = el.getAttribute('data-torrent-cdn');
+    var apiUrl = el.getAttribute('data-api-url') || API_BASE;
     return {
-      fileId: el.getAttribute('data-torrent-cdn'),
-      apiUrl: el.getAttribute('data-api-url') || API_BASE,
+      fileId: isValidFileId(fileId) ? fileId : '',
+      apiUrl: isValidApiUrl(apiUrl) ? apiUrl : API_BASE,
     };
   }
 
@@ -156,6 +188,10 @@
     var elements = document.querySelectorAll('[data-torrent-cdn]');
     elements.forEach(function (el) {
       var config = getConfig(el);
+      if (!config.fileId) {
+        showError(el);
+        return;
+      }
       var xhr = new XMLHttpRequest();
       xhr.open('GET', config.apiUrl + '/files/public/' + config.fileId, true);
       xhr.onload = function () {
@@ -163,23 +199,11 @@
           var fileData = JSON.parse(xhr.responseText);
           createPlayer(el, fileData, config.apiUrl);
         } else {
-          var errDiv = document.createElement('div');
-          errDiv.textContent = 'Failed to load file. Please try again later.';
-          errDiv.style.padding = '20px';
-          errDiv.style.color = '#555';
-          errDiv.style.textAlign = 'center';
-          errDiv.style.border = '1px solid #222';
-          el.appendChild(errDiv);
+          showError(el);
         }
       };
       xhr.onerror = function () {
-        var errDiv = document.createElement('div');
-        errDiv.textContent = 'Failed to load file. Please try again later.';
-        errDiv.style.padding = '20px';
-        errDiv.style.color = '#555';
-        errDiv.style.textAlign = 'center';
-        errDiv.style.border = '1px solid #222';
-        el.appendChild(errDiv);
+        showError(el);
       };
       xhr.send();
     });

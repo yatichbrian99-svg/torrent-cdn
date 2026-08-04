@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import PricingTable from '@/components/PricingTable'
+import { sanitizeRefCode } from '@/lib/security'
 
 const metrics = [
   { viewers: '1,000', cloudfront: '$45', torrentcdn: '$1.20' },
@@ -13,11 +14,14 @@ const metrics = [
 export default function LandingPage() {
   const [count, setCount] = useState(1284)
 
-  // Capture ?ref= referral code and persist it for the signup flow.
+  // Capture ?ref= referral code and persist it for the signup flow. Sanitize
+  // at the boundary: only alphanumerics survive (matches the backend's 20-char
+  // UPPER(referral_code) lookup), so junk can't ride along into storage.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const ref = params.get('ref')
-    if (ref) sessionStorage.setItem('torrent_cdn_ref', ref)
+    const clean = sanitizeRefCode(ref || '')
+    if (clean) sessionStorage.setItem('torrent_cdn_ref', clean)
   }, [])
 
   useEffect(() => {

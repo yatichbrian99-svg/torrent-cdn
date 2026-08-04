@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { Users, Loader2 } from 'lucide-react'
 import api from '@/lib/api'
+import { isUuid } from '@/lib/security'
 
 interface FileData { id: string; filename: string; minio_url: string; magnet_link: string; file_size_mb: number }
 
@@ -71,6 +72,11 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
 
   useEffect(() => {
     if (fileId === 'demo') { setFileData({ id: 'demo', filename: 'Demo Video.mp4', minio_url: '', magnet_link: '', file_size_mb: 0 }); setLoading(false); return }
+    // The file_id arrives from the embed URL (untrusted). Reject anything that
+    // isn't a UUID before it becomes part of a request URL — blocks path
+    // confusion like /embed/..%2F..%2Fadmin/stats (URL normalization would
+    // otherwise redirect the fetch to a different same-origin route).
+    if (!isUuid(fileId)) { setError('File not found'); setLoading(false); return }
     api.getPublicFile(fileId).then((data: FileData) => { setFileData(data); setLoading(false) }).catch(() => { setError('File not found'); setLoading(false) })
   }, [fileId])
 

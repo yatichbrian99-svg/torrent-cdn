@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import api from '@/lib/api'
+import { isSafeHttpsUrl } from '@/lib/security'
 
 const TIERS = [
   { name: 'Free', price: '$0', period: '/month', limit: '100GB bandwidth', features: ['1 seat', 'Community support'], plan: 'free' },
@@ -20,7 +21,16 @@ export default function PricingTable({ currentPlan }: { currentPlan?: string }) 
     setError('')
     try {
       const data = await api.createCheckout(plan)
-      if (data.url) window.location.href = data.url
+      // The checkout URL comes from the billing backend, but a redirect target
+      // deserves a scheme check regardless of the source: only ever navigate
+      // to an absolute https:// URL (rejects javascript:/data:/http: values
+      // and relative paths if the backend ever misbehaves).
+      if (data.url && isSafeHttpsUrl(data.url)) {
+        window.location.href = data.url
+      } else {
+        setError('Checkout failed. Please try again.')
+        setLoading(null)
+      }
     } catch {
       setError('Checkout failed. Please try again.')
       setLoading(null)
