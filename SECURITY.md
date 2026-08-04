@@ -162,7 +162,7 @@ A built-in endpoint that receives CSP violation reports from browsers.
 
 ## Pre-merge CI Gates
 
-Every push/PR to `main` runs `.github/workflows/security.yml` + `.github/workflows/dependency-audit.yml` — **all jobs must be green before merging** (the scheduled jobs also run on their daily crons; `p2p-e2e` is push/manual-dispatch only because it writes to production). PRs get inline gitleaks comments pointing at the offending line when a secret is introduced; the build fails on anything below:
+Every push/PR to `main` runs `.github/workflows/security.yml` + `.github/workflows/dependency-audit.yml` — **all jobs must be green before merging** (the scheduled jobs also run on their daily crons; `p2p-e2e` and `api-key-live` are push/manual-dispatch or schedule/manual-dispatch only because they write to production). PRs get inline gitleaks comments pointing at the offending line when a secret is introduced; the build fails on anything below:
 
 | Job | What it gates |
 |---|---|
@@ -173,6 +173,7 @@ Every push/PR to `main` runs `.github/workflows/security.yml` + `.github/workflo
 | `fullstack-audit` | Docker stack (Postgres/Redis/MinIO) + `curl_audit.sh` end-to-end (push/PR only; runs even when the secret gates are red, so a leak PR keeps its e2e signal) |
 | `p2p-e2e` | **Real 2-peer WebTorrent delivery gate** (push/manual only — writes throwaway accounts/files to production): builds the pushed frontend, serves it behind the same-origin proxy, and runs `e2e/p2p-two-peer.mjs` — seeder reproduces the backend infohash and seeds; leecher plays `/embed/{id}` with every `*.supabase.co` request BLOCKED (only WebRTC can deliver) → peers connect, video plays, `chunk_downloaded` with `bytes_p2p > 0` lands in analytics |
 | `storage-publicity` | Credential-free live check that the Supabase bucket is still **public** (`check_storage_public.sh`): a private bucket 404s all playback, so a regression here breaks every `minio_url` |
+| `api-key-live` | **Scheduled production probe** (daily 04:00 UTC cron + manual dispatch only — writes a throwaway account+key, then cleans up): runs `backend/scripts/api_key_audit_prod.sh` against the live deployment — register → generate `tcdn_` key (plaintext once) → key-authed `/files` + `/auth/me` + metadata (`api_key:null`) → no-auth 401 → revoke → **revoked key 401 (fail-closed)** → `DELETE /auth/me` |
 | `dependency-audit` | **Supply-chain gate** (daily 06:00 UTC cron + PR + manual): runs `pip-audit` + `npm audit`, posts the report as a PR comment, and fails on any advisory **beyond the accepted baseline** (`backend/scripts/dependency-audit-baseline.json` — currently the `ip`-via-webtorrent highs) or on any critical |
 
 > **When the dependency-audit job goes red**, the report/comment show exactly which advisories are new. If a newly-found advisory is genuinely accepted (no safe fix), regenerate the baseline so CI reflects the new decision — then record the acceptance in the Hardening Log below:
