@@ -128,18 +128,42 @@ async def stripe_webhook(request: Request):
 
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
-        user_id = session["metadata"]["user_id"]
-        plan = session["metadata"]["plan"]
 
-        # Validate plan before writing
+        # Business-logic gate: only grant the plan when the payment actually
+        # settled. checkout.session.completed also fires for sessions whose
+        # payment is still pending/unpaid (async payment methods), and granting
+        # a paid plan on an unpaid session is a free-upgrade bypass.
+        if session.get("payment_status") != "paid":
+            logger.warning(
+                "Webhook checkout.session.completed with payment_status=%r — ignoring",
+                session.get("payment_status"),
+            )
+            return {"detail": "Payment not completed, ignoring"}
+
+        # Subscription-mode only: a one-time payment session has no plan upgrade.
+        if session.get("mode") != "subscription":
+            return {"detail": "Not a subscription session, ignoring"}
+
+        metadata = session.get("metadata") or {}
+        user_id = metadata.get("user_id")
+        plan = metadata.get("plan")
+
+        # Validate plan before writing, and never trust malformed metadata
+        # (a bad UUID would otherwise 500 the webhook and trigger Stripe retries).
         if plan not in VALID_PLANS:
             return {"detail": "Unknown plan, ignoring"}
+        try:
+            parsed_user_id = UUID(user_id) if user_id else None
+        except (ValueError, TypeError, AttributeError):
+            parsed_user_id = None
+        if parsed_user_id is None:
+            return {"detail": "Missing/invalid user_id metadata, ignoring"}
 
         pool = await get_db_pool()
         async with pool.acquire() as conn:
             await conn.execute(
                 "UPDATE users SET plan = $1 WHERE id = $2",
-                plan, UUID(user_id),
+                plan, parsed_user_id,
             )
 
     return {"detail": "Webhook received"}

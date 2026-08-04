@@ -134,8 +134,13 @@ class TestChunkedUpload:
             None,
             {"id": UUID("22222222-2222-4222-8222-222222222222")},
         ]
+        # Realistic 2-chunk layout: chunk 1 sits at the 4MB offset, so the
+        # declared size must cover it (a 26-byte declared size with a 2-chunk
+        # session was never realistic — chunk 0 writes 16 bytes at offset 0,
+        # chunk 1 writes at offset 4MB).
+        declared_size = 4 * 1024 * 1024 + len(self.VALID_MP4) + len(b"tail-bytes")
         upload_id = self._create_session(
-            client, auth_headers, mock_conn, file_size=26, total_chunks=2, idempotency_key="chunk-e2e"
+            client, auth_headers, mock_conn, file_size=declared_size, total_chunks=2, idempotency_key="chunk-e2e"
         )
         # NOTE: _create_session resets side_effect — restore the full sequence.
         mock_conn.fetchrow.side_effect = [

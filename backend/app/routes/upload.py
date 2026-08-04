@@ -39,6 +39,26 @@ from ..security import (
     get_client_ip,
 )
 
+# Per-user caps on concurrent in-flight upload sessions (chunked + presign).
+# An authenticated attacker who can't be rate-limited per-IP (XFF spoofing,
+# or simply a distributed botnet) could otherwise mint unbounded sessions:
+# chunked sessions hold a growing temp file on disk and presign sessions
+# accumulate in Redis/in-memory. Capping active sessions per user bounds both
+# memory and temp-disk exhaustion.
+#
+# NOTE on counting: the cap counts only sessions that can STILL GROW (fewer
+# chunks received than declared). A fully-received session can no longer write
+# to its temp file (offsets are bounded by total_chunks and the write-size
+# check below enforces the declared file_size), so excluding it from the count
+# prevents a false 429 on a legitimate power user doing many chunked-fallback
+# uploads back-to-back (chunk sessions are intentionally kept 30 min past
+# finalize for lost-response finalize retries, so counting them all would lock
+# out real users after ~20 uploads). Temp-disk is still bounded: a completed
+# session's file can never exceed the declared (≤1GB) size, and the TTL prune
+# reclaims it.
+MAX_ACTIVE_CHUNK_SESSIONS_PER_USER = 50
+MAX_ACTIVE_PRESIGN_SESSIONS_PER_USER = 50
+
 CHUNK_SIZE = 5 * 1024 * 1024  # 5 MB per multipart chunk
 # Client-side chunked-upload fallback: the frontend slices the file into chunks
 # of EXACTLY this size and ships them through the same-origin Vercel proxy, so
@@ -756,6 +776,21 @@ async def create_upload_session(
     file_size_mb = body.file_size / (1024 * 1024)
     await _check_usage_limit(pool, user_id, month, file_size_mb)
 
+    # Cap concurrent GROWABLE chunk sessions per user (bounds temp-disk usage).
+    # See the constant's docstring: fully-received sessions can't grow, so they
+    # don't count toward the cap (avoiding false 429s for legit power users).
+    _prune_chunk_sessions()
+    active = [
+        s for s in _chunk_sessions.values()
+        if str(s.get("user_id")) == str(user_id)
+        and len(s.get("received", set())) < s.get("total_chunks", 0)
+    ]
+    if len(active) >= MAX_ACTIVE_CHUNK_SESSIONS_PER_USER:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many active upload sessions. Finalize or wait for them to expire.",
+        )
+
     upload_id = str(uuid.uuid4())
     _chunk_sessions[upload_id] = {
         "user_id": user_id,
@@ -798,6 +833,15 @@ async def upload_chunk(
         fd, path = tempfile.mkstemp(suffix=f"_{session['filename']}")
         os.close(fd)
         session["path"] = path
+
+    # Cap disk: a chunk must not extend the assembly file past the declared
+    # size. Without this, a session declaring a small file_size with a large
+    # total_chunks could grow a temp file far beyond the plan limit (offsets
+    # are bounded only by total_chunks). The legit client slices the file into
+    # MAX_CLIENT_CHUNK_SIZE pieces, so the last chunk is smaller and this
+    # bound holds exactly.
+    if index * MAX_CLIENT_CHUNK_SIZE + len(data) > session["file_size"]:
+        raise HTTPException(status_code=400, detail="Chunk exceeds declared file size")
 
     with open(session["path"], "r+b") as f:
         f.seek(index * MAX_CLIENT_CHUNK_SIZE)
@@ -939,6 +983,18 @@ async def presign_upload(
         object_key = session["object_key"]
         content_type = session["content_type"]
     else:
+        # Cap concurrent presign sessions per user (bounds Redis/in-memory
+        # session accumulation). Counts the in-memory copies; on a fresh
+        # instance whose memory is cold, Redis-backed sessions are missed until
+        # the next prune — a minor undercount (they self-expire in 30 min) that
+        # is bounded by the per-IP upload limiter at finalize anyway.
+        _prune_presign_sessions()
+        active = [s for s in _presign_sessions.values() if str(s.get("user_id")) == str(user_id)]
+        if len(active) >= MAX_ACTIVE_PRESIGN_SESSIONS_PER_USER:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many pending uploads. Finalize them or wait for them to expire.",
+            )
         upload_id = str(uuid.uuid4())
         object_key = f"{user_id}/{upload_id}/{safe_filename}"
         content_type = mimetypes.guess_type(safe_filename)[0] or "application/octet-stream"

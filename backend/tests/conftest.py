@@ -106,6 +106,16 @@ def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
     monkeypatch.setattr(app.routes.csp, "get_redis", AsyncMock(return_value=mock_redis))
     monkeypatch.setattr(app.routes.upload, "get_redis", AsyncMock(return_value=mock_redis))
 
+    # app/auth.py's get_current_user_id now reads the pw_change revocation
+    # marker via get_redis — patch its local reference too (a real connection
+    # attempt per authed request would slow the suite and pollute output).
+    import app.auth
+    monkeypatch.setattr(app.auth, "get_redis", AsyncMock(return_value=mock_redis))
+
+    # app/routes/admin.py bumps pw_change after privilege changes
+    import app.routes.admin
+    monkeypatch.setattr(app.routes.admin, "get_redis", AsyncMock(return_value=mock_redis))
+
     # Patch security validation functions so tests don't need real magic bytes
     # Must patch both the module AND the importing module's local reference
     import app.security

@@ -1,6 +1,7 @@
 import re
 import time
 import logging
+import unicodedata
 import uuid
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from uuid import UUID
@@ -21,8 +22,26 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 _login_attempts: dict[str, list[float]] = {}
 # {ip: last_request_epoch} — forgot-password requests per IP
 _forgot_requests: dict[str, float] = {}
+# {ip: [epoch_seconds, ...]} — registration attempts per IP (account/email spam)
+_register_requests: dict[str, list[float]] = {}
 _LOGIN_WINDOW = 900  # 15 minutes
 _FORGOT_WINDOW = 60  # 60 seconds
+# Registration throttling: per-IP, not per-email, so an attacker can't burn the
+# transactional-email quota (every registration sends a verification email) or
+# bloat the users table. Redis primary, in-memory fallback.
+_REGISTER_WINDOW = 3600  # 1 hour
+_REGISTER_LIMIT = 10
+
+
+def _normalize_email(email: str) -> str:
+    """NFC-normalize + trim an email for storage/lookup.
+
+    Two visually identical addresses in different Unicode normalization forms
+    (e.g. composed vs decomposed accented characters) would otherwise be
+    distinct rows — a confusable-account vector. NFC makes the canonical form
+    the stored form. Done at the API boundary so every handler (and the rate
+    limiter key) sees one shape."""
+    return unicodedata.normalize("NFC", email.strip())
 
 
 def _prune_login_attempts(now: float) -> None:
@@ -39,8 +58,50 @@ def _prune_forgot_requests(now: float) -> None:
         del _forgot_requests[k]
 
 
+def _prune_register_requests(now: float) -> None:
+    """Drop registration keys whose newest entry has expired (keeps dict bounded)."""
+    expired = [k for k, v in _register_requests.items() if not v or now - v[-1] > _REGISTER_WINDOW]
+    for k in expired:
+        del _register_requests[k]
+
+
+async def _check_register_rate_limit(request: Request) -> None:
+    """Per-IP registration throttle — Redis primary, bounded in-memory fallback."""
+    ip = get_client_ip(request)
+    redis = await get_redis()
+    if redis is not None:
+        rate_key = f"register_rate:{ip}"
+        count = await redis.get(rate_key)
+        if count and int(count) >= _REGISTER_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many registrations from this IP. Please try again later.",
+            )
+        await redis.incr(rate_key)
+        await redis.expire(rate_key, _REGISTER_WINDOW)
+    else:
+        now = time.time()
+        _prune_register_requests(now)
+        recent = [t for t in _register_requests.get(ip, []) if now - t < _REGISTER_WINDOW]
+        if len(recent) >= _REGISTER_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many registrations from this IP. Please try again later.",
+            )
+        recent.append(now)
+        _register_requests[ip] = recent
+
+
 @router.post("/register", response_model=TokenResponse)
-async def register(data: UserRegister, background_tasks: BackgroundTasks):
+async def register(data: UserRegister, background_tasks: BackgroundTasks, request: Request):
+    # Throttle registrations per IP BEFORE doing any work — a registration costs
+    # a bcrypt hash + a verification email, both of which an attacker would love
+    # to trigger for free in bulk.
+    await _check_register_rate_limit(request)
+
+    # NFC-normalize the email at the boundary (confusable-account protection).
+    data.email = _normalize_email(data.email)
+
     # Validate email format (length already capped at 255 by the model — a
     # >255-char email would otherwise 500 the users.email VARCHAR(255) insert).
     if not re.match(r'^[^@]+@[^@]+\.[^@]+$', data.email):
@@ -204,6 +265,7 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(data: UserLogin, request: Request):
+    data.email = _normalize_email(data.email)
     pool = await get_db_pool()
     redis = await get_redis()
 
@@ -230,10 +292,19 @@ async def login(data: UserLogin, request: Request):
         _login_attempts[rate_key] = recent
 
     async with pool.acquire() as conn:
+        # Look up the RAW email first (a pre-normalization account may be stored
+        # in a non-NFC form — normalizing their input would silently lock them
+        # out), then the NFC form (covers newly-normalized accounts where the
+        # user typed the other canonical form).
         user = await conn.fetchrow(
             "SELECT id, email, password_hash, verified FROM users WHERE email = $1",
             data.email,
         )
+        if not user:
+            user = await conn.fetchrow(
+                "SELECT id, email, password_hash, verified FROM users WHERE email = $1",
+                _normalize_email(data.email),
+            )
         # Constant-ish-time anti-enumeration: when the email is unknown there is
         # no stored hash to verify against, so a bare early return would let an
         # attacker distinguish registered emails by response timing (a bcrypt
@@ -307,9 +378,14 @@ async def forgot_password(data: ForgotPasswordRequest, request: Request):
 
     pool = await get_db_pool()
     async with pool.acquire() as conn:
+        # Raw first (pre-normalization accounts), NFC fallback (new accounts).
         user = await conn.fetchrow(
             "SELECT id, email FROM users WHERE email = $1", data.email
         )
+        if not user:
+            user = await conn.fetchrow(
+                "SELECT id, email FROM users WHERE email = $1", _normalize_email(data.email)
+            )
 
     if user:
         # Wrap in try/except so email delivery failures can never 500 the
@@ -392,6 +468,18 @@ async def reset_password(data: ResetPasswordRequest):
         )
         if result == "UPDATE 0":
             raise HTTPException(status_code=404, detail="User not found")
+
+    # Record the password change so EVERY pre-existing session token (issued
+    # before this instant) is rejected by get_current_user_id — "change my
+    # password" must kick out sessions on all other devices. Redis is optional:
+    # if it's down, tokens rely on the 24h expiry alone (fail-open, consistent
+    # with the rest of the app).
+    try:
+        redis = await get_redis()
+        if redis is not None:
+            await redis.set(f"pw_change:{user_id_str}", str(time.time()))
+    except Exception:
+        pass
 
     logger.info("Password reset successful for user %s", user_id_str)
     return {"detail": "Password has been reset successfully."}

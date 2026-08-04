@@ -356,9 +356,13 @@ class TestResetPassword:
 
         assert resp.status_code == 200
         assert "reset successfully" in resp.json()["detail"]
-        # Consumed into a tombstone (not deleted) so replays stay blocked
-        mock_redis.set.assert_called_once()
-        assert mock_redis.set.call_args.args[1] == "CONSUMED"
+        # Consumed into a tombstone (not deleted) so replays stay blocked.
+        # The route also records a pw_change marker (session revocation) —
+        # assert the CONSUMED tombstone specifically.
+        consumed_calls = [c for c in mock_redis.set.call_args_list if c.args[1] == "CONSUMED"]
+        assert len(consumed_calls) == 1
+        pw_calls = [c for c in mock_redis.set.call_args_list if "pw_change:" in str(c.args[0])]
+        assert len(pw_calls) == 1
 
     def test_reset_password_valid_token_succeeds_when_redis_key_missing(self, client, mock_conn, mock_redis):
         """
@@ -382,7 +386,10 @@ class TestResetPassword:
         assert resp.status_code == 200
         assert "reset successfully" in resp.json()["detail"]
         mock_redis.delete.assert_not_called()  # no key to consume
-        mock_redis.set.assert_not_called()  # no tombstone created for an absent key
+        # No tombstone created for an absent key — only the pw_change marker
+        # (session revocation) may be written.
+        consumed_calls = [c for c in mock_redis.set.call_args_list if c.args[1] == "CONSUMED"]
+        assert len(consumed_calls) == 0
 
     def test_reset_password_consumed_token_replay_rejected(self, client, mock_redis):
         """

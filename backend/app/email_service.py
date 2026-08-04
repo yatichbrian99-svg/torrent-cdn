@@ -1,3 +1,4 @@
+import html
 import logging
 import os
 from datetime import datetime, timedelta
@@ -96,6 +97,10 @@ def build_reset_url(token: str) -> str:
 
 def build_reset_email_html(email: str, reset_url: str) -> str:
     """Build a styled HTML email for password reset."""
+    # The email address is attacker-influenced (it's the address on the account)
+    # and lands verbatim in the HTML body — escape it so a crafted address
+    # can't inject markup into the email a user receives.
+    safe_email = html.escape(email, quote=True)
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
@@ -105,7 +110,7 @@ def build_reset_email_html(email: str, reset_url: str) -> str:
 <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background-color:#111;border:1px solid #222;border-radius:0">
 <tr><td style="padding:40px 40px 20px">
 <h1 style="margin:0 0 8px;font-size:18px;font-weight:700;color:#fff;letter-spacing:-0.02em">Reset your password</h1>
-<p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#888">Click the button below to reset your password for <strong style="color:#fff">{email}</strong> on TorrentCDN.</p>
+<p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#888">Click the button below to reset your password for <strong style="color:#fff">{safe_email}</strong> on TorrentCDN.</p>
 <table role="presentation" cellpadding="0" cellspacing="0">
 <tr><td align="center" style="background-color:#fff;border-radius:0">
 <a href="{reset_url}" target="_blank" style="display:inline-block;padding:12px 32px;font-size:14px;font-weight:600;color:#000;text-decoration:none">Reset password &rarr;</a>
@@ -124,6 +129,7 @@ def build_reset_email_html(email: str, reset_url: str) -> str:
 
 def build_verification_email_html(email: str, verify_url: str) -> str:
     """Build a styled HTML email for email verification."""
+    safe_email = html.escape(email, quote=True)
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
@@ -133,7 +139,7 @@ def build_verification_email_html(email: str, verify_url: str) -> str:
 <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background-color:#111;border:1px solid #222;border-radius:0">
 <tr><td style="padding:40px 40px 20px">
 <h1 style="margin:0 0 8px;font-size:18px;font-weight:700;color:#fff;letter-spacing:-0.02em">Verify your email</h1>
-<p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#888">Click the button below to verify your email address for <strong style="color:#fff">{email}</strong> on TorrentCDN.</p>
+<p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#888">Click the button below to verify your email address for <strong style="color:#fff">{safe_email}</strong> on TorrentCDN.</p>
 <table role="presentation" cellpadding="0" cellspacing="0">
 <tr><td align="center" style="background-color:#fff;border-radius:0">
 <a href="{verify_url}" target="_blank" style="display:inline-block;padding:12px 32px;font-size:14px;font-weight:600;color:#000;text-decoration:none">Verify email &rarr;</a>

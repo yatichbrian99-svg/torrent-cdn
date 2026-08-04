@@ -1,11 +1,16 @@
+import logging
 import time
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from uuid import UUID
 
+from ..config import get_settings
 from ..database import get_db_pool, get_redis
 from ..auth import get_current_user_id
 from ..models import FileDetail
 from ..security import get_client_ip
+
+logger = logging.getLogger(__name__)
+settings = get_settings()
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -21,15 +26,27 @@ def _prune_public_file_requests(now: float) -> None:
         del _public_file_requests[k]
 
 
+# Pagination caps for GET /files: the response shape stays a bare array (the
+# frontend reads it directly), but an unbounded query would let one user with a
+# huge library force an arbitrarily large response. Default 100, hard cap 500.
+MAX_LIST_LIMIT = 500
+DEFAULT_LIST_LIMIT = 100
+
+
 @router.get("")
-async def list_files(user_id: UUID = Depends(get_current_user_id)):
+async def list_files(
+    user_id: UUID = Depends(get_current_user_id),
+    limit: int = Query(DEFAULT_LIST_LIMIT, ge=1, le=MAX_LIST_LIMIT),
+    offset: int = Query(0, ge=0),
+):
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """SELECT id, filename, minio_url, torrent_magnet, file_size_mb, thumbnail_url, created_at
                FROM uploads WHERE user_id = $1
-               ORDER BY created_at DESC""",
-            user_id,
+               ORDER BY created_at DESC
+               LIMIT $2 OFFSET $3""",
+            user_id, limit, offset,
         )
 
         file_ids = [row["id"] for row in rows]
@@ -177,16 +194,21 @@ async def delete_file(file_id: UUID, user_id: UUID = Depends(get_current_user_id
         if not row:
             raise HTTPException(status_code=404, detail="File not found")
 
-        # Delete from MinIO
+        # Delete from MinIO. The key is the last 3 URL segments
+        # ({user_id}/{file_id}/{filename}) — same extraction the account-deletion
+        # path uses, robust to the bucket name appearing in different URL shapes
+        # (MinIO path-style vs Supabase object/public/<bucket>). A storage
+        # failure must not leave the DB row half-deleted silently: log it (the
+        # production orphan sweep eventually reclaims the object), but still
+        # proceed with the DB delete so the user's listing is correct.
         try:
             from ..routes.upload import get_minio_client
             s3 = get_minio_client()
-            # Extract key from URL
             minio_url = row["minio_url"]
-            key = minio_url.split(f"{settings.minio_bucket}/")[-1]
+            key = "/".join(minio_url.split("/")[-3:])
             s3.delete_object(Bucket=settings.minio_bucket, Key=key)
-        except Exception:
-            pass  # Non-critical failure
+        except Exception as e:
+            logger.warning("Failed to delete storage object for file %s: %s", file_id, e)
 
         # Delete from DB
         await conn.execute("DELETE FROM uploads WHERE id = $1 AND user_id = $2", file_id, user_id)

@@ -253,6 +253,44 @@ Supply-chain advisories are now caught **automatically**, not just during manual
 - **Unit tests** (`664175d`, `backend/tests/test_dependency_audit.py`): 17 tests covering finding normalization, identity rules, baseline save/load round-trip, new-finding detection (new npm package / second pip advisory / npm severity escalation), fix-not-new, and `main()` exit codes.
 - Verified: 239 backend tests, the workflow ran green end-to-end on a real GitHub Actions `workflow_dispatch`, and a real test PR confirmed the comment posts and updates in place across pushes.
 
+### 2026-08-04 — Second audit pass (round 2): upload/file/auth/billing/infra hardening
+
+A follow-up audit pass (zero-trust checklist: dead code, session lifecycle, payment bypass, DoS, unicode, logging, infra-as-code) produced the fixes below. Verified by **267 backend tests** (28 new regression tests in `backend/tests/test_audit_pass2.py`), 53 frontend tests, clean `tsc`, and a passing `security_audit.py`.
+
+#### High
+
+| Finding | Impact | Fix |
+|---|---|---|
+| **`DELETE /files/{id}` referenced an undefined `settings` module global** — the `NameError` was swallowed by the storage-deletion `try/except`, so the DB row was removed but the object stayed in the public bucket forever | Deleted files remained publicly downloadable (data-retention failure); storage orphans accumulated | Added the missing `get_settings()` import; the storage object is now actually deleted (key = last 3 URL segments, matching the account-deletion path). Regression tests assert `delete_object` is called with the correct key for both Supabase and path-style MinIO URLs. |
+
+#### Medium
+
+| Finding | Impact | Fix |
+|---|---|---|
+| **`POST /analytics/event` (public, unauthenticated) had no rate-limit fallback when Redis is down** | A Redis outage opened an unbounded write path into the analytics table | In-memory bounded fallback (60/min/IP) mirroring the GET-endpoint pattern. Regression tests: `TestAnalyticsEventRateLimitFallback`. |
+| **`POST /auth/register` had no per-IP throttle** | Free account creation spam + transactional-email quota burning (every registration sends a verification email) | Per-IP register limiter (10/hour, Redis primary + bounded in-memory fallback) before any work. Tests: `TestRegisterRateLimit`. |
+| **Password change did not invalidate existing JWTs** | A stolen token survived a password reset for up to 24h | Tokens now carry an `iat` claim; the reset route records `pw_change:{user_id}` in Redis; `get_current_user_id` rejects any token issued before the marker (fail-open when Redis is down, consistent with the app's optional-Redis convention). Admin `toggle-admin` also bumps the marker so privilege changes rotate the target's sessions. Tests: `TestSessionRevocationOnPasswordChange`. |
+| **Stripe webhook granted plans on unpaid sessions** | A `checkout.session.completed` with `payment_status != paid` (async payment methods) upgraded the plan for free | Webhook now requires `payment_status == "paid"` **and** `mode == "subscription"`, and never 500s on malformed `user_id` metadata (bad UUID previously triggered Stripe retries). Tests: `TestStripeWebhookPaymentGate`. |
+| **No pagination on `GET /files`** | One user with a huge library forced an arbitrarily large response | `limit` (default 100, max 500) + `offset` query params; response shape unchanged (bare array, frontend-compatible). Tests: `TestListFilesPagination`. |
+| **Unbounded concurrent chunk/presign sessions per user** | An authenticated attacker could exhaust temp disk (each chunk session grows a ≤1GB file) and Redis/in-memory session storage | Per-user caps: 50 growable chunk sessions, 50 presign sessions. The chunk cap counts only sessions that can still grow (a fully-received session can't write more), so legitimate power users aren't falsely 429'd. **Also:** chunk writes are now size-bounded to the declared `file_size` — a session declaring a small size with a large `total_chunks` could previously grow a temp file far beyond the plan limit. Tests: `TestSessionCaps` (+ size-guard tests). |
+
+#### Low / Infra
+
+| Finding | Impact | Fix |
+|---|---|---|
+| **Email templates interpolated the user-controlled email address unescaped** | A crafted email address (e.g. containing HTML) could inject markup into the email the user receives | `html.escape(email)` in both reset and verification templates. Tests: `TestEmailHtmlEscaping`. |
+| **Emails stored in arbitrary Unicode normalization forms** | Confusable-account vector (composed vs decomposed forms as distinct accounts) | NFC-normalize at the API boundary; login/forgot look up the raw form first (pre-existing accounts) then the NFC form (new accounts) — no lockout. Tests: `TestEmailNfcNormalization`. |
+| **Backend container ran as root** | A container compromise handed the attacker root | Non-root `appuser` (uid 1000, shell `/bin/false`) owns `/app` + `/tmp`; verified in `python:3.11-slim`. |
+| **`minio/minio:latest` unpinned in docker-compose** | Supply-chain drift / silent breaking changes | Pinned to `RELEASE.2025-09-07T16-13-09Z`. |
+
+#### Verified clean (no changes needed)
+
+- **Mass assignment / prototype pollution:** Pydantic models whitelist fields; no `eval`/`pickle`/`yaml.load`/`Object.assign` on user input anywhere.
+- **HTTP request smuggling / response splitting / cache poisoning:** uvicorn + Starlette handle framing; no user input reaches headers; no user-controlled cache keys.
+- **ReDoS:** all regexes are bounded linear patterns (email format, filename sanitization).
+- **Insecure redirects / host-header injection:** `TrustedHostMiddleware` (prod), redirect URLs built only from validated `APP_URL`.
+- **Secrets hygiene:** no hardcoded credentials in source (gitleaks + secret_scan CI gates remain green).
+
 ### Accepted residual risks
 
 Risk is accepted **only** when the fix would break the product or require a breaking change with no safe migration path. Both are continuously re-assessed.
@@ -406,6 +444,7 @@ Vercel proxies every `/api/*` request, and its edge IPs **vary per request**. Ke
 | Global | `backend/app/main.py` (`RateLimitMiddleware`) | 5 req / 10s per IP (static/no-state endpoints exempt: `/health`, `/csp-report`, `/docs`, `/redoc`, `/openapi.json`, `/.well-known/security.txt`) |
 | Login lockout | `backend/app/routes/auth.py` | 5 failed attempts / 15 min per **IP+email** (reset on success) |
 | Forgot password | `backend/app/routes/auth.py` | 1 request / 60s per IP |
+| Registration | `backend/app/routes/auth.py` | 10 / hour per IP |
 | CSP reports | `backend/app/routes/csp.py` | 100 / min per IP |
 | Public file | `backend/app/routes/files.py` | 30 / min per IP |
 | Analytics | `backend/app/routes/analytics.py` | 30 / min per IP (POST public; GET auth + ownership-scoped) |

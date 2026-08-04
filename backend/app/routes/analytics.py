@@ -17,6 +17,12 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 # In-memory fallback for public analytics rate limiting (used when Redis is down)
 _analytics_get_requests: dict[str, list[float]] = {}
 _ANALYTICS_GET_WINDOW = 60
+# In-memory fallback for the public POST /analytics/event limiter (used when
+# Redis is down). This is a WRITE endpoint with no auth, so it MUST be rate
+# limited even without Redis — otherwise an attacker can flood the analytics
+# table with unbounded inserts while Redis is degraded. Bounded via pruning.
+_analytics_event_requests: dict[str, list[float]] = {}
+_ANALYTICS_EVENT_WINDOW = 60
 
 
 def _prune_analytics_get_requests(now: float) -> None:
@@ -24,6 +30,13 @@ def _prune_analytics_get_requests(now: float) -> None:
     expired = [k for k, v in _analytics_get_requests.items() if not v or now - v[-1] > _ANALYTICS_GET_WINDOW]
     for k in expired:
         del _analytics_get_requests[k]
+
+
+def _prune_analytics_event_requests(now: float) -> None:
+    """Drop keys whose newest entry has expired (keeps dict bounded)."""
+    expired = [k for k, v in _analytics_event_requests.items() if not v or now - v[-1] > _ANALYTICS_EVENT_WINDOW]
+    for k in expired:
+        del _analytics_event_requests[k]
 
 
 @router.post("/event")
@@ -36,16 +49,25 @@ async def track_event(
     if event.event_type not in VALID_EVENTS:
         raise HTTPException(status_code=400, detail="Invalid event type")
 
-    # IP-based rate limiting (skip if Redis unavailable)
+    # IP-based rate limiting (Redis primary, in-memory fallback when down).
+    # This public write endpoint stays throttled even without Redis.
+    ip = get_client_ip(request)
     redis = await get_redis()
     if redis is not None:
-        ip = get_client_ip(request)
         rate_key = f"analytics_rate:{ip}"
         count = await redis.get(rate_key)
         if count and int(count) >= settings.rate_limit_analytics:
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
         await redis.incr(rate_key)
         await redis.expire(rate_key, 60)
+    else:
+        now = time.time()
+        _prune_analytics_event_requests(now)
+        recent = [t for t in _analytics_event_requests.get(ip, []) if now - t < _ANALYTICS_EVENT_WINDOW]
+        if len(recent) >= settings.rate_limit_analytics:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        recent.append(now)
+        _analytics_event_requests[ip] = recent
 
     pool = await get_db_pool()
     async with pool.acquire() as conn:

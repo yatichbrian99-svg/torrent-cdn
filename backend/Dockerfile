@@ -12,6 +12,17 @@ RUN pip install --upgrade pip && pip install --no-cache-dir --default-timeout=12
 # Copy source code
 COPY . .
 
+# Run as a non-root user (least privilege): a container compromise must not
+# hand the attacker root in the image. The app writes only to /tmp (chunked
+# upload assembly, ffmpeg thumbnails) and binds a high port, so non-root is
+# sufficient. Render's health check and the docker-compose /tmp volume both
+# work unprivileged (the /tmp volume inherits the image's ownership).
+RUN useradd --create-home --shell /bin/false appuser \
+    && mkdir -p /tmp \
+    && chown -R appuser:appuser /app /tmp
+
+USER appuser
+
 EXPOSE 8000
 
 # Production: single gunicorn worker with the async uvicorn worker class.

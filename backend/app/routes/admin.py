@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from uuid import UUID
 
 from ..config import get_settings
-from ..database import get_db_pool
+from ..database import get_db_pool, get_redis
 from ..auth import get_current_user_id
 from ..models import UserAdminResponse, UpdateUserPlanRequest, AdminAnalyticsResponse
 
@@ -203,6 +203,19 @@ async def admin_toggle_admin(
             "UPDATE users SET is_admin = $1 WHERE id = $2",
             new_status, user_id,
         )
+
+    # Rotate the target user's sessions on a PRIVILEGE change: any token they
+    # hold was minted under the old admin flag. Bumping pw_change makes
+    # get_current_user_id reject those tokens (they must log in again to pick
+    # up the new role). Redis optional — fail-open without it.
+    try:
+        import time
+        redis = await get_redis()
+        if redis is not None:
+            await redis.set(f"pw_change:{user_id}", str(time.time()))
+    except Exception:
+        pass
+
     return {"detail": "Admin status updated", "is_admin": new_status}
 
 
