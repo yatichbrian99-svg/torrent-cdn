@@ -162,15 +162,25 @@ A built-in endpoint that receives CSP violation reports from browsers.
 
 ## Pre-merge CI Gates
 
-Every push/PR to `main` runs `.github/workflows/security.yml` — **all jobs must be green before merging**. PRs get inline gitleaks comments pointing at the offending line when a secret is introduced; the build fails on anything below:
+Every push/PR to `main` runs `.github/workflows/security.yml` + `.github/workflows/dependency-audit.yml` — **all jobs must be green before merging** (the scheduled jobs also run on their daily crons; `p2p-e2e` is push/manual-dispatch only because it writes to production). PRs get inline gitleaks comments pointing at the offending line when a secret is introduced; the build fails on anything below:
 
 | Job | What it gates |
 |---|---|
 | `tests` | Backend unit suite (pytest, fully mocked — no infra) |
 | `secret-scan` | Diff-scoped high-signal secret gate (`backend/scripts/secret_scan.sh`) + whole-tree scan — GitHub PATs, AWS/Stripe/SendGrid/Resend keys, private keys, webhooks |
 | `static-audit` | Gitleaks secret scan (pushed-range on push, **full history** on the daily cron/dispatch; posts inline PR comments, uploads SARIF) + `security_audit.py` header/CSP/auth/API-docs-gating checks |
-| `frontend-checks` | **Frontend pipeline:** `npm ci` → `tsc --noEmit` → vitest unit tests **+ coverage gate** → `next build` → **OG image guard** |
+| `frontend-checks` | **Frontend pipeline:** `npm ci` → `tsc --noEmit` → vitest unit tests **+ coverage gate** → `next build` → **OG image guard** + **API baseURL guard** |
 | `fullstack-audit` | Docker stack (Postgres/Redis/MinIO) + `curl_audit.sh` end-to-end (push/PR only; runs even when the secret gates are red, so a leak PR keeps its e2e signal) |
+| `p2p-e2e` | **Real 2-peer WebTorrent delivery gate** (push/manual only — writes throwaway accounts/files to production): builds the pushed frontend, serves it behind the same-origin proxy, and runs `e2e/p2p-two-peer.mjs` — seeder reproduces the backend infohash and seeds; leecher plays `/embed/{id}` with every `*.supabase.co` request BLOCKED (only WebRTC can deliver) → peers connect, video plays, `chunk_downloaded` with `bytes_p2p > 0` lands in analytics |
+| `storage-publicity` | Credential-free live check that the Supabase bucket is still **public** (`check_storage_public.sh`): a private bucket 404s all playback, so a regression here breaks every `minio_url` |
+| `dependency-audit` | **Supply-chain gate** (daily 06:00 UTC cron + PR + manual): runs `pip-audit` + `npm audit`, posts the report as a PR comment, and fails on any advisory **beyond the accepted baseline** (`backend/scripts/dependency-audit-baseline.json` — currently the `ip`-via-webtorrent highs) or on any critical |
+
+> **When the dependency-audit job goes red**, the report/comment show exactly which advisories are new. If a newly-found advisory is genuinely accepted (no safe fix), regenerate the baseline so CI reflects the new decision — then record the acceptance in the Hardening Log below:
+>
+> ```bash
+> python backend/scripts/dependency_audit_report.py \
+>   --write-baseline backend/scripts/dependency-audit-baseline.json
+> ```
 
 ### Frontend build + OG image guard (protects link previews)
 
