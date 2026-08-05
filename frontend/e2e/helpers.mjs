@@ -69,11 +69,19 @@ export async function registerUser(prefix = 'e2e') {
   return { email, token: data.access_token }
 }
 
-/** Best-effort cleanup: delete the uploaded file and/or the throwaway user. */
+/** Best-effort cleanup: delete the uploaded file and/or the throwaway user.
+ *
+ * Suites pass the token of the account THEY created. When E2E_TOKEN is set,
+ * user is null and suites pass token: undefined — but the uploaded test file
+ * must STILL be deleted (a previous version leaked every E2E_TOKEN run's
+ * file, which then polluted later suites' dashboard state). The account
+ * itself is only deleted when this run created it (token param), never when
+ * E2E_TOKEN is reused across suites. */
 export async function cleanup({ token, fileId } = {}) {
-  if (fileId && token) {
+  const authToken = token || process.env.E2E_TOKEN
+  if (fileId && authToken) {
     try {
-      await api(`/files/${fileId}`, { method: 'DELETE', token })
+      await api(`/files/${fileId}`, { method: 'DELETE', token: authToken })
     } catch {}
   }
   if (token) {
