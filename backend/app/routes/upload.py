@@ -1055,6 +1055,37 @@ async def presign_finalize(
     _prune_presign_sessions()
     session = await _load_presign_session(upload_id)
     if session is None or str(session.get("user_id")) != str(user_id):
+        # Lost-response retry: the first finalize may have COMPLETED — the
+        # session is deleted on success — while its response died at the proxy
+        # (a Render cold-start signature; the live probe hit exactly this:
+        # finalize got a transient 502, the client's retry then 404'd). The
+        # uploads row uses upload_id as its id, so a row for THIS user with
+        # id == upload_id proves the upload finalized: return it instead of a
+        # 404 so the retry succeeds (same contract as the idempotency-key dedup
+        # below, but keyed by the upload_id the client actually holds — it never
+        # had the key). Authorization is preserved: the query filters user_id,
+        # and a non-UUID upload_id skips the query entirely (a malformed path
+        # param must never 500).
+        parsed_id = None
+        try:
+            parsed_id = uuid.UUID(upload_id)
+        except ValueError:
+            pass
+        if parsed_id is not None:
+            pool = await get_db_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT id, filename, minio_url, torrent_magnet, file_size_mb, thumbnail_url "
+                    "FROM uploads WHERE id = $1 AND user_id = $2",
+                    parsed_id,
+                    user_id,
+                )
+            if row:
+                logger.info(
+                    "Presign finalize lost-response retry hit for upload %s (user %s)",
+                    upload_id, user_id,
+                )
+                return _upload_response_from_row(row)
         raise HTTPException(status_code=404, detail="Upload session not found")
 
     pool = await get_db_pool()

@@ -284,6 +284,50 @@ class TestPresignFinalize:
         assert rate_calls == []
         _cleanup_session(upload_id)
 
+    def test_finalize_lost_response_retry_returns_stored_upload(
+        self, client, auth_headers, mock_conn, mock_s3_client
+    ):
+        """Cold-start signature (hit by the live probe): the first finalize
+        COMPLETED — session deleted, uploads row inserted — but its response
+        died at the proxy. The client's retry has no session and no key, only
+        the upload_id; it must be answered from the uploads row (id ==
+        upload_id), NOT a 404, and must not re-validate/re-upload the object."""
+        stored = {
+            "id": FILE_ID,
+            "filename": "movie.mp4",
+            "minio_url": "https://storage.example/bucket/user/movie.mp4",
+            "torrent_magnet": "magnet:?xt=urn:btih:testhash",
+            "file_size_mb": 1.0,
+            "thumbnail_url": None,
+        }
+        mock_conn.fetchrow.return_value = stored
+
+        resp = client.post(f"/upload/presign/finalize/{FILE_ID}", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["file_id"] == str(FILE_ID)
+        assert data["filename"] == "movie.mp4"
+        # Authorization preserved: the lookup is scoped to the caller's user_id
+        # (args = [sql, id, user_id] — a loose `in` match would also pass if the
+        # arg order ever changed, so pin the positions).
+        args = mock_conn.fetchrow.call_args.args
+        assert args[1] == FILE_ID
+        assert args[2] == TEST_USER["id"]
+        # No storage round-trip on a retry — the object is already finalized
+        mock_s3_client.head_object.assert_not_called()
+        mock_s3_client.create_multipart_upload.assert_not_called()
+
+    def test_finalize_lost_response_no_row_still_404s(self, client, auth_headers, mock_conn):
+        """A session-less finalize whose upload_id has no uploads row is still a
+        genuine 404 (a stale/cancelled attempt), not an oracle or a 500."""
+        mock_conn.fetchrow.return_value = None
+        resp = client.post(
+            f"/upload/presign/finalize/{UUID('99999999-9999-4999-8999-999999999999')}",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Upload session not found"
+
     def test_finalize_rejects_unknown_session(self, client, auth_headers):
         resp = client.post("/upload/presign/finalize/does-not-exist", headers=auth_headers)
         assert resp.status_code == 404
