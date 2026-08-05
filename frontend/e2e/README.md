@@ -15,10 +15,15 @@ development, now saved as a repeatable suite.
 | Auto-seed after upload | `npm run test:e2e:autoseed` | The uploader's tab becomes the seeder: upload through the real `/dashboard/upload` UI, the success screen shows the "seeding…" indicator (`lib/seeder.ts` reproduces the backend infohash from the magnet), then a leecher in a second browser plays `/embed/{file_id}` with every `*.supabase.co` request **blocked** — the only way it can play is WebRTC from the uploader's seed → "N peers connected", video plays, `chunk_downloaded` records `bytes_p2p > 0` |
 | 2-peer P2P | `npm run test:e2e:p2p` | **Real WebTorrent P2P between two browsers**: a seeder reproduces the backend's exact infohash (name + 256 KiB pieces) and seeds the file; a leecher plays `/embed/{file_id}` with every `*.supabase.co` request **blocked** (so only WebRTC can deliver bytes) → "N peers connected" on both sides, video plays, and the backend records `chunk_downloaded` analytics with `bytes_p2p > 0` |
 | API-key UI | `npm run test:e2e:apikey` | Dashboard API Key lifecycle through the real UI: Generate reveals the full `tcdn_` key + "only time shown" warning → Copy puts the exact key on the clipboard and flips to "Copied" → **reload shows only the prefix + date (the secret never returns)** → Revoke resets the button → the revoked key 401s on `/files` (fail-closed) |
+| Finalize cold-start retry | `npm run test:e2e:finalize-retry` | Blocks the first `/upload/presign/finalize` with a **502** → the client's auto-retry re-sends it → success screen, no chunked fallback. `FINALIZE_LOST_RESPONSE=1` goes further: the first finalize **completes server-side** (session consumed, uploads row created) while the browser gets the 502, so the retry must be answered by the backend's idempotent lost-response path (`uploads` row by `id == upload_id`) — the exact Render cold-start signature the live probe caught |
+| Login form | `npm run test:e2e:login` | Drives the REAL auth form (every other suite seeds sessionStorage): wrong password → the actual "Invalid email or password" detail (401); correct credentials → either the logged-in navbar (verified account via `E2E_EMAIL`) or the actual "Email not verified…" gate detail (403) — production gates password login on email verification by design |
+| Visual smoke | `npm run test:e2e:visual` | Loads the landing page, docs, and the logged-in dashboard (+ a 375px mobile landing shot); saves full-page screenshots under `e2e/.artifacts/visual-*.png`; fails on any JS page error or non-resource console error |
 
 All suites:
-- create a **throwaway account + test file** and delete them in cleanup (safe to
-  run repeatedly against production),
+- create a **throwaway account + test file** and delete the file in cleanup; the
+  account is deleted only when the suite created it (an account shared via
+  `E2E_TOKEN` outlives the run — the CI job deletes it explicitly),
+  so runs are safe to repeat against production,
 - synthesize real playable media with **ffmpeg** (WebM for the embed suite —
   headless Chromium can't decode H.264; MP4 for the upload suites),
 - print a JSON report to stdout and exit non-zero on any failed assertion,
@@ -36,18 +41,22 @@ npx playwright install chromium   # one-time: installs the headless browser
 ## Running
 
 ```bash
-npm run test:e2e            # all five suites
-npm run test:e2e:upload     # direct upload only
-npm run test:e2e:fallback   # chunked fallback only
-npm run test:e2e:embed      # embed playback only
-npm run test:e2e:autoseed   # uploader auto-seeds; leecher plays via P2P
-npm run test:e2e:p2p        # real 2-peer P2P (seeder + leecher)
-npm run test:e2e:apikey     # dashboard API-key lifecycle (generate/copy/revoke)
+npm run test:e2e                       # all nine suites
+npm run test:e2e:upload                # direct upload only
+npm run test:e2e:fallback              # chunked fallback only
+npm run test:e2e:embed                 # embed playback only
+npm run test:e2e:autoseed              # uploader auto-seeds; leecher plays via P2P
+npm run test:e2e:p2p                   # real 2-peer P2P (seeder + leecher)
+npm run test:e2e:apikey                # dashboard API-key lifecycle (generate/copy/revoke)
+npm run test:e2e:finalize-retry        # finalize 502 → client re-sends → success
+npm run test:e2e:finalize-retry-lost   # ... + lost-response (server completed, browser got 502)
+npm run test:e2e:login                 # real login form (401/403 message surfacing)
+npm run test:e2e:visual                # page renders + screenshots + console-error check
 ```
 
 `node e2e/run-all.mjs <prefix>` also runs a single suite (e.g. `node e2e/run-all.mjs embed`).
-The `p2p-two-peer` suite additionally runs on every push/PR via the `p2p-e2e`
-GitHub Actions job (see "CI wiring" below).
+The full batch additionally runs on every push and on manual dispatch via the
+`p2p-e2e` GitHub Actions job (see "CI wiring" below).
 
 ## Env overrides
 
@@ -62,27 +71,34 @@ GitHub Actions job (see "CI wiring" below).
 
 ## CI wiring
 
-The **2-peer P2P suite is wired into GitHub Actions** (`.github/workflows/security.yml`
-job `p2p-e2e`, runs on every push/PR to `main`). Because Vercel deploys lag the
+The **full E2E batch is wired into GitHub Actions** (`.github/workflows/security.yml`
+job `p2p-e2e`, runs on every push to `main` + manual `workflow_dispatch`, NOT
+pull requests — the suites write to production). Because Vercel deploys lag the
 push, the job does NOT hit the deployed site — it **builds the pushed code**,
 serves it locally (`next start` behind `e2e/local-proxy.mjs`, which mirrors
-vercel.json's rewrites), and runs the suite against that build with the
-**production Render backend** underneath. So every push validates:
+vercel.json's rewrites), and runs `node e2e/run-all.mjs` (all nine suites)
+against that build with the **production Render backend** underneath. So every
+push validates:
 - the pushed player's P2P path against production's magnet/tracker/analytics
-  contract,
-- infohash reproducibility (seeder == backend),
-- real WebRTC delivery with origin streaming blocked,
-- `chunk_downloaded` analytics with `bytes_p2p > 0`.
+  contract (2-peer swarm + auto-seed with origin streaming blocked),
+- direct + fallback uploads, embed playback, API-key UI, the finalize
+  cold-start retry, the real login form, and page rendering (visual smoke),
+- infohash reproducibility (seeder == backend) and `chunk_downloaded`
+  analytics with `bytes_p2p > 0`.
 
-The job installs Playwright Chromium + ffmpeg itself. The other suites remain
-manual post-deploy tools (they exercise deployed-production behavior that CI's
-local build can't cover, e.g. the exact shipped Vercel proxy).
+The job registers **one shared throwaway account** up front (`E2E_TOKEN`) —
+nine per-suite registers plus the scheduled probe registers from GitHub's
+shared runner IPs would exceed the live 10/hr/IP registration budget — and
+deletes it in an `if: always()` step, so CI never accumulates test users. Each
+suite still deletes its own test files. The job installs Playwright Chromium +
+ffmpeg itself.
 
 ## Notes
 
 - These suites **hit production** (they need live accounts + real storage). The
-  `p2p-e2e` CI job uses them against the production backend; the rest are the
-  post-deploy verification tool: run them after any upload/player change.
+  `p2p-e2e` CI job runs the full batch against a local build + the production
+  backend; running them directly against `www.torrentcdn.store` is the
+  post-deploy verification tool — do it after any upload/player/auth change.
 - The upload suites use CDP network throttling so the progress bar is
   observable; the fallback suite also blocks `*.supabase.co` to force the
   chunked path.
