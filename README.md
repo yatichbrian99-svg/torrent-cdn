@@ -42,9 +42,31 @@ npm ci
 npm run dev
 ```
 
+## Development workflow (protected `main`)
+
+`main` is **protected** — no direct pushes, ever. Every change (feature or patch) ships through a pull request, and **merging to `main` is the ONLY way code reaches production** (Vercel + Render auto-deploy on `main` merges). This is deliberate: a deploy now requires a conscious, CI-green merge instead of a push accident.
+
+```bash
+# 1. Branch off main (feat/…, fix/…, chore/…)
+git checkout -b feat/your-feature
+# 2. Make changes; run the local checks below
+# 3. Push the branch and open a PR
+#    https://github.com/yatichbrian99-svg/torrent-cdn/compare/main...feat/your-feature
+git push -u origin feat/your-feature
+# 4. Merge the PR once the CI gates below are green — merging deploys
+```
+
+**What happens on merge:**
+
+1. **Vercel** deploys the frontend and **Render** deploys the backend — only via the merge, never from a raw push.
+2. CI's post-merge `p2p-e2e` job validates the freshly deployed build against production (2-peer swarm test + all E2E suites) — a broken deploy turns CI red immediately.
+3. The daily scheduled jobs keep auditing production (secrets, dependencies, API-key + upload live probes, storage publicity).
+
+Local checks before opening a PR: `cd backend && ./.venv/bin/python -m pytest`, `cd frontend && npm run test:coverage`, and `cd backend && ./.venv/bin/python scripts/security_audit.py`.
+
 ## Testing & pre-merge CI gates
 
-Every push/PR to `main` runs `.github/workflows/security.yml` — **all jobs must be green before merging**. On a leak, gitleaks posts an inline PR comment pointing at the offending line and the build fails.
+Every push (post-merge) and pull request to `main` runs `.github/workflows/security.yml` — **all jobs must be green before merging**. On a leak, gitleaks posts an inline PR comment pointing at the offending line and the build fails.
 
 | Job | What it gates | Run locally |
 |---|---|---|
