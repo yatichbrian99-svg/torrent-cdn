@@ -17,6 +17,7 @@
     "test:e2e:finalize-retry": "node e2e/finalize-retry.mjs",
     "test:e2e:finalize-retry-lost": "FINALIZE_LOST_RESPONSE=1 node e2e/finalize-retry.mjs",
     "test:e2e:login": "node e2e/login-flow.mjs",
+    "test:e2e:visual": "node e2e/visual-pass.mjs",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"
   },
