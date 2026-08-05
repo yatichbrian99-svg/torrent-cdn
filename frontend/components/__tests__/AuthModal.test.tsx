@@ -5,15 +5,18 @@ import userEvent from '@testing-library/user-event'
 // Mock the api client so submit errors are controllable per test.
 const mocks = vi.hoisted(() => ({
   login: vi.fn(),
+  mfaConfirm: vi.fn(),
+  saveToken: vi.fn(),
 }))
 vi.mock('@/lib/api', () => ({
   default: {
     login: mocks.login,
     register: vi.fn(),
+    mfaConfirm: mocks.mfaConfirm,
   },
 }))
 vi.mock('@/lib/auth', () => ({
-  saveToken: vi.fn(),
+  saveToken: mocks.saveToken,
 }))
 
 import AuthModal from '../AuthModal'
@@ -21,6 +24,8 @@ import AuthModal from '../AuthModal'
 describe('AuthModal', () => {
   beforeEach(() => {
     mocks.login.mockReset()
+    mocks.mfaConfirm.mockReset()
+    mocks.saveToken.mockReset()
   })
 
   it('toggles the password field between hidden and visible', async () => {
@@ -85,5 +90,51 @@ describe('AuthModal', () => {
     expect(
       await screen.findByText('Could not reach the server. Check your connection and try again.')
     ).toBeInTheDocument()
+  })
+
+  it('switches to the two-factor step when login requires MFA (no token yet)', async () => {
+    const user = userEvent.setup()
+    mocks.login.mockResolvedValue({ mfa_required: true, mfa_token: 'mfa-jwt', token_type: 'bearer' })
+    render(<AuthModal onClose={vi.fn()} />)
+
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'user@example.com')
+    await user.type(screen.getByPlaceholderText('password'), 'securePass123')
+    await user.click(screen.getByRole('button', { name: 'Login' }))
+
+    // The code step appears and the session token is NOT saved yet.
+    expect(await screen.findByPlaceholderText('000000')).toBeInTheDocument()
+    expect(mocks.saveToken).not.toHaveBeenCalled()
+  })
+
+  it('completes login with a valid MFA code and saves the token', async () => {
+    const user = userEvent.setup()
+    mocks.login.mockResolvedValue({ mfa_required: true, mfa_token: 'mfa-jwt', token_type: 'bearer' })
+    mocks.mfaConfirm.mockResolvedValue({ access_token: 'real-token', token_type: 'bearer' })
+    render(<AuthModal onClose={vi.fn()} />)
+
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'user@example.com')
+    await user.type(screen.getByPlaceholderText('password'), 'securePass123')
+    await user.click(screen.getByRole('button', { name: 'Login' }))
+    await user.type(await screen.findByPlaceholderText('000000'), '123456')
+    await user.click(screen.getByRole('button', { name: 'Verify code' }))
+
+    await waitFor(() => expect(mocks.mfaConfirm).toHaveBeenCalledWith('mfa-jwt', '123456'))
+    expect(mocks.saveToken).toHaveBeenCalledWith('real-token')
+  })
+
+  it('shows the API detail on an invalid MFA code', async () => {
+    const user = userEvent.setup()
+    mocks.login.mockResolvedValue({ mfa_required: true, mfa_token: 'mfa-jwt', token_type: 'bearer' })
+    mocks.mfaConfirm.mockRejectedValue({ response: { status: 401, data: { detail: 'Invalid authentication code' } } })
+    render(<AuthModal onClose={vi.fn()} />)
+
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'user@example.com')
+    await user.type(screen.getByPlaceholderText('password'), 'securePass123')
+    await user.click(screen.getByRole('button', { name: 'Login' }))
+    await user.type(await screen.findByPlaceholderText('000000'), '000000')
+    await user.click(screen.getByRole('button', { name: 'Verify code' }))
+
+    expect(await screen.findByText('Invalid authentication code')).toBeInTheDocument()
+    expect(mocks.saveToken).not.toHaveBeenCalled()
   })
 })

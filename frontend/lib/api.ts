@@ -231,13 +231,16 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    // A 401 from the login/register endpoints means WRONG CREDENTIALS, not an
-    // expired session — let the form show the real error ('Invalid email or
-    // password') instead of nuking the page with a redirect. Everywhere else
-    // (auth/me, files, billing, ...) a 401 still means the session died, so
-    // clear the token and bounce home.
+    // A 401 from the login/register/MFA-confirm endpoints means WRONG
+    // CREDENTIALS (or a wrong 2FA code), not an expired session — let the form
+    // show the real error instead of nuking the page with a redirect.
+    // Everywhere else (auth/me, files, billing, ...) a 401 still means the
+    // session died, so clear the token and bounce home.
     const url = error.config?.url || ''
-    const isCredentialCheck = url === '/auth/login' || url === '/auth/register'
+    const isCredentialCheck =
+      url === '/auth/login' ||
+      url === '/auth/register' ||
+      url === '/auth/mfa/confirm'
     if (error.response?.status === 401 && !isCredentialCheck) {
       removeToken()
       if (typeof window !== 'undefined') {
@@ -325,6 +328,21 @@ export default {
 
   revokeApiKey: () =>
     withTransientRetry(() => api.delete('/auth/api-key').then((r) => r.data)),
+
+  // Two-factor authentication (TOTP)
+  mfaStatus: () => api.get('/auth/mfa').then((r) => r.data),
+
+  mfaSetup: () => api.post('/auth/mfa/setup').then((r) => r.data),
+
+  mfaEnable: (code: string) =>
+    api.post('/auth/mfa/enable', { code }).then((r) => r.data),
+
+  mfaDisable: (code: string) =>
+    api.post('/auth/mfa/disable', { code }).then((r) => r.data),
+
+  // Second factor for a pending MFA login (password already verified).
+  mfaConfirm: (mfaToken: string, code: string) =>
+    api.post('/auth/mfa/confirm', { mfa_token: mfaToken, code }).then((r) => r.data),
 
   verifyEmail: (token: string) =>
     api.post('/auth/verify-email', { token }).then((r) => r.data),

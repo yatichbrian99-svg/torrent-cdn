@@ -40,6 +40,11 @@ CREATE TABLE IF NOT EXISTS users (
     referral_code VARCHAR(20) UNIQUE,
     referred_by UUID REFERENCES users(id),
     referral_bonus_gb FLOAT DEFAULT 0,
+    -- Two-factor authentication: the base32 TOTP secret + SHA-256 hashes of the
+    -- single-use backup codes (JSON array). Both NULL until setup completes.
+    mfa_secret TEXT,
+    mfa_enabled BOOLEAN DEFAULT FALSE,
+    mfa_backup_codes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 """

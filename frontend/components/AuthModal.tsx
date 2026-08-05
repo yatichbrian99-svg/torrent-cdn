@@ -13,6 +13,23 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  // Second-factor step: set when the backend answers mfa_required: true.
+  const [mfaToken, setMfaToken] = useState<string | null>(null)
+  const [mfaCode, setMfaCode] = useState('')
+
+  const showError = (err: any, fallback: string) => {
+    // Show the API's real message when present; otherwise explain WHY the
+    // generic 'Authentication failed' happens — Render's free tier cold-starts
+    // after ~15min idle, so the Vercel proxy can return 502/504 (or the
+    // request times out) even with correct credentials.
+    const status = err.response?.status
+    const detail = err.response?.data?.detail
+    if (detail) setError(detail)
+    else if (status === 502 || status === 503 || status === 504)
+      setError('The server is still waking up. Give it a few seconds and try again.')
+    else if (!err.response) setError('Could not reach the server. Check your connection and try again.')
+    else setError(fallback)
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -23,27 +40,35 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
       const data = isLogin
         ? await api.login(email, password)
         : await api.register(email, password, termsAccepted, refCode)
+      // MFA gate: the password half succeeded but this account requires a
+      // second factor — switch to the code step (NO token yet).
+      if (data?.mfa_required) {
+        setMfaToken(data.mfa_token)
+        setMfaCode('')
+        return
+      }
       saveToken(data.access_token)
       // Referral code is consumed after a successful registration.
       if (!isLogin && refCode) sessionStorage.removeItem('torrent_cdn_ref')
       onClose()
       window.location.reload()
     } catch (err: any) {
-      // Show the API's real message when present; otherwise explain WHY the
-      // generic 'Authentication failed' happens — Render's free tier cold-starts
-      // after ~15min idle, so the Vercel proxy can return 502/504 (or the
-      // request times out) even with correct credentials.
-      const status = err.response?.status
-      const detail = err.response?.data?.detail
-      if (detail) {
-        setError(detail)
-      } else if (status === 502 || status === 503 || status === 504) {
-        setError('The server is still waking up. Give it a few seconds and try again.')
-      } else if (!err.response) {
-        setError('Could not reach the server. Check your connection and try again.')
-      } else {
-        setError(`${isLogin ? 'Login' : 'Sign up'} failed. Please try again.`)
-      }
+      showError(err, `${isLogin ? 'Login' : 'Sign up'} failed. Please try again.`)
+    } finally { setLoading(false) }
+  }
+
+  const handleMfaSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!mfaToken) return
+    setLoading(true)
+    setError('')
+    try {
+      const data = await api.mfaConfirm(mfaToken, mfaCode)
+      saveToken(data.access_token)
+      onClose()
+      window.location.reload()
+    } catch (err: any) {
+      showError(err, 'Invalid code. Check your authenticator app and try again.')
     } finally { setLoading(false) }
   }
 
@@ -55,6 +80,43 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
           <button onClick={onClose} className="text-sm" style={{ color: '#555' }}>&times;</button>
         </div>
 
+        {mfaToken ? (
+          <form onSubmit={handleMfaSubmit} className="flex flex-col gap-5">
+            <div>
+              <label className="mb-1 block text-xs uppercase tracking-widest" style={{ color: '#555' }}>Two-factor code</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={mfaCode}
+                onChange={(e) => setMfaCode(e.target.value)}
+                required
+                maxLength={12}
+                className="w-full border px-3 py-2 text-sm text-white"
+                style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}
+                placeholder="000000"
+              />
+            </div>
+            <p className="text-xs" style={{ color: '#888' }}>
+              Enter the 6-digit code from your authenticator app{''}
+              {' '}(or a single-use backup code).
+            </p>
+            {error && <p className="text-xs text-white">{error}</p>}
+            <button type="submit" disabled={loading}
+              className="w-full border py-2 text-sm font-medium disabled:opacity-50"
+              style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000' }}>
+              {loading ? <Loader2 size={14} className="mx-auto animate-spin" /> : 'Verify code'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMfaToken(null); setMfaCode(''); setError('') }}
+              className="text-center text-xs transition-colors hover:text-white"
+              style={{ color: '#555' }}
+            >
+              Back to login
+            </button>
+          </form>
+        ) : (
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">
           <div>
             <label className="mb-1 block text-xs uppercase tracking-widest" style={{ color: '#555' }}>Email</label>
@@ -130,11 +192,12 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
 
           <p className="text-center text-xs" style={{ color: '#555' }}>
             {isLogin ? "Don't have an account?" : 'Already have an account?'}{' '}
-            <button type="button" onClick={() => { setIsLogin(!isLogin); setError('') }} className="font-medium text-white hover:underline">
+            <button type="button" onClick={() => { setIsLogin(!isLogin); setMfaToken(null); setError('') }} className="font-medium text-white hover:underline">
               {isLogin ? 'Sign up' : 'Login'}
             </button>
           </p>
         </form>
+        )}
       </div>
     </div>
   )

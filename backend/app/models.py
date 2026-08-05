@@ -110,6 +110,31 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class MfaStatusResponse(BaseModel):
+    """MFA state for the dashboard. `is_admin` drives the recommended-for-admins nudge."""
+    enabled: bool
+    is_admin: bool = False
+
+
+class MfaSetupResponse(BaseModel):
+    """One-time setup payload. `secret`/`backup_codes` are returned exactly once
+    (only the backup-code hashes are stored server-side)."""
+    secret: str
+    otpauth_uri: str
+    backup_codes: list[str]
+
+
+class MfaCodeRequest(BaseModel):
+    """6-digit TOTP code or a 10-char single-use backup code."""
+    code: str = Field(min_length=6, max_length=12)
+
+
+class MfaConfirmRequest(BaseModel):
+    """Second factor for a pending MFA login (mfa_token + code)."""
+    mfa_token: str = Field(max_length=MAX_TOKEN_LEN)
+    code: str = Field(min_length=6, max_length=12)
+
+
 class ApiKeyResponse(BaseModel):
     """API-key info. `api_key` (the plaintext) is ONLY present on creation — the
     server stores just a hash, so the secret can never be retrieved again."""

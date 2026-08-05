@@ -375,6 +375,19 @@ Full re-baseline against OWASP Top 10 / ASVS / CWE Top 25 (the "ultimate hardeni
 
 **Verification:** backend **290 passed**, frontend **74 passed** + `tsc` clean, `security_audit.py` **all checks passed**, secret scan clean.
 
+### 2026-08-05 — Residual-risk closure: TOTP MFA, opt-in malware scan, WAF + restore-drill tooling
+
+Closed or converted four of the six accepted residual risks into working mitigations:
+
+1. **TOTP two-factor authentication (RFC 6238, stdlib-only)** — login now returns `mfa_required` + a 5-min MFA token for MFA-enabled accounts; `/auth/mfa/confirm` mints the real session token only after a valid TOTP or single-use backup code. Backup codes (10 × 10-char) are stored **hashed** and consumed atomically (a replayed code fails; concurrent use can't double-succeed). Enable/disable require a live code; both rotate sessions via the `pw_change` marker. Failed confirms are rate-limited 5/15min/IP. New columns `mfa_secret` / `mfa_enabled` / `mfa_backup_codes` (migration + DDL). Dashboard: QR (`qrcode`), secret + otpauth link copy, one-time backup-code display, admin-recommended nudge. AuthModal: 6-digit step after password.
+2. **Opt-in malware scanning (VirusTotal, fail-open)** — `app/malware_scan.py` with streamed SHA-256 lookup, ≤32MB submission + polling, and fail-open on every error path; wired into both finalize paths (`_store_and_finalize` before storage write; `presign_finalize` before record insert, deleting the object on a malicious verdict). Gated by `VIRUSTOTAL_API_KEY` (render.yaml + .env.example).
+3. **WAF/DDoS** — verified live the domain is directly on Vercel; `backend/scripts/check_waf.sh` reports the active edge layer and prints the Vercel-Firewall (no DNS change) / Cloudflare enablement steps.
+4. **Backups** — `backend/scripts/RESTORE_RUNBOOK.md` (quarterly drill) + `backend/scripts/restore_drill.sh` (read-only pre-flight: tooling, connectivity, table counts, MFA-column schema sanity).
+
+**`ip` advisory updated:** the current advisory is **GHSA-2p57-rm9w-gvfp** (SSRF via `isPublic`) with **no patched release** (2.0.1 is latest) — remains an accepted, browser-side-only risk; a future `ip` release can be pinned via npm `overrides` (bittorrent-tracker allows `^2.0.1`).
+
+**Regression tests (+39):** `test_mfa.py` (RFC 6238 vector, window tolerance, login gate, backup-code atomic consumption + replay rejection, enable/disable, rate limit, token claim separation) and `test_malware_scan.py` (fail-open paths, verdict mapping, lookup→submit→poll, 422 wire-in with no bytes stored) — backend **326 passed**; AuthModal MFA-step component tests — frontend **77 passed** + `tsc` clean; security audit all checks passed; secret scan clean.
+
 ### Accepted residual risks
 
 Risk is accepted **only** when the fix would break the product or require a breaking change with no safe migration path. Both are continuously re-assessed.
@@ -383,25 +396,25 @@ Risk is accepted **only** when the fix would break the product or require a brea
 
 The advisory database updated *after* the 14.2.35 fix shipped a new batch with **no 14.x patch** (SSRF class; requires 15.5.21+/16.2.11+). At the time it was **not exploitable in this app's configuration** (no Server Actions, no `next/image`, all rewrites use static destinations), and the long-term fix was the Next 15 major migration — which has since landed in `aceaa97`. Kept on this list for the historical record and because the migration must not be reverted.
 
-#### 2. `ip` advisory (transitive via `webtorrent`) — **accepted**
+#### 2. `ip` advisory (transitive via `webtorrent`) — **accepted, no fix exists**
 
-`npm audit` reports `ip` (DoS via malformed IP string) as a transitive dependency of `webtorrent`. The only "fix" npm offers is downgrading `webtorrent` to 0.7.3, which would **destroy the entire P2P delivery feature** (the product's core differentiator). Exposure is minimal: it executes in the browser client (not the server), and the malformed-input path is not reachable from user-controlled surfaces in the embed player. Revisit if `webtorrent` upstreams a fix or drops the `ip` dependency.
+`npm audit` reports `ip` (**GHSA-2p57-rm9w-gvfp**, SSRF via improper `isPublic` categorization — all published versions affected, latest is 2.0.1, no patched release). The only "fix" npm offers is downgrading `webtorrent` to 0.7.3, which would **destroy the entire P2P delivery feature** (the product's core differentiator). Exposure is minimal and browser-side only: the tracker uses `ip` to filter peers in announce responses, and WebRTC peer connections are ICE-based (the browser refuses non-public addresses), so a misclassified private IP cannot be used for server-side SSRF — this app never runs `ip` server-side. Revisit when a patched `ip` release lands (the `bittorrent-tracker` dependency allows `^2.0.1`, so an `overrides` pin would then work).
 
-#### 3. Admin MFA — **not implemented (recommended)**
+#### 3. Admin MFA — **IMPLEMENTED (2026-08-05, TOTP stdlib)**
 
-ASVS requires MFA for privileged accounts "where practical". This app currently protects admin routes with strong auth (JWT, role check on every request, session rotation on privilege change) plus per-IP rate limiting, but has no TOTP/WebAuthn step-up. Considered impractical at this stage (single-admin bootstrap, no org tier); tracked as the top future hardening item.
+TOTP two-factor authentication (RFC 6238, stdlib-only — no new dependency) is live for **all users**, with an admin-recommendation nudge in the dashboard: login issues a short-lived MFA token instead of a session token, `/auth/mfa/confirm` completes it with a TOTP or single-use backup code (backup codes are stored hashed and consumed atomically — replay fails), enable/disable require a live code, and every posture change rotates sessions (`pw_change` marker). Failed MFA attempts are rate-limited (5/15min/IP). MFA is **optional** (not forced) to avoid a lockout of the sole admin — a forced-enrollment migration remains a future option.
 
-#### 4. Malware scanning of uploads — **magic bytes only**
+#### 4. Malware scanning of uploads — **magic bytes + opt-in VirusTotal (2026-08-05)**
 
-Uploads are validated by magic-byte signature, content-type, size, and compression-ratio checks (rejects executables and archive-bomb classes) but are **not** scanned by an AV engine. Feasible options (ClamAV sidecar, VirusTotal API) add cost/latency per upload; accepted for now, re-assess when paid tiers ship.
+Uploads are validated by magic-byte signature, content-type, size, and compression-ratio checks (rejects executables and archive-bomb classes). Additionally, setting `VIRUSTOTAL_API_KEY` (Render env) activates a **fail-open** VirusTotal check at both finalize paths: streamed SHA-256 hash lookup, with ≤32MB file submission + ~30s polling for unknown hashes. A definitive malicious/suspicious verdict rejects the upload (422) and deletes the stored object; any scanner outage or missing key leaves uploads working exactly as before. Verification: 36 new unit tests, incl. the wire-in (malicious verdict → 422, bytes never stored).
 
-#### 5. WAF / DDoS protection — **not deployed**
+#### 5. WAF / DDoS protection — **not deployed; Vercel Firewall is the no-DNS-change path**
 
-App-level controls (rate limiting per endpoint, lockouts, body caps, request timeouts, TrustedHost) are in place, and TLS is terminated by Vercel/Cloudflare-fronted edges, but no managed WAF ruleset is enabled. Recommended: enable Cloudflare WAF managed rules in front of www.torrentcdn.store and log/review blocked requests.
+App-level controls (rate limiting per endpoint, lockouts, body caps, request timeouts, TrustedHost) are in place; the domain is served **directly by Vercel** (verified live: `server: Vercel`, no `cf-ray`). Recommended: enable the **native Vercel Firewall** (Project → Firewall → Managed rules) — zero DNS changes. Cloudflare proxying (CNAME www → cname.vercel-dns.com with proxy ON, Full-strict TLS, OWASP managed rules) is the alternative. `backend/scripts/check_waf.sh` probes the live edge and reports which layer is active (run it after enabling).
 
-#### 6. Backup encryption + restore drills — **provider-managed**
+#### 6. Backup encryption + restore drills — **provider-managed; runbook shipped**
 
-Render's managed Postgres performs automated daily backups; encryption at rest and retention are provider-controlled and not yet independently verified with a restore drill. A quarterly restore test and a documented runbook are recommended.
+Render's managed Postgres performs automated daily backups; encryption at rest and retention are provider-controlled. **`backend/scripts/RESTORE_RUNBOOK.md`** documents the quarterly drill (verify backup exists → download → restore into a scratch DB → verify row counts + MFA columns → clean up → log), and **`backend/scripts/restore_drill.sh`** runs the read-only pre-flight (tooling, connectivity, table counts, schema sanity). The encryption/restore *execution* still requires Render dashboard access — the quarterly drill is now a 30-minute checklist instead of an unimplemented recommendation.
 
 ---
 

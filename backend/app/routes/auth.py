@@ -1,3 +1,5 @@
+import hashlib
+import json
 import re
 import secrets
 import time
@@ -17,6 +19,16 @@ from ..auth import (
     get_current_user_id,
 )
 from ..email_service import send_verification_email, send_password_reset_email, decode_password_reset_token
+from ..mfa import (
+    backup_code_matches,
+    create_mfa_token,
+    decode_mfa_token,
+    generate_backup_codes,
+    generate_totp_secret,
+    hash_backup_codes,
+    otpauth_uri,
+    verify_totp,
+)
 from ..models import (
     ApiKeyResponse,
     UserRegister,
@@ -24,6 +36,10 @@ from ..models import (
     TokenResponse,
     ForgotPasswordRequest,
     ResetPasswordRequest,
+    MfaStatusResponse,
+    MfaSetupResponse,
+    MfaCodeRequest,
+    MfaConfirmRequest,
 )
 from ..config import get_settings
 from ..security import get_client_ip
@@ -46,6 +62,83 @@ _FORGOT_WINDOW = 60  # 60 seconds
 # bloat the users table. Redis primary, in-memory fallback.
 _REGISTER_WINDOW = 3600  # 1 hour
 _REGISTER_LIMIT = 10
+
+# Failed MFA confirm attempts per IP (brute-force a 6-digit TOTP or a 10-char
+# backup code). Same 5/15-min lockout shape as login. Redis primary,
+# in-memory fallback.
+_mfa_attempts: dict[str, list[float]] = {}
+_MFA_WINDOW = 900  # 15 minutes
+_MFA_LIMIT = 5
+
+
+def _prune_mfa_attempts(now: float) -> None:
+    """Drop MFA-attempt keys whose newest entry has expired (keeps dict bounded)."""
+    expired = [k for k, v in _mfa_attempts.items() if not v or now - v[-1] > _MFA_WINDOW]
+    for k in expired:
+        del _mfa_attempts[k]
+
+
+async def _check_mfa_rate_limit(ip: str) -> None:
+    """Reject early when this IP already has _MFA_LIMIT failed MFA attempts."""
+    redis = await get_redis()
+    if redis is not None:
+        count = await redis.get(f"mfa_attempts:{ip}")
+        if count and int(count) >= _MFA_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many attempts. Try again in 15 minutes.",
+            )
+        return
+    now = time.time()
+    _prune_mfa_attempts(now)
+    recent = [t for t in _mfa_attempts.get(ip, []) if now - t < _MFA_WINDOW]
+    if len(recent) >= _MFA_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many attempts. Try again in 15 minutes.",
+        )
+
+
+async def _record_mfa_failure(ip: str) -> None:
+    """Record a failed MFA attempt (Redis primary, in-memory fallback)."""
+    redis = await get_redis()
+    if redis is not None:
+        await redis.incr(f"mfa_attempts:{ip}")
+        await redis.expire(f"mfa_attempts:{ip}", _MFA_WINDOW)
+    else:
+        _mfa_attempts.setdefault(ip, []).append(time.time())
+        _prune_mfa_attempts(time.time())
+
+
+def _mfa_code_valid(row, code: str) -> bool:
+    """True when `code` is the user's current TOTP code OR an unused backup code."""
+    secret = row.get("mfa_secret")
+    if secret and verify_totp(secret, code):
+        return True
+    stored_raw = row.get("mfa_backup_codes")
+    if stored_raw:
+        try:
+            stored = json.loads(stored_raw)
+        except (ValueError, TypeError):
+            stored = []
+        if backup_code_matches(stored, code):
+            return True
+    return False
+
+
+async def _revoke_sessions(user_id) -> None:
+    """Bump the pw_change marker so every pre-existing session token is rejected.
+
+    Used on MFA enable/disable — a security-posture change must rotate sessions
+    (any token minted before the change lacks/retains the old posture). Redis is
+    optional: if it's down, tokens fall back to their 24h expiry (fail-open,
+    consistent with the rest of the app)."""
+    try:
+        redis = await get_redis()
+        if redis is not None:
+            await redis.set(f"pw_change:{user_id}", str(time.time()))
+    except Exception:
+        pass
 
 
 def _normalize_email(email: str) -> str:
@@ -278,7 +371,7 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks, reques
         return TokenResponse(access_token=token)
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login")
 async def login(data: UserLogin, request: Request):
     data.email = _normalize_email(data.email)
     pool = await get_db_pool()
@@ -310,14 +403,15 @@ async def login(data: UserLogin, request: Request):
         # Look up the RAW email first (a pre-normalization account may be stored
         # in a non-NFC form — normalizing their input would silently lock them
         # out), then the NFC form (covers newly-normalized accounts where the
-        # user typed the other canonical form).
+        # user typed the other canonical form). mfa_enabled drives the second-
+        # factor gate below.
         user = await conn.fetchrow(
-            "SELECT id, email, password_hash, verified FROM users WHERE email = $1",
+            "SELECT id, email, password_hash, verified, mfa_enabled FROM users WHERE email = $1",
             data.email,
         )
         if not user:
             user = await conn.fetchrow(
-                "SELECT id, email, password_hash, verified FROM users WHERE email = $1",
+                "SELECT id, email, password_hash, verified, mfa_enabled FROM users WHERE email = $1",
                 _normalize_email(data.email),
             )
         # Constant-ish-time anti-enumeration: when the email is unknown there is
@@ -359,11 +453,23 @@ async def login(data: UserLogin, request: Request):
     else:
         _login_attempts.pop(rate_key, None)
 
+    # Second-factor gate: MFA-enabled accounts get a SHORT-LIVED mfa_token
+    # instead of a session token. The real access token is only minted at
+    # /auth/mfa/confirm after a valid TOTP/backup code is presented — a stolen
+    # password alone can no longer complete the login.
+    if user.get("mfa_enabled"):
+        logger.info("Login for user %s requires second factor", user["id"])
+        return {
+            "mfa_required": True,
+            "mfa_token": create_mfa_token(str(user["id"])),
+            "token_type": "bearer",
+        }
+
     # Authentication-event log: successful login (user id only — no token,
     # no password, no email beyond what the failed-path already logs).
     logger.info("Login succeeded for user %s", user["id"])
     token = create_access_token({"sub": str(user["id"])})
-    return TokenResponse(access_token=token)
+    return {"access_token": token, "token_type": "bearer"}
 
 
 @router.post("/forgot-password")
@@ -736,3 +842,175 @@ async def delete_own_account(user_id: UUID = Depends(get_current_user_id)):
 
     logger.info("User %s (%s) deleted their own account", user_id, user["email"])
     return {"detail": "Account and all associated data deleted successfully."}
+
+
+# --- Two-factor authentication (TOTP) ---------------------------------------
+
+@router.get("/mfa", response_model=MfaStatusResponse)
+async def mfa_status(user_id: UUID = Depends(get_current_user_id)):
+    """Current MFA state (enabled + whether the user is an admin)."""
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT mfa_enabled, is_admin FROM users WHERE id = $1", user_id
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+    return MfaStatusResponse(enabled=bool(row["mfa_enabled"]), is_admin=bool(row["is_admin"]))
+
+
+@router.post("/mfa/setup", response_model=MfaSetupResponse)
+async def mfa_setup(user_id: UUID = Depends(get_current_user_id)):
+    """Begin MFA enrollment: mint a TOTP secret + single-use backup codes.
+
+    The secret and the HASHEd backup codes are persisted immediately so
+    /mfa/enable can verify the caller actually holds the authenticator app
+    (proving possession before the flag flips). The plaintext codes are
+    returned exactly once, here."""
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT email, mfa_enabled FROM users WHERE id = $1", user_id
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+        if row["mfa_enabled"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Two-factor authentication is already enabled. Disable it first to reconfigure.",
+            )
+        secret = generate_totp_secret()
+        backup_codes = generate_backup_codes()
+        await conn.execute(
+            "UPDATE users SET mfa_secret = $1, mfa_backup_codes = $2 WHERE id = $3",
+            secret,
+            json.dumps(hash_backup_codes(backup_codes)),
+            user_id,
+        )
+    return MfaSetupResponse(
+        secret=secret,
+        otpauth_uri=otpauth_uri(secret, row["email"]),
+        backup_codes=backup_codes,
+    )
+
+
+@router.post("/mfa/enable")
+async def mfa_enable(data: MfaCodeRequest, user_id: UUID = Depends(get_current_user_id)):
+    """Flip MFA on, but only after the caller proves they hold the authenticator
+    app by presenting a valid TOTP code for the pending secret."""
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT mfa_enabled, mfa_secret FROM users WHERE id = $1", user_id
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+        if row["mfa_enabled"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Two-factor authentication is already enabled",
+            )
+        secret = row["mfa_secret"]
+        if not secret or not verify_totp(secret, data.code):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid code — check the time on your device and try again",
+            )
+        await conn.execute("UPDATE users SET mfa_enabled = TRUE WHERE id = $1", user_id)
+
+    # Rotate sessions: every token minted before MFA was enabled was issued
+    # without the second factor and must now be rejected.
+    await _revoke_sessions(user_id)
+    logger.info("User %s enabled two-factor authentication", user_id)
+    return {"detail": "Two-factor authentication enabled. Sign in again with your code."}
+
+
+@router.post("/mfa/disable")
+async def mfa_disable(data: MfaCodeRequest, user_id: UUID = Depends(get_current_user_id)):
+    """Turn MFA off. Requires a CURRENT code (TOTP or backup) so a stolen
+    session alone can't strip the second factor."""
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT mfa_enabled, mfa_secret, mfa_backup_codes FROM users WHERE id = $1",
+            user_id,
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+        if not row["mfa_enabled"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Two-factor authentication is not enabled",
+            )
+        if not _mfa_code_valid(row, data.code):
+            raise HTTPException(status_code=400, detail="Invalid code")
+        await conn.execute(
+            "UPDATE users SET mfa_enabled = FALSE, mfa_secret = NULL, mfa_backup_codes = NULL "
+            "WHERE id = $1",
+            user_id,
+        )
+
+    await _revoke_sessions(user_id)
+    logger.info("User %s disabled two-factor authentication", user_id)
+    return {"detail": "Two-factor authentication disabled. Sign in again."}
+
+
+@router.post("/mfa/confirm")
+async def mfa_confirm(data: MfaConfirmRequest, request: Request):
+    """Complete a pending MFA login: verify the code and mint the real session
+    token. TOTP codes and backup codes both work; a used backup code is
+    consumed atomically (a replayed code fails, and two concurrent users of the
+    same code can't both succeed)."""
+    ip = get_client_ip(request)
+    await _check_mfa_rate_limit(ip)
+
+    user_id_str = decode_mfa_token(data.mfa_token)
+    if not user_id_str:
+        raise HTTPException(
+            status_code=401,
+            detail="MFA session expired — please log in again",
+        )
+
+    user_uuid = UUID(user_id_str)
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT mfa_enabled, mfa_secret, mfa_backup_codes FROM users WHERE id = $1",
+            user_uuid,
+        )
+        if not row or not row["mfa_enabled"]:
+            await _record_mfa_failure(ip)
+            raise HTTPException(status_code=401, detail="Invalid authentication code")
+
+        valid = False
+        secret = row["mfa_secret"]
+        if secret and verify_totp(secret, data.code):
+            valid = True
+        else:
+            # Backup code — consume it atomically: the UPDATE only matches when
+            # the stored list is unchanged, so a concurrent use of the same code
+            # loses the race and fails (single-use invariant).
+            stored_raw = row.get("mfa_backup_codes")
+            try:
+                stored = json.loads(stored_raw) if stored_raw else []
+            except (ValueError, TypeError):
+                stored = []
+            target = hashlib.sha256(data.code.encode("utf-8")).hexdigest()
+            if target in stored:
+                remaining = [c for c in stored if c != target]
+                res = await conn.execute(
+                    "UPDATE users SET mfa_backup_codes = $2 "
+                    "WHERE id = $1 AND mfa_backup_codes = $3",
+                    user_uuid,
+                    json.dumps(remaining),
+                    stored_raw,
+                )
+                valid = res == "UPDATE 1"
+
+        if not valid:
+            await _record_mfa_failure(ip)
+            raise HTTPException(status_code=401, detail="Invalid authentication code")
+
+    logger.info("MFA confirmed for user %s", user_id_str)
+    token = create_access_token({"sub": user_id_str})
+    return {"access_token": token, "token_type": "bearer"}

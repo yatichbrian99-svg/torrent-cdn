@@ -38,6 +38,7 @@ from ..security import (
     read_magic_bytes,
     get_client_ip,
 )
+from ..malware_scan import scan_file
 
 # Per-user caps on concurrent in-flight upload sessions (chunked + presign).
 # An authenticated attacker who can't be rate-limited per-IP (XFF spoofing,
@@ -643,6 +644,16 @@ async def _store_and_finalize(
     # The global limiter still paces all request traffic.
     await _check_upload_rate_limit(request)
 
+    # --- Opt-in malware scan (VIRUSTOTAL_API_KEY; fail-open when unconfigured
+    # or unreachable — a scanner outage must never block legitimate uploads).
+    # Runs BEFORE the bytes hit storage, so a definitively-malicious file is
+    # rejected without ever being stored.
+    if not await scan_file(file_stream, int(file_size_mb * 1024 * 1024)):
+        raise HTTPException(
+            status_code=422,
+            detail="File failed malware scanning and was not stored",
+        )
+
     # --- Chunked multipart upload to MinIO ---
     file_id = str(uuid.uuid4())
     minio_key = f"{user_id}/{file_id}/{safe_filename}"
@@ -1167,6 +1178,17 @@ async def presign_finalize(
 
             # (The plan-limit gate already ran against the declared size above —
             # the head_object check guarantees actual == declared.)
+
+            # Opt-in malware scan (VIRUSTOTAL_API_KEY; fail-open). The bytes are
+            # already in storage (the browser PUT them) — a malicious verdict
+            # raises below and the except-HttpException handler deletes the
+            # object, so malware never gets a finalized uploads row.
+            if not await scan_file(temp_path, total_size):
+                raise HTTPException(
+                    status_code=422,
+                    detail="File failed malware scanning",
+                )
+
             minio_http_url = f"{settings.minio_public_url}/{object_key}"
             magnet_link, thumbnail_url = _torrent_and_thumbnail(
                 f, session["filename"], user_id, upload_id, s3

@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Upload, Loader2, Mail, ShieldCheck, Copy, Check, AlertTriangle, Users, Gift, Activity } from 'lucide-react'
+import { Upload, Loader2, Mail, ShieldCheck, Copy, Check, AlertTriangle, Users, Gift, Activity, KeyRound } from 'lucide-react'
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
+import QRCode from 'qrcode'
 import { isLoggedIn, removeToken } from '@/lib/auth'
 import api from '@/lib/api'
 import FileCard from '@/components/FileCard'
@@ -28,6 +29,13 @@ export default function DashboardPage() {
   const [bandwidth, setBandwidth] = useState<{ date: string; gb: number }[]>([])
   const [deleteAccountConfirm, setDeleteAccountConfirm] = useState(false)
   const [deletingAccount, setDeletingAccount] = useState(false)
+  // Two-factor authentication state
+  const [mfa, setMfa] = useState<{ enabled: boolean; is_admin: boolean } | null>(null)
+  const [mfaSetup, setMfaSetup] = useState<{ secret: string; otpauth_uri: string; backup_codes: string[]; qr?: string } | null>(null)
+  const [mfaCode, setMfaCode] = useState('')
+  const [mfaBusy, setMfaBusy] = useState(false)
+  const [mfaMsg, setMfaMsg] = useState('')
+  const [copiedUri, setCopiedUri] = useState(false)
 
   // Auth gate
   useEffect(() => {
@@ -60,6 +68,12 @@ export default function DashboardPage() {
     if (!isLoggedIn()) return
     api.getVerificationStatus().then((s) => setVerified(s.verified)).catch(() => {})
     api.getBandwidthHistory().then((b) => setBandwidth(b || [])).catch(() => {})
+  }, [])
+
+  // MFA state (enabled + admin flag for the recommended-for-admins nudge).
+  useEffect(() => {
+    if (!isLoggedIn()) return
+    api.mfaStatus().then(setMfa).catch(() => {})
   }, [])
 
   // Files — with explicit error handling: show the real API error, redirect on
@@ -132,6 +146,54 @@ export default function DashboardPage() {
       setApiKey(null)
     } catch { alert('Failed to revoke API key. Please try again.') }
     finally { setRevokingKey(false) }
+  }
+
+  const handleMfaSetup = async () => {
+    setMfaBusy(true)
+    setMfaMsg('')
+    try {
+      const data = await api.mfaSetup()
+      // The otpauth:// URI renders as a QR for scanning (and stays copyable
+      // for manual entry). data: URLs are allowed by the page CSP (img-src).
+      const qr = await QRCode.toDataURL(data.otpauth_uri, { width: 168, margin: 1 })
+      setMfaSetup({ ...data, qr })
+      setMfaCode('')
+    } catch (err: any) {
+      setMfaMsg(err.response?.data?.detail || 'Failed to start setup. Please try again.')
+    } finally { setMfaBusy(false) }
+  }
+
+  const handleMfaEnable = async () => {
+    setMfaBusy(true)
+    setMfaMsg('')
+    try {
+      await api.mfaEnable(mfaCode)
+      // Enabling rotates sessions server-side (pw_change marker) — the current
+      // session is invalid by design; sign in again with the code.
+      removeToken()
+      router.push('/')
+    } catch (err: any) {
+      setMfaMsg(err.response?.data?.detail || 'Invalid code. Try again.')
+      setMfaBusy(false)
+    }
+  }
+
+  const handleMfaDisable = async () => {
+    if (!mfaCode) {
+      setMfaMsg('Enter your current code (authenticator or backup) to disable.')
+      return
+    }
+    setMfaBusy(true)
+    setMfaMsg('')
+    try {
+      await api.mfaDisable(mfaCode)
+      // Same session rotation on disable.
+      removeToken()
+      router.push('/')
+    } catch (err: any) {
+      setMfaMsg(err.response?.data?.detail || 'Invalid code. Try again.')
+      setMfaBusy(false)
+    }
   }
 
   const handleDelete = async (id: string) => {
@@ -273,6 +335,134 @@ export default function DashboardPage() {
             Generating a new key revokes the old one.
           </p>
         ) : null}
+      </div>
+
+      {/* Two-Factor Authentication — TOTP; setup shows the QR/secret/backup
+          codes once, then verifies possession before the flag flips. */}
+      <div className="mb-8 border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <KeyRound size={16} style={{ color: '#555' }} />
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Two-Factor Authentication</p>
+              <p className="mt-1 text-sm" style={{ color: '#555' }}>
+                {mfa?.enabled
+                  ? 'Enabled — signing in requires a code from your authenticator app.'
+                  : 'Add a second factor so a stolen password alone cannot access your account.'}
+              </p>
+            </div>
+          </div>
+          {mfa && !mfa.enabled && (
+            <button
+              onClick={handleMfaSetup}
+              disabled={mfaBusy}
+              className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
+              style={{ borderColor: '#fff', color: '#fff' }}
+            >
+              {mfaBusy ? <Loader2 size={12} className="animate-spin" /> : 'Set up'}
+            </button>
+          )}
+        </div>
+
+        {mfa && !mfa.enabled && mfa.is_admin && (
+          <p className="mt-3 text-xs" style={{ color: '#fbbf24' }}>
+            Recommended: two-factor authentication is strongly encouraged for administrator accounts.
+          </p>
+        )}
+        {mfa?.enabled && (
+          <p className="mt-2 flex items-center gap-2 text-xs" style={{ color: '#4ade80' }}>
+            <ShieldCheck size={14} /> Enabled
+          </p>
+        )}
+
+        {mfaSetup && !mfa?.enabled && (
+          <div className="mt-4 border p-4" style={{ borderColor: '#333', backgroundColor: '#0c0c0c' }}>
+            <p className="text-xs" style={{ color: '#888' }}>
+              1. Scan this QR code with your authenticator app (Google Authenticator, Authy, 1Password…)
+              or copy the otpauth link and enter the secret manually.
+            </p>
+            <div className="mt-3 flex items-start gap-4">
+              {mfaSetup.qr && (
+                <img src={mfaSetup.qr} alt="TOTP QR code" width={168} height={168}
+                  className="border" style={{ backgroundColor: '#fff' }} />
+              )}
+              <div className="flex-1">
+                <p className="text-[11px] uppercase tracking-widest" style={{ color: '#555' }}>Secret</p>
+                <code className="block font-mono text-xs text-white" style={{ wordBreak: 'break-all' }}>
+                  {mfaSetup.secret}
+                </code>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(mfaSetup.otpauth_uri)
+                    setCopiedUri(true)
+                    setTimeout(() => setCopiedUri(false), 2000)
+                  }}
+                  className="mt-2 border px-2 py-1 text-[11px] transition-opacity hover:opacity-80"
+                  style={{ borderColor: '#333', color: '#555' }}
+                >
+                  {copiedUri ? <><Check size={12} className="inline" style={{ color: '#4ade80' }} /> Copied</> : 'Copy otpauth link'}
+                </button>
+              </div>
+            </div>
+            <p className="mt-3 text-xs" style={{ color: '#fbbf24' }}>
+              2. Save these backup codes somewhere safe. Each is single-use and they are shown only once:
+            </p>
+            <div className="mt-2 grid grid-cols-2 gap-1 sm:grid-cols-5">
+              {mfaSetup.backup_codes.map((c) => (
+                <code key={c} className="border px-2 py-1 text-center font-mono text-[11px]"
+                  style={{ borderColor: '#333', color: '#ccc' }}>
+                  {c}
+                </code>
+              ))}
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={mfaCode}
+                onChange={(e) => setMfaCode(e.target.value)}
+                placeholder="6-digit code"
+                className="w-40 border px-3 py-2 text-sm text-white"
+                style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}
+              />
+              <button
+                onClick={handleMfaEnable}
+                disabled={mfaBusy}
+                className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
+                style={{ borderColor: '#fff', color: '#fff' }}
+              >
+                {mfaBusy ? <Loader2 size={12} className="animate-spin" /> : 'Enable'}
+              </button>
+              <p className="text-[11px]" style={{ color: '#888' }}>
+                You'll be signed out and must sign in with your code after enabling.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {mfa?.enabled && (
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              type="text"
+              inputMode="numeric"
+              value={mfaCode}
+              onChange={(e) => setMfaCode(e.target.value)}
+              placeholder="Current code"
+              className="w-40 border px-3 py-2 text-sm text-white"
+              style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}
+            />
+            <button
+              onClick={handleMfaDisable}
+              disabled={mfaBusy}
+              className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
+              style={{ borderColor: '#553333', color: '#ef4444' }}
+            >
+              {mfaBusy ? <Loader2 size={12} className="animate-spin" /> : 'Disable'}
+            </button>
+          </div>
+        )}
+
+        {mfaMsg && <p className="mt-3 text-xs" style={{ color: '#fca5a5' }}>{mfaMsg}</p>}
       </div>
 
       {/* Referral */}

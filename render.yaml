@@ -50,6 +50,11 @@ services:
       # - STRIPE_WEBHOOK_SECRET (if using Stripe)
       # - STRIPE_PRICE_PRO (if using Stripe)
       # - STRIPE_PRICE_BUSINESS (if using Stripe)
+      # Optional malware scanning (fail-open — uploads work with or without this).
+      # Get a free key at https://www.virustotal.com — set it here to activate
+      # hash-lookup + ≤32MB file scans on every finalized upload.
+      - key: VIRUSTOTAL_API_KEY
+        value: ""
       - key: RESEND_API_KEY
         value: ""  # ← Set this in Render dashboard (get a free key at https://resend.com/api-keys)
       - key: RESEND_FROM

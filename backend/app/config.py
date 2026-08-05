@@ -112,6 +112,18 @@ class Settings(BaseSettings):
     # In development, this is disabled so you don't need a working email service.
     email_verification_required: bool = False  # overridden by env var
 
+    # Two-factor authentication (TOTP, stdlib — see app/mfa.py)
+    # Lifetime of the password-half MFA step token minted at login. Keep short:
+    # the user must present their authenticator code before it expires.
+    mfa_expire_minutes: int = 5
+
+    # Opt-in malware scanning (see app/malware_scan.py). Without a key the
+    # feature is OFF and every upload is treated as clean (fail-open). With a
+    # key, finalized uploads are checked and definitively-malicious files are
+    # rejected (422 + object deleted). VirusTotal free tier uploads ≤32MB.
+    virustotal_api_key: str = ""
+    virustotal_max_upload_mb: int = 32
+
     class Config:
         env_file = ".env"
         case_sensitive = False
