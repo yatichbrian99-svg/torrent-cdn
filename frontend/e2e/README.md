@@ -16,6 +16,7 @@ development, now saved as a repeatable suite.
 | 2-peer P2P | `npm run test:e2e:p2p` | **Real WebTorrent P2P between two browsers**: a seeder reproduces the backend's exact infohash (name + 256 KiB pieces) and seeds the file; a leecher plays `/embed/{file_id}` with every `*.supabase.co` request **blocked** (so only WebRTC can deliver bytes) → "N peers connected" on both sides, video plays, and the backend records `chunk_downloaded` analytics with `bytes_p2p > 0` |
 | API-key UI | `npm run test:e2e:apikey` | Dashboard API Key lifecycle through the real UI: Generate reveals the full `tcdn_` key + "only time shown" warning → Copy puts the exact key on the clipboard and flips to "Copied" → **reload shows only the prefix + date (the secret never returns)** → Revoke resets the button → the revoked key 401s on `/files` (fail-closed) |
 | Finalize cold-start retry | `npm run test:e2e:finalize-retry` | Blocks the first `/upload/presign/finalize` with a **502** → the client's auto-retry re-sends it → success screen, no chunked fallback. `FINALIZE_LOST_RESPONSE=1` goes further: the first finalize **completes server-side** (session consumed, uploads row created) while the browser gets the 502, so the retry must be answered by the backend's idempotent lost-response path (`uploads` row by `id == upload_id`) — the exact Render cold-start signature the live probe caught |
+| Embed speed budget | `npm run test:e2e:embed-speed` | Regression guard for the finalize-latency work: uploads through the real UI and asserts the **"Upload successful" screen (embed code + real magnet) appears within `EMBED_BUDGET_SECONDS` (default 20)**. The blocking VirusTotal scan adds ~6.5s to every fresh-file finalize (submit + 5s poll), so a clean run lands around ~15s UI-to-success; the budget catches severe regressions (old double-write/slow-seek finalize, broken finalize) without flaking on the intentional VT tax. Records the finalize-leg duration (`timings.finalizeMs`) as a diagnostic |
 | Login form | `npm run test:e2e:login` | Drives the REAL auth form (every other suite seeds sessionStorage): wrong password → the actual "Invalid email or password" detail (401); correct credentials → either the logged-in navbar (verified account via `E2E_EMAIL`) or the actual "Email not verified…" gate detail (403) — production gates password login on email verification by design |
 | Two-factor auth (TOTP) | `npm run test:e2e:mfa` | MFA lifecycle: `E2E_EMAIL`/`E2E_PASSWORD` of a **verified** account → the complete journey — password login → `/auth/mfa/setup` → the 6-digit code is **computed from the setup secret in the test** (RFC 6238, node:crypto) → enable → the pre-MFA session is rotated out (401) → the real browser shows the 6-digit step, a wrong code surfaces the real 401, and the computed code reaches the logged-in navbar → a backup code logs in once and **replay fails** → MFA disabled and the account restored. Without `E2E_EMAIL` it runs the production-safe boundary subset (setup shape, wrong-code 400, no session rotation) on a throwaway and deletes it |
 | Visual smoke | `npm run test:e2e:visual` | Loads the landing page, docs, and the logged-in dashboard (+ a 375px mobile landing shot); saves full-page screenshots under `e2e/.artifacts/visual-*.png`; fails on any JS page error or non-resource console error |
@@ -42,7 +43,7 @@ npx playwright install chromium   # one-time: installs the headless browser
 ## Running
 
 ```bash
-npm run test:e2e                       # all nine suites
+npm run test:e2e                       # all eleven suites
 npm run test:e2e:upload                # direct upload only
 npm run test:e2e:fallback              # chunked fallback only
 npm run test:e2e:embed                 # embed playback only
@@ -51,6 +52,7 @@ npm run test:e2e:p2p                   # real 2-peer P2P (seeder + leecher)
 npm run test:e2e:apikey                # dashboard API-key lifecycle (generate/copy/revoke)
 npm run test:e2e:finalize-retry        # finalize 502 → client re-sends → success
 npm run test:e2e:finalize-retry-lost   # ... + lost-response (server completed, browser got 502)
+npm run test:e2e:embed-speed           # success screen within EMBED_BUDGET_SECONDS (default 10s)
 npm run test:e2e:login                 # real login form (401/403 message surfacing)
 npm run test:e2e:visual                # page renders + screenshots + console-error check
 ```
@@ -77,7 +79,7 @@ job `p2p-e2e`, runs on every push to `main` + manual `workflow_dispatch`, NOT
 pull requests — the suites write to production). Because Vercel deploys lag the
 push, the job does NOT hit the deployed site — it **builds the pushed code**,
 serves it locally (`next start` behind `e2e/local-proxy.mjs`, which mirrors
-vercel.json's rewrites), and runs `node e2e/run-all.mjs` (all nine suites)
+vercel.json's rewrites), and runs `node e2e/run-all.mjs` (all eleven suites)
 against that build with the **production Render backend** underneath. So every
 push validates:
 - the pushed player's P2P path against production's magnet/tracker/analytics
@@ -88,7 +90,7 @@ push validates:
   analytics with `bytes_p2p > 0`.
 
 The job registers **one shared throwaway account** up front (`E2E_TOKEN`) —
-nine per-suite registers plus the scheduled probe registers from GitHub's
+eleven per-suite registers plus the scheduled probe registers from GitHub's
 shared runner IPs would exceed the live 10/hr/IP registration budget — and
 deletes it in an `if: always()` step, so CI never accumulates test users. Each
 suite still deletes its own test files. The job installs Playwright Chromium +
