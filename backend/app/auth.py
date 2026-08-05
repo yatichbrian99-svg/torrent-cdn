@@ -108,9 +108,21 @@ def decode_access_token(token: str) -> Optional[dict]:
     try:
         # PyJWT verifies exp + signature; the explicit algorithms list is
         # required by PyJWT and prevents algorithm-confusion attacks.
-        return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        payload = jwt.decode(
+            token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
+        )
     except InvalidTokenError:
         return None
+    # A token minted for the MFA second-factor step (create_mfa_token) shares
+    # this signing secret, so it would otherwise pass signature/exp here and
+    # authenticate as a full session token WITHOUT a TOTP/backup code. The
+    # mfa_pending claim must never be accepted by the session path — reject it
+    # at this single point so get_current_user_id / get_optional_user_id can't
+    # be tricked. (decode_mfa_token in app/mfa.py uses jwt.decode directly and
+    # is unaffected.)
+    if payload.get("mfa_pending"):
+        return None
+    return payload
 
 
 async def _token_revoked_by_password_change(payload: dict) -> bool:

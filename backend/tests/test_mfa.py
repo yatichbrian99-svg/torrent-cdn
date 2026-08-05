@@ -90,6 +90,14 @@ class TestMfaToken:
         token = create_access_token({"sub": "11111111-1111-4111-8111-111111111111"})
         assert decode_mfa_token(token) is None
 
+    def test_mfa_token_is_not_a_session_token(self):
+        """Regression: an mfa_token shares the signing secret with session
+        tokens, so the access-token decode path MUST reject the mfa_pending
+        claim — otherwise the password half alone authenticates as a session."""
+        from app.auth import decode_access_token
+        token = create_mfa_token("11111111-1111-4111-8111-111111111111")
+        assert decode_access_token(token) is None
+
     def test_garbage_rejected(self):
         assert decode_mfa_token("not-a-jwt") is None
 
@@ -196,6 +204,35 @@ class TestLoginSecondFactor:
         })
         assert resp.status_code == 401
         assert "expired" in resp.json()["detail"]
+
+    def test_mfa_token_cannot_authenticate_protected_endpoint(self, client):
+        """Endpoint-level: an mfa_token presented as a Bearer session token 401s."""
+        token = create_mfa_token(self.USER)
+        resp = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 401
+        assert "Invalid or expired token" in resp.json()["detail"]
+
+    def test_successful_confirm_resets_failure_counter(self, client, mock_conn, mock_redis):
+        """A valid code clears the IP's failed-attempt counter (mirrors login),
+        so a user who mistyped codes then succeeded can't hit a false 429."""
+        secret, _ = self._mfa_user(mock_conn)
+        login = client.post(self.LOGIN_URL, json={
+            "email": "user@example.com", "password": "securePass123",
+        }).json()
+        mock_conn.fetchrow.return_value = {
+            "mfa_enabled": True,
+            "mfa_secret": secret,
+            "mfa_backup_codes": None,
+        }
+        mock_redis.get.side_effect = (
+            lambda key: "4" if str(key) == "mfa_attempts:testclient" else None
+        )
+
+        resp = client.post(self.CONFIRM_URL, json={
+            "mfa_token": login["mfa_token"], "code": totp_code(secret),
+        })
+        assert resp.status_code == 200
+        mock_redis.delete.assert_any_call("mfa_attempts:testclient")
 
     def test_confirm_rate_limited_after_five_failures(self, client, mock_conn, mock_redis):
         self._mfa_user(mock_conn)

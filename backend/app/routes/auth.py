@@ -1011,6 +1011,18 @@ async def mfa_confirm(data: MfaConfirmRequest, request: Request):
             await _record_mfa_failure(ip)
             raise HTTPException(status_code=401, detail="Invalid authentication code")
 
+    # Successful confirm — reset this IP's failed-attempt counter (mirrors the
+    # login success path) so a user who mistyped a few codes then succeeded
+    # isn't carrying a poisoned counter into a spurious 429.
+    try:
+        redis = await get_redis()
+        if redis is not None:
+            await redis.delete(f"mfa_attempts:{ip}")
+        else:
+            _mfa_attempts.pop(ip, None)
+    except Exception:
+        pass
+
     logger.info("MFA confirmed for user %s", user_id_str)
     token = create_access_token({"sub": user_id_str})
     return {"access_token": token, "token_type": "bearer"}
