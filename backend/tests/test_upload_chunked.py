@@ -178,6 +178,85 @@ class TestChunkedUpload:
         mock_s3_client.create_multipart_upload.assert_called()
         self._cleanup_session(upload_id)
 
+    def test_finalize_lost_response_retry_does_not_duplicate(
+        self, client, auth_headers, mock_conn, mock_s3_client, mock_redis
+    ):
+        """Lost-response retry of the chunked finalize — the same cold-start
+        signature the presign path fixes (7cf64d2): the client's auto-retry
+        re-POSTs /upload/finalize/{upload_id} after the first response died at
+        the proxy. The chunked session is intentionally kept (finalize never
+        deletes it; only the 30-min TTL prune removes it), so the retry
+        re-enters _store_and_finalize and its idempotency-key dedup returns the
+        STORED upload — no duplicate row, no re-upload to storage, no second
+        draw on the per-IP upload budget.
+
+        Scope note: this covers the session-PRESENT retry (the designed case —
+        sessions live 30 min and finalize never deletes them). If the session is
+        gone (30-min TTL prune, or a Render restart: _chunk_sessions is
+        in-memory only, unlike the Redis-backed presign sessions), the retry
+        404s with no recovery — uploads.id is a fresh uuid4, not the session
+        upload_id, and the idempotency key lives only in the session. That is a
+        known limitation of this fallback path, not covered here."""
+        file_id = UUID("22222222-2222-4222-8222-222222222222")
+        declared_size = 4 * 1024 * 1024 + len(self.VALID_MP4) + len(b"tail-bytes")
+        upload_id = self._create_session(
+            client, auth_headers, mock_conn,
+            file_size=declared_size, total_chunks=2, idempotency_key="chunk-lost-response",
+        )
+        # _create_session consumed [dedup, user, usage]. Restore the rest:
+        #   finalize 1: dedup(None) -> user -> usage -> INSERT(id)
+        #   finalize 2 (retry): dedup -> the stored row (short-circuits)
+        # `id` is filled in AFTER finalize 1: the chunked path mints the file_id
+        # as a fresh uuid4 inside _store_and_finalize (the INSERT RETURNING row
+        # is discarded), so the dedup's stored row must echo back the ACTUAL id
+        # finalize 1 produced for the 'same record' assertion to hold. The
+        # side_effect holds a reference to this dict, so the mutation is seen by
+        # the retry's dedup fetchrow.
+        stored = {
+            "id": None,
+            "filename": "test-video.mp4",
+            "minio_url": "https://storage.example/bucket/user/test-video.mp4",
+            "torrent_magnet": "magnet:?xt=urn:btih:testhash",
+            "file_size_mb": 4.0,
+            "thumbnail_url": None,
+        }
+        mock_conn.fetchrow.side_effect = [
+            None, self.TEST_USER, None, {"id": file_id},
+            stored,
+        ]
+
+        for idx, (data, name) in enumerate(
+            [(self.VALID_MP4, "chunk-0"), (b"tail-bytes", "chunk-1")]
+        ):
+            resp = client.post(
+                f"/upload/chunk/{upload_id}/{idx}",
+                headers=auth_headers,
+                files={"chunk": (name, BytesIO(data), "application/octet-stream")},
+            )
+            assert resp.status_code == 200
+
+        final1 = client.post(f"/upload/finalize/{upload_id}", headers=auth_headers)
+        assert final1.status_code == 200
+        first_id = final1.json()["file_id"]
+        stored["id"] = UUID(first_id)  # the retry must return the SAME record
+
+        # The retry — the response to the first finalize was lost at the proxy.
+        final2 = client.post(f"/upload/finalize/{upload_id}", headers=auth_headers)
+        assert final2.status_code == 200
+        # The SAME upload comes back — a retry can never mint a duplicate.
+        assert final2.json()["file_id"] == first_id
+        assert final2.json()["filename"] == "test-video.mp4"
+
+        # Storage was written exactly once (the retry dedupes BEFORE the pipeline)
+        assert mock_s3_client.create_multipart_upload.call_count == 1
+        # Exactly one uploads INSERT (the retry short-circuits before it)
+        inserts = [c for c in mock_conn.fetchrow.call_args_list if "INSERT INTO uploads" in str(c)]
+        assert len(inserts) == 1
+        # The retry did not draw on the per-IP upload budget a second time
+        rate_incrs = [c for c in mock_redis.incr.call_args_list if "upload_rate" in str(c)]
+        assert len(rate_incrs) == 1
+        self._cleanup_session(upload_id)
+
     def test_finalize_rejects_incomplete(self, client, auth_headers, mock_conn):
         upload_id = self._create_session(client, auth_headers, mock_conn, file_size=26, total_chunks=2)
         client.post(
