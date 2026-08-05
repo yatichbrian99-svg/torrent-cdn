@@ -342,6 +342,26 @@ The API-key and upload flows are now **automatically re-verified against the liv
 - **Gating rationale** (both jobs): schedule + manual dispatch ONLY — they **write to production** (throwaway uploads/accounts), so per-push runs would burn the 10/hr/IP register & upload budgets from GitHub's shared runner IPs, fork PRs could trigger unlimited production writes from untrusted code, and on push they'd validate the *previous* deploy anyway (Render/Vercel lag). A red cron run is the alert that the flow is broken live.
 - Verified: workflow YAML parses, both probes pass live (**12/12** api-key, **13/13** upload), and a real `workflow_dispatch` confirmed both jobs run green on GitHub Actions — `api-key-live` and `upload-live` alongside `p2p-e2e` with no rate-limit collisions. Documented in the Pre-merge CI Gates table above.
 
+### 2026-08-05 — Presign finalize lost-response retry (`7cf64d2`)
+
+**Bug found by the live probe:** a real production cold-start bug. On a Render cold start, the first presign finalize can COMPLETE (session deleted, uploads row inserted with `id == upload_id`) while its response dies at the Vercel proxy with a transient 502. The client's auto-retry then 404'd with **"Upload session not found"** — the session was already consumed and the idempotency-key dedup was unreachable because the client never held the key. The browser's finalize auto-retry fails identically for real users on a cold-start finalize.
+
+**Fix** (`backend/app/routes/upload.py` → `presign_finalize`): a session-less finalize is now answered from the **uploads row** (`SELECT … FROM uploads WHERE id = $1 AND user_id = $2` — the uploads row is keyed by `upload_id`):
+
+- Row found → returns the stored upload (identical response shape to a fresh finalize), so the retry succeeds instead of 404ing.
+- No row → genuine 404 as before; a non-UUID `upload_id` skips the query entirely (a malformed path param can never 500).
+- **Authorization preserved:** the `user_id` filter means a caller can only read their OWN rows; UUIDv4 ids aren't enumerable and a user's own files are already visible via `GET /files` — no new oracle.
+- **No double accounting:** the retry returns BEFORE the usage/rate-limit gates (the first finalize consumed them) — the same contract as the idempotency-key dedup.
+- **No orphan-sweep interaction:** objects with an uploads row are never swept.
+
+**Supporting probe hardening** (same stream): `req`/`post_proxy` retry transient 502s (`9aad42a`), registration is 429-aware with the two probe jobs serialized so they never register simultaneously (`fb3e7aa` — back-to-back dispatches had drained the 10/hr/IP register budget from GitHub's shared runner IPs), and probe results post to the GitHub run summary (`ef81ea7`). These made the cold-start bug surface reliably instead of a register-collision red.
+
+**Verification:**
+
+- 3 regression tests in `backend/tests/test_upload_presign.py`: lost-response retry → 200 with the stored row and NO storage round-trip; no row → 404; query args pinned to `(id, caller user_id)`. Full backend suite: **282 passed**.
+- **Browser-proof** — new Playwright suite `frontend/e2e/finalize-retry.mjs` (`d49c4f2`), run against production: block the first finalize with a 502 → the client re-sends it → success screen with a real 40-hex magnet, no chunked fallback engaged. A lost-response mode (`route.fetch()` lets the finalize complete server-side, then 502s the browser) exercises the EXACT cold-start path — the retried finalize's 200 comes from the stored-row lookup. **4/4 runs green**.
+- **Chunked-path equivalent** covered by a unit test (`d16605d`): the session-present retry returns the SAME `file_id` with exactly one insert / one storage write / one rate-limit draw. Docstring records the honest scope boundary — a session-GONE chunked retry (30-min TTL prune or Render restart; chunk sessions are in-memory only) still 404s, a known fallback-path limitation.
+
 ### Accepted residual risks
 
 Risk is accepted **only** when the fix would break the product or require a breaking change with no safe migration path. Both are continuously re-assessed.
