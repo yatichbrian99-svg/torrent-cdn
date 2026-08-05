@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# check_waf.sh — verify WAF / CDN presence in front of the production site.
+# check_waf.sh — verify WAF / CDN protection is ACTIVE in front of production.
 #
 # The app is served by Vercel (server: Vercel), which has a native Web
-# Application Firewall ("Vercel Firewall") with managed rules — that is the
-# recommended no-DNS-change WAF. Cloudflare proxying is the alternative.
+# Application Firewall ("Vercel Firewall") with managed rules — the recommended
+# no-DNS-change WAF. Cloudflare proxying is the alternative.
 #
-# This script reports what edge/WAF layer is actually in front of the domain so
-# the operator can confirm a WAF enablement took effect. It is read-only
-# (curl HEAD/GET probes only).
+# Pass/fail logic:
+#   ✅ Cloudflare ray detected                    → Cloudflare WAF layer active
+#   ✅ x-vercel-firewall header OR the sqlmap-UA probe returns 403/429/451
+#                                               → Vercel Firewall active (blocking)
+#   ❌ otherwise                                 → no WAF detected (exit 1)
+#
+# Read-only (curl HEAD/GET probes only).
 #
 # Usage:  bash backend/scripts/check_waf.sh [https://www.torrentcdn.store]
 set -u
@@ -20,14 +24,12 @@ HDRS=$(curl -sI --max-time 20 "$URL" | tr -d '\r')
 val() { echo "$HDRS" | grep -i "^$1:" | head -1 | sed "s/^[^:]*:[[:space:]]*//"; }
 CF_RAY=$(val 'cf-ray')
 SERVER=$(val 'server')
-VXID=$(val 'x-vercel-id')
 VXFIREWALL=$(val 'x-vercel-firewall')
 [ -z "$VXFIREWALL" ] && VXFIREWALL=$(val 'x-vercel-protection')
 
 echo "server:           ${SERVER:-<none>}"
 echo "cf-ray:           ${CF_RAY:-<none>}"
-echo "x-vercel-id:      ${VXID:-<none>}"
-echo "vercel waf hdrs:  ${VXFIREWALL:-<none>}"
+echo "x-vercel-firewall: ${VXFIREWALL:-<none>}"
 echo
 
 if [ -n "$CF_RAY" ]; then
@@ -36,25 +38,40 @@ if [ -n "$CF_RAY" ]; then
   exit 0
 fi
 
-if [ -n "$SERVER" ] && echo "$SERVER" | grep -qi vercel; then
-  echo "ℹ️  Directly on Vercel (no Cloudflare in front)."
-  echo "   Recommended: enable the native Vercel Firewall (no DNS change):"
-  echo "     Vercel dashboard → Project → Firewall → enable + Managed rules."
-  echo "   Verify after enabling by re-running this script (look for"
-  echo "   x-vercel-firewall-* / x-vercel-protection headers or 403 on the probe below)."
-  echo
-  echo "   Optional Cloudflare alternative:"
-  echo "     1. Add torrentcdn.store as a Cloudflare zone (Free plan)."
-  echo "     2. DNS → CNAME  www → cname.vercel-dns.com  with proxy (orange cloud) ON."
-  echo "     3. SSL/TLS → Full (strict); ensure the apex 308-redirect is preserved."
-  echo "     4. Security → WAF → Managed rules → default Cloudflare OWASP set."
-  echo
-  echo "   Quick sanity probe (a WAF typically answers 403 for a known-bad UA):"
-  curl -s -o /dev/null -w "     UA 'sqlmap' -> HTTP %{http_code}\n" --max-time 20 \
-    -A "sqlmap/1.7" "$URL"
+# Firewall rule headers in the normal response = WAF is evaluating requests.
+if [ -n "$VXFIREWALL" ]; then
+  echo "✅ Vercel Firewall ACTIVE — rule header present: $VXFIREWALL"
   exit 0
 fi
 
-echo "⚠️  No Cloudflare ray and no Vercel server header — unexpected edge topology."
+if [ -n "$SERVER" ] && echo "$SERVER" | grep -qi vercel; then
+  # The decisive test: a known-attack User-Agent must NOT get through.
+  CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -A 'sqlmap/1.7' "$URL")
+  echo "probe (UA 'sqlmap'): HTTP $CODE"
+  if [ "$CODE" = "403" ] || [ "$CODE" = "429" ] || [ "$CODE" = "451" ]; then
+    echo
+    echo "✅ Vercel Firewall ACTIVE — the attack probe was blocked (HTTP $CODE)."
+    exit 0
+  fi
+
+  echo
+  echo "❌ WAF NOT DETECTED — probes pass through (HTTP $CODE) and no firewall"
+  echo "   header is present, so the Vercel Firewall is not (yet) blocking."
+  echo
+  echo "   If you just enabled it, check the Vercel dashboard:"
+  echo "     Vercel dashboard → Project → Firewall → Firewall enabled?"
+  echo "     → Managed rules: enable the OWASP ruleset and set the action to"
+  echo "       'Block' (the default is often 'Log' only, which lets traffic through)."
+  echo "   Then wait a few minutes for edge propagation and re-run this script."
+  echo
+  echo "   Optional Cloudflare alternative:"
+  echo "     1. Add torrentcdn.store as a Cloudflare zone (Free plan)."
+  echo "     2. DNS → CNAME  www → cname.vercel-dns.com  with proxy ON."
+  echo "     3. SSL/TLS → Full (strict); keep the apex 308-redirect."
+  echo "     4. Security → WAF → Managed rules → OWASP set."
+  exit 1
+fi
+
+echo "⚠️  No Cloudflare ray, no Vercel server header — unexpected edge topology."
 echo "   Verify DNS/proxy configuration before relying on WAF protection."
 exit 1
