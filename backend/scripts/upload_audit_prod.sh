@@ -1,0 +1,230 @@
+#!/bin/bash
+# Upload (presigned direct-to-storage) flow audit — runs against the LIVE
+# production deployment. Verifies the PRIMARY upload path end-to-end exactly
+# as the browser drives it:
+#   register throwaway account → POST /upload/presign (Bearer JWT) → PUT the
+#   file bytes DIRECT to the presigned Supabase URL → POST
+#   /upload/presign/finalize/{id} → real 40-hex btih magnet → DELETE the file →
+#   DELETE /auth/me cleanup.
+#
+# Mirrors api_key_audit_prod.sh conventions:
+#   - Paces requests (~2.2s apart) so the global rate limiter (30 req / 10s per
+#     IP) doesn't produce false 429 failures.
+#   - Auth POSTs (register/presign/finalize) go through the VERCEL PROXY
+#     ($FE/*) — the same-origin path the browser uses. The file BYTES never
+#     touch the proxy: they're PUT straight to the presigned URL (the entire
+#     point of the presign design). Direct POSTs to the Render origin can fail
+#     at the network layer on Render's free tier.
+#   - finalize validates magic bytes, so the probe PUTs a REAL (minimal) WebM:
+#     EBML header + varied bytes ≥1KB. Generated with python3 (no ffmpeg
+#     needed), so the job stays a single checkout+run step.
+#   - Cleans up: DELETE /files/{id} then DELETE /auth/me (also on abort paths),
+#     so repeated runs never accumulate test uploads or accounts.
+#   - Aborts early (exit 2) if register/presign/finalize fail, since the
+#     remaining steps can't pass without a finalized upload.
+# Usage: bash upload_audit_prod.sh
+#        API_URL=https://torrent-cdn.onrender.com FRONTEND_URL=https://www.torrentcdn.store bash upload_audit_prod.sh
+# Exit code 0 = all pass, 1 = one or more checks failed, 2 = setup aborted.
+set -uo pipefail
+
+# The health GET hits the Render origin directly (the Vercel proxy only rewrites
+# /api/* and /auth/*, not /health — same split curl_audit_prod.sh uses).
+API="${API_URL:-https://torrent-cdn.onrender.com}"
+FE="${FRONTEND_URL:-https://www.torrentcdn.store}"
+PASS=0
+FAIL=0
+
+check() {
+  if [ "$1" = "0" ]; then
+    echo "  ✅  $2"
+    PASS=$((PASS+1))
+  else
+    echo "  ❌  $2"
+    FAIL=$((FAIL+1))
+  fi
+}
+
+echo "============================================================"
+echo "  PRODUCTION UPLOAD (PRESIGN) FLOW AUDIT  —  $FE"
+echo "============================================================"
+
+# ── 0. Health (fail fast if prod is unreachable) ──
+CODE=$(curl -so /dev/null -w '%{http_code}' --max-time 30 "$API/health" 2>/dev/null || echo "000")
+if [ "$CODE" != "200" ]; then
+  echo "❌ Health check failed → HTTP $CODE; is production up?" >&2
+  exit 2
+fi
+check 0 "Health → 200"
+
+# ── Helpers ──
+# req <label> <method> <path> <auth> <json_body> — prints "label method path -> HTTP code"
+# and leaves the response body in /tmp/upload_audit_resp.json. Paths that are
+# auth POSTs (register/presign/finalize) go through the Vercel proxy.
+req() {
+  local label="$1" method="$2" path="$3" auth="${4:-}" body="${5:-}"
+  local args=(-s -o /tmp/upload_audit_resp.json -w '%{http_code}' --max-time 90 -X "$method" "$FE$path")
+  [ -n "$auth" ] && args+=(-H "Authorization: $auth")
+  [ -n "$body" ] && args+=(-H 'Content-Type: application/json' -d "$body")
+  local code
+  code=$(curl "${args[@]}" 2>/dev/null || echo "000")
+  echo "[$label] $method $path -> HTTP $code"
+  echo "    body: $(head -c 300 /tmp/upload_audit_resp.json)"
+  echo
+  echo "$code" > /tmp/upload_audit_code.txt
+  sleep 2.2
+}
+status() { cat /tmp/upload_audit_code.txt; }
+
+# Cleanup helper — attempts to delete the uploaded file + throwaway account.
+# Called on abort paths too, so a mid-flow failure never leaves test data behind.
+# Echoes "file <code> account <code>" to stdout (the caller checks them) and
+# to stderr for the abort-path callers that just want the log line.
+cleanup_all() {
+  local fcode="skipped" acode="skipped"
+  if [ -n "${FILE_ID:-}" ] && [ -n "${JWT:-}" ]; then
+    fcode=$(curl -so /dev/null -w '%{http_code}' --max-time 60 -X DELETE "$FE/files/$FILE_ID" \
+      -H "Authorization: Bearer $JWT" 2>/dev/null || echo "000")
+  fi
+  if [ -n "${JWT:-}" ]; then
+    acode=$(curl -so /dev/null -w '%{http_code}' --max-time 60 -X DELETE "$FE/auth/me" \
+      -H "Authorization: Bearer $JWT" 2>/dev/null || echo "000")
+  fi
+  echo "cleanup file=$fcode account=$acode" >&2
+  echo "$fcode $acode"
+}
+
+# post_proxy <path> <json> <auth> — auth POST via the Vercel proxy with one
+# retry after a pause, mirroring curl_audit_prod.sh and the frontend auto-retry:
+# a Render cold start can drop the connection (empty body) after processing.
+post_proxy() {
+  local path="$1" json="$2" auth="$3" body=""
+  for attempt in 1 2; do
+    body=$(curl -s -m 90 -X POST "$FE$path" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $auth" \
+      -d "$json" 2>/dev/null || echo "")
+    [ -n "$body" ] && break
+    [ "$attempt" = "1" ] && sleep 6
+  done
+  echo "$body"
+}
+
+# ── 1. REGISTER THROWAWAY ACCOUNT ──
+echo ""
+echo "── 1. REGISTRATION ──"
+TS=$(date +%s)
+EMAIL="upload-audit-${TS}@probe.torrentcdn.test"
+PASSW="ProbePass123!"
+REG=$(post_proxy "/auth/register" "{\"email\":\"$EMAIL\",\"password\":\"$PASSW\",\"terms_accepted\":true}" "")
+JWT=$(echo "$REG" | python3 -c "import json,sys;print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null)
+if [ -n "$JWT" ]; then
+  check 0 "Registration → JWT received"
+else
+  check 1 "Registration failed (no access_token)"
+  cleanup_all
+  echo "❌ Aborting — the remaining steps need a registered account." >&2
+  exit 2
+fi
+
+# ── 2. SYNTHESIZE A MINIMAL REAL WEBM (passes magic-byte validation) ──
+# finalize runs validate_file_magic, so the file MUST be a real WebM: EBML
+# header at offset 0, then varied bytes ≥1KB (the compression-ratio check
+# requires ≥1KB of sample with >2 unique bytes). Python3 is on ubuntu-latest —
+# no ffmpeg dependency keeps the CI job a single checkout+run step.
+echo ""
+echo "── 2. TEST FILE SYNTHESIS ──"
+TEST_FILE=/tmp/upload-audit-probe.webm
+python3 - <<'EOF'
+# Minimal valid WebM: EBML header + a repetitive-but-non-compressible body.
+# (It needn't be a *playable* stream — finalize only validates the header
+# magic + entropy, then torrents the bytes.)
+header = b"\x1a\x45\xdf\xa3"  # EBML magic (offset 0)
+body = bytes((i * 7 + 3) % 256 for i in range(2048))  # varied, not trivially compressible
+open("/tmp/upload-audit-probe.webm", "wb").write(header + body)
+EOF
+FILE_SIZE=$(stat -c%s "$TEST_FILE")
+echo "  synthesized $TEST_FILE (${FILE_SIZE} bytes, EBML header + varied body)"
+[ "$FILE_SIZE" -ge 1024 ] && check 0 "Test WebM ≥1KB (${FILE_SIZE} bytes)" || check 1 "Test file too small (${FILE_SIZE} bytes)"
+
+# ── 3. PRESIGN ──
+echo ""
+echo "── 3. PRESIGN ──"
+if [ ! -f "$TEST_FILE" ]; then
+  echo "❌ Test file missing — aborting." >&2
+  cleanup_all >/dev/null
+  exit 2
+fi
+IDEM_KEY="audit-${TS}-$(python3 -c 'import uuid;print(uuid.uuid4())')"
+req 3-presign POST /upload/presign "Bearer $JWT" \
+  "{\"filename\":\"upload-audit-probe.webm\",\"file_size\":$FILE_SIZE,\"content_type\":\"video/webm\",\"idempotency_key\":\"$IDEM_KEY\"}"
+UPLOAD_ID=$(python3 -c "import json;print(json.load(open('/tmp/upload_audit_resp.json')).get('upload_id',''))" 2>/dev/null)
+PRESIGNED_URL=$(python3 -c "import json;print(json.load(open('/tmp/upload_audit_resp.json')).get('presigned_url',''))" 2>/dev/null)
+CT=$(python3 -c "import json;print(json.load(open('/tmp/upload_audit_resp.json')).get('content_type',''))" 2>/dev/null)
+if [ "$(status)" = "200" ] && [ -n "$UPLOAD_ID" ] && [ -n "$PRESIGNED_URL" ]; then
+  check 0 "Presign → upload_id + presigned URL"
+else
+  check 1 "Presign → $(status) (no upload_id/presigned_url)"
+  cleanup_all
+  echo "❌ Aborting — no presigned URL to PUT to." >&2
+  exit 2
+fi
+echo "$PRESIGNED_URL" | grep -q '^https://' && check 0 "Presigned URL is https" || check 1 "Presigned URL not https"
+
+# ── 4. DIRECT PUT TO SUPABASE STORAGE (bytes never touch the proxy) ──
+echo ""
+echo "── 4. DIRECT PUT TO STORAGE ──"
+# ContentType is a SIGNED header on the presigned URL — send exactly what the
+# backend minted, or Supabase rejects the signature.
+PUT_CODE=$(curl -so /dev/null -w '%{http_code}' --max-time 120 -X PUT "$PRESIGNED_URL" \
+  -H "Content-Type: $CT" --data-binary @"$TEST_FILE" 2>/dev/null || echo "000")
+sleep 2.2
+if [ "$PUT_CODE" = "200" ]; then
+  check 0 "PUT to Supabase → 200"
+else
+  check 1 "PUT to Supabase → $PUT_CODE"
+fi
+echo "$PRESIGNED_URL" | grep -q 'supabase' && check 0 "Bytes went to supabase.co (not the proxy)" || check 1 "Presigned URL host is not supabase.co"
+
+# ── 5. FINALIZE ──
+echo ""
+echo "── 5. FINALIZE ──"
+FIN=$(post_proxy "/upload/presign/finalize/$UPLOAD_ID" "{}" "$JWT")
+FILE_ID=$(echo "$FIN" | python3 -c "import json,sys;print(json.load(sys.stdin).get('file_id',''))" 2>/dev/null)
+MAGNET=$(echo "$FIN" | python3 -c "import json,sys;print(json.load(sys.stdin).get('magnet_link',''))" 2>/dev/null)
+MINIO_URL=$(echo "$FIN" | python3 -c "import json,sys;print(json.load(sys.stdin).get('minio_url',''))" 2>/dev/null)
+if [ -n "$FILE_ID" ]; then
+  check 0 "Finalize → file_id received"
+  echo "$MAGNET" | grep -qE '^magnet:\?xt=urn:btih:[0-9a-f]{40}' && check 0 "Real 40-hex btih magnet" || check 1 "Magnet not a real btih: $(echo "$MAGNET" | head -c 80)"
+  [ -n "$MINIO_URL" ] && check 0 "minio_url present" || check 1 "minio_url missing"
+else
+  check 1 "Finalize failed: $(echo "$FIN" | head -c 200)"
+  cleanup_all
+  echo "❌ Aborting — no finalized upload to verify." >&2
+  exit 2
+fi
+
+# ── 6. VERIFY VIA /files (the upload is listed for this user) ──
+echo ""
+echo "── 6. LISTED VIA /files ──"
+req 6-files GET /files "Bearer $JWT"
+if [ "$(status)" = "200" ] && grep -q "$FILE_ID" /tmp/upload_audit_resp.json; then
+  check 0 "GET /files lists the uploaded file"
+else
+  check 1 "GET /files → $(status) (file_id not listed)"
+fi
+
+# ── 7. CLEANUP ──
+echo ""
+echo "── 7. CLEANUP ──"
+CLEAN_CODES=$(cleanup_all)
+CLEAN_FILE=$(echo "$CLEAN_CODES" | awk '{print $1}')
+CLEAN_ACCT=$(echo "$CLEAN_CODES" | awk '{print $2}')
+[ "$CLEAN_FILE" = "200" ] && check 0 "Test file deleted (DELETE /files/{id}) → 200" || check 1 "File cleanup → ${CLEAN_FILE:-skipped}"
+[ "$CLEAN_ACCT" = "200" ] && check 0 "Test account deleted (DELETE /auth/me) → 200" || check 1 "Account cleanup → ${CLEAN_ACCT:-skipped}"
+
+# ── SUMMARY ──
+echo ""
+echo "============================================================"
+echo "  RESULTS: $PASS ✅  $FAIL ❌"
+echo "============================================================"
+[ "$FAIL" -eq 0 ] && exit 0 || exit 1

@@ -312,6 +312,35 @@ jobs:
       - name: Run the API-key flow probe against production
         run: bash backend/scripts/api_key_audit_prod.sh
 
+  # ── Upload (presigned) flow live probe (scheduled production check) ──
+  # Exercises the PRIMARY upload path end-to-end against the LIVE deployment,
+  # exactly as the browser drives it: register throwaway account → POST
+  # /upload/presign → PUT the bytes DIRECT to the presigned Supabase URL (they
+  # never touch Render/Vercel) → finalize → real 40-hex btih magnet → file is
+  # listed under /files → DELETE file + account. The synthetic test WebM is
+  # generated inline with python3 (no ffmpeg), so the job is a single
+  # checkout+run step. Catches production regressions the mocked unit suite
+  # can't: a broken presign signature, dead bucket CORS for the direct PUT,
+  # finalize validation drift, or torrent/magnet generation failure.
+  #
+  # Schedule + manual dispatch ONLY (NOT push/PR) — same reasoning as
+  # api-key-live: the probe WRITES to production (throwaway upload + account),
+  # per-push runs would burn the 10/hr/IP upload budget from shared runner
+  # IPs, fork PRs could trigger unlimited production writes, and on push the
+  # probe would validate the PREVIOUS deploy anyway (Render/Vercel lag). The
+  # daily 04:00 UTC cron + manual dispatch is the alert surface: a red run
+  # means the upload flow is broken on the live backend. The script always
+  # cleans up its test file + account (including abort paths).
+  upload-live:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Run the upload (presign) flow probe against production
+        run: bash backend/scripts/upload_audit_prod.sh
+
   # ── Backend unit test suite (fully mocked — no infra required) ──
   tests:
     runs-on: ubuntu-latest
