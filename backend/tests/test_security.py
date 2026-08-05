@@ -25,6 +25,43 @@ def _mock_bcrypt_user(mock_conn, email="user@example.com", password="securePass1
     }
 
 
+class TestCacheControlHeader:
+    """Every API response must be marked Cache-Control: no-store.
+
+    Sensitive JSON (/auth/me, /files, /billing, /admin/*) must never be served
+    stale from a shared intermediary (Vercel edge, CDN, corporate proxy). The
+    header is set centrally in CSPMiddleware.dispatch, so this guards every
+    route — public health checks included.
+    """
+
+    def test_health_response_is_no_store(self, client):
+        """Even the unauthenticated health endpoint gets no-store."""
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        assert resp.headers.get("cache-control") == "no-store"
+
+    def test_authed_sensitive_endpoint_is_no_store(self, client, auth_headers, mock_conn):
+        """/auth/me (account payload) must never be cacheable."""
+        mock_conn.fetchrow.return_value = {
+            "id": UUID("11111111-1111-4111-8111-111111111111"),
+            "email": "user@example.com",
+            "plan": "free",
+            "created_at": "2026-01-01T00:00:00Z",
+        }
+        resp = client.get("/auth/me", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.headers.get("cache-control") == "no-store"
+
+    def test_admin_endpoint_is_no_store(self, client, admin_headers, mock_conn):
+        """/admin/* payloads must never be cacheable."""
+        mock_conn.fetchrow.return_value = {"is_admin": True}
+        mock_conn.fetchval.return_value = 0
+        mock_conn.fetch.return_value = []
+        resp = client.get("/admin/users", headers=admin_headers)
+        assert resp.status_code == 200
+        assert resp.headers.get("cache-control") == "no-store"
+
+
 class TestAuthSetupGating:
     """POST /auth/setup must only promote admins while ADMIN_SETUP_ENABLED=true."""
 

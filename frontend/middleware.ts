@@ -35,7 +35,10 @@ export function middleware(request: NextRequest) {
     // (routes/upload.py `torrent.announce_urls`) — the embed player announces
     // to exactly that list, and a tracker not in connect-src is silently
     // blocked by CSP (P2P then never connects). fastcast.nz was dropped: it is
-    // defunct.
+    // defunct. (A stale NEXT_PUBLIC_API_URL pointing at a direct backend host
+    // like https://torrent-cdn.onrender.com is NO LONGER allow-listed in
+    // production — see the apiOrigin block below; lib/api.ts ignores the env
+    // var in production, so the origin never needs to be in this list.)
     'wss://tracker.webtorrent.dev',
     'wss://tracker.openwebtorrent.com',
     'wss://tracker.btorrent.xyz',
@@ -50,19 +53,26 @@ export function middleware(request: NextRequest) {
     ...(isProduction ? [] : ['http://localhost:*']),
   ]
 
-  // If NEXT_PUBLIC_API_URL is cross-origin (direct backend call instead of the
-  // same-origin Vercel proxy), add exactly that origin to connect-src. Derived
-  // from the same env var the axios client uses, so this can never silently
-  // diverge from what the app actually calls.
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
-  let apiOrigin = ''
-  try {
-    apiOrigin = new URL(apiUrl).origin
-  } catch {
-    // Malformed/empty — 'self' (or localhost in dev) is all we allow.
-  }
-  if (apiOrigin && apiOrigin !== request.nextUrl.origin) {
-    connectSources.push(apiOrigin)
+  // NEXT_PUBLIC_API_URL is ONLY honored in local dev — lib/api.ts hardcodes the
+  // same-origin Vercel proxy in production (see its header comment), and a CI
+  // guard (scripts/check_api_baseurl.sh) fails the frontend build if the
+  // bundle's API base isn't same-origin. So in production a cross-origin API
+  // origin must NEVER be allow-listed: a stale/compromised env value (e.g. a
+  // dead direct-backend host) baking an extra origin into connect-src would
+  // widen the CSP for zero functional benefit. Deny by default — the app
+  // cannot call what the CSP blocks in production, and what it doesn't call
+  // must not be allowed in.
+  if (!isProduction) {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+    let apiOrigin = ''
+    try {
+      apiOrigin = new URL(apiUrl).origin
+    } catch {
+      // Malformed/empty — 'self' (or localhost in dev) is all we allow.
+    }
+    if (apiOrigin && apiOrigin !== request.nextUrl.origin) {
+      connectSources.push(apiOrigin)
+    }
   }
 
   const connectSourcesJoined = connectSources.join(' ')

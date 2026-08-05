@@ -228,6 +228,57 @@ class TestLogin:
         assert resp.status_code == 422
 
 
+class TestLoginAuditLog:
+    """Login success/failure must be logged (auth-event audit trail).
+
+    Failed logins are logged with email + client IP (never the password) so
+    brute-force / credential-stuffing campaigns are visible even before the
+    lockout counter trips; successes log the user id only.
+    """
+
+    LOGIN_URL = "/auth/login"
+
+    def test_failed_login_logged_with_email_and_ip(self, client, mock_conn, caplog):
+        """Wrong credentials → a WARNING naming the email and client IP."""
+        mock_conn.fetchrow.return_value = None  # unknown user (enum-timing path)
+
+        import logging
+        with caplog.at_level(logging.WARNING, logger="app.routes.auth"):
+            resp = client.post(self.LOGIN_URL, json={
+                "email": "attacker@example.com",
+                "password": "wrongPass1",
+            })
+
+        assert resp.status_code == 401
+        failed = [r for r in caplog.records if r.message.startswith("Login failed for")]
+        assert len(failed) == 1
+        assert "attacker@example.com" in failed[0].message
+        assert "testclient" in failed[0].message  # TestClient peer IP
+        assert "wrongPass1" not in failed[0].message  # never log the password
+
+    def test_successful_login_logged_with_user_id(self, client, mock_conn, caplog):
+        """Valid credentials → an INFO record naming the user id."""
+        from app.auth import hash_password
+        mock_conn.fetchrow.return_value = {
+            "id": UUID("11111111-1111-4111-8111-111111111111"),
+            "email": "user@example.com",
+            "password_hash": hash_password("securePass123"),
+            "verified": True,
+        }
+
+        import logging
+        with caplog.at_level(logging.INFO, logger="app.routes.auth"):
+            resp = client.post(self.LOGIN_URL, json={
+                "email": "user@example.com",
+                "password": "securePass123",
+            })
+
+        assert resp.status_code == 200
+        ok = [r for r in caplog.records if r.message.startswith("Login succeeded for user")]
+        assert len(ok) == 1
+        assert "11111111-1111-4111-8111-111111111111" in ok[0].message
+
+
 class TestGetMe:
     """Tests for GET /auth/me."""
 

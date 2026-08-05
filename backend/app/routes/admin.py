@@ -169,26 +169,30 @@ async def _admin_update_plan(user_id: UUID, data: UpdateUserPlanRequest):
 async def admin_update_plan(
     user_id: UUID,
     data: UpdateUserPlanRequest,
-    _: UUID = Depends(require_admin),
+    admin_id: UUID = Depends(require_admin),
 ):
     """Update a user's subscription plan."""
-    return await _admin_update_plan(user_id, data)
+    result = await _admin_update_plan(user_id, data)
+    logger.info("Admin %s changed plan of user %s to %s", admin_id, user_id, data.plan)
+    return result
 
 
 @router.post("/users/{user_id}/plan")
 async def admin_update_plan_post(
     user_id: UUID,
     data: UpdateUserPlanRequest,
-    _: UUID = Depends(require_admin),
+    admin_id: UUID = Depends(require_admin),
 ):
     """Update a user's subscription plan (POST alias)."""
-    return await _admin_update_plan(user_id, data)
+    result = await _admin_update_plan(user_id, data)
+    logger.info("Admin %s changed plan of user %s to %s", admin_id, user_id, data.plan)
+    return result
 
 
 @router.post("/users/{user_id}/toggle-admin")
 async def admin_toggle_admin(
     user_id: UUID,
-    _: UUID = Depends(require_admin),
+    admin_id: UUID = Depends(require_admin),
 ):
     """Toggle a user's admin flag."""
     pool = await get_db_pool()
@@ -203,6 +207,12 @@ async def admin_toggle_admin(
             "UPDATE users SET is_admin = $1 WHERE id = $2",
             new_status, user_id,
         )
+
+    # Administrative-action audit log (actor + target + outcome).
+    logger.info(
+        "Admin %s toggled admin status of user %s to %s",
+        admin_id, user_id, new_status,
+    )
 
     # Rotate the target user's sessions on a PRIVILEGE change: any token they
     # hold was minted under the old admin flag. Bumping pw_change makes
@@ -256,11 +266,14 @@ async def admin_delete_user(user_id: UUID, admin_id: UUID = Depends(require_admi
         )
         if result == "DELETE 0":
             raise HTTPException(status_code=404, detail="User not found")
+
+    # Administrative-action audit log (actor + target).
+    logger.info("Admin %s deleted user %s", admin_id, user_id)
     return {"detail": "User deleted"}
 
 
 @router.post("/users/{user_id}/verify")
-async def admin_verify_user(user_id: UUID, _: UUID = Depends(require_admin)):
+async def admin_verify_user(user_id: UUID, admin_id: UUID = Depends(require_admin)):
     """Manually verify a user's email. Admin-only."""
     pool = await get_db_pool()
     async with pool.acquire() as conn:
@@ -275,7 +288,7 @@ async def admin_verify_user(user_id: UUID, _: UUID = Depends(require_admin)):
         await conn.execute(
             "UPDATE users SET verified = TRUE WHERE id = $1", user_id
         )
-        logger.info("Admin verified user %s (%s)", user_id, user["email"])
+        logger.info("Admin %s verified user %s (%s)", admin_id, user_id, user["email"])
 
     return {"detail": f"User {user['email']} verified successfully"}
 

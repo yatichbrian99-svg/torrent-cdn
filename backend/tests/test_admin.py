@@ -382,6 +382,71 @@ class TestAdminDeleteUser:
         mock_s3_client.delete_object.assert_called_once()
 
 
+class TestAdminAuditLog:
+    """Every admin action must be audit-logged with actor + target."""
+
+    ADMIN = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    TARGET = "11111111-1111-4111-8111-111111111111"
+    URL = "/admin/users"
+
+    def test_toggle_admin_logged(self, client, admin_headers, mock_conn, caplog):
+        """toggle-admin records the acting admin and the new status."""
+        mock_conn.fetchrow.side_effect = [
+            {"is_admin": True},   # require_admin check
+            {"is_admin": False},  # target user
+        ]
+
+        import logging
+        with caplog.at_level(logging.INFO, logger="app.routes.admin"):
+            resp = client.post(f"{self.URL}/{self.TARGET}/toggle-admin", headers=admin_headers)
+
+        assert resp.status_code == 200
+        toggles = [r for r in caplog.records if "toggled admin status" in r.message]
+        assert len(toggles) == 1
+        assert self.ADMIN in toggles[0].message   # actor
+        assert self.TARGET in toggles[0].message  # target
+        assert "True" in toggles[0].message      # new status
+
+    def test_plan_change_logged(self, client, admin_headers, mock_conn, caplog):
+        """Plan changes record the acting admin and the new plan."""
+        mock_conn.fetchrow.return_value = {"is_admin": True}
+        mock_conn.execute.return_value = "UPDATE 1"
+
+        import logging
+        with caplog.at_level(logging.INFO, logger="app.routes.admin"):
+            resp = client.put(
+                f"{self.URL}/{self.TARGET}/plan",
+                headers=admin_headers,
+                json={"plan": "pro"},
+            )
+
+        assert resp.status_code == 200
+        changes = [r for r in caplog.records if "changed plan of user" in r.message]
+        assert len(changes) == 1
+        assert self.ADMIN in changes[0].message
+        assert self.TARGET in changes[0].message
+        assert "pro" in changes[0].message
+
+    def test_delete_user_logged(self, client, admin_headers, mock_conn, caplog):
+        """User deletion records the acting admin and the target."""
+        mock_conn.fetchrow.side_effect = [
+            {"is_admin": True},   # require_admin check
+            {"is_admin": False},  # target user is not admin
+        ]
+        mock_conn.fetch.return_value = []
+        mock_conn.execute.return_value = "DELETE 1"
+
+        import logging
+        with caplog.at_level(logging.INFO, logger="app.routes.admin"):
+            resp = client.delete(f"{self.URL}/{self.TARGET}", headers=admin_headers)
+
+        assert resp.status_code == 200
+        deletes = [r for r in caplog.records if "deleted user" in r.message]
+        assert len(deletes) == 1
+        assert self.ADMIN in deletes[0].message
+        assert self.TARGET in deletes[0].message
+
+
 class TestAdminAnalytics:
     """Tests for GET /admin/analytics."""
 

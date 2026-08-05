@@ -336,6 +336,10 @@ async def login(data: UserLogin, request: Request):
             else:
                 _login_attempts.setdefault(rate_key, []).append(time.time())
                 _prune_login_attempts(time.time())
+            # Authentication-event log: failed login (email + client IP, never
+            # the password) so brute-force / credential-stuffing campaigns are
+            # detectable in the logs even before the lockout counter trips.
+            logger.warning("Login failed for %s from IP %s", data.email, ip)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password",
@@ -355,6 +359,9 @@ async def login(data: UserLogin, request: Request):
     else:
         _login_attempts.pop(rate_key, None)
 
+    # Authentication-event log: successful login (user id only — no token,
+    # no password, no email beyond what the failed-path already logs).
+    logger.info("Login succeeded for user %s", user["id"])
     token = create_access_token({"sub": str(user["id"])})
     return TokenResponse(access_token=token)
 

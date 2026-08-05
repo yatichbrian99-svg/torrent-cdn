@@ -218,6 +218,11 @@ class CSPMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["X-XSS-Protection"] = "1; mode=block"
+        # Every API response is dynamic JSON consumed by the SPA — never let a
+        # shared intermediary (Vercel edge, CDN, corporate proxy) cache it.
+        # Sensitive payloads (/auth/me, /files, /billing, /admin/*) must never
+        # be served stale to a different user from a cache.
+        response.headers["Cache-Control"] = "no-store"
         # API responses are JSON consumed via CORS-enabled fetch — CORP is safe
         # here and blocks no-cors cross-origin embedding of API payloads.
         response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
