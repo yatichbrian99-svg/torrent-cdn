@@ -362,6 +362,19 @@ The API-key and upload flows are now **automatically re-verified against the liv
 - **Browser-proof** — new Playwright suite `frontend/e2e/finalize-retry.mjs` (`d49c4f2`), run against production: block the first finalize with a 502 → the client re-sends it → success screen with a real 40-hex magnet, no chunked fallback engaged. A lost-response mode (`route.fetch()` lets the finalize complete server-side, then 502s the browser) exercises the EXACT cold-start path — the retried finalize's 200 comes from the stored-row lookup. **4/4 runs green**.
 - **Chunked-path equivalent** covered by a unit test (`d16605d`): the session-present retry returns the SAME `file_id` with exactly one insert / one storage write / one rate-limit draw. Docstring records the honest scope boundary — a session-GONE chunked retry (30-min TTL prune or Render restart; chunk sessions are in-memory only) still 404s, a known fallback-path limitation.
 
+### 2026-08-05 — Zero-trust audit round 2: CSP tightening, no-store, audit logging (`a58ab8d`)
+
+Full re-baseline against OWASP Top 10 / ASVS / CWE Top 25 (the "ultimate hardening" checklist). Baseline was already strong (282 tests, all static-header checks, secret scan clean, live header set excellent) — four genuine gaps found and fixed:
+
+1. **Stale cross-origin API origin in the production CSP (Medium)** — the live `connect-src` baked in `https://torrent-cdn.onrender.com` because `NEXT_PUBLIC_API_URL` on the Vercel deploy was stale. `lib/api.ts` ignores that env var in production (same-origin proxy always; `check_api_baseurl.sh` enforces it), so the entry only widened the CSP. `frontend/middleware.ts` now allow-lists a cross-origin API origin **in dev only**; production denies by default — a stale/compromised env value can no longer widen `connect-src`.
+2. **No `Cache-Control` on API responses (Medium)** — sensitive JSON (`/auth/me`, `/files`, `/billing`, `/admin/*`) could be served stale from a shared intermediary. `CSPMiddleware` (central, wraps every route) now stamps `Cache-Control: no-store` on all responses.
+3. **Authentication events not logged (Low)** — brute-force/credential-stuffing was invisible until the lockout counter tripped. Failed logins log `WARNING` with email + client IP (never the password); successful logins log `INFO` with user id only.
+4. **Admin actions not fully audited (Low)** — plan changes, toggle-admin, and user deletion had no audit trail. All four mutating admin routes (incl. verify, which lacked the actor) now log actor + target + outcome.
+
+**Regression tests (+8):** `Cache-Control: no-store` on health/authed/admin endpoints; login audit-log records (failed: email+IP present, password absent; success: user id); admin audit-log records for toggle/plan/delete with actor + target.
+
+**Verification:** backend **290 passed**, frontend **74 passed** + `tsc` clean, `security_audit.py` **all checks passed**, secret scan clean.
+
 ### Accepted residual risks
 
 Risk is accepted **only** when the fix would break the product or require a breaking change with no safe migration path. Both are continuously re-assessed.
@@ -373,6 +386,22 @@ The advisory database updated *after* the 14.2.35 fix shipped a new batch with *
 #### 2. `ip` advisory (transitive via `webtorrent`) — **accepted**
 
 `npm audit` reports `ip` (DoS via malformed IP string) as a transitive dependency of `webtorrent`. The only "fix" npm offers is downgrading `webtorrent` to 0.7.3, which would **destroy the entire P2P delivery feature** (the product's core differentiator). Exposure is minimal: it executes in the browser client (not the server), and the malformed-input path is not reachable from user-controlled surfaces in the embed player. Revisit if `webtorrent` upstreams a fix or drops the `ip` dependency.
+
+#### 3. Admin MFA — **not implemented (recommended)**
+
+ASVS requires MFA for privileged accounts "where practical". This app currently protects admin routes with strong auth (JWT, role check on every request, session rotation on privilege change) plus per-IP rate limiting, but has no TOTP/WebAuthn step-up. Considered impractical at this stage (single-admin bootstrap, no org tier); tracked as the top future hardening item.
+
+#### 4. Malware scanning of uploads — **magic bytes only**
+
+Uploads are validated by magic-byte signature, content-type, size, and compression-ratio checks (rejects executables and archive-bomb classes) but are **not** scanned by an AV engine. Feasible options (ClamAV sidecar, VirusTotal API) add cost/latency per upload; accepted for now, re-assess when paid tiers ship.
+
+#### 5. WAF / DDoS protection — **not deployed**
+
+App-level controls (rate limiting per endpoint, lockouts, body caps, request timeouts, TrustedHost) are in place, and TLS is terminated by Vercel/Cloudflare-fronted edges, but no managed WAF ruleset is enabled. Recommended: enable Cloudflare WAF managed rules in front of www.torrentcdn.store and log/review blocked requests.
+
+#### 6. Backup encryption + restore drills — **provider-managed**
+
+Render's managed Postgres performs automated daily backups; encryption at rest and retention are provider-controlled and not yet independently verified with a restore drill. A quarterly restore test and a documented runbook are recommended.
 
 ---
 
