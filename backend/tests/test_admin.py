@@ -172,7 +172,11 @@ class TestAdminToggleAdmin:
         data = resp.json()
         assert data["detail"] == "Admin status updated"
         assert data["is_admin"] is True
-        mock_conn.execute.assert_awaited_once()
+        # is_admin update + the security_stamp session-rotation bump
+        assert mock_conn.execute.await_count == 2
+        assert any(
+            "security_stamp" in str(c.args[0]) for c in mock_conn.execute.call_args_list
+        )
 
     def test_toggle_admin_revoke(self, client, admin_headers, mock_conn):
         """Should flip an admin back to regular user."""

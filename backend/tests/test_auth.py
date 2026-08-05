@@ -492,10 +492,10 @@ class TestResetPassword:
 
         assert resp.status_code == 200
         assert "reset successfully" in resp.json()["detail"]
-        # The UPDATE must set verified = TRUE alongside the new password hash.
-        sql = mock_conn.execute.call_args.args[0].lower()
-        assert "verified" in sql
-        assert "set password_hash = $1, verified = true" in sql
+        # The UPDATE must set verified = TRUE alongside the new password hash
+        # (the security_stamp bump is a separate later call — search all calls).
+        sqls = [str(c.args[0]).lower() for c in mock_conn.execute.call_args_list]
+        assert any("set password_hash = $1, verified = true" in s for s in sqls)
 
     def test_reset_password_redis_down_at_click_uses_jwt_only(self, client, mock_conn, monkeypatch):
         """

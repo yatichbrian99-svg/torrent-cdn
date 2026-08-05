@@ -45,6 +45,11 @@ CREATE TABLE IF NOT EXISTS users (
     mfa_secret TEXT,
     mfa_enabled BOOLEAN DEFAULT FALSE,
     mfa_backup_codes TEXT,
+    -- Session-revocation marker (authoritative, Redis-free): bumped to NOW() on
+    -- password reset / MFA enable-disable / admin privilege changes. JWTs whose
+    -- iat predates this stamp are rejected, so a pre-change token can never
+    -- outlive the change even on deployments without Redis (see auth.py).
+    security_stamp TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 """

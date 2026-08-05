@@ -17,6 +17,7 @@ from ..auth import (
     verify_password,
     create_access_token,
     get_current_user_id,
+    revoke_user_sessions,
 )
 from ..email_service import send_verification_email, send_password_reset_email, decode_password_reset_token
 from ..mfa import (
@@ -127,18 +128,13 @@ def _mfa_code_valid(row, code: str) -> bool:
 
 
 async def _revoke_sessions(user_id) -> None:
-    """Bump the pw_change marker so every pre-existing session token is rejected.
+    """Rotate every pre-existing session token (MFA enable/disable).
 
-    Used on MFA enable/disable — a security-posture change must rotate sessions
-    (any token minted before the change lacks/retains the old posture). Redis is
-    optional: if it's down, tokens fall back to their 24h expiry (fail-open,
-    consistent with the rest of the app)."""
-    try:
-        redis = await get_redis()
-        if redis is not None:
-            await redis.set(f"pw_change:{user_id}", str(time.time()))
-    except Exception:
-        pass
+    Delegates to revoke_user_sessions, which writes BOTH the DB security_stamp
+    (authoritative — works without Redis) and the Redis pw_change marker (fast
+    path). A security-posture change must rotate sessions: any token minted
+    before the change lacks/retains the old posture."""
+    await revoke_user_sessions(user_id)
 
 
 def _normalize_email(email: str) -> str:
@@ -599,15 +595,9 @@ async def reset_password(data: ResetPasswordRequest):
 
     # Record the password change so EVERY pre-existing session token (issued
     # before this instant) is rejected by get_current_user_id — "change my
-    # password" must kick out sessions on all other devices. Redis is optional:
-    # if it's down, tokens rely on the 24h expiry alone (fail-open, consistent
-    # with the rest of the app).
-    try:
-        redis = await get_redis()
-        if redis is not None:
-            await redis.set(f"pw_change:{user_id_str}", str(time.time()))
-    except Exception:
-        pass
+    # password" must kick out sessions on all other devices. The DB security
+    # stamp is authoritative (works without Redis); Redis adds a fast path.
+    await revoke_user_sessions(UUID(user_id_str))
 
     logger.info("Password reset successful for user %s", user_id_str)
     return {"detail": "Password has been reset successfully."}

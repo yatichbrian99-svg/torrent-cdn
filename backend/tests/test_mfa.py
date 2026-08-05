@@ -308,6 +308,8 @@ class TestMfaLifecycle:
 
         resp = client.post("/auth/mfa/disable", headers=auth_headers, json={"code": totp_code(secret)})
         assert resp.status_code == 200
-        sql = mock_conn.execute.call_args.args[0].lower()
-        assert "mfa_enabled = false" in sql
-        assert "mfa_secret = null" in sql
+        # The wipe UPDATE and the security_stamp rotation bump are separate
+        # calls — search all of them (the stamp bump is issued last).
+        sqls = [str(c.args[0]).lower() for c in mock_conn.execute.call_args_list]
+        assert any("mfa_enabled = false" in s and "mfa_secret = null" in s for s in sqls)
+        assert any("security_stamp" in s for s in sqls)

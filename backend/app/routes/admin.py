@@ -5,7 +5,7 @@ from uuid import UUID
 
 from ..config import get_settings
 from ..database import get_db_pool, get_redis
-from ..auth import get_current_user_id
+from ..auth import get_current_user_id, revoke_user_sessions
 from ..models import UserAdminResponse, UpdateUserPlanRequest, AdminAnalyticsResponse
 
 settings = get_settings()
@@ -215,16 +215,11 @@ async def admin_toggle_admin(
     )
 
     # Rotate the target user's sessions on a PRIVILEGE change: any token they
-    # hold was minted under the old admin flag. Bumping pw_change makes
-    # get_current_user_id reject those tokens (they must log in again to pick
-    # up the new role). Redis optional — fail-open without it.
-    try:
-        import time
-        redis = await get_redis()
-        if redis is not None:
-            await redis.set(f"pw_change:{user_id}", str(time.time()))
-    except Exception:
-        pass
+    # hold was minted under the old admin flag. revoke_user_sessions bumps the
+    # DB security_stamp (authoritative — works without Redis) and the Redis
+    # pw_change marker (fast path), so get_current_user_id rejects those tokens
+    # (they must log in again to pick up the new role).
+    await revoke_user_sessions(user_id)
 
     return {"detail": "Admin status updated", "is_admin": new_status}
 

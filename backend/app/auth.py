@@ -1,4 +1,6 @@
 import hashlib
+import logging
+import time
 from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
@@ -10,6 +12,8 @@ from jwt.exceptions import InvalidTokenError
 import bcrypt
 from .config import get_settings
 from .database import get_db_pool, get_redis
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 security = HTTPBearer()
@@ -125,33 +129,84 @@ def decode_access_token(token: str) -> Optional[dict]:
     return payload
 
 
+async def revoke_user_sessions(user_id) -> None:
+    """Rotate every pre-existing session token for a user.
+
+    Called on password reset, MFA enable/disable, and admin privilege changes.
+    Writes BOTH revocation markers so rotation works with or without Redis:
+
+    - DB ``security_stamp`` column on users — the AUTHORITATIVE marker. It
+      survives Redis restarts/absence, which is what makes "enable MFA" (or
+      "reset my password") actually kick existing sessions on deployments that
+      don't run Redis (like production today).
+    - Redis ``pw_change:{user_id}`` — the fast-path marker used when Redis is
+      available, so the per-request check stays a cheap Redis GET.
+
+    Best-effort by design: a storage failure here must never fail the caller's
+    main operation (a password reset must still succeed).
+    """
+    uid = str(user_id)
+    try:
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET security_stamp = NOW() WHERE id = $1", uid
+            )
+    except Exception as e:
+        logger.warning("security_stamp bump failed for %s: %s", uid, e)
+    try:
+        redis = await get_redis()
+        if redis is not None:
+            await redis.set(f"pw_change:{uid}", str(time.time()))
+    except Exception as e:
+        logger.warning("pw_change marker failed for %s: %s", uid, e)
+
+
 async def _token_revoked_by_password_change(payload: dict) -> bool:
     """Return True when the token was issued BEFORE a password/privilege change.
 
-    Every login/register mints a token with an ``iat`` claim. When a password
-    is reset (or an admin's privileges change), the route records the change
-    time in Redis under ``pw_change:{user_id}``. A token whose ``iat`` predates
-    that marker is stale and must be rejected — this is what makes "reset my
-    password" actually kick every existing session off.
+    Every login/register mints a token with an ``iat`` claim. Password resets,
+    MFA enable/disable, and admin privilege changes bump a revocation marker
+    (see revoke_user_sessions):
 
-    Fail-open by design (matches the app-wide convention for the optional
-    Redis dependency): if Redis is unavailable or the token has no ``iat``
-    (legacy pre-this-feature token), the check passes rather than locking out
-    users during a Redis outage.
+    - Redis ``pw_change:{user_id}`` — the fast path when Redis is available.
+    - The DB ``security_stamp`` column — the authoritative fallback, checked
+      whenever Redis is absent or errors. Without it, a stolen pre-MFA token
+      would keep authenticating after the owner enables MFA on any deployment
+      without Redis.
+
+    A token whose ``iat`` predates the marker is stale and rejected. Fails
+    open ONLY when neither storage layer can answer (DB down = the whole app
+    is down anyway, and every handler would 500 regardless).
     """
     iat = payload.get("iat")
     if not iat:
         return False
+    sub = payload.get("sub")
+    # Fast path: Redis marker (written alongside the DB stamp on every change).
     try:
         redis = await get_redis()
-        if redis is None:
+        if redis is not None:
+            changed = await redis.get(f"pw_change:{sub}")
+            if changed is not None:
+                return float(changed) > float(iat)
+            # Live Redis, no marker → no change was ever recorded for this user.
             return False
-        changed = await redis.get(f"pw_change:{payload['sub']}")
-        if changed:
-            return float(changed) > float(iat)
     except Exception:
-        # Redis error — fail open (availability over strictness for the marker).
-        return False
+        # Redis error mid-check — fall through to the authoritative DB stamp.
+        pass
+    # Authoritative path: DB security_stamp (works with no Redis at all).
+    try:
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT security_stamp FROM users WHERE id = $1", UUID(sub)
+            )
+        stamp = row["security_stamp"] if row else None
+        if stamp is not None:
+            return stamp.timestamp() > float(iat)
+    except Exception as e:
+        logger.warning("security_stamp check failed for %s: %s", sub, e)
     return False
 
 
