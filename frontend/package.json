@@ -14,6 +14,8 @@
     "test:e2e:autoseed": "node e2e/auto-seed.mjs",
     "test:e2e:p2p": "node e2e/p2p-two-peer.mjs",
     "test:e2e:apikey": "node e2e/api-key-ui.mjs",
+    "test:e2e:finalize-retry": "node e2e/finalize-retry.mjs",
+    "test:e2e:finalize-retry-lost": "FINALIZE_LOST_RESPONSE=1 node e2e/finalize-retry.mjs",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"
   },
