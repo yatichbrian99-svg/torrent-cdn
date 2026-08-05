@@ -11,37 +11,9 @@ import pytest
 class TestTorrentAndThumbnail:
     """Unit tests for the shared torrent/thumbnail generator."""
 
-    def test_existing_path_skips_copy_and_keeps_file(self, tmp_path, mock_s3_client):
-        """With existing_path, the file is NOT rewritten or deleted by the
-        generator — the caller owns the tempdir lifecycle (the presign path
-        downloads once and reuses it). The magnet still resolves with the real
-        infohash and the real filename as dn."""
-        import os
-        from uuid import uuid4
-        from app.routes.upload import _torrent_and_thumbnail
-
-        safe_filename = "my-video.mp4"
-        src = tmp_path / safe_filename
-        src.write_bytes(b"\x00\x00\x00\x20ftypmp42" + b"\x00" * 4096)
-        user_id = uuid4()
-        file_id = str(uuid4())
-
-        magnet, thumb = _torrent_and_thumbnail(
-            None, safe_filename, user_id, file_id, mock_s3_client,
-            existing_path=str(src),
-        )
-
-        # Caller-owned file must survive the call untouched.
-        assert src.exists()
-        # Real infohash (not the fake btih:<uuid> fallback) + real dn.
-        assert magnet.startswith("magnet:?xt=urn:btih:")
-        assert "btih:" + file_id not in magnet
-        assert f"dn={safe_filename}" in magnet
-        assert thumb is None  # .mp4 IS a video ext but no ffmpeg in CI — best-effort
-
     def test_no_existing_path_cleans_up_its_own_tempdir(self, tmp_path, mock_s3_client):
-        """Without existing_path, the generator writes its own temp file and
-        removes its tempdir in the finally (no leaks on the direct path)."""
+        """The generator writes its own temp file and removes its tempdir in
+        the finally (no leaks on the direct/chunked path)."""
         from uuid import uuid4
         from app.routes.upload import _torrent_and_thumbnail
 
@@ -57,6 +29,87 @@ class TestTorrentAndThumbnail:
         import glob, os, tempfile
         leftovers = glob.glob(os.path.join(tempfile.gettempdir(), "torrentcd-*"))
         assert leftovers == [], f"leaked tempdirs: {leftovers}"
+
+
+class TestStreamingTorrentBuilder:
+    """The streaming infohash builder MUST stay byte-identical to torrentool's
+    Torrent.create_from — a divergence would fork the swarm (browser seeders
+    rebuild the info dict from the magnet, so a wrong infohash means peers can
+    never find each other). These tests pin that identity."""
+
+    def test_piece_length_rule(self):
+        from app.torrent_builder import torrentool_piece_length
+
+        assert torrentool_piece_length(1) == 32768
+        assert torrentool_piece_length(32768) == 32768
+        assert torrentool_piece_length(32769) == 262144
+        assert torrentool_piece_length(262144) == 262144
+        assert torrentool_piece_length(10 * 1024 * 1024) == 262144
+
+    def test_streaming_infohash_byte_identical_to_torrentool(self, tmp_path):
+        """Same bytes hashed via our streaming builder and via torrentool's
+        create_from must produce the IDENTICAL bencoded info dict and infohash,
+        for every piece-length boundary and reader chunk size."""
+        import hashlib
+        import os
+        from torrentool.api import Torrent
+        from torrentool.bencode import Bencode
+
+        from app.torrent_builder import (
+            bencode_info,
+            hash_pieces_from_stream,
+            torrentool_piece_length,
+        )
+
+        # 2621450 ≈ 10 pieces of 262144 — multi-piece coverage beyond the
+        # 4-piece (1 MiB) boundary, plus every boundary + trailing partial.
+        sizes = [1, 32767, 32768, 32769, 262143, 262144, 262145, 1048576, 2621450]
+        chunk_sizes = [3, 4096, 16384]
+
+        for size in sizes:
+            path = tmp_path / f"clip-{size}.mp4"
+            path.write_bytes(os.urandom(size))
+            name = path.name  # torrentool names the torrent after the file basename
+
+            theirs = Torrent.create_from(str(path))
+            theirs_info = Bencode.encode(theirs._struct["info"])
+
+            for cs in chunk_sizes:
+                with open(path, "rb") as fh:
+                    pieces = hash_pieces_from_stream(lambda: fh.read(cs), size)
+                mine_info = bencode_info(name, pieces, torrentool_piece_length(size), size)
+                assert mine_info == theirs_info, f"info bytes diverge at size={size} chunk={cs}"
+                mine_hash = hashlib.sha1(mine_info).hexdigest()
+                assert mine_hash == str(theirs.info_hash), f"infohash diverges at size={size} chunk={cs}"
+
+    def test_build_magnet_format_and_infohash(self, tmp_path):
+        """The magnet carries the real 40-hex infohash, the real dn, and all
+        three canonical trackers as percent-encoded tr= params."""
+        import os
+        import urllib.parse
+
+        from app.torrent_builder import (
+            PUBLIC_TRACKERS,
+            build_magnet,
+            hash_pieces_from_stream,
+        )
+
+        size = 500_000
+        path = tmp_path / "movie.webm"
+        path.write_bytes(os.urandom(size))
+        with open(path, "rb") as fh:
+            pieces = hash_pieces_from_stream(lambda: fh.read(16384), size)
+
+        magnet = build_magnet("movie.webm", pieces, size)
+
+        assert magnet.startswith("magnet:?xt=urn:btih:")
+        btih = magnet[len("magnet:?xt=urn:btih:"): magnet.index("&dn=")]
+        assert len(btih) == 40
+        assert all(c in "0123456789abcdef" for c in btih)
+        assert "dn=movie.webm" in magnet
+        for tr in PUBLIC_TRACKERS:
+            assert f"tr={urllib.parse.quote(tr, safe='')}" in magnet
+        assert magnet.count("&tr=") == len(PUBLIC_TRACKERS)
 
 
 class TestUpload:

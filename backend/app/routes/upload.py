@@ -4,7 +4,6 @@ import uuid
 import os
 import re
 import shutil
-import urllib.parse
 import mimetypes
 import subprocess
 import tempfile
@@ -17,9 +16,9 @@ from typing import Optional
 import boto3
 from botocore.config import Config as BotoConfig
 from asyncpg.exceptions import UniqueViolationError
-from torrentool.api import Torrent
 
 from ..config import get_settings
+from ..torrent_builder import build_magnet, hash_pieces_from_stream
 from ..database import get_db_pool, get_redis
 from ..auth import get_current_user_id
 from ..models import (
@@ -343,95 +342,83 @@ async def _check_upload_rate_limit(request: Request) -> None:
         _upload_requests[ip] = recent
 
 
-def _torrent_and_thumbnail(file_stream, safe_filename: str, user_id: UUID, file_id: str, s3, existing_path: Optional[str] = None) -> tuple:
+def _generate_thumbnail(s3, temp_path: str, ext: str, user_id: UUID, file_id: str) -> Optional[str]:
+    """Best-effort ffmpeg thumbnail for a video file (never fails the upload).
+    Returns the public URL, or None on any failure. FAST SEEK: `-ss` BEFORE
+    `-i` jumps to ~2s via the container's keyframes instead of decoding every
+    frame from the start (the old `-ss` after `-i` decoded the whole head of a
+    long video — a multi-second thumbnail on Render's nano tier)."""
+    if ext not in VIDEO_EXTS or not os.path.exists(temp_path):
+        return None
+    try:
+        thumb_path = f"/tmp/{file_id}_thumb.jpg"
+        proc = subprocess.run(
+            ["ffmpeg", "-y", "-ss", "00:00:02", "-i", temp_path, "-frames:v", "1", "-vf", "scale=640:360", thumb_path],
+            capture_output=True,
+            timeout=60,
+        )
+        if proc.returncode == 0 and os.path.exists(thumb_path):
+            thumb_key = f"{user_id}/{file_id}/thumbnail.jpg"
+            with open(thumb_path, "rb") as tf:
+                s3.put_object(
+                    Bucket=settings.minio_bucket,
+                    Key=thumb_key,
+                    Body=tf.read(),
+                    ContentType="image/jpeg",
+                )
+            thumbnail_url = f"{settings.minio_public_url}/{thumb_key}"
+            os.remove(thumb_path)
+            return thumbnail_url
+        logger.warning("ffmpeg thumbnail failed for %s (rc=%s)", temp_path, proc.returncode)
+    except Exception as e:
+        logger.warning("Thumbnail generation skipped for %s: %s", temp_path, e)
+    return None
+
+
+def _torrent_and_thumbnail(file_stream, safe_filename: str, user_id: UUID, file_id: str, s3) -> tuple:
     """Generate the magnet link and (best-effort) video thumbnail from a
-    seekable file-like object. Writes the stream to a temp file for hashing;
-    the temp file is always cleaned up. Returns (magnet_link, thumbnail_url).
+    seekable file-like object. The stream is written ONCE to a temp file whose
+    basename == safe_filename (so the torrent name — and therefore the magnet's
+    dn and the reproducible infohash — stays correct), and the SHA-1 piece
+    hashes are computed WHILE writing, so the file is never re-read for
+    hashing. Returns (magnet_link, thumbnail_url); the temp file is always
+    cleaned up.
 
-    NOTE: uses Torrent.create_from() — torrentool's actual factory. The old
-    Torrent.create() call never existed in torrentool (latest is 1.2.0), so the
-    broad except silently minted fake `btih:<uuid>` magnets on every upload.
-
-    SPEED: callers that ALREADY have the bytes on disk (presign finalize
-    downloads the object before validating it) pass `existing_path` to SKIP the
-    second full-file write — torrentool + ffmpeg read it in place. Must be a
-    file whose basename == safe_filename (so the torrent name stays correct).
-    The caller owns the file's lifecycle when existing_path is given.
+    The infohash comes from torrent_builder.build_magnet(), which reproduces
+    torrentool's info-dict bencode byte-for-byte (pinned by
+    TestStreamingTorrentBuilder.test_streaming_infohash_byte_identical_to_torrentool),
+    and the frontend seeder rebuilds the identical info dict from the magnet —
+    so the browser seeds the same swarm the magnet describes.
     """
     ext = os.path.splitext(safe_filename)[1].lower()
-    temp_path = existing_path
+    temp_dir = None
     magnet_link = None
     thumbnail_url = None
-    temp_dir = None
     try:
-        if existing_path is None:
-            # The temp file's basename becomes the torrent's `name`
-            # (torrentool's create_from uses src_path.name). Writing it as
-            # `safe_filename` inside a fresh temp DIR — rather than mkstemp,
-            # which prepends a random prefix — keeps the torrent name == the
-            # real filename: the magnet's `dn` matches the info dict, and the
-            # infohash is reproducible from the file bytes alone (a browser P2P
-            # seeder rebuilds the identical info dict, so it can seed the same
-            # swarm).
-            temp_dir = tempfile.mkdtemp(prefix="torrentcd-")
-            temp_path = os.path.join(temp_dir, safe_filename)
-            file_stream.seek(0)
-            with open(temp_path, "wb") as tf:
-                while True:
-                    chunk = file_stream.read(CHUNK_SIZE)
-                    if not chunk:
-                        break
+        # The temp file's basename becomes the torrent's `name`. Writing it as
+        # `safe_filename` inside a fresh temp DIR — rather than mkstemp, which
+        # prepends a random prefix — keeps the torrent name == the real
+        # filename: the magnet's `dn` matches the info dict, and the infohash
+        # is reproducible from the file bytes alone (a browser P2P seeder
+        # rebuilds the identical info dict, so it can seed the same swarm).
+        temp_dir = tempfile.mkdtemp(prefix="torrentcd-")
+        temp_path = os.path.join(temp_dir, safe_filename)
+        # Learn the size with a cheap seek (no data I/O) so piece boundaries
+        # are exact, then hash the bytes as they stream to disk — one read.
+        file_stream.seek(0, 2)
+        file_size = file_stream.tell()
+        file_stream.seek(0)
+
+        with open(temp_path, "wb") as tf:
+            def reader():
+                chunk = file_stream.read(CHUNK_SIZE)
+                if chunk:
                     tf.write(chunk)
+                return chunk
+            pieces = hash_pieces_from_stream(reader, file_size)
 
-        torrent = Torrent.create_from(temp_path)
-        # Public WebTorrent WSS trackers. fastcast.nz is defunct (TCP connects
-        # fail) — the trio below is the canonical, currently-live set.
-        torrent.announce_urls = [
-            "wss://tracker.webtorrent.dev",
-            "wss://tracker.openwebtorrent.com",
-            "wss://tracker.btorrent.xyz",
-        ]
-        info_hash = str(torrent.info_hash)
-        # The magnet MUST carry the announce trackers as tr= params: webtorrent's
-        # client has NO default tracker list and only announces to the magnet's
-        # `tr` (or explicit opts.announce). Without them the embed player can
-        # never discover peers, so P2P silently never engages (every embed falls
-        # back to direct origin streaming).
-        # torrentool's announce_urls getter returns the nested announce-list
-        # shape ([['wss://…'], ['wss://…']]) — flatten before quoting.
-        announce_urls = [u for group in torrent.announce_urls for u in group]
-        tr_params = "".join(f"&tr={urllib.parse.quote(u, safe='')}" for u in announce_urls)
-        magnet_link = f"magnet:?xt=urn:btih:{info_hash}&dn={safe_filename}{tr_params}"
-
-        # --- Generate thumbnail for video files (best-effort, never fails the upload) ---
-        if ext in VIDEO_EXTS and os.path.exists(temp_path):
-            try:
-                thumb_path = f"/tmp/{file_id}_thumb.jpg"
-                # FAST SEEK: `-ss` BEFORE `-i` tells ffmpeg to jump to ~2s using
-                # the container's keyframes instead of decoding every frame
-                # from the start (the old `-ss` after `-i` decoded the whole
-                # head of a long video — a multi-second thumbnail on Render's
-                # nano tier). Same output, ~10-50x faster.
-                proc = subprocess.run(
-                    ["ffmpeg", "-y", "-ss", "00:00:02", "-i", temp_path, "-frames:v", "1", "-vf", "scale=640:360", thumb_path],
-                    capture_output=True,
-                    timeout=60,
-                )
-                if proc.returncode == 0 and os.path.exists(thumb_path):
-                    thumb_key = f"{user_id}/{file_id}/thumbnail.jpg"
-                    with open(thumb_path, "rb") as tf:
-                        s3.put_object(
-                            Bucket=settings.minio_bucket,
-                            Key=thumb_key,
-                            Body=tf.read(),
-                            ContentType="image/jpeg",
-                        )
-                    thumbnail_url = f"{settings.minio_public_url}/{thumb_key}"
-                    os.remove(thumb_path)
-                else:
-                    logger.warning("ffmpeg thumbnail failed for %s (rc=%s)", safe_filename, proc.returncode)
-            except Exception as e:
-                logger.warning("Thumbnail generation skipped for %s: %s", safe_filename, e)
+        magnet_link = build_magnet(safe_filename, pieces, file_size)
+        thumbnail_url = _generate_thumbnail(s3, temp_path, ext, user_id, file_id)
     except Exception as e:
         logger.error("Torrent generation failed for %s: %s", safe_filename, e)
         magnet_link = f"magnet:?xt=urn:btih:{file_id}&dn={safe_filename}"
@@ -1158,27 +1145,30 @@ async def presign_finalize(
                 detail="Uploaded file size does not match — please retry the upload",
             )
 
-        # Stream the object to a temp file for validation + torrent/thumbnail.
-        # Named as {tmpdir}/{real filename} (NOT mkstemp's random prefix) so the
-        # file can be passed straight to _torrent_and_thumbnail as existing_path
-        # — the torrent name must equal the real filename for the magnet's dn /
-        # infohash to match what a browser seeder rebuilds, and reusing the file
-        # avoids a second full write+read of the video on every upload.
-        def _download_to(path: str) -> None:
+        # Stream the object to a temp file for validation + thumbnail, computing
+        # the torrent's SHA-1 piece hashes WHILE the bytes download — the file
+        # is never re-read for hashing, and the hashing overlaps the (dominant)
+        # network cost of the download. Named as {tmpdir}/{real filename} (NOT
+        # mkstemp's random prefix) so the torrent name == the real filename:
+        # the magnet's dn and infohash then match what a browser P2P seeder
+        # rebuilds (torrent_builder.build_magnet is byte-identical to the old
+        # torrentool hashing — see TestStreamingTorrentBuilder).
+        def _download_and_hash(path: str, file_size: int) -> bytes:
             # boto3 streaming is sync/blocking — run the whole download in a
             # worker thread so a big file's finalize never stalls the event loop.
             obj = s3.get_object(Bucket=settings.minio_bucket, Key=object_key)
             body = obj["Body"]
             with open(path, "wb") as tf:
-                while True:
+                def reader():
                     chunk = body.read(CHUNK_SIZE)
-                    if not chunk:
-                        break
-                    tf.write(chunk)
+                    if chunk:
+                        tf.write(chunk)
+                    return chunk
+                return hash_pieces_from_stream(reader, file_size)
 
         temp_dir = tempfile.mkdtemp(prefix="torrentcd-")
         temp_path = os.path.join(temp_dir, session["filename"])
-        await asyncio.to_thread(_download_to, temp_path)
+        pieces = await asyncio.to_thread(_download_and_hash, temp_path, session["file_size"])
 
         with open(temp_path, "r+b") as f:
             # Final safety validation on the stored bytes (same as the direct
@@ -1218,15 +1208,15 @@ async def presign_finalize(
                 )
 
             minio_http_url = f"{settings.minio_public_url}/{object_key}"
-            # Torrent hashing + ffmpeg are CPU/IO-bound sync work — run in a
-            # thread so a big upload's finalize never blocks the event loop
-            # (every other request would queue behind the hashing). Pass the
-            # already-downloaded file to skip the second full write; the stream
-            # arg is unused when existing_path is given, so pass None explicitly.
-            magnet_link, thumbnail_url = await asyncio.to_thread(
-                _torrent_and_thumbnail,
-                None, session["filename"], user_id, upload_id, s3,
-                temp_path,
+            # Magnet is pure CPU over the already-computed piece hashes (tiny
+            # bencode + sha1) — no file I/O. The ffmpeg thumbnail is CPU/IO
+            # bound, so it runs in a thread and never blocks the event loop.
+            magnet_link = build_magnet(session["filename"], pieces, session["file_size"])
+            thumbnail_url = await asyncio.to_thread(
+                _generate_thumbnail,
+                s3, temp_path,
+                os.path.splitext(session["filename"])[1].lower(),
+                user_id, upload_id,
             )
             result = await _insert_upload_record(
                 pool,
