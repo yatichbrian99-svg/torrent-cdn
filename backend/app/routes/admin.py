@@ -1,17 +1,24 @@
+import asyncio
 import logging
+import time
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from uuid import UUID
+import httpx
 
 from ..config import get_settings
 from ..database import get_db_pool
 from ..auth import get_current_user_id, revoke_user_sessions
 from ..models import UserAdminResponse, UpdateUserPlanRequest, AdminAnalyticsResponse
+from ..security_events import record as record_event
 
 settings = get_settings()
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+# Process start time — surfaced as uptime on the health dashboard.
+_ADMIN_START_TIME = time.time()
 
 
 async def require_admin(user_id: UUID = Depends(get_current_user_id)) -> UUID:
@@ -174,6 +181,7 @@ async def admin_update_plan(
     """Update a user's subscription plan."""
     result = await _admin_update_plan(user_id, data)
     logger.info("Admin %s changed plan of user %s to %s", admin_id, user_id, data.plan)
+    record_event("admin_plan_change", detail=f"{admin_id} -> {user_id} = {data.plan}")
     return result
 
 
@@ -186,6 +194,7 @@ async def admin_update_plan_post(
     """Update a user's subscription plan (POST alias)."""
     result = await _admin_update_plan(user_id, data)
     logger.info("Admin %s changed plan of user %s to %s", admin_id, user_id, data.plan)
+    record_event("admin_plan_change", detail=f"{admin_id} -> {user_id} = {data.plan}")
     return result
 
 
@@ -213,6 +222,7 @@ async def admin_toggle_admin(
         "Admin %s toggled admin status of user %s to %s",
         admin_id, user_id, new_status,
     )
+    record_event("admin_toggle", detail=f"{admin_id} -> {user_id} = {new_status}")
 
     # Rotate the target user's sessions on a PRIVILEGE change: any token they
     # hold was minted under the old admin flag. revoke_user_sessions bumps the
@@ -264,6 +274,7 @@ async def admin_delete_user(user_id: UUID, admin_id: UUID = Depends(require_admi
 
     # Administrative-action audit log (actor + target).
     logger.info("Admin %s deleted user %s", admin_id, user_id)
+    record_event("admin_delete", detail=f"{admin_id} -> {user_id}")
     return {"detail": "User deleted"}
 
 
@@ -284,6 +295,7 @@ async def admin_verify_user(user_id: UUID, admin_id: UUID = Depends(require_admi
             "UPDATE users SET verified = TRUE WHERE id = $1", user_id
         )
         logger.info("Admin %s verified user %s (%s)", admin_id, user_id, user["email"])
+        record_event("admin_verify", detail=f"{admin_id} -> {user_id}")
 
     return {"detail": f"User {user['email']} verified successfully"}
 
@@ -316,3 +328,176 @@ async def admin_analytics(_: UUID = Depends(require_admin)):
         pro_users=pro_users or 0,
         business_users=business_users or 0,
     )
+
+
+class _WafProbeCache:
+    """Short-TTL cache for the WAF self-probe.
+
+    The probe makes an outbound request through the public edge on every call;
+    caching for 60s keeps the dashboard snappy on refresh and avoids hammering
+    the app's own rate limiter with probe traffic. Thread-safe via a lock.
+    """
+
+    _lock = asyncio.Lock()
+    _result = None
+    _at = 0.0
+    _ttl = 60.0
+
+    @classmethod
+    async def get(cls, refresh: bool = False) -> dict:
+        now = time.time()
+        async with cls._lock:
+            if not refresh and cls._result is not None and now - cls._at < cls._ttl:
+                return cls._result
+            cls._result = await _probe_waf_uncached()
+            cls._at = now
+            return cls._result
+
+
+async def _probe_waf_uncached() -> dict:
+    """Best-effort self-probe of the edge WAF/security posture.
+
+    The backend sits BEHIND the edge (Vercel/Cloudflare), so it can't see its
+    own response headers — but it can make an outbound request through the edge
+    to the public origin and read what the edge actually sends. Mirrors
+    backend/scripts/check_waf.sh. Uses httpx async (never blocks the event
+    loop) with a 4s timeout. Never raises; network failures report "unknown"
+    (the dashboard must never break because a probe timed out).
+    """
+    probe = {"status": "unknown", "detail": "probe failed", "headers": {}}
+    url = settings.app_url.rstrip("/") + "/"
+    try:
+        async with httpx.AsyncClient(timeout=4, follow_redirects=True) as client:
+            resp = await client.get(url, headers={"User-Agent": "torrentcdn-health-probe"})
+            headers = {k.lower(): v for k, v in resp.headers.items()}
+            probe["headers"] = {k: v for k, v in headers.items() if k in (
+                "server", "cf-ray", "cf-cache-status", "x-vercel-firewall",
+                "x-vercel-protection", "content-security-policy",
+                "strict-transport-security", "x-content-type-options",
+                "x-frame-options", "referrer-policy", "permissions-policy",
+            )}
+            if "cf-ray" in headers:
+                probe["status"] = "cloudflare"
+                probe["detail"] = "Cloudflare proxy detected (cf-ray header)"
+            elif "x-vercel-firewall" in headers or "x-vercel-protection" in headers:
+                probe["status"] = "vercel-firewall"
+                probe["detail"] = "Vercel Firewall headers present"
+            elif headers.get("server", "").lower().startswith("vercel"):
+                probe["status"] = "vercel"
+                probe["detail"] = "Vercel edge — no firewall header observed (managed rules may be off / Hobby plan)"
+            else:
+                probe["status"] = "unknown"
+                probe["detail"] = f"server={headers.get('server', '?')} — no known edge fingerprint"
+    except Exception as e:
+        probe["detail"] = f"probe failed: {e}"
+    return probe
+
+
+@router.get("/health")
+async def admin_health(_: UUID = Depends(require_admin)):
+    """Security + infrastructure health dashboard payload.
+
+    Live checks (DB / Redis / storage), config-driven security posture, a WAF
+    self-probe through the public edge, and the recent security-events feed.
+    Admin-only — the same data in a public endpoint would leak operational
+    posture to attackers.
+    """
+    from ..database import get_redis
+    from ..security_events import recent as recent_events
+
+    now = time.time()
+    checks = {}
+
+    # --- Database ----------------------------------------------------------
+    try:
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            await conn.fetchval("SELECT 1")
+        checks["database"] = {"status": "ok", "detail": "SELECT 1 succeeded"}
+    except Exception as e:
+        checks["database"] = {"status": "error", "detail": str(e)[:200]}
+
+    # --- Redis -------------------------------------------------------------
+    try:
+        redis = await get_redis()
+        if redis is None:
+            checks["redis"] = {"status": "absent", "detail": "not configured / unreachable (fail-open fallbacks active)"}
+        else:
+            await redis.ping()
+            checks["redis"] = {"status": "ok", "detail": "ping ok"}
+    except Exception as e:
+        checks["redis"] = {"status": "error", "detail": str(e)[:200]}
+
+    # --- Storage -----------------------------------------------------------
+    try:
+        from .upload import get_minio_client
+        s3 = get_minio_client()
+        # boto3 is blocking — never stall the event loop on the dashboard.
+        await asyncio.to_thread(s3.head_bucket, Bucket=settings.minio_bucket)
+        checks["storage"] = {"status": "ok", "detail": f"bucket {settings.minio_bucket} reachable"}
+    except Exception as e:
+        checks["storage"] = {"status": "error", "detail": str(e)[:200]}
+
+    # --- Security posture (config-driven) ----------------------------------
+    posture = [
+        {
+            "check": "API docs (OpenAPI)",
+            "status": "pass" if settings.app_env == "production" and not settings.api_docs_enabled else "warn",
+            "detail": "disabled in production" if settings.app_env == "production" and not settings.api_docs_enabled
+                      else "enabled — route map exposed",
+        },
+        {
+            "check": "Admin bootstrap (/auth/setup)",
+            "status": "pass" if not settings.admin_setup_enabled else "warn",
+            "detail": "disabled" if not settings.admin_setup_enabled else "ENABLED — first-admin bootstrap still open",
+        },
+        {
+            "check": "Email verification gate",
+            "status": "pass" if settings.email_verification_required else "warn",
+            "detail": "required for login" if settings.email_verification_required else "not required",
+        },
+        {
+            "check": "CSP enforcement",
+            "status": "pass" if not settings.csp_report_only else "warn",
+            "detail": "enforcing" if not settings.csp_report_only else "report-only — violations not blocked",
+        },
+        {
+            "check": "MinIO secret default",
+            "status": "warn" if settings.minio_secret_key == "minioadmin" else "pass",
+            "detail": "default 'minioadmin'" if settings.minio_secret_key == "minioadmin" else "not default",
+        },
+        {
+            "check": "Stripe key placeholder",
+            "status": "warn" if settings.stripe_secret_key in ("sk_test_xxx", "sk_live_xxx") else "pass",
+            "detail": "placeholder" if settings.stripe_secret_key in ("sk_test_xxx", "sk_live_xxx") else "set",
+        },
+        {
+            "check": "Malware scan (VirusTotal)",
+            "status": "warn" if not settings.virustotal_api_key else "pass",
+            "detail": "off (fail-open, magic bytes only)" if not settings.virustotal_api_key else "on (hash lookup + <=32MB scans)",
+        },
+        {
+            "check": "Session revocation (DB security_stamp)",
+            "status": "pass",
+            "detail": "MFA enable/disable + password reset + admin changes rotate sessions without Redis",
+        },
+        {
+            "check": "Environment",
+            "status": "pass" if settings.app_env == "production" else "warn",
+            "detail": settings.app_env,
+        },
+    ]
+
+    waf = await _WafProbeCache.get()
+    events = recent_events(50)
+    for e in events:
+        e["ts"] = int(e["ts"])
+
+    return {
+        "generated_at": int(now),
+        "uptime_seconds": int(now - _ADMIN_START_TIME),
+        "checks": checks,
+        "waf": waf,
+        "posture": posture,
+        "events": events,
+    }

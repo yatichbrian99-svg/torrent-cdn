@@ -45,6 +45,7 @@ from ..models import (
 from ..config import get_settings
 from ..security import get_client_ip
 from ..services.email import send_welcome_email
+from ..security_events import record as record_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -177,6 +178,7 @@ async def _check_register_rate_limit(request: Request) -> None:
         rate_key = f"register_rate:{ip}"
         count = await redis.get(rate_key)
         if count and int(count) >= _REGISTER_LIMIT:
+            record_event("register_throttled", detail="per-IP limit", ip=ip)
             raise HTTPException(
                 status_code=429,
                 detail="Too many registrations from this IP. Please try again later.",
@@ -188,6 +190,7 @@ async def _check_register_rate_limit(request: Request) -> None:
         _prune_register_requests(now)
         recent = [t for t in _register_requests.get(ip, []) if now - t < _REGISTER_WINDOW]
         if len(recent) >= _REGISTER_LIMIT:
+            record_event("register_throttled", detail="per-IP limit", ip=ip)
             raise HTTPException(
                 status_code=429,
                 detail="Too many registrations from this IP. Please try again later.",
@@ -430,6 +433,7 @@ async def login(data: UserLogin, request: Request):
             # the password) so brute-force / credential-stuffing campaigns are
             # detectable in the logs even before the lockout counter trips.
             logger.warning("Login failed for %s from IP %s", data.email, ip)
+            record_event("login_failure", detail=data.email, ip=ip)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password",
@@ -463,6 +467,8 @@ async def login(data: UserLogin, request: Request):
 
     # Authentication-event log: successful login (user id only — no token,
     # no password, no email beyond what the failed-path already logs).
+    # Not recorded to the security feed: success is high-volume noise that
+    # would drown out the failures/admin actions the feed exists to surface.
     logger.info("Login succeeded for user %s", user["id"])
     token = create_access_token({"sub": str(user["id"])})
     return {"access_token": token, "token_type": "bearer"}
@@ -600,6 +606,7 @@ async def reset_password(data: ResetPasswordRequest):
     await revoke_user_sessions(UUID(user_id_str))
 
     logger.info("Password reset successful for user %s", user_id_str)
+    record_event("password_reset", detail=str(user_id_str))
     return {"detail": "Password has been reset successfully."}
 
 
@@ -912,6 +919,7 @@ async def mfa_enable(data: MfaCodeRequest, user_id: UUID = Depends(get_current_u
     # without the second factor and must now be rejected.
     await _revoke_sessions(user_id)
     logger.info("User %s enabled two-factor authentication", user_id)
+    record_event("mfa_enabled", detail=str(user_id))
     return {"detail": "Two-factor authentication enabled. Sign in again with your code."}
 
 
@@ -942,6 +950,7 @@ async def mfa_disable(data: MfaCodeRequest, user_id: UUID = Depends(get_current_
 
     await _revoke_sessions(user_id)
     logger.info("User %s disabled two-factor authentication", user_id)
+    record_event("mfa_disabled", detail=str(user_id))
     return {"detail": "Two-factor authentication disabled. Sign in again."}
 
 
@@ -970,6 +979,7 @@ async def mfa_confirm(data: MfaConfirmRequest, request: Request):
         )
         if not row or not row["mfa_enabled"]:
             await _record_mfa_failure(ip)
+            record_event("mfa_failure", detail="no MFA enabled", ip=ip)
             raise HTTPException(status_code=401, detail="Invalid authentication code")
 
         valid = False
@@ -999,6 +1009,7 @@ async def mfa_confirm(data: MfaConfirmRequest, request: Request):
 
         if not valid:
             await _record_mfa_failure(ip)
+            record_event("mfa_failure", detail="bad code", ip=ip)
             raise HTTPException(status_code=401, detail="Invalid authentication code")
 
     # Successful confirm — reset this IP's failed-attempt counter (mirrors the

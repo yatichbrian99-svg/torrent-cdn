@@ -1,0 +1,337 @@
+'use client'
+
+import { useEffect, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
+import {
+  Activity, Database, Server, HardDrive, ShieldCheck, ShieldAlert,
+  Shield, AlertTriangle, RefreshCw, Clock, CheckCircle2, XCircle,
+  MinusCircle, Loader2, ArrowLeft, Eye,
+} from 'lucide-react'
+import { isLoggedIn } from '@/lib/auth'
+import api from '@/lib/api'
+
+interface HealthPayload {
+  generated_at: number
+  uptime_seconds: number
+  checks: Record<string, { status: string; detail: string }>
+  waf: { status: string; detail: string; headers?: Record<string, string> }
+  posture: { check: string; status: string; detail: string }[]
+  events: { ts: number; type: string; detail: string; ip: string }[]
+}
+
+type Status = 'pass' | 'warn' | 'ok' | 'absent' | 'error' | 'unknown'
+
+const statusColor: Record<Status, { text: string; bg: string; border: string }> = {
+  pass: { text: '#4ade80', bg: 'rgba(74,222,128,0.08)', border: 'rgba(74,222,128,0.25)' },
+  ok: { text: '#4ade80', bg: 'rgba(74,222,128,0.08)', border: 'rgba(74,222,128,0.25)' },
+  warn: { text: '#fbbf24', bg: 'rgba(251,191,36,0.08)', border: 'rgba(251,191,36,0.25)' },
+  absent: { text: '#94a3b8', bg: 'rgba(148,163,184,0.08)', border: 'rgba(148,163,184,0.25)' },
+  error: { text: '#ff6b6b', bg: 'rgba(255,107,107,0.08)', border: 'rgba(255,107,107,0.25)' },
+  unknown: { text: '#94a3b8', bg: 'rgba(148,163,184,0.08)', border: 'rgba(148,163,184,0.25)' },
+}
+
+const statusLabel: Record<Status, string> = {
+  pass: 'PASS', ok: 'OK', warn: 'WARN', absent: 'ABSENT', error: 'ERROR', unknown: 'UNKNOWN',
+}
+
+const eventLabels: Record<string, string> = {
+  login_failure: 'Login failure',
+  mfa_failure: 'MFA failure',
+  mfa_enabled: 'MFA enabled',
+  mfa_disabled: 'MFA disabled',
+  password_reset: 'Password reset',
+  register_throttled: 'Register throttled',
+  admin_toggle: 'Admin toggled',
+  admin_plan_change: 'Plan changed',
+  admin_delete: 'User deleted',
+  admin_verify: 'User verified',
+}
+
+const eventColor: Record<string, string> = {
+  login_failure: '#ff6b6b',
+  mfa_failure: '#ff6b6b',
+  register_throttled: '#fbbf24',
+  admin_delete: '#ff6b6b',
+  admin_toggle: '#a78bfa',
+  admin_plan_change: '#a78bfa',
+  admin_verify: '#60a5fa',
+  password_reset: '#60a5fa',
+  mfa_enabled: '#4ade80',
+  mfa_disabled: '#4ade80',
+}
+
+export default function AdminHealthPage() {
+  const router = useRouter()
+  const [data, setData] = useState<HealthPayload | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [refreshing, setRefreshing] = useState(false)
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+
+  const fetchHealth = useCallback(async (silent = false) => {
+    if (!silent) setRefreshing(true)
+    try {
+      const d = await api.getAdminHealth()
+      setData(d)
+      setLastRefresh(new Date())
+      setError('')
+    } catch (err: any) {
+      if (err?.response?.status === 403) setError('Admin access required')
+      else setError('Failed to load health data')
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isLoggedIn()) { router.push('/'); return }
+    api.getMe()
+      .then((me) => { if (!me?.is_admin) { router.push('/'); return } fetchHealth() })
+      .catch(() => { router.push('/') })
+  }, [router, fetchHealth])
+
+  // Auto-refresh every 60s while the page is open.
+  useEffect(() => {
+    if (!data) return
+    const t = setInterval(() => fetchHealth(true), 60000)
+    return () => clearInterval(t)
+  }, [data, fetchHealth])
+
+  if (loading) return (
+    <div className="flex min-h-[70vh] items-center justify-center">
+      <div className="flex flex-col items-center gap-4">
+        <Loader2 size={24} className="animate-spin" style={{ color: '#555' }} />
+        <p className="text-xs tracking-widest uppercase" style={{ color: '#444' }}>Checking systems</p>
+      </div>
+    </div>
+  )
+
+  if (error && !data) return (
+    <div className="mx-auto max-w-4xl px-6 py-24 text-center">
+      <div className="inline-flex items-center justify-center w-12 h-12 rounded-full mb-4" style={{ backgroundColor: 'rgba(255,107,107,0.1)' }}>
+        <ShieldAlert size={20} style={{ color: '#ff6b6b' }} />
+      </div>
+      <p className="text-sm mb-1" style={{ color: '#ff6b6b' }}>{error}</p>
+      <p className="text-xs" style={{ color: '#555' }}>You need admin privileges to access this page.</p>
+    </div>
+  )
+
+  if (!data) return null
+
+  const infraItems: { key: string; label: string; icon: any }[] = [
+    { key: 'database', label: 'Database', icon: Database },
+    { key: 'redis', label: 'Redis', icon: Server },
+    { key: 'storage', label: 'Object storage', icon: HardDrive },
+  ]
+
+  const warnCount = [
+    ...Object.values(data.checks).map((c) => c.status),
+    data.waf.status,
+    ...data.posture.map((p) => p.status),
+  ].filter((s) => s === 'warn' || s === 'error' || s === 'unknown').length
+
+  const fmtTime = (epoch: number) =>
+    new Date(epoch * 1000).toLocaleTimeString('en-US', { hour12: false })
+
+  const fmtAgo = (epoch: number) => {
+    const s = Math.floor(Date.now() / 1000 - epoch)
+    if (s < 60) return `${s}s ago`
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`
+    return `${Math.floor(s / 3600)}h ago`
+  }
+
+  return (
+    <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8 sm:py-12">
+      {/* Header */}
+      <div className="mb-8">
+        <div className="flex items-center gap-3 mb-1">
+          <button onClick={() => router.push('/admin')} className="p-1.5 border transition-colors hover:border-white/20" style={{ borderColor: '#222' }}>
+            <ArrowLeft size={14} style={{ color: '#555' }} />
+          </button>
+          <div className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ backgroundColor: 'rgba(74,222,128,0.1)' }}>
+            <Activity size={16} style={{ color: '#4ade80' }} />
+          </div>
+          <h1 className="text-lg sm:text-xl font-bold tracking-[-0.02em] text-white">Security & Health</h1>
+          <span className="ml-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest rounded"
+            style={{ backgroundColor: 'rgba(74,222,128,0.12)', color: '#4ade80' }}>
+            {warnCount === 0 ? 'All systems nominal' : `${warnCount} attention${warnCount === 1 ? '' : 's'}`}
+          </span>
+        </div>
+        <div className="flex items-center gap-4 mt-2">
+          <p className="text-xs flex items-center gap-1.5" style={{ color: '#555' }}>
+            <Clock size={11} /> Uptime {Math.floor(data.uptime_seconds / 86400)}d {(Math.floor(data.uptime_seconds / 3600)) % 24}h
+          </p>
+          {lastRefresh && (
+            <p className="text-xs" style={{ color: '#444' }}>
+              Last check {lastRefresh.toLocaleTimeString('en-US', { hour12: false })}
+            </p>
+          )}
+          <button
+            onClick={() => fetchHealth()}
+            disabled={refreshing}
+            className="flex items-center gap-1.5 border px-3 py-1.5 text-[10px] uppercase tracking-widest transition-colors hover:border-white/20 disabled:opacity-40 ml-auto"
+            style={{ borderColor: '#222', color: '#555', fontFamily: 'monospace' }}
+          >
+            <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} /> Re-check
+          </button>
+        </div>
+      </div>
+
+      {/* Live infra checks */}
+      <p className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: '#555' }}>Live infrastructure</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
+        {infraItems.map(({ key, label, icon: Icon }) => {
+          const c = data.checks[key]
+          const st = (c?.status || 'unknown') as Status
+          const color = statusColor[st]
+          return (
+            <div key={key} className="border p-4 transition-colors duration-200 hover:border-opacity-40" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex items-center justify-center w-7 h-7 rounded-lg" style={{ backgroundColor: color.bg }}>
+                    <Icon size={13} style={{ color: color.text }} />
+                  </div>
+                  <span className="text-xs font-medium text-white">{label}</span>
+                </div>
+                <span className="text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: color.text, backgroundColor: color.bg }}>
+                  {statusLabel[st]}
+                </span>
+              </div>
+              <p className="text-[11px] leading-relaxed truncate" style={{ color: '#666' }} title={c?.detail}>
+                {c?.detail || 'no detail'}
+              </p>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* WAF */}
+      <p className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: '#555' }}>Edge protection (WAF)</p>
+      <div className="border mb-8 p-4 sm:p-5" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center justify-center w-9 h-9 rounded-lg" style={{ backgroundColor: statusColor[data.waf.status as Status]?.bg || statusColor.unknown.bg }}>
+            <Shield size={16} style={{ color: statusColor[data.waf.status as Status]?.text || statusColor.unknown.text }} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-white capitalize">{data.waf.status.replace('_', ' ')}</p>
+            <p className="text-[11px] leading-relaxed" style={{ color: '#666' }}>{data.waf.detail}</p>
+          </div>
+          <span className="ml-auto text-[10px] font-bold tracking-widest px-2 py-0.5 rounded flex-shrink-0"
+            style={(() => { const c = statusColor[data.waf.status as Status] || statusColor.unknown; return { color: c.text, backgroundColor: c.bg } })()}>
+            {statusLabel[(data.waf.status as Status) || 'unknown']}
+          </span>
+        </div>
+        {data.waf.headers && Object.keys(data.waf.headers).length > 0 && (
+          <div className="mt-3 pt-3 border-t" style={{ borderColor: '#1a1a1a' }}>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(data.waf.headers).map(([k, v]) => (
+                <span key={k} className="px-2 py-1 text-[10px]" style={{ backgroundColor: '#080808', color: '#666' }}>
+                  <span style={{ color: '#888' }}>{k}:</span> {v.slice(0, 60)}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Security posture */}
+      <p className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: '#555' }}>Security posture</p>
+      <div className="border mb-8" style={{ borderColor: '#222' }}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b" style={{ borderColor: '#222' }}>
+              <th className="px-4 sm:px-5 py-3 text-left text-xs font-medium" style={{ color: '#555' }}>Check</th>
+              <th className="px-4 py-3 text-left text-xs font-medium" style={{ color: '#555' }}>Status</th>
+              <th className="hidden sm:table-cell px-4 sm:px-5 py-3 text-left text-xs font-medium" style={{ color: '#555' }}>Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.posture.map((p) => {
+              const st = p.status as Status
+              const c = statusColor[st] || statusColor.unknown
+              return (
+                <tr key={p.check} className="border-b" style={{ borderColor: '#1a1a1a' }}>
+                  <td className="px-4 sm:px-5 py-3">
+                    <span className="flex items-center gap-2 text-xs text-white">
+                      {st === 'pass' || st === 'ok'
+                        ? <CheckCircle2 size={12} style={{ color: c.text }} />
+                        : st === 'warn'
+                          ? <AlertTriangle size={12} style={{ color: c.text }} />
+                          : <XCircle size={12} style={{ color: c.text }} />}
+                      {p.check}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: c.text, backgroundColor: c.bg }}>
+                      {statusLabel[st]}
+                    </span>
+                  </td>
+                  <td className="hidden sm:table-cell px-4 sm:px-5 py-3">
+                    <span className="text-[11px]" style={{ color: '#666' }}>{p.detail}</span>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Security events feed */}
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555' }}>
+          <span className="flex items-center gap-2">
+            <Eye size={12} /> Recent security events
+            <span className="font-normal" style={{ color: '#444' }}>(last 50 · in-memory)</span>
+          </span>
+        </p>
+      </div>
+      <div className="border" style={{ borderColor: '#222' }}>
+        {data.events.length === 0 ? (
+          <div className="px-5 py-12 text-center">
+            <div className="flex flex-col items-center gap-2">
+              <ShieldCheck size={18} style={{ color: '#333' }} />
+              <p className="text-xs" style={{ color: '#555' }}>No security events recorded since the last restart</p>
+            </div>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b" style={{ borderColor: '#222' }}>
+                  <th className="px-4 sm:px-5 py-3 text-left text-xs font-medium" style={{ color: '#555' }}>Time</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium" style={{ color: '#555' }}>Event</th>
+                  <th className="hidden md:table-cell px-4 py-3 text-left text-xs font-medium" style={{ color: '#555' }}>Detail</th>
+                  <th className="px-4 sm:px-5 py-3 text-left text-xs font-medium" style={{ color: '#555' }}>IP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.events.map((e, i) => (
+                  <tr key={i} className="border-b transition-colors hover:bg-white/[0.02]" style={{ borderColor: '#1a1a1a' }}>
+                    <td className="px-4 sm:px-5 py-2.5 whitespace-nowrap">
+                      <span className="text-[11px] font-mono" style={{ color: '#666' }} title={fmtTime(e.ts)}>
+                        {fmtAgo(e.ts)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className="flex items-center gap-2 text-[11px]" style={{ color: eventColor[e.type] || '#888' }}>
+                        <MinusCircle size={10} />
+                        {eventLabels[e.type] || e.type}
+                      </span>
+                    </td>
+                    <td className="hidden md:table-cell px-4 py-2.5">
+                      <span className="text-[11px] font-mono" style={{ color: '#666' }}>{e.detail || '—'}</span>
+                    </td>
+                    <td className="px-4 sm:px-5 py-2.5">
+                      <span className="text-[11px] font-mono" style={{ color: e.ip ? '#888' : '#444' }}>{e.ip || '—'}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

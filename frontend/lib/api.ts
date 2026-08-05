@@ -390,5 +390,7 @@ export default {
   verifyUser: (userId: string) => api.post(`/admin/users/${userId}/verify`).then((r) => r.data),
 
   deleteUser: (userId: string) => api.delete(`/admin/users/${userId}`).then((r) => r.data),
+
+  getAdminHealth: () => api.get('/admin/health').then((r) => r.data),
 }
 

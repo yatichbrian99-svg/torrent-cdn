@@ -6,9 +6,10 @@ import {
   Loader2, Users, Film, HardDrive, Crown, DollarSign,
   Search, X, ShieldCheck, Trash2, CheckCircle, XCircle,
   AlertTriangle, BarChart3, UserCog, ArrowUpDown,
-  RefreshCw, Calendar, FolderOpen, UserCheck,
+  RefreshCw, Calendar, FolderOpen, UserCheck, Activity,
   ChevronDown, ChevronUp,
 } from 'lucide-react'
+import Link from 'next/link'
 import { isLoggedIn } from '@/lib/auth'
 import api from '@/lib/api'
 
@@ -287,7 +288,16 @@ export default function AdminPage() {
             Admin
           </span>
         </div>
-        <p className="text-xs" style={{ color: '#555' }}>Monitor platform activity and manage users</p>
+        <div className="flex items-center justify-between mt-2">
+          <p className="text-xs" style={{ color: '#555' }}>Monitor platform activity and manage users</p>
+          <Link
+            href="/admin/health"
+            className="flex items-center gap-1.5 border px-3 py-1.5 text-[10px] uppercase tracking-widest transition-colors hover:border-white/20"
+            style={{ borderColor: '#222', color: '#4ade80', fontFamily: 'monospace' }}
+          >
+            <Activity size={11} /> Security & Health
+          </Link>
+        </div>
       </div>
 
       {/* Analytics Cards */}
