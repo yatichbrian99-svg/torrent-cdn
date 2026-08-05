@@ -115,18 +115,33 @@ cleanup_account() {
   echo "  cleanup DELETE /auth/me → $code" >&2
 }
 
-# post_proxy <path> <json> — auth POST via the Vercel proxy with one retry after
-# a pause, mirroring curl_audit_prod.sh and the frontend login auto-retry: a
-# Render cold start can drop the connection (empty body) after processing the
-# request, and a single retry absorbs that without creating false failures.
+# post_proxy <path> <json> — auth POST via the Vercel proxy with backoff
+# retries, mirroring curl_audit_prod.sh and the frontend login auto-retry.
+# Retries on:
+#   - empty body / 000: a Render cold start dropped the connection (possibly
+#     AFTER the server processed the request)
+#   - 502/503/504 through the proxy while the Render instance wakes
+#   - 429 "Too many registrations": the register budget is 10/hr PER IP, and a
+#     workflow_dispatch runs p2p-e2e + upload-live + api-key-live concurrently
+#     from GitHub's shared runner IP pool. Rejected 429 attempts do NOT consume
+#     budget (the backend INCRs only after the limit check passes), so a pause
+#     + retry succeeds as soon as the competing jobs' registrations finish.
 post_proxy() {
-  local path="$1" json="$2" body=""
-  for attempt in 1 2; do
-    body=$(curl -s -m 90 -X POST "$FE$path" \
-      -H "Content-Type: application/json" \
-      -d "$json" 2>/dev/null || echo "")
-    [ -n "$body" ] && break
-    [ "$attempt" = "1" ] && sleep 6
+  local path="$1" json="$2" body="" code=""
+  for attempt in 1 2 3; do
+    code=$(curl -s -m 90 -o /tmp/api_key_audit_resp.json -w '%{http_code}' \
+      -X POST "$FE$path" -H "Content-Type: application/json" -d "$json" 2>/dev/null || echo "000")
+    body=$(cat /tmp/api_key_audit_resp.json 2>/dev/null || echo "")
+    case "$code" in
+      000|429|502|503|504)
+        [ "$attempt" = "3" ] && break
+        echo "  [retry] $path -> HTTP $code (transient/rate-limited), retrying in $((attempt * 20))s…" >&2
+        sleep $((attempt * 20))
+        ;;
+      *)
+        break
+        ;;
+    esac
   done
   echo "$body"
 }

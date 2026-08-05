@@ -296,14 +296,22 @@ jobs:
   # 04:00 UTC cron + manual dispatch is the alert surface: a red run means the
   # API-key flow is broken on the live backend. The script always cleans up
   # its throwaway account (including on abort paths), so scheduled runs never
-  # accumulate test users. Note: on workflow_dispatch this job runs ALONGSIDE
-  # p2p-e2e (also production-writing) — GitHub runners share egress IP pools
-  # and the register limiter is 10/hr/IP, so a rare concurrent dispatch could
-  # 429 the probe's registration (exit 2 → red). The script's register retry
-  # + pacing absorb most cases; treat a red manual run as possibly-IP-limited
-  # rather than assuming a production regression.
+  # accumulate test users.
+  #
+  # needs upload-live + if: always(): BOTH probes register a throwaway account
+  # against the LIVE 10/hr-per-IP register limiter, and GitHub runners egress
+  # from a shared Azure IP pool — two simultaneous registers from the same IP
+  # (plus push-triggered p2p-e2e registers in the same hour) can exhaust the
+  # budget and 429 the registration (exit 2 → red, a false alarm). Chaining
+  # serializes the probes (upload-live registers first, then this one).
+  # always() so a failed upload-live does NOT cancel this probe — each reports
+  # its own verdict. The scripts' post_proxy additionally retries 429 with
+  # backoff (rejected attempts don't consume budget, so the retry succeeds once
+  # competing registrations finish); a red run may still be IP-limited if the
+  # hourly budget is genuinely spent by many same-hour pushes.
   api-key-live:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: [upload-live]
+    if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

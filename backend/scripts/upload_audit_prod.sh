@@ -93,18 +93,31 @@ cleanup_all() {
   echo "$fcode $acode"
 }
 
-# post_proxy <path> <json> <auth> — auth POST via the Vercel proxy with one
-# retry after a pause, mirroring curl_audit_prod.sh and the frontend auto-retry:
-# a Render cold start can drop the connection (empty body) after processing.
+# post_proxy <path> <json> <auth> — auth POST via the Vercel proxy with
+# backoff retries, mirroring curl_audit_prod.sh and the frontend auto-retry.
+# Retries on empty body / 000 (cold start dropped the connection), 502/503/504
+# (Render instance waking), and 429 "Too many registrations" (the register
+# budget is 10/hr PER IP and a workflow_dispatch runs p2p-e2e + upload-live +
+# api-key-live from GitHub's shared runner IP pool). Rejected 429 attempts do
+# NOT consume budget (the backend INCRs only after the limit check passes), so
+# a pause + retry succeeds once the competing jobs' registrations finish.
 post_proxy() {
-  local path="$1" json="$2" auth="$3" body=""
-  for attempt in 1 2; do
-    body=$(curl -s -m 90 -X POST "$FE$path" \
-      -H "Content-Type: application/json" \
-      -H "Authorization: Bearer $auth" \
-      -d "$json" 2>/dev/null || echo "")
-    [ -n "$body" ] && break
-    [ "$attempt" = "1" ] && sleep 6
+  local path="$1" json="$2" auth="$3" body="" code=""
+  for attempt in 1 2 3; do
+    code=$(curl -s -m 90 -o /tmp/upload_audit_resp.json -w '%{http_code}' \
+      -X POST "$FE$path" -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $auth" -d "$json" 2>/dev/null || echo "000")
+    body=$(cat /tmp/upload_audit_resp.json 2>/dev/null || echo "")
+    case "$code" in
+      000|429|502|503|504)
+        [ "$attempt" = "3" ] && break
+        echo "  [retry] $path -> HTTP $code (transient/rate-limited), retrying in $((attempt * 20))s…" >&2
+        sleep $((attempt * 20))
+        ;;
+      *)
+        break
+        ;;
+    esac
   done
   echo "$body"
 }
