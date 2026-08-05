@@ -375,9 +375,9 @@ Full re-baseline against OWASP Top 10 / ASVS / CWE Top 25 (the "ultimate hardeni
 
 **Verification:** backend **290 passed**, frontend **74 passed** + `tsc` clean, `security_audit.py` **all checks passed**, secret scan clean.
 
-### 2026-08-05 — Residual-risk closure: TOTP MFA, opt-in malware scan, WAF + restore-drill tooling
+### 2026-08-05 — Residual-risk closure: TOTP MFA, opt-in malware scan, WAF + restore-drill tooling (`a089b7f`, review fixes `97eadee`)
 
-Closed or converted four of the six accepted residual risks into working mitigations:
+Closed or converted four of the six accepted residual risks into working mitigations. A code review of the change set found two HIGH issues that were fixed in `97eadee` before merge: (1) an `mfa_pending` token could authenticate as a session token (same signing secret, no claim rejection) — `decode_access_token` now rejects the claim; (2) the VirusTotal submit path closed the caller's upload stream, 500-ing direct/chunked uploads — `_submit_file` now buffers file-like sources into a bounded `BytesIO` and never closes the caller's stream. Plus a LOW fix: successful MFA confirms reset the IP's failed-attempt counter (mirroring login). All three have regression tests.
 
 1. **TOTP two-factor authentication (RFC 6238, stdlib-only)** — login now returns `mfa_required` + a 5-min MFA token for MFA-enabled accounts; `/auth/mfa/confirm` mints the real session token only after a valid TOTP or single-use backup code. Backup codes (10 × 10-char) are stored **hashed** and consumed atomically (a replayed code fails; concurrent use can't double-succeed). Enable/disable require a live code; both rotate sessions via the `pw_change` marker. Failed confirms are rate-limited 5/15min/IP. New columns `mfa_secret` / `mfa_enabled` / `mfa_backup_codes` (migration + DDL). Dashboard: QR (`qrcode`), secret + otpauth link copy, one-time backup-code display, admin-recommended nudge. AuthModal: 6-digit step after password.
 2. **Opt-in malware scanning (VirusTotal, fail-open)** — `app/malware_scan.py` with streamed SHA-256 lookup, ≤32MB submission + polling, and fail-open on every error path; wired into both finalize paths (`_store_and_finalize` before storage write; `presign_finalize` before record insert, deleting the object on a malicious verdict). Gated by `VIRUSTOTAL_API_KEY` (render.yaml + .env.example).
@@ -400,11 +400,11 @@ The advisory database updated *after* the 14.2.35 fix shipped a new batch with *
 
 `npm audit` reports `ip` (**GHSA-2p57-rm9w-gvfp**, SSRF via improper `isPublic` categorization — all published versions affected, latest is 2.0.1, no patched release). The only "fix" npm offers is downgrading `webtorrent` to 0.7.3, which would **destroy the entire P2P delivery feature** (the product's core differentiator). Exposure is minimal and browser-side only: the tracker uses `ip` to filter peers in announce responses, and WebRTC peer connections are ICE-based (the browser refuses non-public addresses), so a misclassified private IP cannot be used for server-side SSRF — this app never runs `ip` server-side. Revisit when a patched `ip` release lands (the `bittorrent-tracker` dependency allows `^2.0.1`, so an `overrides` pin would then work).
 
-#### 3. Admin MFA — **IMPLEMENTED (2026-08-05, TOTP stdlib)**
+#### 3. Admin MFA — **IMPLEMENTED (`a089b7f`, TOTP stdlib)**
 
 TOTP two-factor authentication (RFC 6238, stdlib-only — no new dependency) is live for **all users**, with an admin-recommendation nudge in the dashboard: login issues a short-lived MFA token instead of a session token, `/auth/mfa/confirm` completes it with a TOTP or single-use backup code (backup codes are stored hashed and consumed atomically — replay fails), enable/disable require a live code, and every posture change rotates sessions (`pw_change` marker). Failed MFA attempts are rate-limited (5/15min/IP). MFA is **optional** (not forced) to avoid a lockout of the sole admin — a forced-enrollment migration remains a future option.
 
-#### 4. Malware scanning of uploads — **magic bytes + opt-in VirusTotal (2026-08-05)**
+#### 4. Malware scanning of uploads — **magic bytes + opt-in VirusTotal (`a089b7f`)**
 
 Uploads are validated by magic-byte signature, content-type, size, and compression-ratio checks (rejects executables and archive-bomb classes). Additionally, setting `VIRUSTOTAL_API_KEY` (Render env) activates a **fail-open** VirusTotal check at both finalize paths: streamed SHA-256 hash lookup, with ≤32MB file submission + ~30s polling for unknown hashes. A definitive malicious/suspicious verdict rejects the upload (422) and deletes the stored object; any scanner outage or missing key leaves uploads working exactly as before. Verification: 36 new unit tests, incl. the wire-in (malicious verdict → 422, bytes never stored).
 
