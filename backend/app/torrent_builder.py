@@ -52,16 +52,31 @@ def hash_pieces_from_stream(reader, file_size: int) -> bytes:
     piece_length = torrentool_piece_length(file_size)
     pieces = bytearray()
     buf = bytearray()
+    read_any = False
     while True:
         chunk = reader()
         if not chunk:
             break
+        read_any = True
+        if not buf and len(chunk) >= piece_length:
+            # Fast path: digest whole pieces straight from the chunk — zero
+            # copies (memoryview slice + hashlib buffer protocol). This is the
+            # common case: the download/upload readers return CHUNK_SIZE reads
+            # far larger than a piece, so no per-chunk buffering copy is needed.
+            pos = 0
+            while len(chunk) - pos >= piece_length:
+                pieces += hashlib.sha1(memoryview(chunk)[pos:pos + piece_length]).digest()
+                pos += piece_length
+            if pos:
+                chunk = chunk[pos:]  # trailing partial piece
         buf += chunk
         while len(buf) >= piece_length:
-            pieces += hashlib.sha1(bytes(buf[:piece_length])).digest()
+            # Offset-free flush: memoryview slice = zero-copy, and each `del`
+            # shifts at most one partial piece (never an O(n^2) memmove).
+            pieces += hashlib.sha1(memoryview(buf)[:piece_length]).digest()
             del buf[:piece_length]
-    if buf:
-        pieces += hashlib.sha1(bytes(buf)).digest()
+    if buf and read_any:
+        pieces += hashlib.sha1(memoryview(buf)).digest()
     return bytes(pieces)
 
 
