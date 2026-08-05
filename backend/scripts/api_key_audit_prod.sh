@@ -78,11 +78,23 @@ check 0 "Health → 200"
 # since the proxy rewrites all /api and /auth paths to Render.
 req() {
   local label="$1" method="$2" path="$3" auth="${4:-}" body="${5:-}"
-  local args=(-s -o /tmp/api_key_audit_resp.json -w '%{http_code}' --max-time 60 -X "$method" "$FE$path")
-  [ -n "$auth" ] && args+=(-H "Authorization: $auth")
-  [ -n "$body" ] && args+=(-H 'Content-Type: application/json' -d "$body")
-  local code
-  code=$(curl "${args[@]}" 2>/dev/null || echo "000")
+  local code="" attempt
+  # One retry after a pause on transient proxy failures (502/503/504 or an empty
+  # response): a Render cold start can 502 through the Vercel proxy mid-flow —
+  # the same condition post_proxy and the frontend login auto-retry already
+  # absorb. A definitive code (200/401/429/…) or the second attempt stands.
+  for attempt in 1 2; do
+    local args=(-s -o /tmp/api_key_audit_resp.json -w '%{http_code}' --max-time 60 -X "$method" "$FE$path")
+    [ -n "$auth" ] && args+=(-H "Authorization: $auth")
+    [ -n "$body" ] && args+=(-H 'Content-Type: application/json' -d "$body")
+    code=$(curl "${args[@]}" 2>/dev/null || echo "000")
+    if [ "$attempt" = "1" ] && { [ "$code" = "000" ] || [ "$code" = "502" ] || [ "$code" = "503" ] || [ "$code" = "504" ]; }; then
+      echo "  [retry] $method $path -> HTTP $code (transient), retrying…" >&2
+      sleep 6
+      continue
+    fi
+    break
+  done
   echo "[$label] $method $path -> HTTP $code"
   echo "    body: $(head -c 300 /tmp/api_key_audit_resp.json)"
   echo
