@@ -6,7 +6,10 @@
  *   1. password login (no MFA yet) → session token
  *   2. GET /auth/mfa → disabled
  *   3. POST /auth/mfa/setup → base32 secret + otpauth URI + 10 backup codes
- *   4. compute the TOTP from the secret (RFC 6238, node:crypto) → enable
+ *   4. compute the TOTP from the secret (RFC 6238, node:crypto), anchored to
+ *      the SERVER's clock via the HTTP Date header (a runner with a skewed
+ *      clock — e.g. a CI box +3h — would otherwise generate codes ~360 steps
+ *      off and every enable/confirm would fail) → enable
  *   5. the pre-MFA session is rotated out (401) — enabling must kick sessions
  *   6. real browser: password login → the 6-digit step appears → a WRONG code
  *      surfaces the real 401 detail → the computed code completes the login
@@ -55,14 +58,39 @@ function base32Decode(str) {
   return Buffer.from(out)
 }
 
-/** 6-digit TOTP for `secret` at the current 30s window. */
-function totp(secret) {
-  const counter = BigInt(Math.floor(Date.now() / 1000 / 30))
+function totpAt(secret, epochSeconds) {
+  const counter = BigInt(Math.floor(epochSeconds / 30))
   const buf = Buffer.alloc(8)
   buf.writeBigUInt64BE(counter)
   const h = createHmac('sha1', base32Decode(secret)).update(buf).digest()
   const offset = h[h.length - 1] & 0x0f
   return ((h.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).toString().padStart(6, '0')
+}
+
+/**
+ * Server-clock offset (seconds). TOTP must be computed against the SERVER's
+ * clock, not the runner's: the backend verifies with a ±30s drift window, so a
+ * CI box with a skewed clock (e.g. +3h) would otherwise produce a code ~360
+ * steps off and every enable/confirm would fail with "Invalid code". The
+ * offset is derived once from the HTTP `Date` response header.
+ */
+let _serverOffsetSeconds = null
+async function getServerOffsetSeconds() {
+  if (_serverOffsetSeconds !== null) return _serverOffsetSeconds
+  const res = await fetch(`${BASE}/`, { method: 'HEAD' })
+  const serverDate = Date.parse(res.headers.get('date'))
+  if (!Number.isFinite(serverDate)) {
+    throw new Error('could not read server Date header to anchor TOTP time')
+  }
+  _serverOffsetSeconds = Math.round((serverDate - Date.now()) / 1000)
+  console.log(`server clock offset: ${_serverOffsetSeconds}s (${_serverOffsetSeconds >= 0 ? '+' : ''}${_serverOffsetSeconds})`)
+  return _serverOffsetSeconds
+}
+
+/** 6-digit TOTP for `secret` at the server's current 30s window. */
+async function totp(secret) {
+  const offset = await getServerOffsetSeconds()
+  return totpAt(secret, Date.now() / 1000 + offset)
 }
 
 const failures = []
@@ -149,7 +177,7 @@ try {
       setup.ok && /^[A-Z2-7]{32}$/.test(s.secret) && s.otpauth_uri.startsWith('otpauth://totp/TorrentCDN:') && s.backup_codes.length === 10,
       `setup failed: ${setup.status} ${JSON.stringify(s).slice(0, 200)}`)
 
-    const code = totp(s.secret)
+    const code = await totp(s.secret)
     const enable = await api('/auth/mfa/enable', { method: 'POST', token: preToken, body: { code } })
     push('enable with the computed TOTP → 200', enable.ok,
       `enable failed: ${enable.status} ${JSON.stringify(enable.data).slice(0, 200)}`)
@@ -210,7 +238,7 @@ try {
 
     // 5) Cleanup: disable MFA with a fresh TOTP (rotates the session again),
     //    then verify password login works without any code.
-    const disable = await api('/auth/mfa/disable', { method: 'POST', token: sessionToken, body: { code: totp(s.secret) } })
+    const disable = await api('/auth/mfa/disable', { method: 'POST', token: sessionToken, body: { code: await totp(s.secret) } })
     push('disable MFA with a fresh TOTP', disable.ok, `disable failed: ${disable.status} ${JSON.stringify(disable.data).slice(0, 160)}`)
     const after = await api('/auth/login', { ...API, body: { email: EMAIL, password: PASSWORD } })
     push('password login works again after disable (no code step)',
