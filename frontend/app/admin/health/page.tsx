@@ -72,6 +72,12 @@ export default function AdminHealthPage() {
     if (!silent) setRefreshing(true)
     try {
       const d = await api.getAdminHealth()
+      // Defensive shape check: the same-origin proxy could return an HTML page
+      // (e.g. a route shadow like /admin/health) or a proxy error body — never
+      // feed a non-payload into the renderer (Object.values(html) would crash).
+      if (!d || typeof d !== 'object' || !d.checks || typeof d.checks !== 'object') {
+        throw new Error('Malformed health payload')
+      }
       setData(d)
       setLastRefresh(new Date())
       setError('')

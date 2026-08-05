@@ -394,6 +394,7 @@ async def _probe_waf_uncached() -> dict:
 
 
 @router.get("/health")
+@router.get("/health/status")
 async def admin_health(_: UUID = Depends(require_admin)):
     """Security + infrastructure health dashboard payload.
 

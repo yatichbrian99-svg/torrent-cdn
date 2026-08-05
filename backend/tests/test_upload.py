@@ -8,6 +8,57 @@ from uuid import UUID
 import pytest
 
 
+class TestTorrentAndThumbnail:
+    """Unit tests for the shared torrent/thumbnail generator."""
+
+    def test_existing_path_skips_copy_and_keeps_file(self, tmp_path, mock_s3_client):
+        """With existing_path, the file is NOT rewritten or deleted by the
+        generator — the caller owns the tempdir lifecycle (the presign path
+        downloads once and reuses it). The magnet still resolves with the real
+        infohash and the real filename as dn."""
+        import os
+        from uuid import uuid4
+        from app.routes.upload import _torrent_and_thumbnail
+
+        safe_filename = "my-video.mp4"
+        src = tmp_path / safe_filename
+        src.write_bytes(b"\x00\x00\x00\x20ftypmp42" + b"\x00" * 4096)
+        user_id = uuid4()
+        file_id = str(uuid4())
+
+        magnet, thumb = _torrent_and_thumbnail(
+            None, safe_filename, user_id, file_id, mock_s3_client,
+            existing_path=str(src),
+        )
+
+        # Caller-owned file must survive the call untouched.
+        assert src.exists()
+        # Real infohash (not the fake btih:<uuid> fallback) + real dn.
+        assert magnet.startswith("magnet:?xt=urn:btih:")
+        assert "btih:" + file_id not in magnet
+        assert f"dn={safe_filename}" in magnet
+        assert thumb is None  # .mp4 IS a video ext but no ffmpeg in CI — best-effort
+
+    def test_no_existing_path_cleans_up_its_own_tempdir(self, tmp_path, mock_s3_client):
+        """Without existing_path, the generator writes its own temp file and
+        removes its tempdir in the finally (no leaks on the direct path)."""
+        from uuid import uuid4
+        from app.routes.upload import _torrent_and_thumbnail
+
+        stream = BytesIO(b"\x00\x00\x00\x20ftypmp42" + b"\x00" * 4096)
+        user_id = uuid4()
+        file_id = str(uuid4())
+
+        magnet, _ = _torrent_and_thumbnail(stream, "clip.webm", user_id, file_id, mock_s3_client)
+
+        assert magnet.startswith("magnet:?xt=urn:btih:")
+        assert "btih:" + file_id not in magnet
+        # No torrentcd-* tempdirs left behind under the system temp root.
+        import glob, os, tempfile
+        leftovers = glob.glob(os.path.join(tempfile.gettempdir(), "torrentcd-*"))
+        assert leftovers == [], f"leaked tempdirs: {leftovers}"
+
+
 class TestUpload:
     """Tests for POST /upload."""
 

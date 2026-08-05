@@ -391,6 +391,11 @@ export default {
 
   deleteUser: (userId: string) => api.delete(`/admin/users/${userId}`).then((r) => r.data),
 
-  getAdminHealth: () => api.get('/admin/health').then((r) => r.data),
+  // NOTE: the API lives at /admin/health/status, NOT /admin/health — the
+  // Next.js page at /admin/health SHADOWS the vercel.json /admin/* rewrite, so
+  // a same-origin GET /admin/health returns the page's HTML instead of JSON
+  // (the page then crashed on Object.values(html).checks). /admin/health/status
+  // has no page, so the rewrite forwards it to the backend untouched.
+  getAdminHealth: () => api.get('/admin/health/status').then((r) => r.data),
 }
 

@@ -343,7 +343,7 @@ async def _check_upload_rate_limit(request: Request) -> None:
         _upload_requests[ip] = recent
 
 
-def _torrent_and_thumbnail(file_stream, safe_filename: str, user_id: UUID, file_id: str, s3) -> tuple:
+def _torrent_and_thumbnail(file_stream, safe_filename: str, user_id: UUID, file_id: str, s3, existing_path: Optional[str] = None) -> tuple:
     """Generate the magnet link and (best-effort) video thumbnail from a
     seekable file-like object. Writes the stream to a temp file for hashing;
     the temp file is always cleaned up. Returns (magnet_link, thumbnail_url).
@@ -351,29 +351,37 @@ def _torrent_and_thumbnail(file_stream, safe_filename: str, user_id: UUID, file_
     NOTE: uses Torrent.create_from() — torrentool's actual factory. The old
     Torrent.create() call never existed in torrentool (latest is 1.2.0), so the
     broad except silently minted fake `btih:<uuid>` magnets on every upload.
+
+    SPEED: callers that ALREADY have the bytes on disk (presign finalize
+    downloads the object before validating it) pass `existing_path` to SKIP the
+    second full-file write — torrentool + ffmpeg read it in place. Must be a
+    file whose basename == safe_filename (so the torrent name stays correct).
+    The caller owns the file's lifecycle when existing_path is given.
     """
     ext = os.path.splitext(safe_filename)[1].lower()
-    temp_path = None
+    temp_path = existing_path
     magnet_link = None
     thumbnail_url = None
     temp_dir = None
     try:
-        # The temp file's basename becomes the torrent's `name` (torrentool's
-        # create_from uses src_path.name). Writing it as `safe_filename` inside
-        # a fresh temp DIR — rather than mkstemp, which prepends a random
-        # prefix — keeps the torrent name == the real filename: the magnet's
-        # `dn` matches the info dict, and the infohash is reproducible from the
-        # file bytes alone (a browser P2P seeder rebuilds the identical info
-        # dict, so it can seed the same swarm).
-        temp_dir = tempfile.mkdtemp(prefix="torrentcd-")
-        temp_path = os.path.join(temp_dir, safe_filename)
-        file_stream.seek(0)
-        with open(temp_path, "wb") as tf:
-            while True:
-                chunk = file_stream.read(CHUNK_SIZE)
-                if not chunk:
-                    break
-                tf.write(chunk)
+        if existing_path is None:
+            # The temp file's basename becomes the torrent's `name`
+            # (torrentool's create_from uses src_path.name). Writing it as
+            # `safe_filename` inside a fresh temp DIR — rather than mkstemp,
+            # which prepends a random prefix — keeps the torrent name == the
+            # real filename: the magnet's `dn` matches the info dict, and the
+            # infohash is reproducible from the file bytes alone (a browser P2P
+            # seeder rebuilds the identical info dict, so it can seed the same
+            # swarm).
+            temp_dir = tempfile.mkdtemp(prefix="torrentcd-")
+            temp_path = os.path.join(temp_dir, safe_filename)
+            file_stream.seek(0)
+            with open(temp_path, "wb") as tf:
+                while True:
+                    chunk = file_stream.read(CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    tf.write(chunk)
 
         torrent = Torrent.create_from(temp_path)
         # Public WebTorrent WSS trackers. fastcast.nz is defunct (TCP connects
@@ -399,8 +407,13 @@ def _torrent_and_thumbnail(file_stream, safe_filename: str, user_id: UUID, file_
         if ext in VIDEO_EXTS and os.path.exists(temp_path):
             try:
                 thumb_path = f"/tmp/{file_id}_thumb.jpg"
+                # FAST SEEK: `-ss` BEFORE `-i` tells ffmpeg to jump to ~2s using
+                # the container's keyframes instead of decoding every frame
+                # from the start (the old `-ss` after `-i` decoded the whole
+                # head of a long video — a multi-second thumbnail on Render's
+                # nano tier). Same output, ~10-50x faster.
                 proc = subprocess.run(
-                    ["ffmpeg", "-y", "-i", temp_path, "-ss", "00:00:02", "-vframes", "1", "-vf", "scale=640:360", thumb_path],
+                    ["ffmpeg", "-y", "-ss", "00:00:02", "-i", temp_path, "-frames:v", "1", "-vf", "scale=640:360", thumb_path],
                     capture_output=True,
                     timeout=60,
                 )
@@ -710,7 +723,11 @@ async def _store_and_finalize(
         raise HTTPException(status_code=500, detail="Storage upload failed. Please try again.")
 
     # --- Generate .torrent and magnet link (+ best-effort thumbnail) ---
-    magnet_link, thumbnail_url = _torrent_and_thumbnail(file_stream, safe_filename, user_id, file_id, s3)
+    # CPU/IO-bound (SHA-1 hashing + ffmpeg) — run in a thread so finalize of a
+    # big file never freezes the event loop for unrelated requests.
+    magnet_link, thumbnail_url = await asyncio.to_thread(
+        _torrent_and_thumbnail, file_stream, safe_filename, user_id, file_id, s3
+    )
 
     # --- Save to database (+ usage accounting, race resolution, alerts) ---
     return await _insert_upload_record(
@@ -1122,6 +1139,7 @@ async def presign_finalize(
 
     object_key = session["object_key"]
     s3 = get_minio_client()
+    temp_dir = None
     temp_path = None
     try:
         # Verify the browser's PUT actually landed and matches the declared size
@@ -1141,16 +1159,26 @@ async def presign_finalize(
             )
 
         # Stream the object to a temp file for validation + torrent/thumbnail.
-        obj = s3.get_object(Bucket=settings.minio_bucket, Key=object_key)
-        body = obj["Body"]
-        fd, temp_path = tempfile.mkstemp(suffix=f"_{session['filename']}")
-        os.close(fd)
-        with open(temp_path, "wb") as tf:
-            while True:
-                chunk = body.read(CHUNK_SIZE)
-                if not chunk:
-                    break
-                tf.write(chunk)
+        # Named as {tmpdir}/{real filename} (NOT mkstemp's random prefix) so the
+        # file can be passed straight to _torrent_and_thumbnail as existing_path
+        # — the torrent name must equal the real filename for the magnet's dn /
+        # infohash to match what a browser seeder rebuilds, and reusing the file
+        # avoids a second full write+read of the video on every upload.
+        def _download_to(path: str) -> None:
+            # boto3 streaming is sync/blocking — run the whole download in a
+            # worker thread so a big file's finalize never stalls the event loop.
+            obj = s3.get_object(Bucket=settings.minio_bucket, Key=object_key)
+            body = obj["Body"]
+            with open(path, "wb") as tf:
+                while True:
+                    chunk = body.read(CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    tf.write(chunk)
+
+        temp_dir = tempfile.mkdtemp(prefix="torrentcd-")
+        temp_path = os.path.join(temp_dir, session["filename"])
+        await asyncio.to_thread(_download_to, temp_path)
 
         with open(temp_path, "r+b") as f:
             # Final safety validation on the stored bytes (same as the direct
@@ -1190,8 +1218,15 @@ async def presign_finalize(
                 )
 
             minio_http_url = f"{settings.minio_public_url}/{object_key}"
-            magnet_link, thumbnail_url = _torrent_and_thumbnail(
-                f, session["filename"], user_id, upload_id, s3
+            # Torrent hashing + ffmpeg are CPU/IO-bound sync work — run in a
+            # thread so a big upload's finalize never blocks the event loop
+            # (every other request would queue behind the hashing). Pass the
+            # already-downloaded file to skip the second full write; the stream
+            # arg is unused when existing_path is given, so pass None explicitly.
+            magnet_link, thumbnail_url = await asyncio.to_thread(
+                _torrent_and_thumbnail,
+                None, session["filename"], user_id, upload_id, s3,
+                temp_path,
             )
             result = await _insert_upload_record(
                 pool,
@@ -1229,11 +1264,8 @@ async def presign_finalize(
         logger.exception("Presign finalize failed for session %s", upload_id)
         raise HTTPException(status_code=500, detail="Storage upload failed. Please try again.")
     finally:
-        if temp_path and os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except OSError:
-                pass
+        if temp_dir and os.path.isdir(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def _extract_upload_id_from_key(key: str) -> Optional[UUID]:

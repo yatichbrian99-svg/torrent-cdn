@@ -7,6 +7,10 @@ from unittest.mock import AsyncMock
 from app.security_events import record, recent, clear
 
 ADMIN_URL = "/admin/health"
+# /admin/health/status is the same handler registered under a second path — the
+# frontend calls THIS one because the Next.js page at /admin/health shadows the
+# Vercel rewrite (same-origin GET /admin/health would return HTML, not JSON).
+ADMIN_URL_ALIAS = "/admin/health/status"
 
 
 class TestAdminHealthAccess:
@@ -55,6 +59,24 @@ class TestAdminHealthAccess:
         assert isinstance(data["events"], list)
         assert isinstance(data["generated_at"], int)
         assert data["uptime_seconds"] >= 0
+
+    def test_alias_status_route_serves_same_payload(self, client, admin_headers, mock_conn, mock_redis, mock_s3_client, monkeypatch):
+        """The frontend calls /admin/health/status (the /admin/health page shadows
+        the proxy rewrite) — the alias must serve the identical payload."""
+        mock_conn.fetchrow.return_value = {"is_admin": True}
+        mock_conn.fetchval.return_value = 1
+        mock_redis.ping = AsyncMock(return_value=True)
+        import app.routes.admin as admin_mod
+        monkeypatch.setattr(admin_mod._WafProbeCache, "get",
+                            AsyncMock(return_value={"status": "unknown", "detail": "stubbed", "headers": {}}))
+
+        resp = client.get(ADMIN_URL_ALIAS, headers=admin_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        for key in ("database", "redis", "storage"):
+            assert key in data["checks"]
+        assert data["waf"]["status"] == "unknown"
+        assert isinstance(data["events"], list)
 
 
 class TestSecurityEventsRecorder:
