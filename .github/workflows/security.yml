@@ -156,25 +156,29 @@ jobs:
       - name: Domain guard (dead host + apex URLs)
         run: bash scripts/check_domains.sh
 
-  # ── P2P delivery gate (real 2-peer WebTorrent swarm) ──
-  # Every push must still deliver video over WebTorrent. Vercel deploys LAG the
-  # push (production often serves the previous build for a while), so hitting
-  # www.torrentcdn.store here would validate the LAST deploy, not this push.
-  # Instead this job BUILDS the pushed frontend, serves it locally (next start)
-  # behind the same-origin proxy (e2e/local-proxy.mjs — a vercel.json rewrite
-  # mirror), and runs the 2-peer suite against that build with the PRODUCTION
-  # Render backend underneath (the magnet/tracker/analytics contract is
-  # production's):
-  #   - seeder reproduces the backend infohash (magnet dn + 256KiB pieces + tr
-  #     trackers) and seeds the file
-  #   - leecher plays /embed/{id} with every *.supabase.co request BLOCKED
-  #     (only WebRTC can deliver bytes) → peers connect, video plays
-  #   - backend records chunk_downloaded bytes_p2p > 0
-  # The suite creates a throwaway account + file and deletes them in cleanup.
+  # ── E2E delivery + interaction gate (full Playwright batch) ──
+  # Every push must still deliver video over WebTorrent AND keep every user
+  # interaction green. Vercel deploys LAG the push (production often serves the
+  # previous build for a while), so hitting www.torrentcdn.store here would
+  # validate the LAST deploy, not this push. Instead this job BUILDS the pushed
+  # frontend, serves it locally (next start) behind the same-origin proxy
+  # (e2e/local-proxy.mjs — a vercel.json rewrite mirror), and runs the FULL E2E
+  # batch (e2e/run-all.mjs — all 9 suites) against that build with the
+  # PRODUCTION Render backend underneath:
+  #   - upload-direct / upload-fallback (presign direct + chunked resilience)
+  #   - embed-playback + auto-seed + p2p-two-peer (WebTorrent delivery: seeder
+  #     reproduces the backend infohash, leecher plays with *.supabase.co
+  #     BLOCKED so only WebRTC can deliver bytes → peers connect, video plays,
+  #     backend records chunk_downloaded bytes_p2p > 0)
+  #   - api-key-ui + finalize-retry (dashboard key lifecycle; cold-start
+  #     finalize 502 → client re-sends → success)
+  #   - login-flow + visual-pass (real auth form surfacing, page rendering)
+  # Each suite deletes its own test file in cleanup; one SHARED throwaway
+  # account is registered up front (see step below) and deleted at the end.
   # Requires Playwright Chromium + ffmpeg (installed below).
   # NOTE: production rate limits are per-IP (10 uploads/hr, 5 req/10s); GitHub
   # runners egress from a shared Azure IP pool, so rare concurrent runs could
-  # 429 — the suite paces its calls well under the limits per run. If the
+  # 429 — the batch paces its calls well under the limits per run. If the
   # public trackers ever prove flaky here, soften with continue-on-error.
   # Push + manual dispatch only (NOT pull_request): this job WRITES to
   # production (throwaway account registration + test uploads). On a public
@@ -183,11 +187,10 @@ jobs:
   p2p-e2e:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    # Next 15's larger dependency tree made npm ci + build noticeably slower; 25
-    # minutes was consistently blowing up on the setup steps before the suite
-    # even ran. 45 minutes keeps the real 2-peer gate (the point of this job)
+    # npm ci + build + the full 9-suite batch: the batch alone runs ~25 min
+    # (run-all.mjs caps each suite at 10 min), so 60 minutes keeps the E2E gate
     # without letting a hung suite run forever.
-    timeout-minutes: 45
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: frontend
@@ -220,14 +223,31 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Everything in ONE step so the local stack lives for the suite: next
+      # Register ONE throwaway account shared by the whole batch. run-all
+      # registers per suite when no token is given, and on a manual dispatch
+      # api-key-live + upload-live register from the same shared runner IPs —
+      # 9 suite registers + 2 probe registers would blow the live 10/hr/IP
+      # register budget (the probes retry 429s; the suites' registerUser does
+      # not). A shared token keeps the batch to a single registration.
+      - name: Register shared E2E account
+        run: |
+          set -euo pipefail
+          TOKEN=$(curl -sf --max-time 60 -X POST https://www.torrentcdn.store/auth/register \
+            -H 'Content-Type: application/json' \
+            -d "{\"email\":\"ci-e2e-$(date +%s)@example.com\",\"password\":\"testpass123\",\"terms_accepted\":true}" \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin).get("access_token",""))')
+          [ -n "$TOKEN" ] || { echo "shared account register failed" >&2; exit 1; }
+          echo "E2E_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+      # Everything in ONE step so the local stack lives for the batch: next
       # start on :3001, the same-origin proxy on :3000 (vercel.json rewrite
-      # mirror → production Render), wait for readiness, then run the suite
-      # with E2E_BASE_URL pointed at the local build. The trap guarantees the
-      # background processes die even when the suite fails. Invoke the next
-      # binary directly (not via npx) so $NEXT_PID IS the server process — npx
-      # would wrap it and killing the wrapper could orphan next-server.
-      - name: Run 2-peer P2P suite (pushed build → production backend)
+      # mirror → production Render), wait for readiness, then run ALL E2E
+      # suites (run-all.mjs) with E2E_BASE_URL pointed at the local build. The
+      # trap guarantees the background processes die even when a suite fails.
+      # Invoke the next binary directly (not via npx) so $NEXT_PID IS the
+      # server process — npx would wrap it and killing the wrapper could orphan
+      # next-server.
+      - name: Run full E2E suite batch (pushed build → production backend)
         run: |
           set -euo pipefail
           ./node_modules/.bin/next start -p 3001 > /tmp/next.log 2>&1 &
@@ -247,9 +267,9 @@ jobs:
             tail -20 /tmp/next.log /tmp/proxy.log 2>&1
             exit 1
           }
-          E2E_BASE_URL=http://localhost:3000 node e2e/p2p-two-peer.mjs
+          E2E_BASE_URL=http://localhost:3000 node e2e/run-all.mjs
 
-      # Surface the local stack logs whenever the suite fails (the readiness
+      # Surface the local stack logs whenever a suite fails (the readiness
       # branch above only dumps them when the stack itself never came up).
       - name: Dump stack logs
         if: failure()
@@ -258,6 +278,17 @@ jobs:
           tail -40 /tmp/next.log 2>/dev/null || true
           echo "===== /tmp/proxy.log ====="
           tail -40 /tmp/proxy.log 2>/dev/null || true
+
+      # Delete the shared throwaway account even when a suite failed (each
+      # suite deletes its own test files; the shared account itself is only
+      # removed here so CI never accumulates test users).
+      - name: Delete shared E2E account
+        if: always()
+        run: |
+          if [ -n "${E2E_TOKEN:-}" ]; then
+            curl -sf --max-time 60 -X DELETE https://www.torrentcdn.store/auth/me \
+              -H "Authorization: Bearer $E2E_TOKEN" > /dev/null || true
+          fi
 
   # ── Storage bucket publicity gate (credential-free live check) ──
   # The app serves every file through the bucket's public object URL; a private
