@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from uuid import UUID
 
 from ..config import get_settings
-from ..database import get_db_pool, get_redis
+from ..database import get_db_pool
 from ..auth import get_current_user_id, revoke_user_sessions
 from ..models import UserAdminResponse, UpdateUserPlanRequest, AdminAnalyticsResponse
 

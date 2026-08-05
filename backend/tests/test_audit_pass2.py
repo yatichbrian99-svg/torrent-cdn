@@ -388,72 +388,108 @@ class TestSessionRevocationOnPasswordChange:
 
 class TestSessionRevocationWithoutRedis:
     """The DB security_stamp is the AUTHORITATIVE session-revocation marker:
-    it must reject pre-change JWTs even when Redis is completely absent, which
-    is the production topology (no REDIS_URL). Regression for the live MFA E2E
-    run where 'enable' did not rotate the old session token."""
+    it must reject pre-change JWTs whenever Redis can't answer — absent (the
+    production topology, no REDIS_URL), erroring, or up-but-markerless after a
+    restart/eviction. Regression for the live MFA E2E run where 'enable' did
+    not rotate the old session token."""
 
-    def test_redis_down_token_issued_before_stamp_rejected(self, client, mock_conn, monkeypatch):
-        from datetime import datetime, timezone
+    def _token(self):
         from app.auth import create_access_token
-        import app.auth as auth_mod
+        return create_access_token({"sub": str(USER_ID)})
 
-        old_token = create_access_token({"sub": str(USER_ID)})
+    def _stamp(self, offset_seconds):
+        from datetime import datetime, timezone
         import jwt as pyjwt
         from app.config import get_settings
-        payload = pyjwt.decode(old_token, get_settings().jwt_secret, algorithms=["HS256"])
+        payload = pyjwt.decode(self._token(), get_settings().jwt_secret, algorithms=["HS256"])
+        return datetime.fromtimestamp(
+            float(payload["iat"]) + offset_seconds, tz=timezone.utc
+        )
 
-        # Redis down: get_redis returns None (production topology).
+    def _override_stamp(self, monkeypatch, stamp):
+        """Point get_user_security_stamp at a scripted stamp."""
+        from unittest.mock import AsyncMock
+        import app.auth as auth_mod
+        monkeypatch.setattr(auth_mod, "get_user_security_stamp", AsyncMock(return_value=stamp))
+
+    def test_redis_down_token_issued_before_stamp_rejected(self, client, monkeypatch):
+        """Redis absent + DB stamp newer than iat → 401."""
+        import app.auth as auth_mod
+        from datetime import datetime, timezone
+        import jwt as pyjwt
+        from app.config import get_settings
+
+        old_token = self._token()
+        payload = pyjwt.decode(old_token, get_settings().jwt_secret, algorithms=["HS256"])
         monkeypatch.setattr(auth_mod, "get_redis", AsyncMock(return_value=None))
-        # The DB stamp is NEWER than the token's iat → token must be rejected.
-        mock_conn.fetchrow.return_value = {
-            "security_stamp": datetime.fromtimestamp(
-                float(payload["iat"]) + 1000, tz=timezone.utc
-            ),
-        }
+        self._override_stamp(
+            monkeypatch,
+            datetime.fromtimestamp(float(payload["iat"]) + 1000, tz=timezone.utc),
+        )
 
         resp = client.get("/auth/me", headers={"Authorization": f"Bearer {old_token}"})
         assert resp.status_code == 401
         assert "Session invalidated" in resp.json()["detail"]
 
     def test_redis_down_fresh_token_accepted(self, client, mock_conn, monkeypatch):
-        """A token minted AFTER the DB stamp passes even with Redis down."""
-        from datetime import datetime, timezone
-        from app.auth import create_access_token
+        """Redis absent + stamp OLDER than iat → token still valid."""
         import app.auth as auth_mod
+        from datetime import datetime, timezone
         import jwt as pyjwt
         from app.config import get_settings
 
-        fresh = create_access_token({"sub": str(USER_ID)})
+        fresh = self._token()
         payload = pyjwt.decode(fresh, get_settings().jwt_secret, algorithms=["HS256"])
-
         monkeypatch.setattr(auth_mod, "get_redis", AsyncMock(return_value=None))
-        # Stamp OLDER than the token's iat → still valid.
-        mock_conn.fetchrow.side_effect = [
-            {"security_stamp": datetime.fromtimestamp(
-                float(payload["iat"]) - 1000, tz=timezone.utc
-            )},
-            {"id": USER_ID, "email": "user@example.com", "plan": "free",
-             "verified": True, "is_admin": False, "created_at": "2026-01-01T00:00:00Z"},
-        ]
+        self._override_stamp(
+            monkeypatch,
+            datetime.fromtimestamp(float(payload["iat"]) - 1000, tz=timezone.utc),
+        )
+        # /auth/me's own user lookup must succeed.
+        mock_conn.fetchrow.return_value = {
+            "id": USER_ID, "email": "user@example.com", "plan": "free",
+            "verified": True, "is_admin": False, "created_at": "2026-01-01T00:00:00Z",
+        }
 
         resp = client.get("/auth/me", headers={"Authorization": f"Bearer {fresh}"})
         assert resp.status_code == 200
 
     def test_redis_down_no_stamp_means_no_change(self, client, mock_conn, monkeypatch):
-        """A user who never changed password/MFA has NULL security_stamp → valid."""
-        from app.auth import create_access_token
+        """NULL security_stamp (never changed) → token valid with Redis down."""
         import app.auth as auth_mod
-
-        token = create_access_token({"sub": str(USER_ID)})
         monkeypatch.setattr(auth_mod, "get_redis", AsyncMock(return_value=None))
-        mock_conn.fetchrow.side_effect = [
-            {"security_stamp": None},
-            {"id": USER_ID, "email": "user@example.com", "plan": "free",
-             "verified": True, "is_admin": False, "created_at": "2026-01-01T00:00:00Z"},
-        ]
+        self._override_stamp(monkeypatch, None)
+        # /auth/me's own user lookup must succeed.
+        mock_conn.fetchrow.return_value = {
+            "id": USER_ID, "email": "user@example.com", "plan": "free",
+            "verified": True, "is_admin": False, "created_at": "2026-01-01T00:00:00Z",
+        }
+
+        resp = client.get(
+            "/auth/me", headers={"Authorization": f"Bearer {self._token()}"}
+        )
+        assert resp.status_code == 200
+
+    def test_redis_up_but_markerless_newer_stamp_rejected(self, client, mock_redis, monkeypatch):
+        """Redis UP but with no pw_change marker (restart/eviction window) must
+        STILL fall through to the DB stamp — otherwise the authoritative check
+        is bypassed exactly when Redis is flaky."""
+        from datetime import datetime, timezone
+        import jwt as pyjwt
+        from app.config import get_settings
+
+        token = self._token()
+        payload = pyjwt.decode(token, get_settings().jwt_secret, algorithms=["HS256"])
+        # Redis is up (conftest mock) and returns NO marker.
+        mock_redis.get.return_value = None
+        self._override_stamp(
+            monkeypatch,
+            datetime.fromtimestamp(float(payload["iat"]) + 1000, tz=timezone.utc),
+        )
 
         resp = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
-        assert resp.status_code == 200
+        assert resp.status_code == 401
+        assert "Session invalidated" in resp.json()["detail"]
 
     def test_mfa_enable_bumps_db_security_stamp(self, client, auth_headers, mock_conn):
         """Enabling MFA writes the DB stamp so pre-MFA tokens die without Redis."""

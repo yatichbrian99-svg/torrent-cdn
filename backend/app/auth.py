@@ -162,6 +162,20 @@ async def revoke_user_sessions(user_id) -> None:
         logger.warning("pw_change marker failed for %s: %s", uid, e)
 
 
+async def get_user_security_stamp(user_id) -> Optional[datetime]:
+    """Return the user's session-revocation stamp (None if never changed).
+
+    A separate helper so unit tests can mock exactly this DB read (the auth
+    dependency runs on every request; see conftest's apply_mocks).
+    """
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT security_stamp FROM users WHERE id = $1", UUID(str(user_id))
+        )
+    return row["security_stamp"] if row else None
+
+
 async def _token_revoked_by_password_change(payload: dict) -> bool:
     """Return True when the token was issued BEFORE a password/privilege change.
 
@@ -169,15 +183,18 @@ async def _token_revoked_by_password_change(payload: dict) -> bool:
     MFA enable/disable, and admin privilege changes bump a revocation marker
     (see revoke_user_sessions):
 
-    - Redis ``pw_change:{user_id}`` — the fast path when Redis is available.
-    - The DB ``security_stamp`` column — the authoritative fallback, checked
-      whenever Redis is absent or errors. Without it, a stolen pre-MFA token
-      would keep authenticating after the owner enables MFA on any deployment
-      without Redis.
+    - Redis ``pw_change:{user_id}`` — a fast path. When present it is used
+      directly (it is written alongside the DB stamp on every change).
+    - The DB ``security_stamp`` column — the AUTHORITATIVE check. Consulted
+      whenever Redis is absent, errors, OR is up but has no marker (the marker
+      may have been lost to a Redis restart / volatile-lru eviction while the
+      DB stamp persisted). Without it, a stolen pre-MFA token would keep
+      authenticating after the owner enables MFA — on deployments without
+      Redis, and in the Redis-flaky window.
 
     A token whose ``iat`` predates the marker is stale and rejected. Fails
-    open ONLY when neither storage layer can answer (DB down = the whole app
-    is down anyway, and every handler would 500 regardless).
+    open ONLY when the DB itself errors (DB down = the whole app is down
+    anyway, and every handler would 500 regardless).
     """
     iat = payload.get("iat")
     if not iat:
@@ -190,19 +207,13 @@ async def _token_revoked_by_password_change(payload: dict) -> bool:
             changed = await redis.get(f"pw_change:{sub}")
             if changed is not None:
                 return float(changed) > float(iat)
-            # Live Redis, no marker → no change was ever recorded for this user.
-            return False
     except Exception:
         # Redis error mid-check — fall through to the authoritative DB stamp.
         pass
-    # Authoritative path: DB security_stamp (works with no Redis at all).
+    # Authoritative path: DB security_stamp (works with no Redis at all, and
+    # covers the Redis-up-but-markerless window after a restart/eviction).
     try:
-        pool = await get_db_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT security_stamp FROM users WHERE id = $1", UUID(sub)
-            )
-        stamp = row["security_stamp"] if row else None
+        stamp = await get_user_security_stamp(sub)
         if stamp is not None:
             return stamp.timestamp() > float(iat)
     except Exception as e:

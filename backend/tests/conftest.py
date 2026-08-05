@@ -113,10 +113,12 @@ def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
     import app.auth
     monkeypatch.setattr(app.auth, "get_redis", AsyncMock(return_value=mock_redis))
     monkeypatch.setattr(app.auth, "get_db_pool", AsyncMock(return_value=mock_pool))
+    # The DB security_stamp revocation check (authoritative when Redis is
+    # absent) is a separate helper so tests can stub it directly; default to
+    # "no change" so the vast majority of tests behave as before. Tests that
+    # exercise rotation override it (see TestSessionRevocationWithoutRedis).
+    monkeypatch.setattr(app.auth, "get_user_security_stamp", AsyncMock(return_value=None))
 
-    # app/routes/admin.py bumps pw_change after privilege changes
-    import app.routes.admin
-    monkeypatch.setattr(app.routes.admin, "get_redis", AsyncMock(return_value=mock_redis))
 
     # Patch security validation functions so tests don't need real magic bytes
     # Must patch both the module AND the importing module's local reference
