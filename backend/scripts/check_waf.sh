@@ -56,19 +56,23 @@ if [ -n "$SERVER" ] && echo "$SERVER" | grep -qi vercel; then
 
   echo
   echo "❌ WAF NOT DETECTED — probes pass through (HTTP $CODE) and no firewall"
-  echo "   header is present, so the Vercel Firewall is not (yet) blocking."
+  echo "   header is present, so no managed WAF ruleset is blocking."
   echo
-  echo "   If you just enabled it, check the Vercel dashboard:"
-  echo "     Vercel dashboard → Project → Firewall → Firewall enabled?"
-  echo "     → Managed rules: enable the OWASP ruleset and set the action to"
-  echo "       'Block' (the default is often 'Log' only, which lets traffic through)."
-  echo "   Then wait a few minutes for edge propagation and re-run this script."
+  echo "   NOTE: on Vercel's Hobby (free) plan, the OWASP managed ruleset is NOT"
+  echo "   available (Enterprise-only). Hobby only includes DDoS mitigation, IP"
+  echo "   blocking, 1 custom rule, and 1 rate-limit rule — none of which can"
+  echo "   match the probes this script sends."
   echo
-  echo "   Optional Cloudflare alternative:"
+  echo "   Recommended (free, includes the OWASP Core ruleset): put Cloudflare"
+  echo "   in front — this script then reports 'Cloudflare proxy detected':"
   echo "     1. Add torrentcdn.store as a Cloudflare zone (Free plan)."
-  echo "     2. DNS → CNAME  www → cname.vercel-dns.com  with proxy ON."
-  echo "     3. SSL/TLS → Full (strict); keep the apex 308-redirect."
-  echo "     4. Security → WAF → Managed rules → OWASP set."
+  echo "     2. DNS → CNAME  www → cname.vercel-dns.com  with proxy (orange) ON."
+  echo "     3. SSL/TLS → Full (strict); keep Vercel's apex 308-redirect."
+  echo "     4. Security → WAF → Managed rules → OWASP Core ruleset ON."
+  echo "   Then re-run this script — expect cf-ray + a 403 on the sqlmap probe."
+  echo
+  echo "   On Pro/Enterprise instead? Enable the Vercel Firewall → Managed rules"
+  echo "   → OWASP ruleset with action = Block, wait ~5 min, re-run."
   exit 1
 fi
 
