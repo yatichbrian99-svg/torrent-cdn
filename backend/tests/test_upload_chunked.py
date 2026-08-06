@@ -176,10 +176,6 @@ class TestChunkedUpload:
         assert data["filename"] == "test-video.mp4"
         # The assembled file went through the full storage pipeline
         mock_s3_client.create_multipart_upload.assert_called()
-        # ... and every stored object carries the immutable Cache-Control
-        # header so repeat viewers hit browser/CDN cache instead of origin.
-        mpu_kwargs = mock_s3_client.create_multipart_upload.call_args.kwargs
-        assert mpu_kwargs["CacheControl"] == upload_route.CACHE_CONTROL
         self._cleanup_session(upload_id)
 
     def test_finalize_lost_response_retry_does_not_duplicate(

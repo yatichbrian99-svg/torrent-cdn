@@ -75,14 +75,6 @@ CHUNK_SESSION_TTL = 30 * 60  # chunked-upload sessions expire after 30 min
 PRESIGN_URL_TTL = 900  # 15 min — signed PUT window
 PRESIGN_SESSION_TTL = 30 * 60  # presign sessions expire after 30 min
 
-# Immutable-object caching: every stored object is keyed by a unique UUID and
-# NEVER overwritten (files are deleted whole, never edited), so browsers and
-# CDNs may cache the bytes aggressively forever. This header is what makes a
-# repeat viewer load a video from their browser cache (or a CDN edge, once one
-# is in front of MINIO_PUBLIC_URL) instead of pulling it from Supabase origin
-# again — the biggest egress saver short of P2P itself.
-CACHE_CONTROL = "public, max-age=31536000, immutable"
-
 # Orphaned-object sweep: an object that was PUT but never finalized (presign
 # session expired, or the DB insert crashed after storage write) is garbage in
 # the bucket. A production-only background task lists the bucket and deletes
@@ -274,30 +266,6 @@ def get_minio_client():
     )
 
 
-def _set_cache_control(s3, object_key: str, content_type: str) -> None:
-    """Stamp the immutable Cache-Control header onto a stored object.
-
-    The presign path can't sign Cache-Control into the PUT URL without the
-    browser echoing a second signed header, so it is applied here via a
-    server-side copy (MetadataDirective=REPLACE re-specifies the metadata, and
-    ContentType is passed through because REPLACE otherwise resets it).
-    Best-effort and NEVER raises: an unsupported storage backend leaves the
-    object fully servable, just without the caching header (the multipart and
-    thumbnail paths set Cache-Control at write time, so only presigned uploads
-    are affected by a failure here)."""
-    try:
-        s3.copy_object(
-            Bucket=settings.minio_bucket,
-            Key=object_key,
-            CopySource={"Bucket": settings.minio_bucket, "Key": object_key},
-            MetadataDirective="REPLACE",
-            ContentType=content_type,
-            CacheControl=CACHE_CONTROL,
-        )
-    except Exception as e:
-        logger.warning("Cache-Control stamp failed for %s: %s", object_key, e)
-
-
 def _upload_response_from_row(row) -> UploadResponse:
     """Build the upload response from an uploads row (used for idempotent retries)."""
     return UploadResponse(
@@ -397,7 +365,6 @@ def _generate_thumbnail(s3, temp_path: str, ext: str, user_id: UUID, file_id: st
                     Key=thumb_key,
                     Body=tf.read(),
                     ContentType="image/jpeg",
-                    CacheControl=CACHE_CONTROL,
                 )
             thumbnail_url = f"{settings.minio_public_url}/{thumb_key}"
             os.remove(thumb_path)
@@ -703,15 +670,12 @@ async def _store_and_finalize(
         # The bucket policy with aws:PrincipalArn is not supported by MinIO, so we skip it.
 
         # Initiate multipart upload with an explicit, extension-derived ContentType
-        # so the stored object is never served as a sniffed/ambiguous type, and
-        # the immutable Cache-Control header so repeat viewers hit browser/CDN
-        # cache instead of origin egress.
+        # so the stored object is never served as a sniffed/ambiguous type
         content_type = mimetypes.guess_type(safe_filename)[0] or "application/octet-stream"
         mpu = s3.create_multipart_upload(
             Bucket=settings.minio_bucket,
             Key=minio_key,
             ContentType=content_type,
-            CacheControl=CACHE_CONTROL,
         )
         upload_id = mpu["UploadId"]
 
@@ -1242,9 +1206,6 @@ async def presign_finalize(
                     status_code=422,
                     detail="File failed malware scanning",
                 )
-
-            # Stamp the immutable Cache-Control header (best-effort, see helper).
-            _set_cache_control(s3, object_key, session["content_type"])
 
             minio_http_url = f"{settings.minio_public_url}/{object_key}"
             # Magnet is pure CPU over the already-computed piece hashes (tiny
