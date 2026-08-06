@@ -378,6 +378,35 @@ jobs:
       - name: Run the content-dedup + refcount probe against production
         run: bash backend/scripts/dedup_audit_prod.sh
 
+  # ── Import-by-URL + cross-path dedup live probe (scheduled production check) ──
+  # Exercises the import endpoint end-to-end against the LIVE deployment: one
+  # throwaway account uploads a unique WebM, then IMPORTS that file's own
+  # public URL — the server must fetch it through the DNS-pinned SSRF-safe
+  # transport (real TLS against the original hostname) and content-dedup it
+  # against the already-stored copy (imported minio_url == source, rows
+  # distinct). Then: imported file's public metadata resolves; the SSRF guard
+  # blocks a cloud-metadata URL, a localhost hostname, and a malformed URL (all
+  # 400); cleanup. Catches production regressions the mocked unit suite can't:
+  # a broken pinned transport, SSRF-guard drift, or dedup not firing across
+  # upload paths.
+  #
+  # Schedule + manual dispatch ONLY (NOT push/PR) — same reasoning as the
+  # other live probes: it WRITES to production (throwaway upload + import +
+  # account), and per-push runs would burn the shared per-IP register/upload
+  # budgets. Chained after dedup-live so the four probes serialize instead of
+  # bursting the 10/hr-per-IP register and upload budgets from GitHub's shared
+  # runner IP pool.
+  import-live:
+    needs: [dedup-live]
+    if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Run the import-by-URL + cross-path dedup probe against production
+        run: bash backend/scripts/import_audit_prod.sh
+
   # ── Upload (presigned) flow live probe (scheduled production check) ──
   # Exercises the PRIMARY upload path end-to-end against the LIVE deployment,
   # exactly as the browser drives it: register throwaway account → POST
