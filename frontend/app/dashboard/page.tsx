@@ -155,7 +155,9 @@ export default function DashboardPage() {
       const data = await api.mfaSetup()
       // The otpauth:// URI renders as a QR for scanning (and stays copyable
       // for manual entry). data: URLs are allowed by the page CSP (img-src).
-      const qr = await QRCode.toDataURL(data.otpauth_uri, { width: 168, margin: 1 })
+      // margin: 4 is the spec quiet zone — margin 1 made phone camera
+      // scanners fail to detect the code ("scans, nothing happens").
+      const qr = await QRCode.toDataURL(data.otpauth_uri, { width: 240, margin: 4 })
       setMfaSetup({ ...data, qr })
       setMfaCode('')
     } catch (err: any) {
@@ -383,7 +385,7 @@ export default function DashboardPage() {
             </p>
             <div className="mt-3 flex items-start gap-4">
               {mfaSetup.qr && (
-                <img src={mfaSetup.qr} alt="TOTP QR code" width={168} height={168}
+                <img src={mfaSetup.qr} alt="TOTP QR code" width={180} height={180}
                   className="border" style={{ backgroundColor: '#fff' }} />
               )}
               <div className="flex-1">

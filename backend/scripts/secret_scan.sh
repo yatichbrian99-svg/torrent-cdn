@@ -32,7 +32,7 @@ PATTERNS=(
   "GitHub OAuth / server token|i|gh[ousr]_[A-Za-z0-9]{36}"
   "AWS access key ID||AKIA[0-9A-Z]{16}"
   "AWS secret access key|i|aws_secret_access_key[[:space:]]*[=:][[:space:]]*['\"]?[A-Za-z0-9/+=]{40}"
-  "Stripe live secret key||sk_live_[0-9a-zA-Z]{16,}"
+  "Stripe/Paystack live secret key||sk_live_[0-9a-zA-Z]{16,}"
   "Stripe restricted key||rk_live_[0-9a-zA-Z]{16,}"
   "Stripe webhook secret||whsec_[0-9a-zA-Z]{16,}"
   "SendGrid API key||SG\\.[A-Za-z0-9_-]{16,}"

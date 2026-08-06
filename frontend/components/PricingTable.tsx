@@ -5,10 +5,13 @@ import { Loader2 } from 'lucide-react'
 import api from '@/lib/api'
 import { isSafeHttpsUrl } from '@/lib/security'
 
+// Priced in KES to match Paystack Kenya (the provider for this market — Stripe
+// does not support Kenyan merchant accounts). Paystack charges customers in KES
+// regardless of where their card is issued.
 const TIERS = [
-  { name: 'Free', price: '$0', period: '/month', limit: '100GB bandwidth', features: ['1 seat', 'Community support'], plan: 'free' },
-  { name: 'Pro', price: '$29', period: '/month', limit: '1TB bandwidth', features: ['Unlimited files', 'Analytics dashboard', 'Email support'], plan: 'pro', popular: true },
-  { name: 'Business', price: '$99', period: '/month', limit: 'Unlimited bandwidth', features: ['Priority support', 'Custom domain', 'SLA guarantee'], plan: 'business' },
+  { name: 'Free', price: 'KES 0', period: '/month', limit: '100GB bandwidth', features: ['1 seat', 'Community support'], plan: 'free' },
+  { name: 'Pro', price: 'KES 4,000', period: '/month', limit: '1TB bandwidth', features: ['Unlimited files', 'Analytics dashboard', 'Email support'], plan: 'pro', popular: true },
+  { name: 'Business', price: 'KES 12,000', period: '/month', limit: 'Unlimited bandwidth', features: ['Priority support', 'Custom domain', 'SLA guarantee'], plan: 'business' },
 ]
 
 export default function PricingTable({ currentPlan }: { currentPlan?: string }) {
@@ -64,7 +67,7 @@ export default function PricingTable({ currentPlan }: { currentPlan?: string }) 
                 ))}
               </ul>
               <button
-                onClick={() => tier.plan === 'business' ? window.location.href = 'mailto:support@torrentcdn.com?subject=Business Plan Inquiry' : handleClick(tier.plan)}
+                onClick={() => handleClick(tier.plan)}
                 disabled={isCurrent || loading === tier.plan}
                 className="w-full border py-2 text-sm font-medium transition-opacity hover:opacity-80 disabled:opacity-40"
                 style={{
@@ -73,7 +76,7 @@ export default function PricingTable({ currentPlan }: { currentPlan?: string }) 
                   color: isCurrent ? '#555' : tier.popular ? '#000' : '#fff',
                 }}
               >
-                {loading === tier.plan ? <Loader2 size={14} className="mx-auto animate-spin" /> : isCurrent ? 'Current plan' : tier.plan === 'business' ? 'Contact us' : 'Get started'}
+                {loading === tier.plan ? <Loader2 size={14} className="mx-auto animate-spin" /> : isCurrent ? 'Current plan' : 'Get started'}
               </button>
             </div>
           )

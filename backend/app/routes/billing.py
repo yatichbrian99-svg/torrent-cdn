@@ -1,31 +1,70 @@
+"""Billing routes — Paystack (Kenya).
+
+Paystack is used because Stripe does not support merchant accounts registered
+in Kenya. The flows mirror the old Stripe integration one-for-one:
+
+  * POST /billing/create-checkout — server-side call to Paystack
+    ``transaction/initialize`` against a recurring plan; returns the hosted
+    ``authorization_url`` the browser redirects to (Paystack's hosted checkout
+    page, which presents cards and M-Pesa to the customer).
+  * POST /billing/webhook — HMAC-SHA512 signed Paystack webhook
+    (``x-paystack-signature`` header). Only a *successful subscription charge*
+    (``charge.success`` whose payload carries a ``plan`` object) upgrades the
+    user's plan — a failed charge or a one-time payment never grants a plan.
+
+Paystack amounts are in the currency's smallest unit (KES cents), so a KES
+4,000/month plan is ``amount=400000``.
+"""
+import hashlib
+import hmac
+import json
 import logging
-import stripe
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Request
 from uuid import UUID
 
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+from ..auth import get_current_user_id
 from ..config import get_settings
 from ..database import get_db_pool, get_redis
-from ..auth import get_current_user_id
 from ..models import BillingStatus, CheckoutRequest, CheckoutResponse
 
 VALID_PLANS = {"free", "pro", "business"}
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
-stripe.api_key = settings.stripe_secret_key
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 
+PAYSTACK_API_BASE = "https://api.paystack.co"
+
 PLANS = {
-    "free": {"name": "Free", "limit_gb": 100},
-    "pro": {"name": "Pro", "limit_gb": 1024},
-    "business": {"name": "Business", "limit_gb": float("inf")},
+    "free": {"name": "Free", "limit_gb": 100, "plan_code": None, "amount": 0},
+    "pro": {
+        "name": "Pro",
+        "limit_gb": 1024,
+        "plan_code": settings.paystack_plan_pro,
+        "amount": settings.paystack_amount_pro,
+    },
+    "business": {
+        "name": "Business",
+        "limit_gb": float("inf"),
+        "plan_code": settings.paystack_plan_business,
+        "amount": settings.paystack_amount_business,
+    },
 }
 
-STRIPE_PRICES = {
-    "pro": settings.stripe_price_pro,
-    "business": settings.stripe_price_business,
+# plan_code -> tier. The webhook trusts the plan_code on Paystack's own charge
+# object (a server-side field, never client-supplied) as authoritative for the
+# subscription the customer actually paid for.
+PLAN_CODE_TO_TIER = {
+    p["plan_code"]: tier for tier, p in PLANS.items() if p["plan_code"]
+}
+
+_PAYSTACK_HEADERS = {
+    "Authorization": f"Bearer {settings.paystack_secret_key}",
+    "Content-Type": "application/json",
 }
 
 
@@ -62,96 +101,131 @@ async def create_checkout(
     data: CheckoutRequest,
     user_id: UUID = Depends(get_current_user_id),
 ):
-    """Create a Stripe checkout session."""
-    plan = data.plan
-    if plan not in STRIPE_PRICES:
-        raise HTTPException(status_code=400, detail="Invalid plan")
+    """Create a Paystack checkout session against a recurring plan.
 
-    price_id = STRIPE_PRICES[plan]
+    Paystack identifies the customer by email and starts the subscription when
+    the plan code is included on ``transaction/initialize``. The response's
+    ``authorization_url`` is the hosted checkout page the browser redirects to.
+    """
+    plan = data.plan
+    plan_config = PLANS.get(plan)
+    if plan_config is None or plan == "free" or not plan_config["plan_code"]:
+        raise HTTPException(status_code=400, detail="Invalid plan")
 
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         user = await conn.fetchrow(
-            "SELECT email, stripe_customer_id FROM users WHERE id = $1", user_id
+            "SELECT email FROM users WHERE id = $1", user_id
         )
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        customer_id = user["stripe_customer_id"]
-
-        if not customer_id:
-            customer = stripe.Customer.create(email=user["email"])
-            customer_id = customer.id
-            await conn.execute(
-                "UPDATE users SET stripe_customer_id = $1 WHERE id = $2",
-                customer_id, user_id,
-            )
-
     try:
-        checkout_session = stripe.checkout.Session.create(
-            customer=customer_id,
-            payment_method_types=["card"],
-            line_items=[{"price": price_id, "quantity": 1}],
-            mode="subscription",
-            success_url=f"{settings.app_url}/billing?success=true",
-            cancel_url=f"{settings.app_url}/billing?canceled=true",
-            metadata={"user_id": str(user_id), "plan": plan},
+        async with httpx.AsyncClient(
+            base_url=PAYSTACK_API_BASE, headers=_PAYSTACK_HEADERS, timeout=15
+        ) as client:
+            resp = await client.post(
+                "/transaction/initialize",
+                json={
+                    "email": user["email"],
+                    "amount": plan_config["amount"],
+                    "plan": plan_config["plan_code"],
+                    "currency": settings.paystack_currency,
+                    "callback_url": f"{settings.app_url}/billing?success=true",
+                    "metadata": {"user_id": str(user_id), "plan": plan},
+                },
+            )
+        if resp.status_code != 200:
+            logger.error(
+                "Paystack initialize failed for user %s (HTTP %s): %s",
+                user_id, resp.status_code, resp.text[:500],
+            )
+            raise HTTPException(
+                status_code=502, detail="Checkout failed. Please try again."
+            )
+        try:
+            body = resp.json()
+        except ValueError:
+            logger.error(
+                "Paystack initialize returned non-JSON for user %s: %s",
+                user_id, resp.text[:500],
+            )
+            raise HTTPException(
+                status_code=502, detail="Checkout failed. Please try again."
+            )
+        if not body.get("status"):
+            logger.error(
+                "Paystack initialize returned status=false for user %s: %s",
+                user_id, resp.text[:500],
+            )
+            raise HTTPException(
+                status_code=502, detail="Checkout failed. Please try again."
+            )
+        return CheckoutResponse(url=body["data"]["authorization_url"])
+    except httpx.HTTPError as e:
+        logger.error("Paystack checkout session failed for user %s: %s", user_id, e)
+        raise HTTPException(
+            status_code=502, detail="Checkout failed. Please try again."
         )
-        return CheckoutResponse(url=checkout_session.url)
-    except Exception as e:
-        logger.error("Stripe checkout session failed for user %s: %s", user_id, e)
-        raise HTTPException(status_code=500, detail="Checkout failed. Please try again.")
 
 
 @router.post("/webhook")
-async def stripe_webhook(request: Request):
-    """Handle Stripe webhook events."""
-    payload = await request.body()
-    sig_header = request.headers.get("stripe-signature")
+async def paystack_webhook(request: Request):
+    """Handle Paystack webhook events.
 
-    try:
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, settings.stripe_webhook_secret
-        )
-    except (ValueError, stripe.error.SignatureVerificationError):
+    Signature: HMAC-SHA512 hex of the raw request body keyed by the Paystack
+    SECRET key (Paystack has no separate webhook secret), delivered in the
+    ``x-paystack-signature`` header.
+    """
+    payload = await request.body()
+    sig_header = request.headers.get("x-paystack-signature", "")
+
+    expected = hmac.new(
+        settings.paystack_secret_key.encode(), payload, hashlib.sha512
+    ).hexdigest()
+    if not sig_header or not hmac.compare_digest(sig_header, expected):
         raise HTTPException(status_code=400, detail="Invalid webhook signature")
 
-    event_id = event["id"]
-    redis = await get_redis()
+    try:
+        event = json.loads(payload)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    data = event.get("data") or {}
+    event_id = data.get("id") or event.get("id")
 
     # Idempotency check — skip if already processed (skip if Redis unavailable)
-    if redis is not None:
+    redis = await get_redis()
+    if redis is not None and event_id:
         already_processed = await redis.get(f"webhook:{event_id}")
         if already_processed:
             return {"detail": "Already processed"}
         await redis.setex(f"webhook:{event_id}", 86400, "1")  # 24h TTL
 
-    if event["type"] == "checkout.session.completed":
-        session = event["data"]["object"]
-
-        # Business-logic gate: only grant the plan when the payment actually
-        # settled. checkout.session.completed also fires for sessions whose
-        # payment is still pending/unpaid (async payment methods), and granting
-        # a paid plan on an unpaid session is a free-upgrade bypass.
-        if session.get("payment_status") != "paid":
+    if event.get("event") == "charge.success":
+        # Business-logic gate: only a settled, successful charge upgrades a
+        # plan — a failed charge must never be a free-upgrade bypass.
+        if data.get("status") != "success":
             logger.warning(
-                "Webhook checkout.session.completed with payment_status=%r — ignoring",
-                session.get("payment_status"),
+                "Paystack charge.success with status=%r — ignoring",
+                data.get("status"),
             )
-            return {"detail": "Payment not completed, ignoring"}
+            return {"detail": "Charge not successful, ignoring"}
 
-        # Subscription-mode only: a one-time payment session has no plan upgrade.
-        if session.get("mode") != "subscription":
-            return {"detail": "Not a subscription session, ignoring"}
+        # One-time charges carry no `plan` — only subscription charges do.
+        # The plan_code is Paystack's own server-side field (never supplied by
+        # the client), so it is authoritative for what was actually paid for.
+        plan_code = (data.get("plan") or {}).get("plan_code")
+        tier = PLAN_CODE_TO_TIER.get(plan_code)
+        if tier is None:
+            return {"detail": "Not a subscription charge, ignoring"}
 
-        metadata = session.get("metadata") or {}
+        metadata = data.get("metadata") or {}
         user_id = metadata.get("user_id")
-        plan = metadata.get("plan")
 
-        # Validate plan before writing, and never trust malformed metadata
-        # (a bad UUID would otherwise 500 the webhook and trigger Stripe retries).
-        if plan not in VALID_PLANS:
-            return {"detail": "Unknown plan, ignoring"}
+        # Validate metadata before writing, and never trust malformed values
+        # (a bad UUID would otherwise 500 the webhook and trigger Paystack
+        # retries).
         try:
             parsed_user_id = UUID(user_id) if user_id else None
         except (ValueError, TypeError, AttributeError):
@@ -163,7 +237,7 @@ async def stripe_webhook(request: Request):
         async with pool.acquire() as conn:
             await conn.execute(
                 "UPDATE users SET plan = $1 WHERE id = $2",
-                plan, parsed_user_id,
+                tier, parsed_user_id,
             )
 
     return {"detail": "Webhook received"}

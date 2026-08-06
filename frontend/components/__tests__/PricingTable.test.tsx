@@ -28,20 +28,32 @@ describe('PricingTable', () => {
     expect(screen.getByText('Business')).toBeInTheDocument()
   })
 
-  it('starts a Stripe checkout when the Pro plan is clicked', async () => {
-    mocks.createCheckout.mockResolvedValue({ url: 'https://checkout.stripe.com/xyz' })
+  it('starts a Paystack checkout when the Pro plan is clicked', async () => {
+    mocks.createCheckout.mockResolvedValue({ url: 'https://checkout.paystack.com/xyz' })
     const user = userEvent.setup()
     render(<PricingTable />)
 
-    // Two "Get started" buttons exist (Free + Pro) — the Pro one is second.
+    // Three "Get started" buttons exist (Free, Pro, Business) — Pro is second.
     await user.click(screen.getAllByRole('button', { name: /get started/i })[1])
 
     expect(mocks.createCheckout).toHaveBeenCalledTimes(1)
     expect(mocks.createCheckout).toHaveBeenCalledWith('pro')
   })
 
+  it('starts a checkout when the Business plan is clicked (self-serve, no mailto)', async () => {
+    mocks.createCheckout.mockResolvedValue({ url: 'https://checkout.paystack.com/xyz' })
+    const user = userEvent.setup()
+    render(<PricingTable />)
+
+    // Business is the third "Get started" button.
+    await user.click(screen.getAllByRole('button', { name: /get started/i })[2])
+
+    expect(mocks.createCheckout).toHaveBeenCalledTimes(1)
+    expect(mocks.createCheckout).toHaveBeenCalledWith('business')
+  })
+
   it('shows an error when checkout fails', async () => {
-    mocks.createCheckout.mockRejectedValue(new Error('stripe down'))
+    mocks.createCheckout.mockRejectedValue(new Error('paystack down'))
     const user = userEvent.setup()
     render(<PricingTable />)
 

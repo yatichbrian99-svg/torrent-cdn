@@ -64,10 +64,12 @@ services:
       MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set to a random value of 32+ characters}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
-      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_xxx}
-      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_xxx}
-      STRIPE_PRICE_PRO: ${STRIPE_PRICE_PRO:-price_pro_monthly}
-      STRIPE_PRICE_BUSINESS: ${STRIPE_PRICE_BUSINESS:-price_business_monthly}
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-sk_test_xxx}
+      PAYSTACK_CURRENCY: ${PAYSTACK_CURRENCY:-KES}
+      PAYSTACK_PLAN_PRO: ${PAYSTACK_PLAN_PRO:-PLN_pro_monthly}
+      PAYSTACK_PLAN_BUSINESS: ${PAYSTACK_PLAN_BUSINESS:-PLN_business_monthly}
+      PAYSTACK_AMOUNT_PRO: ${PAYSTACK_AMOUNT_PRO:-400000}
+      PAYSTACK_AMOUNT_BUSINESS: ${PAYSTACK_AMOUNT_BUSINESS:-1200000}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://frontend:3000}
       TRUSTED_HOSTS: ${TRUSTED_HOSTS:-localhost,127.0.0.1,frontend}
     ports:

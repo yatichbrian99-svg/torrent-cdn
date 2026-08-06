@@ -41,19 +41,19 @@ describe('isUuid', () => {
 
 describe('isSafeHttpsUrl', () => {
   it('accepts absolute https URLs', () => {
-    expect(isSafeHttpsUrl('https://checkout.stripe.com/c/pay/xyz')).toBe(true)
+    expect(isSafeHttpsUrl('https://checkout.paystack.com/c/pay/xyz')).toBe(true)
   })
 
   it('rejects dangerous or non-https schemes', () => {
     expect(isSafeHttpsUrl('javascript:alert(1)')).toBe(false)
     expect(isSafeHttpsUrl('data:text/html,<script>alert(1)</script>')).toBe(false)
-    expect(isSafeHttpsUrl('http://checkout.stripe.com/xyz')).toBe(false)
+    expect(isSafeHttpsUrl('http://checkout.paystack.com/xyz')).toBe(false)
     expect(isSafeHttpsUrl('mailto:support@torrentcdn.com')).toBe(false)
   })
 
   it('rejects relative and malformed values', () => {
     expect(isSafeHttpsUrl('/dashboard')).toBe(false)
-    expect(isSafeHttpsUrl('checkout.stripe.com/xyz')).toBe(false)
+    expect(isSafeHttpsUrl('checkout.paystack.com/xyz')).toBe(false)
     expect(isSafeHttpsUrl('')).toBe(false)
     expect(isSafeHttpsUrl('not a url')).toBe(false)
   })

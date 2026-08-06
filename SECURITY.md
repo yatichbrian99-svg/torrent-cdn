@@ -274,7 +274,7 @@ A follow-up audit pass (zero-trust checklist: dead code, session lifecycle, paym
 | **`POST /analytics/event` (public, unauthenticated) had no rate-limit fallback when Redis is down** | A Redis outage opened an unbounded write path into the analytics table | In-memory bounded fallback (60/min/IP) mirroring the GET-endpoint pattern. Regression tests: `TestAnalyticsEventRateLimitFallback`. |
 | **`POST /auth/register` had no per-IP throttle** | Free account creation spam + transactional-email quota burning (every registration sends a verification email) | Per-IP register limiter (10/hour, Redis primary + bounded in-memory fallback) before any work. Tests: `TestRegisterRateLimit`. |
 | **Password change did not invalidate existing JWTs** | A stolen token survived a password reset for up to 24h | Tokens now carry an `iat` claim; the reset route records `pw_change:{user_id}` in Redis; `get_current_user_id` rejects any token issued before the marker (fail-open when Redis is down, consistent with the app's optional-Redis convention). Admin `toggle-admin` also bumps the marker so privilege changes rotate the target's sessions. Tests: `TestSessionRevocationOnPasswordChange`. |
-| **Stripe webhook granted plans on unpaid sessions** | A `checkout.session.completed` with `payment_status != paid` (async payment methods) upgraded the plan for free | Webhook now requires `payment_status == "paid"` **and** `mode == "subscription"`, and never 500s on malformed `user_id` metadata (bad UUID previously triggered Stripe retries). Tests: `TestStripeWebhookPaymentGate`. |
+| **Paystack webhook granted plans on failed/one-time charges** | A `charge.success` webhook for a failed charge or a one-time (non-subscription) payment upgraded the plan for free | Webhook now requires `data.status == "success"` **and** a `data.plan` object whose `plan_code` maps to a configured plan (server-side field — authoritative), and never 500s on malformed `user_id` metadata (bad UUID previously triggered Paystack retries). Tests: `TestPaystackWebhookPaymentGate`. |
 | **No pagination on `GET /files`** | One user with a huge library forced an arbitrarily large response | `limit` (default 100, max 500) + `offset` query params; response shape unchanged (bare array, frontend-compatible). Tests: `TestListFilesPagination`. |
 | **Unbounded concurrent chunk/presign sessions per user** | An authenticated attacker could exhaust temp disk (each chunk session grows a ≤1GB file) and Redis/in-memory session storage | Per-user caps: 50 growable chunk sessions, 50 presign sessions. The chunk cap counts only sessions that can still grow (a fully-received session can't write more), so legitimate power users aren't falsely 429'd. **Also:** chunk writes are now size-bounded to the declared `file_size` — a session declaring a small size with a large `total_chunks` could previously grow a temp file far beyond the plan limit. Tests: `TestSessionCaps` (+ size-guard tests). |
 
@@ -468,7 +468,7 @@ git push --force --tags origin
 | `JWT_SECRET` | Render dashboard → new random value (≥32 chars). Old tokens invalid on restart. |
 | `DATABASE_URL` password | Supabase/Postgres — reset the DB password, update env var |
 | `MINIO_*` / storage keys | Supabase Storage / R2 — regenerate access keys |
-| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Stripe dashboard → roll API keys |
+| `PAYSTACK_SECRET_KEY` | Paystack dashboard → Settings → API Keys & Webhooks → roll key (same key signs webhooks) |
 | `RESEND_API_KEY` | Resend dashboard → revoke & recreate |
 | GitHub tokens in remote URLs | Revoke at github.com/settings/tokens; use `gh auth login` or SSH instead of `https://user:TOKEN@github.com/...` |
 
@@ -496,7 +496,7 @@ curl -X POST "$API/auth/setup?email=you@example.com" \
 | `DATABASE_URL` | Supabase pooled URL | Set in dashboard (never commit) |
 | `REDIS_URL` | Upstash/Redis Cloud URL | Required for distributed rate limiting |
 | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `MINIO_PUBLIC_URL`, `MINIO_SECURE=true` | Supabase Storage S3 values | Never `minioadmin` in prod |
-| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_BUSINESS` | Stripe keys/price IDs | |
+| `PAYSTACK_SECRET_KEY`, `PAYSTACK_PLAN_PRO`, `PAYSTACK_PLAN_BUSINESS` | Paystack API key + plan codes (Kenya — Stripe unavailable to Kenyan merchants) | |
 | `RESEND_API_KEY`, `RESEND_FROM` | Resend API key + verified sender | |
 | `CORS_ORIGINS` | Comma-separated frontend origins | |
 | `TRUSTED_HOSTS` | `.onrender.com,.vercel.app,.torrentcdn.store,localhost` | |
@@ -549,9 +549,9 @@ What to expect on deploy, so the next deployer isn't surprised by startup log no
 | Missing scheme or hostname (e.g. empty, `torrentcdn.store`) | `ERROR` | Keeps booting — links are unresolvable | Set a full `https://` URL and redeploy |
 | Scheme is `http://` | `WARNING` | Upgrades to `https://` for this process (HSTS would otherwise block the links in browsers) | Set an `https://` URL in the dashboard |
 | `MINIO_SECRET_KEY` is `minioadmin` | `WARNING` | None (credential hygiene) | Set a real secret |
-| `STRIPE_SECRET_KEY` is a placeholder (`sk_test_xxx` / `sk_live_xxx`) | `WARNING` | None (credential hygiene) | Set a real Stripe key |
+| `PAYSTACK_SECRET_KEY` is a placeholder (`sk_test_xxx` / `sk_live_xxx`) | `WARNING` | None (credential hygiene) | Set a real Paystack key |
 
-**Deploy check:** after a deploy, search the Render logs for the strings `APP_URL`, `minioadmin`, and `STRIPE_SECRET_KEY`. An `ERROR`/`WARNING` that mentions `APP_URL` means the deployed instance is running on a **corrected-but-temporary** value — the fix only becomes permanent once the dashboard env var is updated and the service is redeployed.
+**Deploy check:** after a deploy, search the Render logs for the strings `APP_URL`, `minioadmin`, and `PAYSTACK_SECRET_KEY`. An `ERROR`/`WARNING` that mentions `APP_URL` means the deployed instance is running on a **corrected-but-temporary** value — the fix only becomes permanent once the dashboard env var is updated and the service is redeployed.
 
 > The guard is a safety net, not a substitute for correct config: both `render.yaml` and the Render dashboard must point `APP_URL` at `https://www.torrentcdn.store` (the canonical frontend domain — `torrentcdn.com` no longer resolves).
 
