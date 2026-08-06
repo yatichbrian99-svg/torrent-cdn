@@ -48,6 +48,11 @@ export function middleware(request: NextRequest) {
     // the browser PUTs to it directly — without this wildcard in connect-src
     // the browser would silently block the upload via CSP.
     'https://*.supabase.co',
+    // R2 (the target of the 50MB-cap fix): once storage moves to Cloudflare
+    // R2 the browser's presigned PUT goes straight to the R2 S3-compatible
+    // endpoint (<account-id>.r2.cloudflarestorage.com) — same reason as the
+    // Supabase wildcard: CSP would otherwise silently block the direct upload.
+    'https://*.r2.cloudflarestorage.com',
     // Localhost is allowed for local dev (NEXT_PUBLIC_API_URL=http://localhost:8000);
     // never included in production.
     ...(isProduction ? [] : ['http://localhost:*']),
