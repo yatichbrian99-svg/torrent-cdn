@@ -83,7 +83,7 @@ class TestChunkedUpload:
         resp = client.post(
             self.SESSION_URL,
             headers=auth_headers,
-            json={"filename": "big.mp4", "file_size": 2 * 1024 * 1024 * 1024, "total_chunks": 512},
+            json={"filename": "big.mp4", "file_size": 3 * 1024 * 1024 * 1024, "total_chunks": 512},
         )
         assert resp.status_code == 413
         assert "File too large" in resp.json()["detail"]

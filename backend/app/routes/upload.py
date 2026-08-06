@@ -267,6 +267,59 @@ def get_minio_client():
     )
 
 
+# Memoized bucket-ensure state. Verifying the bucket + CORS once per process is
+# enough on the single-instance deployment — without this, EVERY presign would
+# re-run head_bucket + put_bucket_cors (two network round-trips, plus a logged
+# warning on every request for providers that don't support bucket-level CORS
+# via the S3 API). A provider-side CORS change needs a redeploy to take effect
+# here; that is acceptable for a bootstrap that is only meant to make the first
+# upload work.
+_bucket_ensured = False
+
+
+def _ensure_bucket(s3) -> None:
+    """Idempotently ensure the storage bucket exists and allows browser CORS
+    access. Best-effort, never fatal, and memoized per process.
+
+    The presigned-PUT upload path ships the file STRAIGHT from the browser to
+    storage, so the bucket must answer the browser's CORS preflight — without
+    an allow-PUT rule the browser blocks every direct upload before a byte is
+    sent. Some providers don't support bucket-level CORS via the S3 API
+    (Supabase Storage, MinIO) — the failure is logged once and skipped, and
+    the bucket can be configured in the provider dashboard instead."""
+    global _bucket_ensured
+    if _bucket_ensured:
+        return
+    try:
+        try:
+            s3.head_bucket(Bucket=settings.minio_bucket)
+        except Exception:
+            s3.create_bucket(Bucket=settings.minio_bucket)
+        _bucket_ensured = True
+    except Exception as e:
+        logger.warning("Bucket ensure failed for %s: %s", settings.minio_bucket, e)
+        return
+    try:
+        s3.put_bucket_cors(
+            Bucket=settings.minio_bucket,
+            CORSConfiguration={
+                "CORSRules": [
+                    {
+                        # Writes are only possible with a valid presigned URL, so
+                        # allowing any origin is safe — this rule is what lets the
+                        # uploader's browser PUT (and every embed's GET) work.
+                        "AllowedOrigins": ["*"],
+                        "AllowedMethods": ["GET", "HEAD", "PUT"],
+                        "AllowedHeaders": ["Content-Type"],
+                        "MaxAgeSeconds": 3600,
+                    }
+                ]
+            },
+        )
+    except Exception as e:
+        logger.warning("Bucket CORS bootstrap skipped for %s: %s", settings.minio_bucket, e)
+
+
 def _upload_response_from_row(row) -> UploadResponse:
     """Build the upload response from an uploads row (used for idempotent retries)."""
     return UploadResponse(
@@ -713,14 +766,8 @@ async def _store_and_finalize(
 
     try:
         s3 = get_minio_client()
-        # Ensure bucket exists with private policy
-        try:
-            s3.head_bucket(Bucket=settings.minio_bucket)
-        except Exception:
-            s3.create_bucket(Bucket=settings.minio_bucket)
-
-        # MinIO buckets are private by default — no public access without explicit presigned URLs
-        # The bucket policy with aws:PrincipalArn is not supported by MinIO, so we skip it.
+        # Ensure bucket exists + CORS for the browser-PUT path (best-effort).
+        _ensure_bucket(s3)
 
         # Initiate multipart upload with an explicit, extension-derived ContentType
         # so the stored object is never served as a sniffed/ambiguous type
@@ -1081,6 +1128,8 @@ async def presign_upload(
     await _check_usage_limit(pool, user_id, month, file_size_mb)
 
     s3 = get_minio_client()
+    # Bucket must exist and answer CORS before the browser can PUT (best-effort).
+    _ensure_bucket(s3)
     # ContentType is a SIGNED header: the browser MUST send exactly this value
     # in its PUT (the frontend echoes presign.content_type back). Signing it
     # guarantees the stored object's type is deterministic and never sniffed.

@@ -132,6 +132,10 @@ def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
 
     # Patch MinIO client (defined locally in upload.py; imported dynamically in files.py)
     monkeypatch.setattr(app.routes.upload, "get_minio_client", lambda: mock_s3_client)
+    # Reset the memoized bucket-ensure flag so each test sees a fresh "not yet
+    # ensured" state (otherwise the first test's ensure suppresses the
+    # head_bucket/put_bucket_cors calls for the rest of the suite).
+    monkeypatch.setattr(app.routes.upload, "_bucket_ensured", False)
 
     # Also patch the database module itself for any direct references
     import app.database

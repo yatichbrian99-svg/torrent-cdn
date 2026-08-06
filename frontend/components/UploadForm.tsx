@@ -136,7 +136,7 @@ export default function UploadForm() {
             <Upload size={24} className="mx-auto mb-3" style={{ color: '#555' }} />
             <p className="text-sm" style={{ color: '#555' }}>Drop your video or audio file here</p>
             <p className="mt-1 text-sm" style={{ color: '#555' }}>or click to browse</p>
-            <p className="mt-1 text-xs" style={{ color: '#444' }}>MP4, WebM, MKV, MP3, WAV up to 1GB</p>
+            <p className="mt-1 text-xs" style={{ color: '#444' }}>MP4, WebM, MKV, MP3, WAV up to 2GB</p>
           </div>
         )}
         {uploading && (
