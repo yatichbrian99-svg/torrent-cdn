@@ -12,7 +12,8 @@ python-multipart>=0.0.6
 # RSA/ECDSA transitive deps to audit.
 PyJWT>=2.8.0,<3.0.0
 bcrypt>=4.0.1,<5.0.0
-stripe>=7.4.0
+# Paystack (Kenya billing — Stripe unavailable to Kenyan merchants). Called
+# via httpx (already a dependency); no SDK needed.
 torrentool>=1.2.0
 httpx>=0.25.2
 pytest>=8.0.0

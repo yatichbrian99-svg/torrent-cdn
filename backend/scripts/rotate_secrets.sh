@@ -4,10 +4,10 @@
 #
 # Generates fresh JWT/DB/Redis secrets, validates the JWT against the backend's
 # fail-closed rules (>=32 chars, not 'changeme'), and prints a copy-paste
-# checklist for the Render dashboard + Supabase/Stripe/Upstash web consoles.
+# checklist for the Render dashboard + Supabase/Paystack/Upstash web consoles.
 #
 # The dashboard-only steps (Supabase DB password reset, Supabase Storage S3
-# keys, Stripe key roll, Upstash reset, GitHub PAT revocation) can only be done
+# keys, Paystack key roll, Upstash reset, GitHub PAT revocation) can only be done
 # by an account holder — this script prepares everything else.
 #
 # Usage:
@@ -43,8 +43,7 @@ print(json.dumps({
     "notes": {
         "DATABASE_URL": "supabase pooled URL: postgresql://postgres.<ref>:<PASSWORD>@aws-0-<region>.pooler.supabase.com:6543/postgres",
         "MINIO_ACCESS_KEY/SECRET_KEY": "generate in Supabase dashboard -> Storage -> Settings -> S3 Access Keys",
-        "STRIPE_SECRET_KEY": "roll in Stripe dashboard -> Developers -> API keys",
-        "STRIPE_WEBHOOK_SECRET": "recreate in Stripe dashboard -> Developers -> Webhooks -> signing secret",
+        "PAYSTACK_SECRET_KEY": "roll in Paystack dashboard -> Settings -> API Keys & Webhooks",
         "REDIS_URL": "reset password in Upstash console, full redis:// URL embeds it",
         "GITHUB_PAT": "revoke old ghp_ token at github.com/settings/tokens",
     }
@@ -79,9 +78,9 @@ STEP 2 — Dashboard-only actions (require account logins, cannot be scripted):
                  -> use: ${DB_PASSWORD}
   [ ] Supabase  -> Storage -> Settings -> S3 Access Keys -> Generate new keys
                  -> paste into MINIO_ACCESS_KEY / MINIO_SECRET_KEY in Render
-  [ ] Stripe    -> Developers -> API keys -> Roll key  (new sk_live_...)
-  [ ] Stripe    -> Developers -> Webhooks -> signing secret -> Reveal/Recreate
-                 -> paste into STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET
+  [ ] Paystack  -> Settings -> API Keys & Webhooks -> Roll key  (new sk_live_...)
+                 -> paste into PAYSTACK_SECRET_KEY (same key signs webhooks)
+                 -> re-save the webhook on Paystack if the endpoint was recreated
   [ ] Upstash   -> console -> reset password -> update REDIS_URL in Render
   [ ] GitHub    -> github.com/settings/tokens -> revoke old ghp_ token
 

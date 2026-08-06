@@ -10,7 +10,8 @@ Covers:
    Redis is down (in-memory fallback).
 3. POST /auth/register is throttled per IP (account/email spam).
 4. GET /files is capped by pagination (limit/offset).
-5. Stripe webhook only grants plans on settled (paid) subscription sessions.
+5. Paystack webhook only grants plans on settled (successful) subscription charges
+   (moved to test_billing.py — TestPaystackWebhookPaymentGate).
 6. Password changes revoke previously-issued JWTs (pw_change marker + iat).
 7. Chunked/presign upload sessions are capped per user (temp-disk/Redis DoS).
 8. Email templates HTML-escape the user-controlled email address.
@@ -210,97 +211,6 @@ class TestListFilesPagination:
         mock_conn.fetch.return_value = []
         resp = client.get(f"{self.URL}?limit=999999", headers=auth_headers)
         assert resp.status_code == 422  # Query le=500 enforces the cap
-
-
-class TestStripeWebhookPaymentGate:
-    """The billing webhook must only grant a plan when the payment actually
-    settled — otherwise an unpaid/pending session is a free-upgrade bypass."""
-
-    URL = "/billing/webhook"
-
-    @staticmethod
-    def _patch_stripe(monkeypatch, event_dict):
-        import app.routes.billing as billing_route
-        fake = MagicMock()
-        fake.Webhook.construct_event.return_value = event_dict
-        monkeypatch.setattr(billing_route.stripe, "Webhook", fake.Webhook)
-        return billing_route
-
-    def test_pending_payment_does_not_grant_plan(self, client, mock_conn, monkeypatch):
-        billing_route = self._patch_stripe(monkeypatch, {
-            "id": "evt_pending",
-            "type": "checkout.session.completed",
-            "data": {"object": {
-                "payment_status": "unpaid",
-                "mode": "subscription",
-                "metadata": {"user_id": str(USER_ID), "plan": "pro"},
-            }},
-        })
-        resp = client.post(
-            self.URL,
-            content=b"{}",
-            headers={"stripe-signature": "sig", "content-type": "application/json"},
-        )
-        assert resp.status_code == 200
-        assert "Payment not completed" in resp.json()["detail"]
-        mock_conn.execute.assert_not_called()  # plan NOT upgraded
-
-    def test_paid_subscription_grants_plan(self, client, mock_conn, monkeypatch):
-        billing_route = self._patch_stripe(monkeypatch, {
-            "id": "evt_paid",
-            "type": "checkout.session.completed",
-            "data": {"object": {
-                "payment_status": "paid",
-                "mode": "subscription",
-                "metadata": {"user_id": str(USER_ID), "plan": "pro"},
-            }},
-        })
-        resp = client.post(
-            self.URL,
-            content=b"{}",
-            headers={"stripe-signature": "sig", "content-type": "application/json"},
-        )
-        assert resp.status_code == 200
-        mock_conn.execute.assert_called_once()
-
-    def test_one_time_payment_ignored(self, client, mock_conn, monkeypatch):
-        self._patch_stripe(monkeypatch, {
-            "id": "evt_onetime",
-            "type": "checkout.session.completed",
-            "data": {"object": {
-                "payment_status": "paid",
-                "mode": "payment",
-                "metadata": {"user_id": str(USER_ID), "plan": "pro"},
-            }},
-        })
-        resp = client.post(
-            self.URL,
-            content=b"{}",
-            headers={"stripe-signature": "sig", "content-type": "application/json"},
-        )
-        assert resp.status_code == 200
-        assert "Not a subscription session" in resp.json()["detail"]
-        mock_conn.execute.assert_not_called()
-
-    def test_malformed_user_id_metadata_ignored(self, client, mock_conn, monkeypatch):
-        """A bad user_id in metadata must not 500 the webhook (Stripe retries)."""
-        self._patch_stripe(monkeypatch, {
-            "id": "evt_bad",
-            "type": "checkout.session.completed",
-            "data": {"object": {
-                "payment_status": "paid",
-                "mode": "subscription",
-                "metadata": {"user_id": "not-a-uuid", "plan": "pro"},
-            }},
-        })
-        resp = client.post(
-            self.URL,
-            content=b"{}",
-            headers={"stripe-signature": "sig", "content-type": "application/json"},
-        )
-        assert resp.status_code == 200
-        assert "invalid user_id" in resp.json()["detail"].lower()
-        mock_conn.execute.assert_not_called()
 
 
 class TestSessionRevocationOnPasswordChange:

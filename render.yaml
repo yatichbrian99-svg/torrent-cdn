@@ -46,10 +46,13 @@ services:
       # - MINIO_SECRET_KEY (Supabase S3 secret key)
       # - MINIO_BUCKET (Supabase storage bucket name)
       # - MINIO_PUBLIC_URL (Supabase Storage public URL)
-      # - STRIPE_SECRET_KEY (if using Stripe)
-      # - STRIPE_WEBHOOK_SECRET (if using Stripe)
-      # - STRIPE_PRICE_PRO (if using Stripe)
-      # - STRIPE_PRICE_BUSINESS (if using Stripe)
+      # - PAYSTACK_SECRET_KEY (Paystack Kenya — required for billing. Same key
+      #   signs API calls AND webhooks. Get it at dashboard.paystack.com)
+      # - PAYSTACK_CURRENCY (KES)
+      # - PAYSTACK_PLAN_PRO / PAYSTACK_PLAN_BUSINESS (PLN_... codes from
+      #   Paystack dashboard -> Products & plans)
+      # - PAYSTACK_AMOUNT_PRO / PAYSTACK_AMOUNT_BUSINESS (smallest unit, KES cents)
+      # Webhook endpoint: https://torrent-cdn.onrender.com/billing/webhook
       # Optional malware scanning (fail-open — uploads work with or without this).
       # Get a free key at https://www.virustotal.com — set it here to activate
       # hash-lookup + ≤32MB file scans on every finalized upload.

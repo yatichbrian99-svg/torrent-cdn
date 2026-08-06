@@ -17,7 +17,7 @@ export function isUuid(id: string): boolean {
 
 /**
  * True when `url` is an absolute https:// URL. Used before assigning anything
- * from a server response (e.g. the Stripe checkout URL) to window.location —
+ * from a server response (e.g. the Paystack checkout URL) to window.location —
  * rejects javascript:, data:, http:, and relative values outright.
  */
 export function isSafeHttpsUrl(url: string): boolean {

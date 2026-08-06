@@ -61,11 +61,17 @@ class Settings(BaseSettings):
     # API3:2019). Set ENABLE_API_DOCS=true to force them on in production.
     api_docs_enabled: bool = False
 
-    # Stripe
-    stripe_secret_key: str = "sk_test_xxx"
-    stripe_webhook_secret: str = "whsec_xxx"
-    stripe_price_pro: str = "price_pro_monthly"
-    stripe_price_business: str = "price_business_monthly"
+    # Paystack (Kenya — Stripe does not support merchant accounts registered
+    # in Kenya). Same secret key signs both API calls AND webhooks
+    # (x-paystack-signature, HMAC-SHA512); there is no separate webhook secret.
+    # Plan amounts are in the currency's smallest unit (KES cents), so
+    # 400000 = KES 4,000/month.
+    paystack_secret_key: str = "sk_test_xxx"
+    paystack_currency: str = "KES"
+    paystack_plan_pro: str = "PLN_pro_monthly"
+    paystack_plan_business: str = "PLN_business_monthly"
+    paystack_amount_pro: int = 400000
+    paystack_amount_business: int = 1200000
 
     # Resend (transactional email)
     resend_api_key: str = ""
@@ -155,9 +161,9 @@ def get_settings() -> Settings:
             logger.warning(
                 "MINIO_SECRET_KEY is the insecure default 'minioadmin' — set a real secret in production"
             )
-        if settings.stripe_secret_key in ("sk_test_xxx", "sk_live_xxx"):
+        if settings.paystack_secret_key in ("sk_test_xxx", "sk_live_xxx"):
             logger.warning(
-                "STRIPE_SECRET_KEY looks like a placeholder — set a real Stripe secret key in production"
+                "PAYSTACK_SECRET_KEY looks like a placeholder — set a real Paystack secret key in production"
             )
 
         # APP_URL drives every user-facing link the backend emits (email

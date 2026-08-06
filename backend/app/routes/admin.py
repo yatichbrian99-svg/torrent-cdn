@@ -468,9 +468,9 @@ async def admin_health(_: UUID = Depends(require_admin)):
             "detail": "default 'minioadmin'" if settings.minio_secret_key == "minioadmin" else "not default",
         },
         {
-            "check": "Stripe key placeholder",
-            "status": "warn" if settings.stripe_secret_key in ("sk_test_xxx", "sk_live_xxx") else "pass",
-            "detail": "placeholder" if settings.stripe_secret_key in ("sk_test_xxx", "sk_live_xxx") else "set",
+            "check": "Paystack key placeholder",
+            "status": "warn" if settings.paystack_secret_key in ("sk_test_xxx", "sk_live_xxx") else "pass",
+            "detail": "placeholder" if settings.paystack_secret_key in ("sk_test_xxx", "sk_live_xxx") else "set",
         },
         {
             "check": "Malware scan (VirusTotal)",
