@@ -309,6 +309,13 @@ export default {
 
   getPublicFile: (file_id: string) => api.get(`/files/public/${file_id}`).then((r) => r.data),
 
+  // Import-by-URL: the server downloads a copy (SSRF-guarded), runs the same
+  // validation/storage pipeline as every upload path, and content-hash dedup
+  // applies — identical bytes store once regardless of source. `filename` is
+  // optional; when omitted it is derived from the URL path or Content-Type.
+  importUrl: (url: string, filename?: string) =>
+    api.post('/upload/import', { url, filename: filename || undefined }).then((r) => r.data),
+
   trackEvent: (file_id: string, event_type: string, bytes_p2p?: number, bytes_origin?: number) =>
     api.post('/analytics/event', { file_id, event_type, bytes_p2p: bytes_p2p || 0, bytes_origin: bytes_origin || 0 }).then((r) => r.data),
 

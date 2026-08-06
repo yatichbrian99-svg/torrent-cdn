@@ -1,6 +1,8 @@
 import asyncio
 import hashlib
+import ipaddress
 import json
+import socket
 import uuid
 import os
 import re
@@ -11,10 +13,12 @@ import tempfile
 import logging
 import time
 from datetime import datetime
+from urllib.parse import urlparse, unquote
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, status
 from uuid import UUID
 from typing import Optional
 import boto3
+import httpx
 from botocore.config import Config as BotoConfig
 from asyncpg.exceptions import UniqueViolationError
 
@@ -29,6 +33,7 @@ from ..models import (
     ChunkUploadResponse,
     UploadPresignRequest,
     UploadPresignResponse,
+    UploadImportRequest,
 )
 from ..security import (
     validate_file_magic,
@@ -37,6 +42,7 @@ from ..security import (
     MAX_COMPRESSION_RATIO,
     read_magic_bytes,
     get_client_ip,
+    EXTENSION_MIME_MAP,
 )
 from ..malware_scan import scan_file
 
@@ -440,6 +446,27 @@ async def _check_upload_rate_limit(request: Request) -> None:
         _upload_requests[ip] = recent
 
 
+async def _check_upload_rate_limit_peek(request: Request) -> None:
+    """Non-consuming pre-flight for expensive SERVER-SIDE work: raises 429 when
+    the per-IP upload budget is already exhausted, WITHOUT incrementing it (the
+    authoritative consumption happens later inside _store_and_finalize).
+    Import-by-URL calls this before the server-side download, so a user can't
+    queue many concurrent multi-GB fetches before any budget is checked."""
+    ip = get_client_ip(request)
+    redis = await get_redis()
+    if redis is not None:
+        rate_key = f"upload_rate:{ip}"
+        count = await redis.get(rate_key)
+        if count and int(count) >= settings.rate_limit_uploads:
+            raise HTTPException(status_code=429, detail=_upload_limit_detail())
+    else:
+        now = time.time()
+        _prune_upload_requests(now)
+        recent = [t for t in _upload_requests.get(ip, []) if now - t < settings.rate_limit_uploads_window]
+        if len(recent) >= settings.rate_limit_uploads:
+            raise HTTPException(status_code=429, detail=_upload_limit_detail())
+
+
 def _generate_thumbnail(s3, temp_path: str, ext: str, user_id: UUID, file_id: str) -> Optional[str]:
     """Best-effort ffmpeg thumbnail for a video file (never fails the upload).
     Returns the public URL, or None on any failure. FAST SEEK: `-ss` BEFORE
@@ -838,6 +865,269 @@ async def _store_and_finalize(
         used_gb,
         content_hash,
     )
+
+
+# ── Import-by-URL (SSRF-guarded server-side fetch) ──
+# The import endpoint makes the SERVER fetch an arbitrary user-supplied URL,
+# which is a classic SSRF vector (the backend could be tricked into hitting
+# 169.254.169.254 cloud metadata, localhost services, or internal Docker
+# networks). The guard below is the minimum a fetch-anything endpoint needs:
+# http/https only, and the host must not be — and must not resolve to — a
+# private/loopback/link-local/CGNAT address. DNS-rebinding (a hostile server
+# answering a public IP at check time then a private one at connect time) is a
+# known residual limitation of resolve-then-connect guards; the fetch is also
+# time-boxed and size-capped so it can't be abused as a long-lived proxy.
+_PRIVATE_IP_NETS = [
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("100.64.0.0/10"),      # CGNAT
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),     # link-local incl. cloud metadata
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.0.0.0/24"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("198.18.0.0/15"),      # benchmarking
+    ipaddress.ip_network("224.0.0.0/4"),        # multicast
+    ipaddress.ip_network("240.0.0.0/4"),        # reserved
+    ipaddress.ip_network("::/128"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),           # unique-local IPv6
+    ipaddress.ip_network("fe80::/10"),          # link-local IPv6
+    ipaddress.ip_network("100::/64"),           # discard-only IPv6
+]
+
+# Hostname suffixes that must never be imported regardless of what they resolve
+# to (defense in depth on top of the IP check — e.g. "metadata" services that
+# might not resolve cleanly to a blocked literal).
+_IMPORT_BLOCKED_HOST_SUFFIXES = (".local", ".internal", ".lan")
+IMPORT_MAX_REDIRECTS = 5
+# Wall-clock cap for the WHOLE import download (per-request httpx timeouts
+# alone don't bound a slow trickle — 1 byte per 29s would stream for hours).
+# Enforced with asyncio.timeout around the full fetch+stream.
+IMPORT_MAX_TOTAL_SECONDS = 600
+IMPORT_USER_AGENT = "TorrentCDN-Import/1.0"
+
+
+def _import_url_is_safe(url: str) -> bool:
+    """SSRF guard: True only for http(s) URLs whose host is not a private/
+    loopback/link-local/CGNAT literal and does not resolve to one. Also rejects
+    the localhost-ish hostname suffixes. The (blocking) DNS lookup is offloaded
+    to a worker thread by the async caller (_download_import_url), so the event
+    loop is never stalled by a slow resolver."""
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return False
+    host = parsed.hostname.rstrip(".").lower()
+    if host == "localhost" or host.endswith(_IMPORT_BLOCKED_HOST_SUFFIXES):
+        return False
+    try:
+        # IP literal → check the address directly, no DNS needed.
+        addr = ipaddress.ip_address(host)
+        return not any(addr in net for net in _PRIVATE_IP_NETS)
+    except ValueError:
+        pass
+    try:
+        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except (socket.gaierror, UnicodeError, OSError):
+        # Any DNS failure (NXDOMAIN, IDNA hostnames, transient OS errors) is
+        # treated as unsafe — a guard must fail closed, never 500.
+        return False
+    if not infos:
+        return False
+    for info in infos:
+        try:
+            addr = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            continue
+        if any(addr in net for net in _PRIVATE_IP_NETS):
+            return False
+    return True
+
+
+async def _download_import_url(url: str, dest_path: str, max_bytes: int) -> tuple:
+    """Download `url` to `dest_path`, re-running the SSRF guard on EVERY
+    redirect hop and enforcing a hard byte cap + wall-clock time budget
+    (asyncio.timeout around the whole fetch, so a slow trickle can't stream
+    for hours). Returns (content_type, total_bytes). Raises HTTPException with
+    a friendly message on any failure (unreachable/redirect loop/size/timeout/
+    HTTP error)."""
+    current = url
+    try:
+        # DNS lookups inside the guard are blocking — offload to a worker
+        # thread so the event loop is never stalled by a slow resolver.
+        async with asyncio.timeout(IMPORT_MAX_TOTAL_SECONDS):
+            async with httpx.AsyncClient(
+                follow_redirects=False,
+                timeout=httpx.Timeout(30, connect=15, read=30),
+            ) as client:
+                for _hop in range(IMPORT_MAX_REDIRECTS + 1):
+                    if not await asyncio.to_thread(_import_url_is_safe, current):
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Import URL points at a private/internal address and was blocked",
+                        )
+                    try:
+                        resp = await client.get(
+                            current, headers={"User-Agent": IMPORT_USER_AGENT}
+                        )
+                    except httpx.TimeoutException:
+                        raise HTTPException(status_code=504, detail="Import URL timed out")
+                    except Exception:
+                        raise HTTPException(
+                            status_code=502, detail="Could not reach the import URL"
+                        )
+                    if resp.status_code in (301, 302, 303, 307, 308):
+                        location = resp.headers.get("location")
+                        if not location:
+                            raise HTTPException(
+                                status_code=400, detail="Import URL redirected without a target"
+                            )
+                        current = str(httpx.URL(current).join(location))
+                        continue
+                    if resp.status_code != 200:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Import URL returned HTTP {resp.status_code}",
+                        )
+                    declared = resp.headers.get("content-length")
+                    if declared and declared.isdigit() and int(declared) > max_bytes:
+                        raise HTTPException(
+                            status_code=413, detail="Imported file exceeds the size limit"
+                        )
+                    content_type = (
+                        (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
+                    )
+                    total = 0
+                    with open(dest_path, "wb") as f:
+                        async for chunk in resp.aiter_bytes(1 << 20):
+                            total += len(chunk)
+                            if total > max_bytes:
+                                raise HTTPException(
+                                    status_code=413,
+                                    detail="Imported file exceeds the size limit",
+                                )
+                            f.write(chunk)
+                    return content_type, total
+                # Exhausted every redirect hop without a final response.
+                raise HTTPException(
+                    status_code=400, detail="Import URL redirected too many times"
+                )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Import URL timed out")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Import download failed: %s", e)
+        raise HTTPException(status_code=502, detail="Could not reach the import URL")
+
+
+def _import_filename(user_filename, url: str, content_type: str) -> str:
+    """Derive a safe filename for an import: an explicit user filename wins,
+    then the URL path's basename, then a Content-Type → extension mapping.
+    Returns a sanitized name with a supported extension, or raises 400."""
+    candidate = None
+    if user_filename and user_filename.strip():
+        candidate = os.path.basename(user_filename.strip())
+    else:
+        path = urlparse(url).path
+        if path:
+            # Percent-encoded names (my%20video.mp4) decode before sanitizing.
+            candidate = unquote(os.path.basename(path))
+    if candidate:
+        candidate = re.sub(r"[^a-zA-Z0-9._-]", "_", candidate)
+        if os.path.splitext(candidate)[1].lower() in ALLOWED_EXTS:
+            return candidate
+    if content_type:
+        for ext, mimes in EXTENSION_MIME_MAP.items():
+            if content_type in mimes and ext in ALLOWED_EXTS:
+                return f"imported{ext}"
+    raise HTTPException(
+        status_code=400,
+        detail="Could not determine a supported file type from the URL",
+    )
+
+
+@router.post("/import", response_model=UploadResponse)
+async def import_from_url(
+    body: UploadImportRequest,
+    request: Request = None,
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """Import a media file by URL. The server downloads a copy (SSRF-guarded,
+    size-capped, time-boxed), then runs the SAME post-validation pipeline as
+    every other upload path — magic bytes, compression ratio, malware scan,
+    usage gate, per-IP upload budget, multipart store, torrent/thumbnail, and
+    content-hash dedup (identical bytes store once regardless of source)."""
+    temp_dir = None
+    try:
+        # Cheap pre-flight: only http(s) is ever fetchable — a garbage string
+        # must not fall through to the misleading "private/internal" message,
+        # and the scheme check is what makes the SSRF guard's assumptions hold.
+        if not body.url.strip() or urlparse(body.url).scheme not in ("http", "https"):
+            raise HTTPException(
+                status_code=400, detail="Import URL must be an http(s) URL"
+            )
+
+        # Peek the per-IP upload budget BEFORE downloading — the download is the
+        # expensive server-side part, and the pipeline's budget consumption only
+        # happens after the bytes arrive (without this, an authenticated user
+        # could queue many concurrent multi-GB fetches before any check).
+        await _check_upload_rate_limit_peek(request)
+
+        max_bytes = settings.max_upload_size_mb * 1024 * 1024
+        temp_dir = tempfile.mkdtemp(prefix="torrentcd-import-")
+        temp_path = os.path.join(temp_dir, "download.bin")
+
+        content_type, total = await _download_import_url(body.url, temp_path, max_bytes)
+        if total == 0:
+            raise HTTPException(status_code=400, detail="Import URL returned an empty file")
+
+        safe_filename = _import_filename(body.filename, body.url, content_type)
+        ct_valid, ct_msg = validate_content_type(content_type, safe_filename)
+        if not ct_valid:
+            raise HTTPException(status_code=400, detail=f"Imported file type mismatch: {ct_msg}")
+
+        # Byte-level content validation, mirroring the direct/chunked paths
+        # (the shared pipeline does NOT do this — its callers do): magic-byte
+        # check + zip-bomb compression-ratio check on the downloaded copy.
+        with open(temp_path, "rb") as f:
+            content_valid, content_msg = validate_file_magic(f, safe_filename)
+            if not content_valid:
+                raise HTTPException(
+                    status_code=400, detail=f"Imported file rejected: {content_msg}"
+                )
+            ratio = estimate_compression_ratio(f)
+            if ratio and ratio > MAX_COMPRESSION_RATIO:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"File rejected: compression ratio ({ratio:.0f}x) exceeds maximum allowed ({MAX_COMPRESSION_RATIO}x). Possible archive bomb.",
+                )
+
+        file_size_mb = total / (1024 * 1024)
+        month = datetime.utcnow().strftime("%Y-%m")
+        pool = await get_db_pool()
+        with open(temp_path, "rb") as f:
+            return await _store_and_finalize(
+                pool,
+                user_id,
+                safe_filename,
+                file_size_mb,
+                month,
+                f,
+                body.idempotency_key,
+                request,
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Import failed for user %s: %s", user_id, e)
+        raise HTTPException(status_code=500, detail="Import failed. Please try again.")
+    finally:
+        if temp_dir and os.path.isdir(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 @router.post("/session", response_model=UploadSessionResponse)
