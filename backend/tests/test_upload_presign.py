@@ -205,6 +205,14 @@ class TestPresignFinalize:
         # The object was already in storage — the shared pipeline must NOT
         # re-upload it via multipart.
         mock_s3_client.create_multipart_upload.assert_not_called()
+        # The immutable Cache-Control header is stamped via a server-side copy
+        # that PRESERVES the object's signed ContentType (REPLACE would reset
+        # it otherwise).
+        copy_kwargs = mock_s3_client.copy_object.call_args.kwargs
+        assert copy_kwargs["MetadataDirective"] == "REPLACE"
+        assert copy_kwargs["CacheControl"] == upload_route.CACHE_CONTROL
+        assert copy_kwargs["ContentType"] == "video/mp4"
+        assert copy_kwargs["CopySource"]["Key"] == copy_kwargs["Key"]
         _cleanup_session(upload_id)
 
     def test_finalize_rejects_missing_object(self, client, auth_headers, mock_conn, mock_s3_client):

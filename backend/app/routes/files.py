@@ -1,3 +1,4 @@
+import json
 import logging
 import time
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -17,6 +18,13 @@ router = APIRouter(prefix="/files", tags=["files"])
 # In-memory fallback for public file rate limiting (used when Redis is down)
 _public_file_requests: dict[str, list[float]] = {}
 _PUBLIC_FILE_WINDOW = 60
+
+# Public metadata cache TTL. The payload (filename/url/magnet/size) is immutable
+# after upload, so every embed for a popular file can be answered from Redis
+# instead of a DB round-trip per page load. A deleted file resolves stale for at
+# most this long — playback still fails at the storage URL (403/404), so the
+# staleness window is harmless; delete_file invalidates the key immediately.
+PUBLIC_FILE_CACHE_TTL = 60
 
 
 def _prune_public_file_requests(now: float) -> None:
@@ -164,6 +172,17 @@ async def get_public_file(file_id: UUID, request: Request = None):
             recent.append(now)
             _public_file_requests[ip] = recent
 
+    # Redis cache (global per file — the payload is public and immutable). A
+    # Redis error is a miss: fall through to the DB rather than 500.
+    cache_key = f"public_file:{file_id}"
+    if redis is not None:
+        try:
+            cached = await redis.get(cache_key)
+            if cached:
+                return json.loads(cached)
+        except Exception:
+            pass
+
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -174,13 +193,21 @@ async def get_public_file(file_id: UUID, request: Request = None):
         if not row:
             raise HTTPException(status_code=404, detail="File not found")
 
-        return {
+        payload = {
             "id": str(row["id"]),
             "filename": row["filename"],
             "minio_url": row["minio_url"],
             "magnet_link": row["torrent_magnet"],
             "file_size_mb": row["file_size_mb"],
         }
+
+    if redis is not None:
+        try:
+            await redis.setex(cache_key, PUBLIC_FILE_CACHE_TTL, json.dumps(payload, default=str))
+        except Exception:
+            pass  # cache write is best-effort — the DB read already succeeded
+
+    return payload
 
 
 @router.delete("/{file_id}")
@@ -212,5 +239,14 @@ async def delete_file(file_id: UUID, user_id: UUID = Depends(get_current_user_id
 
         # Delete from DB
         await conn.execute("DELETE FROM uploads WHERE id = $1 AND user_id = $2", file_id, user_id)
+
+    # Drop the public-metadata cache entry so an embed resolves 404 immediately
+    # instead of serving stale metadata for up to PUBLIC_FILE_CACHE_TTL.
+    try:
+        redis = await get_redis()
+        if redis is not None:
+            await redis.delete(f"public_file:{file_id}")
+    except Exception:
+        pass
 
     return {"detail": "File deleted successfully"}

@@ -1,10 +1,13 @@
 """
 Unit tests for file routes: list, get, get public, and delete.
 """
+import json
 from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
+
+from app.routes import files as files_route
 
 FILE_ID = UUID("22222222-2222-4222-8222-222222222222")
 OTHER_FILE_ID = UUID("33333333-3333-4333-8333-333333333333")
@@ -128,6 +131,46 @@ class TestGetPublicFile:
         resp = client.get(f"{self.PUBLIC_URL}/{FILE_ID}")
         assert resp.status_code == 200
         assert resp.json()["filename"] == "public-video.mp4"
+
+    def test_get_public_file_served_from_redis_cache(self, client, mock_conn, mock_redis):
+        """A cached payload is answered from Redis without touching the DB."""
+        payload = {
+            "id": str(FILE_ID),
+            "filename": "test-video.mp4",
+            "minio_url": "http://minio:9000/bucket/key/test.mp4",
+            "magnet_link": "magnet:?xt=urn:btih:test",
+            "file_size_mb": 10.5,
+        }
+
+        def get_side_effect(key):
+            # Only the public-file cache key is warm; rate-limit keys stay cold.
+            return json.dumps(payload) if key == f"public_file:{FILE_ID}" else None
+
+        mock_redis.get.side_effect = get_side_effect
+        resp = client.get(f"{self.PUBLIC_URL}/{FILE_ID}")
+        assert resp.status_code == 200
+        assert resp.json() == payload
+        mock_conn.fetchrow.assert_not_called()
+
+    def test_get_public_file_populates_redis_cache_on_miss(self, client, mock_conn, mock_redis):
+        """A cache miss serves from the DB and writes the payload for next time."""
+        mock_conn.fetchrow.return_value = {
+            "id": FILE_ID,
+            "filename": "test-video.mp4",
+            "minio_url": "http://minio:9000/bucket/key/test.mp4",
+            "torrent_magnet": "magnet:?xt=urn:btih:test",
+            "file_size_mb": 10.5,
+        }
+
+        resp = client.get(f"{self.PUBLIC_URL}/{FILE_ID}")
+        assert resp.status_code == 200
+        cache_sets = [
+            c for c in mock_redis.setex.call_args_list
+            if str(c.args[0]) == f"public_file:{FILE_ID}"
+        ]
+        assert len(cache_sets) == 1
+        assert cache_sets[0].args[1] == files_route.PUBLIC_FILE_CACHE_TTL
+        assert json.loads(cache_sets[0].args[2])["filename"] == "test-video.mp4"
 
 
 class TestDeleteFile:

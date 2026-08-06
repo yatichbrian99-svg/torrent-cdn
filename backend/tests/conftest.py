@@ -105,6 +105,7 @@ def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
     monkeypatch.setattr(app.routes.analytics, "get_redis", AsyncMock(return_value=mock_redis))
     monkeypatch.setattr(app.routes.csp, "get_redis", AsyncMock(return_value=mock_redis))
     monkeypatch.setattr(app.routes.upload, "get_redis", AsyncMock(return_value=mock_redis))
+    monkeypatch.setattr(app.routes.files, "get_redis", AsyncMock(return_value=mock_redis))
 
     # app/auth.py's get_current_user_id now reads the pw_change revocation
     # marker via get_redis AND resolves tcdn_ API keys via get_db_pool — patch
