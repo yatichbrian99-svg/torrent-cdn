@@ -252,25 +252,35 @@ async def admin_delete_user(user_id: UUID, admin_id: UUID = Depends(require_admi
                 detail="Admin accounts cannot be deleted. Demote the user first if needed.",
             )
 
-        # Delete upload files from S3 first
+        # Collect the user's file URLs BEFORE deleting (content-dedup means a
+        # stored object may be shared with other users' uploads).
         files = await conn.fetch(
             "SELECT id, minio_url FROM uploads WHERE user_id = $1", user_id
         )
-        s3 = get_minio_client()
-        for f in files:
-            try:
-                # URL format: .../bucket/user_id/file_id/filename → key: user_id/file_id/filename
-                key = "/".join(f["minio_url"].split("/")[-3:])
-                s3.delete_object(Bucket=settings.minio_bucket, Key=key)
-            except Exception as e:
-                logger.warning("Failed to delete S3 object for file %s: %s", f["id"], e)
 
-        # Delete user (cascades to uploads, analytics, usage_records)
+        # Delete the user FIRST (cascade removes their uploads rows) so the
+        # refcount check below sees only OTHER users' references to shared
+        # objects — a shared copy survives while its last owner is removed.
         result = await conn.execute(
             "DELETE FROM users WHERE id = $1", user_id
         )
         if result == "DELETE 0":
             raise HTTPException(status_code=404, detail="User not found")
+
+        # Delete each storage object only when no remaining upload references it.
+        s3 = get_minio_client()
+        for f in files:
+            try:
+                # URL format: .../bucket/user_id/file_id/filename → key: user_id/file_id/filename
+                key = "/".join(f["minio_url"].split("/")[-3:])
+                refs = await conn.fetchval(
+                    "SELECT COUNT(*) FROM uploads WHERE minio_url = $1",
+                    f["minio_url"],
+                )
+                if refs == 0:
+                    s3.delete_object(Bucket=settings.minio_bucket, Key=key)
+            except Exception as e:
+                logger.warning("Failed to delete S3 object for file %s: %s", f["id"], e)
 
     # Administrative-action audit log (actor + target).
     logger.info("Admin %s deleted user %s", admin_id, user_id)

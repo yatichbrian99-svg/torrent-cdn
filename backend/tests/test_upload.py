@@ -21,7 +21,7 @@ class TestTorrentAndThumbnail:
         user_id = uuid4()
         file_id = str(uuid4())
 
-        magnet, _ = _torrent_and_thumbnail(stream, "clip.webm", user_id, file_id, mock_s3_client)
+        magnet, _, _ = _torrent_and_thumbnail(stream, "clip.webm", user_id, file_id, mock_s3_client)
 
         assert magnet.startswith("magnet:?xt=urn:btih:")
         assert "btih:" + file_id not in magnet
@@ -122,6 +122,7 @@ class TestUpload:
         mock_conn.fetchrow.side_effect = [
             {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"},
             None,
+            None,  # content-dedup: no existing copy
             {"id": UUID("22222222-2222-4222-8222-222222222222")},
         ]
 
@@ -166,6 +167,7 @@ class TestUpload:
         mock_conn.fetchrow.side_effect = [
             {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"},
             None,
+            None,  # content-dedup: no existing copy
             {"id": UUID("22222222-2222-4222-8222-222222222222")},
         ]
 
@@ -207,6 +209,90 @@ class TestUpload:
         assert resp.status_code == 404
         assert resp.json()["detail"] == "User not found"
 
+    def test_upload_content_dedup_deletes_duplicate_and_points_at_existing(self, client, auth_headers, mock_conn, mock_s3_client):
+        """Byte-identical content stores ONCE: the fresh duplicate object is
+        deleted and the row points at the existing copy's URL (no second object
+        in storage, no double storage bill)."""
+        existing_url = "https://storage.example/bucket/other-user/other-file/original.mp4"
+        mock_conn.fetchrow.side_effect = [
+            {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"},  # user
+            None,  # usage record
+            {"minio_url": existing_url},  # content-dedup HIT
+            {"id": UUID("22222222-2222-4222-8222-222222222222")},  # INSERT ... RETURNING id
+        ]
+
+        resp = client.post(
+            self.UPLOAD_URL,
+            headers=auth_headers,
+            files={"file": ("test-video.mp4", BytesIO(b"\x00\x00\x00\x20ftypmp42"), "video/mp4")},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # The row points at the EXISTING copy — not a second stored object.
+        assert data["minio_url"] == existing_url
+        # The fresh duplicate object was deleted from storage.
+        delete_calls = [c.kwargs["Key"] for c in mock_s3_client.delete_object.call_args_list]
+        assert len(delete_calls) == 1
+        assert delete_calls[0].endswith("/test-video.mp4")
+        assert delete_calls[0].startswith(str(UUID("11111111-1111-4111-8111-111111111111")))
+        # The INSERT persisted the existing URL and the content hash (args[0]
+        # is the SQL, so params are offset by one: $4=minio_url, $9=content_hash).
+        insert_args = mock_conn.fetchrow.call_args_list[-1].args
+        assert insert_args[4] == existing_url  # minio_url param
+        assert len(insert_args[9]) == 64  # content_hash param
+
+    def test_upload_content_dedup_db_hit_fails_open(self, client, auth_headers, mock_conn, mock_s3_client):
+        """A dedup lookup failure must never fail the upload — the fresh object
+        is kept and the row points at its own URL (fail-open)."""
+        mock_conn.fetchrow.side_effect = [
+            {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"},
+            None,
+            Exception("connection reset"),  # dedup query blows up
+            {"id": UUID("22222222-2222-4222-8222-222222222222")},
+        ]
+
+        resp = client.post(
+            self.UPLOAD_URL,
+            headers=auth_headers,
+            files={"file": ("test-video.mp4", BytesIO(b"\x00\x00\x00\x20ftypmp42"), "video/mp4")},
+        )
+        assert resp.status_code == 200
+        # The upload's OWN object is kept (nothing deleted) and the row points
+        # at its own fresh URL, not a dedup'd copy.
+        mock_s3_client.delete_object.assert_not_called()
+        own = resp.json()["minio_url"]
+        assert str(UUID("11111111-1111-4111-8111-111111111111")) in own
+        assert own.endswith("/test-video.mp4")
+
+    def test_upload_content_dedup_delete_failure_keeps_own_object(self, client, auth_headers, mock_conn, mock_s3_client):
+        """If deleting the duplicate object fails, the upload keeps its OWN
+        object (the row references it) instead of pointing at the existing copy
+        and leaving a permanent orphan in the bucket."""
+        existing_url = "https://storage.example/bucket/other-user/other-file/original.mp4"
+        mock_conn.fetchrow.side_effect = [
+            {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"},
+            None,
+            {"minio_url": existing_url},  # content-dedup HIT
+            {"id": UUID("22222222-2222-4222-8222-222222222222")},
+        ]
+        mock_s3_client.delete_object.side_effect = Exception("storage down")
+
+        resp = client.post(
+            self.UPLOAD_URL,
+            headers=auth_headers,
+            files={"file": ("test-video.mp4", BytesIO(b"\x00\x00\x00\x20ftypmp42"), "video/mp4")},
+        )
+        assert resp.status_code == 200
+        # The row points at the upload's OWN fresh object, not the dedup copy.
+        own = resp.json()["minio_url"]
+        assert own != existing_url
+        assert own.endswith("/test-video.mp4")
+        insert_call = [
+            c for c in mock_conn.fetchrow.call_args_list
+            if "INSERT INTO uploads" in str(c.args[0])
+        ][0]
+        assert insert_call.args[4] == own  # minio_url param
+
     def test_upload_idempotent_retry_returns_existing(self, client, auth_headers, mock_conn, mock_s3_client):
         """A retry with the same idempotency key returns the original upload — no duplicate."""
         existing_id = UUID("33333333-3333-4333-8333-333333333333")
@@ -242,6 +328,7 @@ class TestUpload:
             None,  # dedup check — nothing stored for this key yet
             {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"},  # user
             None,  # usage record
+            None,  # content-dedup: no existing copy
             {"id": UUID("22222222-2222-4222-8222-222222222222")},  # INSERT ... RETURNING id
         ]
 
@@ -252,9 +339,10 @@ class TestUpload:
             data={"idempotency_key": "fresh-key-1"},
         )
         assert resp.status_code == 200
-        # The INSERT must carry the idempotency key as its last parameter
-        insert_args = mock_conn.fetchrow.call_args_list[3].args
-        assert insert_args[-1] == "fresh-key-1"
+        # The INSERT carries the idempotency key and then the content hash.
+        insert_args = mock_conn.fetchrow.call_args_list[4].args
+        assert insert_args[-2] == "fresh-key-1"
+        assert len(insert_args[-1]) == 64  # SHA-256 hex
 
     def test_upload_idempotency_race_returns_winner(self, client, auth_headers, mock_conn, mock_s3_client):
         """If a concurrent same-key upload wins the insert, return its result — no duplicate."""
@@ -265,6 +353,7 @@ class TestUpload:
             None,  # dedup check
             {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"},  # user
             None,  # usage
+            None,  # content-dedup: no existing copy
             UniqueViolationError("duplicate key value violates unique constraint"),  # insert loses the race
             {  # re-fetch: the concurrent winner's completed record
                 "id": winner_id,

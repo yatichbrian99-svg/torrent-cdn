@@ -221,24 +221,29 @@ async def delete_file(file_id: UUID, user_id: UUID = Depends(get_current_user_id
         if not row:
             raise HTTPException(status_code=404, detail="File not found")
 
-        # Delete from MinIO. The key is the last 3 URL segments
-        # ({user_id}/{file_id}/{filename}) — same extraction the account-deletion
-        # path uses, robust to the bucket name appearing in different URL shapes
-        # (MinIO path-style vs Supabase object/public/<bucket>). A storage
-        # failure must not leave the DB row half-deleted silently: log it (the
-        # production orphan sweep eventually reclaims the object), but still
-        # proceed with the DB delete so the user's listing is correct.
+        minio_url = row["minio_url"]
+        # Delete the DB row FIRST so the refcount check below excludes THIS row
+        # (content-dedup means other uploads may share the same stored object).
+        await conn.execute("DELETE FROM uploads WHERE id = $1 AND user_id = $2", file_id, user_id)
+
+        # Delete from MinIO only when no OTHER upload references the object.
+        # The key is the last 3 URL segments ({user_id}/{file_id}/{filename}) —
+        # same extraction the account-deletion path uses, robust to the bucket
+        # name appearing in different URL shapes (MinIO path-style vs Supabase
+        # object/public/<bucket>). A storage failure is logged (the production
+        # orphan sweep eventually reclaims the object — its row is gone now),
+        # never fatal.
         try:
             from ..routes.upload import get_minio_client
             s3 = get_minio_client()
-            minio_url = row["minio_url"]
             key = "/".join(minio_url.split("/")[-3:])
-            s3.delete_object(Bucket=settings.minio_bucket, Key=key)
+            refs = await conn.fetchval(
+                "SELECT COUNT(*) FROM uploads WHERE minio_url = $1", minio_url
+            )
+            if refs == 0:
+                s3.delete_object(Bucket=settings.minio_bucket, Key=key)
         except Exception as e:
             logger.warning("Failed to delete storage object for file %s: %s", file_id, e)
-
-        # Delete from DB
-        await conn.execute("DELETE FROM uploads WHERE id = $1 AND user_id = $2", file_id, user_id)
 
     # Drop the public-metadata cache entry so an embed resolves 404 immediately
     # instead of serving stale metadata for up to PUBLIC_FILE_CACHE_TTL.

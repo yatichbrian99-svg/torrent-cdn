@@ -260,6 +260,7 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks, reques
                 file_size_mb FLOAT NOT NULL DEFAULT 0,
                 thumbnail_url TEXT,
                 idempotency_key TEXT,
+                content_hash TEXT,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             );
             CREATE TABLE IF NOT EXISTS analytics (
@@ -815,27 +816,37 @@ async def delete_own_account(user_id: UUID = Depends(get_current_user_id)):
                 detail="Admin accounts cannot be deleted. Contact another admin or use the admin panel.",
             )
 
-        # Delete upload files from S3 first
+        # Collect the user's file URLs BEFORE deleting (content-dedup means a
+        # stored object may be shared with other users' uploads).
         files = await conn.fetch(
             "SELECT id, minio_url FROM uploads WHERE user_id = $1", user_id
         )
-        try:
-            s3 = get_minio_client()
-            for f in files:
-                try:
-                    key = "/".join(f["minio_url"].split("/")[-3:])
-                    s3.delete_object(Bucket=_settings.minio_bucket, Key=key)
-                except Exception as e:
-                    logger.warning("Failed to delete S3 object for file %s: %s", f["id"], e)
-        except Exception:
-            logger.warning("MinIO unavailable — skipping file deletion")
 
-        # Delete user (cascades to uploads, analytics, usage_records via FK)
+        # Delete the user FIRST (cascade removes their uploads rows) so the
+        # refcount check below sees only OTHER users' references to shared
+        # objects — a shared copy survives while its last owner is removed.
         result = await conn.execute(
             "DELETE FROM users WHERE id = $1", user_id
         )
         if result == "DELETE 0":
             raise HTTPException(status_code=404, detail="User not found")
+
+        # Delete each storage object only when no remaining upload references it.
+        try:
+            s3 = get_minio_client()
+            for f in files:
+                try:
+                    key = "/".join(f["minio_url"].split("/")[-3:])
+                    refs = await conn.fetchval(
+                        "SELECT COUNT(*) FROM uploads WHERE minio_url = $1",
+                        f["minio_url"],
+                    )
+                    if refs == 0:
+                        s3.delete_object(Bucket=_settings.minio_bucket, Key=key)
+                except Exception as e:
+                    logger.warning("Failed to delete S3 object for file %s: %s", f["id"], e)
+        except Exception:
+            logger.warning("MinIO unavailable — skipping file deletion")
 
     logger.info("User %s (%s) deleted their own account", user_id, user["email"])
     return {"detail": "Account and all associated data deleted successfully."}

@@ -49,6 +49,8 @@ async def run_startup_migrations():
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS security_stamp TIMESTAMP WITH TIME ZONE;
                 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS thumbnail_url TEXT;
                 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+                ALTER TABLE uploads ADD COLUMN IF NOT EXISTS content_hash TEXT;
+                CREATE INDEX IF NOT EXISTS idx_uploads_content_hash ON uploads(content_hash);
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_uploads_user_idempotency ON uploads(user_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
                 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at DESC);
             """)
