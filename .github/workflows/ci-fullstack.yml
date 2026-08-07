@@ -1,0 +1,121 @@
+name: "CI: Full-stack Docker audit"
+
+# Path-filtered to moderate Actions usage: spinning up the real Docker stack
+# (Postgres + Redis + MinIO + a production-mode backend build + the curl audit)
+# costs ~5-8 min, so it runs only when the backend or infrastructure actually
+# changed. A frontend-only change cannot break this audit — the frontend has
+# its own checks (frontend-checks) and the E2E delivery gate (ci-e2e.yml).
+# The daily 04:00 secret re-scan in security.yml covers the full-history
+# gitleaks pass, so this workflow needs no schedule of its own.
+#
+# This workflow is deliberately INDEPENDENT of the secret gates in
+# security.yml: when the paths match it always runs, even if gitleaks or
+# secret-scan failed on the same push (preserving the old `if: always()`
+# intent — a leak PR still gets its Docker e2e signal; the leak itself is
+# caught by the failing gates).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "Caddyfile"
+      - "docker-compose.yml"
+      - "render.yaml"
+      - ".github/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "Caddyfile"
+      - "docker-compose.yml"
+      - "render.yaml"
+      - ".github/**"
+
+# Least privilege: contents read.
+permissions:
+  contents: read
+
+# Push and PR runs keyed on the ref — cancel-in-progress drops stale runs so
+# the queue never stacks (the audit is idempotent; the last state wins).
+concurrency:
+  group: ci-fullstack-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Full-stack audit (requires Docker) ──
+  # Brings up the real Postgres/Redis/MinIO stack + a production-mode backend
+  # build and runs the curl audit against it (migrations, lazy table creation,
+  # health, auth, upload flow, Caddy-proxy headers). Catches startup/schema/
+  # config regressions the fully-mocked unit suite can't. Path-scoped (above):
+  # backend/ or infrastructure-only pushes pay for it; frontend-only pushes
+  # skip it.
+  fullstack-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Note: compose interpolates the whole file, so JWT_SECRET must be set here
+      # too even though the backend service isn't started in this step.
+      - name: Start infrastructure (Postgres, Redis, MinIO)
+        env:
+          JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
+          POSTGRES_PASSWORD: ci-test-password
+          MINIO_ROOT_PASSWORD: ci-test-minio-password
+        run: |
+          docker compose up -d postgres redis minio
+          echo "Waiting for services to be healthy..."
+          for i in $(seq 1 30); do
+            STATUS=$(docker compose ps --format '{{.Status}}' | grep -c 'healthy' || true)
+            [ "$STATUS" -ge 3 ] && echo "All services healthy" && break
+            sleep 3
+          done
+          # Fail hard if infra never becomes healthy instead of letting the
+          # backend step diagnose it blind (the backend health wait is still a
+          # second gate, but the failure should point here first).
+          if [ "$STATUS" -lt 3 ]; then
+            echo "Infrastructure never became healthy ($STATUS/3) — aborting" >&2
+            docker compose ps
+            exit 1
+          fi
+
+      - name: Build and start backend
+        env:
+          JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
+          POSTGRES_PASSWORD: ci-test-password
+          MINIO_ROOT_PASSWORD: ci-test-minio-password
+        run: |
+          docker compose build backend
+          APP_ENV="production" \
+            docker compose up -d backend
+          echo "Waiting for backend..."
+          for i in $(seq 1 30); do
+            CODE=$(curl -so /dev/null -w '%{http_code}' http://localhost:8000/health 2>/dev/null || echo "000")
+            [ "$CODE" = "200" ] && echo "Backend healthy" && break
+            sleep 3
+          done
+          if [ "$CODE" != "200" ]; then
+            echo "Backend never became healthy on :8000" >&2
+            docker compose logs backend --tail 40 2>&1
+            exit 1
+          fi
+
+      # This job runs from the repo root (no working-directory default, since the
+      # docker compose steps need the root-level compose file), so reference the
+      # audit script by its full path under backend/.
+      - name: Run full-stack curl audit
+        run: bash backend/scripts/curl_audit.sh
+        env:
+          API_URL: "http://localhost:8000"
+
+      # Compose interpolates the whole file, so the required env vars must be
+      # present even for teardown (docker compose down -v).
+      - name: Cleanup
+        if: always()
+        env:
+          JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
+          POSTGRES_PASSWORD: ci-test-password
+          MINIO_ROOT_PASSWORD: ci-test-minio-password
+        run: docker compose down -v
