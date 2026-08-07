@@ -1,9 +1,10 @@
-# R2 Migration Runbook — resume point
+# R2 Migration Runbook
 
-**Status: CODE 100% SHIPPED AND MERGED. BLOCKED ON USER CREDENTIALS.**
-Every code change needed for the Supabase → Cloudflare R2 storage switch is on `main`.
-The migration cannot proceed until the credentials below are provided; once they are,
-the switch is a 15-minute operation (env vars → redeploy → live verification).
+**Status: ✅ COMPLETE — migration live and verified 2026-08-07.**
+The Supabase → Cloudflare R2 storage switch is done: env vars set via the Render API,
+service redeployed, and a 60MB upload (hard 413 on Supabase's 50MB cap) proven live
+against production along with dedup, refcount deletes, public serving, and import-by-URL.
+All verification tooling lives in `backend/scripts/` (see below).
 
 ## Why
 
@@ -31,48 +32,41 @@ configuration + deploy.
   `https://a942dd172ffb3faa3dd24d9b92df6008.r2.cloudflarestorage.com` returns 400 on an
   unauthenticated request = up and reachable).
 
-## Blocking — user must provide
-
-1. **R2 Access Key ID + Secret Access Key** — custom API token at
-   https://dash.cloudflare.com/profile/api-tokens:
-   - Token name: `torrent-cdn-r2`
-   - Permissions: **Account → R2 → Admin Read & Write** and **Account → Account Settings → Read**
-   - Account Resources: All accounts · Bucket scoping: **All R2 Buckets** (bucket doesn't exist yet)
-   - Copy the Secret immediately (shown once).
-2. **r2.dev public URL** — create bucket `torrent-cdn-files` (region Automatic; the Admin
-   token may also create it via S3 API — otherwise 1-click), then bucket →
-   **Settings → Public access → Allow access** → copy `https://pub-....r2.dev`.
-3. **Render API key** — https://dashboard.render.com/account/api-keys → `rkey_...`
-   (lets us set env vars + redeploy via the Render API without dashboard clicks).
-
-## Env vars to set in Render once credentials arrive
+## Live values in use (2026-08-07)
 
 ```
 MINIO_ENDPOINT=a942dd172ffb3faa3dd24d9b92df6008.r2.cloudflarestorage.com
-MINIO_ACCESS_KEY=<R2 Access Key ID>
-MINIO_SECRET_KEY=<R2 Secret Access Key>
 MINIO_BUCKET=torrent-cdn-files
 MINIO_SECURE=true
 MINIO_REGION=auto
-MINIO_PUBLIC_URL=<https://pub-...r2.dev now; https://cdn.torrentcdn.store once the custom domain is live>
+MINIO_PUBLIC_URL=https://pub-db587f977d274a458f30d14fa2ddfb9e.r2.dev  (until cdn.torrentcdn.store is live)
 ```
+(The R2 access/secret keys are set as Render env vars; they are NOT written here.
+Rotate any time via dash.cloudflare.com → R2 → API Tokens.)
 
-(Render service env via `PUT https://api.render.com/v1/services/<id>/env-vars`, then
-`POST /v1/services/<id>/deploys` with `clearCache=do_not_clear`.)
+## Tooling shipped for this migration (all in backend/scripts/)
 
-## Verification after deploy (live, against production)
+| Script | Purpose |
+|---|---|
+| `r2_verify.py` | Local S3 round-trip against R2 (list/PUT/GET/HEAD/DELETE + public URL with browser UA). Creds from env: `R2_ACCESS_KEY` / `R2_SECRET_KEY`. Corrects this dev machine's skewed clock internally. |
+| `r2_switch_env.py` | Swaps a Render service's storage env vars to R2 preserving every other var (prints masked diff, re-reads to verify). Usage: `RENDER_KEY=… R2_ACCESS_KEY=… R2_SECRET_KEY=… python3 r2_switch_env.py <service_id>`. |
+| `r2_migration_verify.sh` | Live acceptance audit: 60MB presign→PUT→finalize, R2 URL assertion, public serving, dedup, refcount deletes, account cleanup. **21 checks, exit 0 = pass.** |
 
-1. Register a throwaway account; presign-upload a **60MB** file (was a hard 413 before) → 200.
-2. Upload identical bytes from a second account → `minio_url` identical (dedup fires).
-3. Delete the first upload → object survives (refcount); delete the last → object removed.
-4. Import-by-URL of a public file still works (pinned transport unaffected by the switch).
-5. Old Supabase files still play (their URLs are unchanged).
+## How to re-verify after any change
+
+```
+bash backend/scripts/r2_migration_verify.sh   # 60MB upload + dedup + refcount (21 checks)
+bash backend/scripts/import_audit_prod.sh      # import-by-URL + cross-path dedup + SSRF blocks (14 checks)
+```
 
 ## Notes / gotchas
 
 - Old files stay on Supabase forever (URLs keep serving); only NEW uploads go to R2.
 - Cross-bucket dedup: after the switch, a new R2 upload of bytes that exist on Supabase
   dedups to the OLD Supabase URL (which still serves) — functionally fine.
+- Cloudflare bot protection (error 1010) blocks public object GETs from clients with NO
+  User-Agent. Real browsers send one, so the video player is unaffected; scripts that
+  probe public objects must send a browser UA (both audit scripts do).
 - `r2.dev` is rate-limited (dev-grade); `cdn.torrentcdn.store` is the production upgrade —
   requires moving `torrentcdn.store` DNS to Cloudflare (2 records: apex A → 216.198.79.1,
   `www` CNAME → 51a84a601d9a057c.vercel-dns-017.com), then R2 → bucket → Settings →
