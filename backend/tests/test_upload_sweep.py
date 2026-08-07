@@ -64,6 +64,27 @@ class TestOrphanSweep:
         mock_s3_client.delete_object.assert_called_once_with(Bucket=BUCKET, Key=key)
 
     @pytest.mark.asyncio
+    async def test_sweep_keeps_object_referenced_by_dedup_copy(self, mock_conn, mock_s3_client):
+        """Content-dedup regression: the ORIGINAL upload's row is gone (its
+        owner deleted the file — the refcount-aware delete kept the shared
+        bytes), but another upload still references the object via minio_url.
+        The id check alone would see 'no row' and delete the shared bytes; the
+        sweep must also check minio_url references before deleting."""
+        file_id = "22222222-2222-4222-8222-222222222222"
+        key = f"{TEST_USER['id']}/{file_id}/file.mp4"
+        _configure_listing(mock_s3_client, [_obj(key)])
+        # First fetchrow (id check) -> no row; second (minio_url refcount) -> hit
+        mock_conn.fetchrow.side_effect = [
+            None,
+            {"id": UUID("33333333-3333-4333-8333-333333333333")},
+        ]
+
+        deleted = await upload_route.sweep_orphan_objects()
+
+        assert deleted == 0
+        mock_s3_client.delete_object.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_sweep_keeps_object_with_uploads_row(self, mock_conn, mock_s3_client):
         """A finalized upload's object is NEVER deleted — the sweep checks the
         uploads table (id == key's 2nd path segment) before deleting anything."""
@@ -192,10 +213,11 @@ class TestRedisPresignSessions:
         wiped — the Render recycle case) still finalizes. The object key and
         declared size come from Redis, not from client-supplied metadata."""
         # presign: dedup(None) -> user -> usage.  finalize: dedup(None) ->
-        # user -> usage -> INSERT RETURNING id.
+        # user -> usage -> content-dedup miss -> INSERT RETURNING id.
         mock_conn.fetchrow.side_effect = [
             None, TEST_USER, None,
             None, TEST_USER, None,
+            None,
             {"id": UUID("22222222-2222-4222-8222-222222222222")},
         ]
         mock_s3_client.generate_presigned_url.return_value = "https://storage.example/put"
@@ -261,10 +283,12 @@ class TestRedisPresignSessions:
         idempotency-key index never points at a stale session and the sweep
         never has to second-guess it."""
         # No idempotency key → the dedup SELECT is skipped on both calls, so the
-        # sequences are: presign(user, usage) + finalize(user, usage, INSERT).
+        # sequences are: presign(user, usage) + finalize(user, usage, content-
+        # dedup miss, INSERT).
         mock_conn.fetchrow.side_effect = [
             TEST_USER, None,
             TEST_USER, None,
+            None,  # content-dedup miss
             {"id": UUID("22222222-2222-4222-8222-222222222222")},
         ]
         mock_s3_client.generate_presigned_url.return_value = "https://storage.example/put"

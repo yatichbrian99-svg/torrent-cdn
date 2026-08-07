@@ -82,6 +82,7 @@ class TestUploadMagicByteValidation:
         mock_conn.fetchrow.side_effect = [
             {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"},
             None,  # no usage record
+            None,  # content-dedup: no existing copy
             {"id": UUID("22222222-2222-4222-8222-222222222222")},
         ]
 
@@ -118,6 +119,7 @@ class TestUploadContentType:
         mock_conn.fetchrow.side_effect = [
             {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"},
             None,
+            None,  # content-dedup: no existing copy
             {"id": UUID("22222222-2222-4222-8222-222222222222")},
         ]
 
@@ -162,6 +164,7 @@ class TestUploadOversizedFile:
         mock_conn.fetchrow.side_effect = [
             {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"},
             None,
+            None,  # content-dedup: no existing copy
             {"id": UUID("22222222-2222-4222-8222-222222222222")},
         ]
 
@@ -212,6 +215,7 @@ class TestUploadRateLimit:
         mock_conn.fetchrow.side_effect = [
             {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"},
             None,
+            None,  # content-dedup: no existing copy
             {"id": UUID("22222222-2222-4222-8222-222222222222")},
         ]
         resp = client.post(

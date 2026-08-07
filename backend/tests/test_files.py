@@ -186,6 +186,32 @@ class TestDeleteFile:
         assert resp.status_code == 200
         assert resp.json()["detail"] == "File deleted successfully"
 
+    def test_delete_file_shared_object_not_deleted(self, client, auth_headers, mock_conn, mock_s3_client):
+        """Content-dedup: another upload still references the same stored
+        object — deleting THIS row must NOT delete the shared bytes."""
+        mock_conn.fetchrow.return_value = {
+            "minio_url": "http://minio:9000/torrent-cdn-files/user123/file123/test.mp4",
+        }
+        mock_conn.fetchval.return_value = 1  # another upload still references it
+
+        resp = client.delete(f"/files/{FILE_ID}", headers=auth_headers)
+        assert resp.status_code == 200
+        mock_s3_client.delete_object.assert_not_called()
+
+    def test_delete_file_last_reference_deletes_object(self, client, auth_headers, mock_conn, mock_s3_client):
+        """When the deleted row is the LAST reference to the shared object, the
+        object itself is removed from storage."""
+        mock_conn.fetchrow.return_value = {
+            "minio_url": "http://minio:9000/torrent-cdn-files/user123/file123/test.mp4",
+        }
+        mock_conn.fetchval.return_value = 0  # no remaining references
+
+        resp = client.delete(f"/files/{FILE_ID}", headers=auth_headers)
+        assert resp.status_code == 200
+        mock_s3_client.delete_object.assert_called_once_with(
+            Bucket="torrent-cdn-files", Key="user123/file123/test.mp4"
+        )
+
     def test_delete_file_not_found(self, client, auth_headers, mock_conn):
         """Should return 404 when deleting non-existent file."""
         mock_conn.fetchrow.return_value = None

@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import uuid
 import os
@@ -290,6 +291,50 @@ async def _find_completed_by_key(pool, user_id: UUID, key: str):
         )
 
 
+async def _dedup_content(
+    pool, s3, content_hash: str, object_key: str, minio_http_url: str, file_id: str
+) -> str:
+    """Content-hash dedup: if byte-identical content is ALREADY stored, delete
+    the freshly-written object and point this upload at the existing copy.
+
+    Every upload's SHA-256 is computed in the same single pass as the torrent
+    piece hashes, so dedup costs one indexed SELECT. Returns the minio_url to
+    persist: the existing copy's URL on a hit, the upload's own URL otherwise.
+    Best-effort and fail-open:
+      - a DB hiccup keeps the fresh object and skips dedup;
+      - a failed delete of the duplicate keeps the fresh object TOO (the row
+        points at it, so it is referenced — never a permanent orphan; the
+        sweep would not reclaim it because this upload's row exists with id ==
+        the key's 2nd segment)."""
+    if not content_hash:
+        return minio_http_url
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT minio_url FROM uploads WHERE content_hash = $1 AND id <> $2 "
+                "ORDER BY created_at LIMIT 1",
+                content_hash,
+                uuid.UUID(file_id),
+            )
+    except Exception:
+        return minio_http_url  # fail-open: keep the fresh object, skip dedup
+    if not row:
+        return minio_http_url
+    existing_url = row["minio_url"]
+    try:
+        s3.delete_object(Bucket=settings.minio_bucket, Key=object_key)
+    except Exception as e:
+        # Keep THIS object as the upload's own copy rather than orphaning it
+        # forever (its row is about to reference it).
+        logger.warning("Content dedup: failed to delete duplicate %s: %s", object_key, e)
+        return minio_http_url
+    logger.info(
+        "Content dedup: upload %s reuses stored copy %s (sha256 %s…)",
+        file_id, existing_url, content_hash[:12],
+    )
+    return existing_url
+
+
 async def _check_usage_limit(pool, user_id: UUID, month: str, file_size_mb: float) -> tuple:
     """Authoritative plan-limit check for a NEW file about to be accounted.
     Returns (limit_gb, used_gb); raises 402 when the file would exceed the cap."""
@@ -376,24 +421,27 @@ def _generate_thumbnail(s3, temp_path: str, ext: str, user_id: UUID, file_id: st
 
 
 def _torrent_and_thumbnail(file_stream, safe_filename: str, user_id: UUID, file_id: str, s3) -> tuple:
-    """Generate the magnet link and (best-effort) video thumbnail from a
-    seekable file-like object. The stream is written ONCE to a temp file whose
-    basename == safe_filename (so the torrent name — and therefore the magnet's
-    dn and the reproducible infohash — stays correct), and the SHA-1 piece
-    hashes are computed WHILE writing, so the file is never re-read for
-    hashing. Returns (magnet_link, thumbnail_url); the temp file is always
+    """Generate the magnet link, (best-effort) video thumbnail, and the file's
+    SHA-256 content hash from a seekable file-like object. The stream is
+    written ONCE to a temp file whose basename == safe_filename (so the torrent
+    name — and therefore the magnet's dn and the reproducible infohash — stays
+    correct), and the SHA-1 piece hashes + SHA-256 are computed WHILE writing,
+    so the file is never re-read for hashing. Returns
+    (magnet_link, thumbnail_url, content_hash); the temp file is always
     cleaned up.
 
     The infohash comes from torrent_builder.build_magnet(), which reproduces
     torrentool's info-dict bencode byte-for-byte (pinned by
     TestStreamingTorrentBuilder.test_streaming_infohash_byte_identical_to_torrentool),
     and the frontend seeder rebuilds the identical info dict from the magnet —
-    so the browser seeds the same swarm the magnet describes.
+    so the browser seeds the same swarm the magnet describes. The content hash
+    drives storage dedup (identical bytes store once, regardless of filename).
     """
     ext = os.path.splitext(safe_filename)[1].lower()
     temp_dir = None
     magnet_link = None
     thumbnail_url = None
+    content_hash = None
     try:
         # The temp file's basename becomes the torrent's `name`. Writing it as
         # `safe_filename` inside a fresh temp DIR — rather than mkstemp, which
@@ -409,13 +457,16 @@ def _torrent_and_thumbnail(file_stream, safe_filename: str, user_id: UUID, file_
         file_size = file_stream.tell()
         file_stream.seek(0)
 
+        sha256 = hashlib.sha256()
         with open(temp_path, "wb") as tf:
             def reader():
                 chunk = file_stream.read(CHUNK_SIZE)
                 if chunk:
                     tf.write(chunk)
+                    sha256.update(chunk)
                 return chunk
             pieces = hash_pieces_from_stream(reader, file_size)
+        content_hash = sha256.hexdigest()
 
         magnet_link = build_magnet(safe_filename, pieces, file_size)
         thumbnail_url = _generate_thumbnail(s3, temp_path, ext, user_id, file_id)
@@ -425,7 +476,7 @@ def _torrent_and_thumbnail(file_stream, safe_filename: str, user_id: UUID, file_
     finally:
         if temp_dir and os.path.isdir(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
-    return magnet_link, thumbnail_url
+    return magnet_link, thumbnail_url, content_hash
 
 
 async def _insert_upload_record(
@@ -441,6 +492,7 @@ async def _insert_upload_record(
     month: str,
     limit_gb: float,
     used_gb: float,
+    content_hash: Optional[str] = None,
 ) -> UploadResponse:
     """Persist the completed upload + usage accounting, resolving same-key
     insert races via the partial unique index on (user_id, idempotency_key),
@@ -448,8 +500,8 @@ async def _insert_upload_record(
     try:
         async with pool.acquire() as conn:
             await conn.fetchrow(
-                """INSERT INTO uploads (id, user_id, filename, minio_url, torrent_magnet, file_size_mb, thumbnail_url, idempotency_key)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                """INSERT INTO uploads (id, user_id, filename, minio_url, torrent_magnet, file_size_mb, thumbnail_url, idempotency_key, content_hash)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                    RETURNING id""",
                 uuid.UUID(file_id),
                 user_id,
@@ -459,6 +511,7 @@ async def _insert_upload_record(
                 round(file_size_mb, 2),
                 thumbnail_url,
                 idempotency_key or None,
+                content_hash,
             )
 
             await conn.execute(
@@ -709,11 +762,17 @@ async def _store_and_finalize(
         logger.error("MinIO upload failed for user %s: %s", user_id, e)
         raise HTTPException(status_code=500, detail="Storage upload failed. Please try again.")
 
-    # --- Generate .torrent and magnet link (+ best-effort thumbnail) ---
+    # --- Generate .torrent, magnet link, thumbnail, and content hash ---
     # CPU/IO-bound (SHA-1 hashing + ffmpeg) — run in a thread so finalize of a
     # big file never freezes the event loop for unrelated requests.
-    magnet_link, thumbnail_url = await asyncio.to_thread(
+    magnet_link, thumbnail_url, content_hash = await asyncio.to_thread(
         _torrent_and_thumbnail, file_stream, safe_filename, user_id, file_id, s3
+    )
+
+    # --- Content dedup: identical bytes store once. The freshly-uploaded
+    # object is deleted and the row points at the existing copy. ---
+    minio_http_url = await _dedup_content(
+        pool, s3, content_hash, minio_key, minio_http_url, file_id
     )
 
     # --- Save to database (+ usage accounting, race resolution, alerts) ---
@@ -730,6 +789,7 @@ async def _store_and_finalize(
         month,
         limit_gb,
         used_gb,
+        content_hash,
     )
 
 
@@ -1153,22 +1213,26 @@ async def presign_finalize(
         # the magnet's dn and infohash then match what a browser P2P seeder
         # rebuilds (torrent_builder.build_magnet is byte-identical to the old
         # torrentool hashing — see TestStreamingTorrentBuilder).
-        def _download_and_hash(path: str, file_size: int) -> bytes:
+        def _download_and_hash(path: str, file_size: int) -> tuple:
             # boto3 streaming is sync/blocking — run the whole download in a
             # worker thread so a big file's finalize never stalls the event loop.
             obj = s3.get_object(Bucket=settings.minio_bucket, Key=object_key)
             body = obj["Body"]
+            sha256 = hashlib.sha256()
             with open(path, "wb") as tf:
                 def reader():
                     chunk = body.read(CHUNK_SIZE)
                     if chunk:
                         tf.write(chunk)
+                        sha256.update(chunk)
                     return chunk
-                return hash_pieces_from_stream(reader, file_size)
+                return hash_pieces_from_stream(reader, file_size), sha256.hexdigest()
 
         temp_dir = tempfile.mkdtemp(prefix="torrentcd-")
         temp_path = os.path.join(temp_dir, session["filename"])
-        pieces = await asyncio.to_thread(_download_and_hash, temp_path, session["file_size"])
+        pieces, content_hash = await asyncio.to_thread(
+            _download_and_hash, temp_path, session["file_size"]
+        )
 
         with open(temp_path, "r+b") as f:
             # Final safety validation on the stored bytes (same as the direct
@@ -1218,6 +1282,11 @@ async def presign_finalize(
                 os.path.splitext(session["filename"])[1].lower(),
                 user_id, upload_id,
             )
+            # Content dedup: identical bytes store once — delete the browser's
+            # fresh object and point this row at the existing copy.
+            minio_http_url = await _dedup_content(
+                pool, s3, content_hash, object_key, minio_http_url, upload_id
+            )
             result = await _insert_upload_record(
                 pool,
                 user_id,
@@ -1231,6 +1300,7 @@ async def presign_finalize(
                 month,
                 limit_gb,
                 used_gb,
+                content_hash,
             )
             # Session complete — drop it from both stores. (The orphan sweep
             # only deletes objects with NO uploads row, so a lingering session
@@ -1338,6 +1408,23 @@ async def sweep_orphan_objects() -> int:
                 logger.warning("Orphan sweep: DB check failed for %s: %s", key, e)
                 continue
             if row:
+                continue
+            # Content-dedup: other uploads may reference this object via
+            # minio_url even though its ORIGINAL row is gone (the owner deleted
+            # their upload; the refcount-aware delete paths kept the shared
+            # bytes). The id check alone would delete shared bytes still in use
+            # — the URL check is the second half of the safety gate.
+            try:
+                object_url = f"{settings.minio_public_url}/{key}"
+                async with pool.acquire() as conn:
+                    referenced = await conn.fetchrow(
+                        "SELECT 1 FROM uploads WHERE minio_url = $1 LIMIT 1",
+                        object_url,
+                    )
+            except Exception as e:
+                logger.warning("Orphan sweep: refcount check failed for %s: %s", key, e)
+                continue
+            if referenced:
                 continue
             try:
                 s3.delete_object(Bucket=settings.minio_bucket, Key=key)

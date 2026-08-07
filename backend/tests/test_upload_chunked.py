@@ -221,7 +221,9 @@ class TestChunkedUpload:
             "thumbnail_url": None,
         }
         mock_conn.fetchrow.side_effect = [
-            None, self.TEST_USER, None, {"id": file_id},
+            None, self.TEST_USER, None,
+            None,  # content-dedup miss
+            {"id": file_id},
             stored,
         ]
 

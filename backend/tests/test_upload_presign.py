@@ -179,10 +179,11 @@ class TestPresignFinalize:
         the fake `btih:<uuid>` magnets minted by the old Torrent.create() call)
         and does NOT re-upload the object to storage."""
         # presign: dedup(None) -> user -> usage.  finalize: dedup(None) -> user
-        # -> usage -> INSERT RETURNING id.
+        # -> usage -> content-dedup miss -> INSERT RETURNING id.
         mock_conn.fetchrow.side_effect = [
             None, TEST_USER, None,
             None, TEST_USER, None,
+            None,  # content-dedup: no existing copy
             {"id": FILE_ID},
         ]
         upload_id = self._presign(client, auth_headers, mock_conn, mock_s3_client)
@@ -204,6 +205,37 @@ class TestPresignFinalize:
         assert data["minio_url"].endswith(f"{TEST_USER['id']}/{upload_id}/movie.mp4")
         # The object was already in storage — the shared pipeline must NOT
         # re-upload it via multipart.
+        mock_s3_client.create_multipart_upload.assert_not_called()
+        _cleanup_session(upload_id)
+
+    def test_finalize_content_dedup_reuses_existing_copy(self, client, auth_headers, mock_conn, mock_s3_client):
+        """Byte-identical content stores once on the presign path too: the
+        browser's freshly-PUT duplicate object is deleted from storage and the
+        row points at the existing copy's URL."""
+        existing_url = "https://storage.example/bucket/other-user/other-file/original.mp4"
+        # presign: idempotency-dedup -> user -> usage.  finalize: idempotency-
+        # dedup -> user -> usage -> content-dedup HIT -> INSERT RETURNING id.
+        mock_conn.fetchrow.side_effect = [
+            None, TEST_USER, None,
+            None, TEST_USER, None,
+            {"minio_url": existing_url},
+            {"id": FILE_ID},
+        ]
+        upload_id = self._presign(client, auth_headers, mock_conn, mock_s3_client)
+
+        mock_s3_client.head_object.return_value = {"ContentLength": len(VALID_MP4)}
+        mock_s3_client.get_object.return_value = {"Body": BytesIO(VALID_MP4)}
+
+        resp = client.post(f"/upload/presign/finalize/{upload_id}", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["minio_url"] == existing_url
+        # The duplicate (the browser's direct PUT) was deleted — nothing is
+        # re-uploaded via multipart either.
+        key = f"{TEST_USER['id']}/{upload_id}/movie.mp4"
+        mock_s3_client.delete_object.assert_called_once_with(
+            Bucket=upload_route.settings.minio_bucket, Key=key
+        )
         mock_s3_client.create_multipart_upload.assert_not_called()
         _cleanup_session(upload_id)
 
@@ -348,9 +380,10 @@ class TestTorrentGeneration:
         user_id = UUID("11111111-1111-4111-8111-111111111111")
         file_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
-        magnet, thumbnail = upload_route._torrent_and_thumbnail(
+        magnet, thumbnail, content_hash = upload_route._torrent_and_thumbnail(
             file_stream, safe_filename, user_id, file_id, mock_s3_client
         )
+        assert len(content_hash) == 64  # SHA-256 hex drives storage dedup
 
         # Real 40-hex infohash, clean dn, and every announce tracker present as tr=.
         m = re.match(r"^magnet:\?xt=urn:btih:([0-9a-f]{40})&dn=clip\.mp3(&tr=.*)$", magnet)
