@@ -237,7 +237,7 @@ jobs:
       - name: Login shared verified E2E account
         run: |
           set -euo pipefail
-          : "${E2E_EMAIL:?set E2E_EMAIL secret — a VERIFIED account's email}"
+          : "${E2E_EMAIL:?set E2E_EMAIL secret - a VERIFIED account email}"
           : "${E2E_PASSWORD:?set E2E_PASSWORD secret}"
           TOKEN=""
           for i in 1 2 3; do
