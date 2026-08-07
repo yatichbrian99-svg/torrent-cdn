@@ -96,6 +96,12 @@ describe('isScannerUserAgent', () => {
     expect(isScannerUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36 Edg/125.0')).toBe(false)
   })
 
+  it('never blocks search-engine crawlers (SEO-critical false-positive guard)', () => {
+    expect(isScannerUserAgent('Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)')).toBe(false)
+    expect(isScannerUserAgent('Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)')).toBe(false)
+    expect(isScannerUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1 Applebot/0.1')).toBe(false)
+  })
+
   it('does not block generic HTTP clients used by the repo probes and health checks', () => {
     expect(isScannerUserAgent('curl/8.6.0')).toBe(false)
     expect(isScannerUserAgent('python-requests/2.31.0')).toBe(false)

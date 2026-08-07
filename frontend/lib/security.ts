@@ -48,7 +48,7 @@ export function sanitizeRefCode(ref: string): string {
  * those UAs — blocking them would break CI and monitoring.
  */
 const SCANNER_UA_RE =
-  /\b(acunetix|arachni|dirbuster|feroxbuster|gobuster|hydra|masscan|metasploit|nessus|nikto|nmap|nuclei|openvas|sqlmap|wfuzz|wpscan|zap)\b/i
+  /\b(acunetix|arachni|beef|burpsuite|commix|dirbuster|dirsearch|feroxbuster|ffuf|gobuster|hydra|masscan|metasploit|nessus|nikto|nmap|nuclei|openvas|sqlmap|wfuzz|wpscan|zap)\b/i
 
 /** True when a User-Agent string identifies known attack-scanning tooling. */
 export function isScannerUserAgent(ua: string): boolean {

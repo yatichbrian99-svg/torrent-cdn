@@ -50,7 +50,9 @@ if [ -n "$SERVER" ] && echo "$SERVER" | grep -qi vercel; then
   echo "probe (UA 'sqlmap'): HTTP $CODE"
   if [ "$CODE" = "403" ] || [ "$CODE" = "429" ] || [ "$CODE" = "451" ]; then
     echo
-    echo "✅ Vercel Firewall ACTIVE — the attack probe was blocked (HTTP $CODE)."
+    echo "✅ Attack probe blocked at the edge (HTTP $CODE) — scanner traffic is stopped"
+    echo "   before it reaches the app. (Source: app edge middleware scanner-UA block,"
+    echo "   or a CDN/WAF ruleset if one is configured.)"
     exit 0
   fi
 
