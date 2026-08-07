@@ -51,12 +51,37 @@ Rotate any time via dash.cloudflare.com → R2 → API Tokens.)
 | `r2_verify.py` | Local S3 round-trip against R2 (list/PUT/GET/HEAD/DELETE + public URL with browser UA). Creds from env: `R2_ACCESS_KEY` / `R2_SECRET_KEY`. Corrects this dev machine's skewed clock internally. |
 | `r2_switch_env.py` | Swaps a Render service's storage env vars to R2 preserving every other var (prints masked diff, re-reads to verify). Usage: `RENDER_KEY=… R2_ACCESS_KEY=… R2_SECRET_KEY=… python3 r2_switch_env.py <service_id>`. |
 | `r2_migration_verify.sh` | Live acceptance audit: 60MB presign→PUT→finalize, R2 URL assertion, public serving, dedup, refcount deletes, account cleanup. **21 checks, exit 0 = pass.** |
+| `dedup_audit_prod.sh` / `import_audit_prod.sh` / `upload_audit_prod.sh` | Live probes now ASSERT the storage provider (see below) so CI catches an accidental rollback of the MINIO_* env vars to Supabase. |
+
+## Storage-provider assertion in the live probes
+
+All three storage-touching probes — `dedup_audit_prod.sh`, `import_audit_prod.sh`,
+and `upload_audit_prod.sh` — assert every finalized `minio_url` starts with
+`EXPECTED_STORAGE_PREFIX` (default: the R2 public base
+`https://pub-db587f977d274a458f30d14fa2ddfb9e.r2.dev/`) and every presigned PUT
+URL starts with `EXPECTED_S3_ENDPOINT` (default:
+`https://a942dd172ffb3faa3dd24d9b92df6008.r2.cloudflarestorage.com/`). A Supabase
+minio_url starts with `project-ref.supabase.co` and its S3 endpoint with
+`project-ref.supabase.co/storage/v1/s3` — both fail the checks, so a storage
+rollback fails CI instead of passing silently. (`upload_audit_prod.sh` previously
+hard-asserted `supabase.co` in the presigned URL — that check was replaced by
+the provider assertion at the R2 migration.)
+
+**When `cdn.torrentcdn.store` goes live** (MINIO_PUBLIC_URL changes), update the
+defaults here or pass overrides in the workflow, e.g.:
+`EXPECTED_STORAGE_PREFIX=https://cdn.torrentcdn.store/ bash dedup_audit_prod.sh`
+
+The probe files are unique per run (random tail), so a cross-bucket dedup hit
+against an OLD Supabase copy — which would legitimately produce a Supabase
+minio_url — can never occur for these checks.
 
 ## How to re-verify after any change
 
 ```
 bash backend/scripts/r2_migration_verify.sh   # 60MB upload + dedup + refcount (21 checks)
-bash backend/scripts/import_audit_prod.sh      # import-by-URL + cross-path dedup + SSRF blocks (14 checks)
+bash backend/scripts/upload_audit_prod.sh      # presign upload flow + provider assertion
+bash backend/scripts/import_audit_prod.sh      # import-by-URL + cross-path dedup + SSRF blocks + provider assertion
+bash backend/scripts/dedup_audit_prod.sh       # dedup + refcount + provider assertion
 ```
 
 ## Notes / gotchas
