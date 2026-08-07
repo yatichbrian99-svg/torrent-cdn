@@ -19,6 +19,14 @@ from uuid import UUID
 from typing import Optional
 import boto3
 import httpx
+import httpcore
+# httpcore's network-backend hook is what lets us pin the import fetch's TCP
+# connect to a pre-validated IP (closing the DNS-rebinding window). The
+# AnyIOBackend subclass below is imported from httpcore's private module and
+# httpx's private create_ssl_context — both pinned by the requirements lock
+# (httpcore 1.0.9 / httpx 0.28.1), so a version bump must re-verify this.
+from httpcore._backends.anyio import AnyIOBackend
+from httpx._config import create_ssl_context
 from botocore.config import Config as BotoConfig
 from asyncpg.exceptions import UniqueViolationError
 
@@ -873,10 +881,17 @@ async def _store_and_finalize(
 # 169.254.169.254 cloud metadata, localhost services, or internal Docker
 # networks). The guard below is the minimum a fetch-anything endpoint needs:
 # http/https only, and the host must not be — and must not resolve to — a
-# private/loopback/link-local/CGNAT address. DNS-rebinding (a hostile server
-# answering a public IP at check time then a private one at connect time) is a
-# known residual limitation of resolve-then-connect guards; the fetch is also
-# time-boxed and size-capped so it can't be abused as a long-lived proxy.
+# private/loopback/link-local/CGNAT address.
+#
+# DNS REBINDING is CLOSED, not merely mitigated: `_import_pinned_address`
+# resolves the hostname exactly once and validates every answer, then the fetch
+# goes through `_PinnedHTTPTransport`, whose httpcore network backend connects
+# ONLY to the validated IP while the original hostname is still used for the
+# Host header and TLS SNI/server-hostname (cert validation is unchanged).
+# Nothing re-resolves the hostname at connect time, so a hostile DNS server
+# answering a public IP at check time and a private one at connect time gets
+# exactly one chance — its private answer is never connected to. The fetch is
+# also time-boxed and size-capped so it can't be abused as a long-lived proxy.
 _PRIVATE_IP_NETS = [
     ipaddress.ip_network("0.0.0.0/8"),
     ipaddress.ip_network("10.0.0.0/8"),
@@ -908,113 +923,209 @@ IMPORT_MAX_TOTAL_SECONDS = 600
 IMPORT_USER_AGENT = "TorrentCDN-Import/1.0"
 
 
-def _import_url_is_safe(url: str) -> bool:
-    """SSRF guard: True only for http(s) URLs whose host is not a private/
-    loopback/link-local/CGNAT literal and does not resolve to one. Also rejects
-    the localhost-ish hostname suffixes. The (blocking) DNS lookup is offloaded
-    to a worker thread by the async caller (_download_import_url), so the event
-    loop is never stalled by a slow resolver."""
+class _PinnedNetworkBackend(AnyIOBackend):
+    """httpcore network backend that pins every TCP connect to a PRE-RESOLVED,
+    SSRF-validated IP. The `host` argument (the attacker-controlled hostname
+    from the request URL) is deliberately ignored — it must never be resolved
+    again at connect time. Everything else — timeouts, error mapping, socket
+    options, unix sockets, sleep — is inherited from AnyIOBackend."""
+
+    def __init__(self, pinned_ip: str) -> None:
+        self._pinned_ip = pinned_ip
+
+    async def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        return await super().connect_tcp(
+            self._pinned_ip, port,
+            timeout=timeout, local_address=local_address, socket_options=socket_options,
+        )
+
+
+class _PinnedHTTPTransport(httpx.AsyncHTTPTransport):
+    """httpx async transport whose connection pool connects ONLY to a pinned
+    address (via _PinnedNetworkBackend). The request URL is never rewritten, so
+    httpcore still derives the Host header and TLS SNI/server-hostname from the
+    original hostname — certificate validation is unchanged, only the TCP
+    target is pinned. httpx 0.28's AsyncHTTPTransport doesn't forward a
+    network_backend kwarg, so the pool is rebuilt here (the rest of the
+    transport — request mapping, timeouts, redirects — is untouched).
+
+    NOTE: an explicit transport also means env proxies (HTTP(S)_PROXY) are
+    INTENTIONALLY bypassed — a proxy resolves the hostname itself at connect
+    time, which would re-open the DNS-rebinding window and defeat the pin.
+    Both `self._pool` (httpx private attr) and the imported backend hooks are
+    version-sensitive; requirements pins httpcore==1.0.9/httpx==0.28.1 and a
+    bump must re-verify this class."""
+
+    def __init__(
+        self,
+        pinned_ip: str,
+        verify: bool = True,
+        trust_env: bool = True,
+        http1: bool = True,
+        http2: bool = False,
+        limits: "httpx.Limits" = httpx.Limits(),
+        retries: int = 0,
+    ) -> None:
+        super().__init__(
+            verify=verify, trust_env=trust_env, http1=http1, http2=http2,
+            limits=limits, retries=retries,
+        )
+        # Swap in the pinned pool. The default-backend pool built by
+        # super().__init__ is entered but never used (no connections were made)
+        # and is garbage-collected on reassignment — httpcore's async pool has
+        # no sync __exit__, so it is simply dropped.
+        ssl_context = create_ssl_context(verify=verify, trust_env=trust_env)
+        self._pool = httpcore.AsyncConnectionPool(
+            ssl_context=ssl_context,
+            max_connections=limits.max_connections,
+            max_keepalive_connections=limits.max_keepalive_connections,
+            keepalive_expiry=limits.keepalive_expiry,
+            http1=http1,
+            http2=http2,
+            retries=retries,
+            network_backend=_PinnedNetworkBackend(pinned_ip),
+        )
+        # The pool is entered via the transport's __aenter__ (httpcore's async
+        # pool only implements __aenter__/__aexit__, not the sync protocol).
+
+
+def _import_pinned_address(url: str) -> Optional[tuple]:
+    """Resolve + validate the URL's host EXACTLY ONCE and return
+    (hostname, pinned_ip) where `pinned_ip` is a PUBLIC address the caller must
+    connect to — or None when the URL is unsafe (non-http(s), private/loopback/
+    link-local/CGNAT literal, blocked hostname suffix, any private DNS answer,
+    or DNS failure). Pinning the returned address — never re-resolving — is
+    what closes the DNS-rebinding window. Blocking DNS call; the async caller
+    offloads it to a worker thread."""
     try:
         parsed = urlparse(url)
     except Exception:
-        return False
+        return None
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        return False
+        return None
     host = parsed.hostname.rstrip(".").lower()
     if host == "localhost" or host.endswith(_IMPORT_BLOCKED_HOST_SUFFIXES):
-        return False
+        return None
     try:
-        # IP literal → check the address directly, no DNS needed.
-        addr = ipaddress.ip_address(host)
-        return not any(addr in net for net in _PRIVATE_IP_NETS)
+        addr = ipaddress.ip_address(host)  # IP literal → no DNS needed
     except ValueError:
-        pass
+        addr = None
+    if addr is not None:
+        if any(addr in net for net in _PRIVATE_IP_NETS):
+            return None
+        return host, str(addr)
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
     try:
-        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except (socket.gaierror, UnicodeError, OSError):
         # Any DNS failure (NXDOMAIN, IDNA hostnames, transient OS errors) is
         # treated as unsafe — a guard must fail closed, never 500.
-        return False
-    if not infos:
-        return False
+        return None
+    seen, public = set(), []
     for info in infos:
         try:
-            addr = ipaddress.ip_address(info[4][0])
+            ip = str(ipaddress.ip_address(info[4][0]))
         except ValueError:
             continue
-        if any(addr in net for net in _PRIVATE_IP_NETS):
-            return False
-    return True
+        if ip in seen:
+            continue
+        seen.add(ip)
+        if any(ipaddress.ip_address(ip) in net for net in _PRIVATE_IP_NETS):
+            return None  # one private answer poisons the whole check
+        public.append(ip)
+    if not public:
+        return None
+    return host, public[0]
+
+
+def _import_url_is_safe(url: str) -> bool:
+    """SSRF guard (boolean form, kept for direct unit tests): True only for
+    http(s) URLs whose host is not private/loopback/link-local/CGNAT and does
+    not resolve to one. `_import_pinned_address` is the real check — it also
+    returns the validated IP that the downloader connects to, closing the DNS
+    rebinding window."""
+    return _import_pinned_address(url) is not None
 
 
 async def _download_import_url(url: str, dest_path: str, max_bytes: int) -> tuple:
     """Download `url` to `dest_path`, re-running the SSRF guard on EVERY
     redirect hop and enforcing a hard byte cap + wall-clock time budget
     (asyncio.timeout around the whole fetch, so a slow trickle can't stream
-    for hours). Returns (content_type, total_bytes). Raises HTTPException with
-    a friendly message on any failure (unreachable/redirect loop/size/timeout/
+    for hours). Each hop resolves + validates its host exactly once and fetches
+    through _PinnedHTTPTransport, which connects only to the validated IP —
+    the hostname is never re-resolved at connect time (DNS rebinding is
+    closed). Returns (content_type, total_bytes). Raises HTTPException with a
+    friendly message on any failure (unreachable/redirect loop/size/timeout/
     HTTP error)."""
     current = url
     try:
-        # DNS lookups inside the guard are blocking — offload to a worker
-        # thread so the event loop is never stalled by a slow resolver.
+        # DNS resolution is blocking — offload to a worker thread so the event
+        # loop is never stalled by a slow resolver.
         async with asyncio.timeout(IMPORT_MAX_TOTAL_SECONDS):
-            async with httpx.AsyncClient(
-                follow_redirects=False,
-                timeout=httpx.Timeout(30, connect=15, read=30),
-            ) as client:
-                for _hop in range(IMPORT_MAX_REDIRECTS + 1):
-                    if not await asyncio.to_thread(_import_url_is_safe, current):
-                        raise HTTPException(
-                            status_code=400,
-                            detail="Import URL points at a private/internal address and was blocked",
-                        )
-                    try:
+            for _hop in range(IMPORT_MAX_REDIRECTS + 1):
+                # Resolve + validate the host EXACTLY ONCE per hop. The
+                # transport connects to this pinned address — nothing re-resolves
+                # the hostname at connect time, so a DNS-rebinding server that
+                # answers public-then-private can never redirect the connect to
+                # a private address.
+                pinned = await asyncio.to_thread(_import_pinned_address, current)
+                if pinned is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Import URL points at a private/internal address and was blocked",
+                    )
+                _, pinned_ip = pinned
+                try:
+                    async with httpx.AsyncClient(
+                        follow_redirects=False,
+                        timeout=httpx.Timeout(30, connect=15, read=30),
+                        transport=_PinnedHTTPTransport(pinned_ip),
+                    ) as client:
                         resp = await client.get(
                             current, headers={"User-Agent": IMPORT_USER_AGENT}
                         )
-                    except httpx.TimeoutException:
-                        raise HTTPException(status_code=504, detail="Import URL timed out")
-                    except Exception:
-                        raise HTTPException(
-                            status_code=502, detail="Could not reach the import URL"
-                        )
-                    if resp.status_code in (301, 302, 303, 307, 308):
-                        location = resp.headers.get("location")
-                        if not location:
-                            raise HTTPException(
-                                status_code=400, detail="Import URL redirected without a target"
-                            )
-                        current = str(httpx.URL(current).join(location))
-                        continue
-                    if resp.status_code != 200:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"Import URL returned HTTP {resp.status_code}",
-                        )
-                    declared = resp.headers.get("content-length")
-                    if declared and declared.isdigit() and int(declared) > max_bytes:
-                        raise HTTPException(
-                            status_code=413, detail="Imported file exceeds the size limit"
-                        )
-                    content_type = (
-                        (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
+                except httpx.TimeoutException:
+                    raise HTTPException(status_code=504, detail="Import URL timed out")
+                except Exception:
+                    raise HTTPException(
+                        status_code=502, detail="Could not reach the import URL"
                     )
-                    total = 0
-                    with open(dest_path, "wb") as f:
-                        async for chunk in resp.aiter_bytes(1 << 20):
-                            total += len(chunk)
-                            if total > max_bytes:
-                                raise HTTPException(
-                                    status_code=413,
-                                    detail="Imported file exceeds the size limit",
-                                )
-                            f.write(chunk)
-                    return content_type, total
-                # Exhausted every redirect hop without a final response.
-                raise HTTPException(
-                    status_code=400, detail="Import URL redirected too many times"
+                if resp.status_code in (301, 302, 303, 307, 308):
+                    location = resp.headers.get("location")
+                    if not location:
+                        raise HTTPException(
+                            status_code=400, detail="Import URL redirected without a target"
+                        )
+                    current = str(httpx.URL(current).join(location))
+                    continue
+                if resp.status_code != 200:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Import URL returned HTTP {resp.status_code}",
+                    )
+                declared = resp.headers.get("content-length")
+                if declared and declared.isdigit() and int(declared) > max_bytes:
+                    raise HTTPException(
+                        status_code=413, detail="Imported file exceeds the size limit"
+                    )
+                content_type = (
+                    (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
                 )
+                total = 0
+                with open(dest_path, "wb") as f:
+                    async for chunk in resp.aiter_bytes(1 << 20):
+                        total += len(chunk)
+                        if total > max_bytes:
+                            raise HTTPException(
+                                status_code=413,
+                                detail="Imported file exceeds the size limit",
+                            )
+                        f.write(chunk)
+                return content_type, total
+            # Exhausted every redirect hop without a final response.
+            raise HTTPException(
+                status_code=400, detail="Import URL redirected too many times"
+            )
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Import URL timed out")
     except HTTPException:

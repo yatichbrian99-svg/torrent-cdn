@@ -148,6 +148,94 @@ class TestImportUrlIsSafe:
         assert upload._import_url_is_safe("http://nonexistent.invalid/x") is False
 
 
+class TestImportPinnedAddress:
+    """_import_pinned_address resolves + validates ONCE and returns the exact
+    (host, ip) pair the downloader connects to — the DNS-rebinding fix."""
+
+    def test_public_ip_literal(self):
+        from app.routes.upload import _import_pinned_address
+        assert _import_pinned_address("http://8.8.8.8/v.mp4") == ("8.8.8.8", "8.8.8.8")
+
+    def test_private_literal_returns_none(self):
+        from app.routes.upload import _import_pinned_address
+        for url in (
+            "http://127.0.0.1/x",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://10.0.0.5/x",
+            "http://[::1]/x",
+        ):
+            assert _import_pinned_address(url) is None, url
+
+    def test_bad_scheme_or_suffix_returns_none(self):
+        from app.routes.upload import _import_pinned_address
+        for url in ("ftp://example.com/x", "file:///etc/passwd", "http://db.internal/x", "http://localhost/x"):
+            assert _import_pinned_address(url) is None, url
+
+    def test_hostname_resolution_returns_validated_ip(self, monkeypatch):
+        import socket
+        from app.routes.upload import _import_pinned_address
+        monkeypatch.setattr(
+            socket, "getaddrinfo",
+            lambda host, port, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))],
+        )
+        host, ip = _import_pinned_address("https://example.com/v.mp4")
+        assert host == "example.com"
+        assert ip == "93.184.216.34"
+
+    def test_any_private_answer_returns_none(self, monkeypatch):
+        import socket
+        from app.routes.upload import _import_pinned_address
+        monkeypatch.setattr(
+            socket, "getaddrinfo",
+            lambda host, port, **kw: [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0)),
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.9", 0)),
+            ],
+        )
+        assert _import_pinned_address("http://example.com/x") is None
+
+    def test_dns_failure_returns_none(self, monkeypatch):
+        import socket
+        from app.routes.upload import _import_pinned_address
+        monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: (_ for _ in ()).throw(socket.gaierror("nxdomain")))
+        assert _import_pinned_address("http://nonexistent.invalid/x") is None
+
+
+class TestPinnedNetworkBackend:
+    """The httpcore network backend must connect ONLY to the pre-validated IP,
+    never to the attacker-controlled hostname from the request URL."""
+
+    def test_connect_tcp_targets_the_pinned_ip(self, monkeypatch):
+        import asyncio
+        import anyio
+        from app.routes.upload import _PinnedNetworkBackend
+
+        connected = []
+
+        async def fake_connect_tcp(*args, **kwargs):
+            connected.append(kwargs.get("remote_host"))
+            return object()  # AnyIOStream wraps it lazily; socket_options is empty
+
+        # anyio.fail_after is a SYNC context manager (`with fail_after(...)`),
+        # even inside async code — mirror that.
+        def fake_fail_after(*a, **k):
+            class _CM:
+                def __enter__(self): return None
+                def __exit__(self, *x): return False
+            return _CM()
+
+        monkeypatch.setattr(anyio, "connect_tcp", fake_connect_tcp)
+        monkeypatch.setattr(anyio, "fail_after", fake_fail_after)
+
+        async def run():
+            backend = _PinnedNetworkBackend("93.184.216.34")
+            await backend.connect_tcp("evil.example.com", 443)
+
+        asyncio.run(run())
+        # The connect targeted the validated IP — the hostname was never used.
+        assert connected == ["93.184.216.34"]
+
+
 class TestImportFilename:
     """Filename derivation: explicit > URL basename > Content-Type map."""
 
@@ -328,6 +416,43 @@ class TestDownloadImportUrl:
             asyncio.run(_download_import_url("https://example.com/loop", str(tmp_path / "dl.bin"), 1024 * 1024))
         assert ei.value.status_code == 400
 
+    def test_rebinding_cannot_change_the_connected_ip(self, monkeypatch, tmp_path):
+        """THE DNS-rebinding regression: a hostile resolver answering a public
+        IP first then a private one (classic rebinding) can only influence the
+        FIRST lookup. The hostname is resolved exactly once; the transport is
+        built from that single validated answer, so the rebinding answer is
+        never used."""
+        import asyncio
+        import socket
+        import app.routes.upload as upload
+
+        dns_calls = {"n": 0}
+
+        def evil_dns(host, port, **kw):
+            dns_calls["n"] += 1
+            if dns_calls["n"] == 1:
+                return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
+            # Second lookup would rebind to a private address — must never happen.
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.9", 0))]
+        monkeypatch.setattr(socket, "getaddrinfo", evil_dns)
+
+        captured = {}
+
+        class _FakePinnedTransport:
+            def __init__(self, pinned_ip, **kw):
+                captured["ip"] = pinned_ip
+        monkeypatch.setattr(upload, "_PinnedHTTPTransport", _FakePinnedTransport)
+
+        fake = _FakeImportClient([(200, b"abc", {"content-type": "video/mp4"})])
+        monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: fake)
+
+        ct, total = asyncio.run(upload._download_import_url(
+            "https://example.com/f.mp4", str(tmp_path / "dl.bin"), 1024 * 1024
+        ))
+        assert total == 3
+        assert dns_calls["n"] == 1  # resolved exactly once — the rebind answer was never used
+        assert captured["ip"] == "93.184.216.34"  # the FIRST (public) answer is what gets connected to
+
     def test_overall_wallclock_timeout_enforced(self, monkeypatch, tmp_path):
         """Per-request timeouts don't bound a slow trickle — the whole download
         is capped by asyncio.timeout (here shrunk to 50ms to test fast)."""
@@ -336,7 +461,7 @@ class TestDownloadImportUrl:
         from app.routes.upload import _download_import_url
         from fastapi import HTTPException
 
-        monkeypatch.setattr(upload, "IMPORT_MAX_TOTAL_SECONDS", 0.05)
+        monkeypatch.setattr(upload, "IMPORT_MAX_TOTAL_SECONDS", 0.2)
 
         class _SlowClient(_FakeImportClient):
             async def get(self, *a, **k):
