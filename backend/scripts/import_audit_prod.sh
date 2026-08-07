@@ -195,7 +195,7 @@ verify_account() {
 echo ""
 echo "── 1. REGISTER USER ──"
 TS=$(date +%s)
-EMAIL="import-audit-${TS}@probe.torrentcdn.test"
+EMAIL="import-audit-${TS}@resend.dev"
 PASSW="ProbePass123!"
 REG=$(post_proxy "/auth/register" "{\"email\":\"$EMAIL\",\"password\":\"$PASSW\",\"terms_accepted\":true}" "")
 JWT=$(echo "$REG" | python3 -c "import json,sys;print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null)

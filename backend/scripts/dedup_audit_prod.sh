@@ -201,7 +201,7 @@ verify_account() {
 echo ""
 echo "── 1. REGISTER USER A ──"
 TS=$(date +%s)
-EMAIL_A="dedup-audit-a-${TS}@probe.torrentcdn.test"
+EMAIL_A="dedup-audit-a-${TS}@resend.dev"
 PASSW="ProbePass123!"
 REG=$(post_proxy "/auth/register" "{\"email\":\"$EMAIL_A\",\"password\":\"$PASSW\",\"terms_accepted\":true}" "")
 JWT_A=$(echo "$REG" | python3 -c "import json,sys;print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null)
@@ -306,7 +306,7 @@ esac
 # ── 4. REGISTER USER B ──
 echo ""
 echo "── 4. REGISTER USER B ──"
-EMAIL_B="dedup-audit-b-${TS}@probe.torrentcdn.test"
+EMAIL_B="dedup-audit-b-${TS}@resend.dev"
 REG=$(post_proxy "/auth/register" "{\"email\":\"$EMAIL_B\",\"password\":\"$PASSW\",\"terms_accepted\":true}" "")
 JWT_B=$(echo "$REG" | python3 -c "import json,sys;print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null)
 if [ -n "$JWT_B" ]; then
