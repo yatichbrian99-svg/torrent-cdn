@@ -14,6 +14,8 @@ tokens are blocked from real endpoints, and the verification flow itself
 keeps working. With the flag off (the default in dev/test) behaviour is
 unchanged.
 """
+from unittest.mock import AsyncMock
+
 from app.auth import API_KEY_PREFIX
 
 
@@ -185,3 +187,62 @@ class TestAutoVerifyFallback:
         update_calls = [c for c in mock_conn.execute.call_args_list
                         if "verified = TRUE" in str(c)]
         assert not update_calls
+
+
+class TestResendCooldownAndAlreadyVerified:
+    """Resend endpoint edge cases: the 60s per-user cooldown and the
+    already-verified short-circuit. Uses DISTINCT user ids because the cooldown
+    dict is process-global (same isolation rule as the auto-verify siblings)."""
+
+    def test_resend_second_call_within_60s_returns_429(self, client, mock_conn, monkeypatch):
+        """First resend sends the email; an immediate second one is rate-limited
+        with a 429 and a 'Please wait Ns' message. The cooldown check runs
+        BEFORE the DB lookup, so it fires regardless of user state."""
+        import app.routes.verification as verification_route
+        from uuid import UUID
+        from app.auth import create_access_token
+
+        _enable_verification(monkeypatch)
+        uid = UUID("55555555-5555-4555-8555-555555555555")
+        headers = {"Authorization": f"Bearer {create_access_token({'sub': str(uid)})}"}
+        mock_conn.fetchrow.return_value = {"verified": False, "email": "test@example.com"}
+        # Deterministic send: succeeds, so the second call can only hit the
+        # cooldown (no auto-verify / flaky-provider branch to reason about).
+        monkeypatch.setattr(
+            verification_route, "send_verification_email", AsyncMock(return_value=True)
+        )
+
+        first = client.post("/auth/resend-verification", headers=headers)
+        assert first.status_code == 200
+        assert first.json() == {"detail": "Verification email sent"}
+
+        second = client.post("/auth/resend-verification", headers=headers)
+        assert second.status_code == 429
+        assert "Please wait" in second.json()["detail"]
+
+    def test_resend_for_verified_user_returns_already_verified(self, client, mock_conn, monkeypatch):
+        """An already-verified account gets 'Email already verified' (200) and
+        NEVER records a cooldown (the verified check short-circuits before the
+        cooldown write) — so even an immediate second call is not rate-limited
+        and no email is sent."""
+        import app.routes.verification as verification_route
+        from uuid import UUID
+        from app.auth import create_access_token
+
+        _enable_verification(monkeypatch)
+        uid = UUID("66666666-6666-4666-8666-666666666666")
+        headers = {"Authorization": f"Bearer {create_access_token({'sub': str(uid)})}"}
+        mock_conn.fetchrow.return_value = {"verified": True, "email": "test@example.com"}
+        send = AsyncMock(return_value=True)
+        monkeypatch.setattr(verification_route, "send_verification_email", send)
+
+        first = client.post("/auth/resend-verification", headers=headers)
+        assert first.status_code == 200
+        assert first.json() == {"detail": "Email already verified"}
+
+        # No cooldown was written for this user — the immediate second call is
+        # also 'already verified', never a 429, and send was never invoked.
+        second = client.post("/auth/resend-verification", headers=headers)
+        assert second.status_code == 200
+        assert second.json() == {"detail": "Email already verified"}
+        send.assert_not_awaited()
