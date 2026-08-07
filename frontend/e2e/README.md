@@ -9,11 +9,11 @@ development, now saved as a repeatable suite.
 
 | Suite | Command | Verifies |
 |---|---|---|
-| Direct upload | `npm run test:e2e:upload` | Primary upload path: `/dashboard/upload` → progress bar advances → `PUT` goes **direct to Supabase Storage** (no fallback) → success screen with real 40-hex magnet + embed code, zero JS errors |
-| Chunked fallback | `npm run test:e2e:fallback` | Resilience path: blocks every `*.supabase.co` request so the direct PUT dies → "Connection lost — retrying…" → chunked upload via `/upload/session` + `/upload/chunk/*` + `/upload/finalize` → same success screen, real magnet |
-| Embed playback | `npm run test:e2e:embed` | `/embed/{file_id}`: `<video>` renders, playback starts (`currentTime` advances), streams from Supabase (HTTP 200/206), and the WebTorrent P2P attempt does **not** throw `TypeError: e.toHex is not a function` (regression guard for `patches/uint8-util+2.3.2.patch`) |
-| Auto-seed after upload | `npm run test:e2e:autoseed` | The uploader's tab becomes the seeder: upload through the real `/dashboard/upload` UI, the success screen shows the "seeding…" indicator (`lib/seeder.ts` reproduces the backend infohash from the magnet), then a leecher in a second browser plays `/embed/{file_id}` with every `*.supabase.co` request **blocked** — the only way it can play is WebRTC from the uploader's seed → "N peers connected", video plays, `chunk_downloaded` records `bytes_p2p > 0` |
-| 2-peer P2P | `npm run test:e2e:p2p` | **Real WebTorrent P2P between two browsers**: a seeder reproduces the backend's exact infohash (name + 256 KiB pieces) and seeds the file; a leecher plays `/embed/{file_id}` with every `*.supabase.co` request **blocked** (so only WebRTC can deliver bytes) → "N peers connected" on both sides, video plays, and the backend records `chunk_downloaded` analytics with `bytes_p2p > 0` |
+| Direct upload | `npm run test:e2e:upload` | Primary upload path: `/dashboard/upload` → progress bar advances → `PUT` goes **direct to storage** (the R2 S3 endpoint now, Supabase before the migration — no fallback) → success screen with real 40-hex magnet + embed code, zero JS errors |
+| Chunked fallback | `npm run test:e2e:fallback` | Resilience path: blocks every request to the storage provider (R2 now, Supabase before) so the direct PUT dies → "Connection lost — retrying…" → chunked upload via `/upload/session` + `/upload/chunk/*` + `/upload/finalize` → same success screen, real magnet |
+| Embed playback | `npm run test:e2e:embed` | `/embed/{file_id}`: `<video>` renders, playback starts (`currentTime` advances), streams from storage (R2's public URL now, Supabase before — HTTP 200/206), and the WebTorrent P2P attempt does **not** throw `TypeError: e.toHex is not a function` (regression guard for `patches/uint8-util+2.3.2.patch`) |
+| Auto-seed after upload | `npm run test:e2e:autoseed` | The uploader's tab becomes the seeder: upload through the real `/dashboard/upload` UI, the success screen shows the "seeding…" indicator (`lib/seeder.ts` reproduces the backend infohash from the magnet), then a leecher in a second browser plays `/embed/{file_id}` with every storage-provider request (R2 now, Supabase before) **blocked** — the only way it can play is WebRTC from the uploader's seed → "N peers connected", video plays, `chunk_downloaded` records `bytes_p2p > 0` |
+| 2-peer P2P | `npm run test:e2e:p2p` | **Real WebTorrent P2P between two browsers**: a seeder reproduces the backend's exact infohash (name + 256 KiB pieces) and seeds the file; a leecher plays `/embed/{file_id}` with every storage-provider request (R2 now, Supabase before) **blocked** (so only WebRTC can deliver bytes) → "N peers connected" on both sides, video plays, and the backend records `chunk_downloaded` analytics with `bytes_p2p > 0` |
 | API-key UI | `npm run test:e2e:apikey` | Dashboard API Key lifecycle through the real UI: Generate reveals the full `tcdn_` key + "only time shown" warning → Copy puts the exact key on the clipboard and flips to "Copied" → **reload shows only the prefix + date (the secret never returns)** → Revoke resets the button → the revoked key 401s on `/files` (fail-closed) |
 | Finalize cold-start retry | `npm run test:e2e:finalize-retry` | Blocks the first `/upload/presign/finalize` with a **502** → the client's auto-retry re-sends it → success screen, no chunked fallback. `FINALIZE_LOST_RESPONSE=1` goes further: the first finalize **completes server-side** (session consumed, uploads row created) while the browser gets the 502, so the retry must be answered by the backend's idempotent lost-response path (`uploads` row by `id == upload_id`) — the exact Render cold-start signature the live probe caught |
 | Embed speed budget | `npm run test:e2e:embed-speed` | Regression guard for the finalize-latency work: uploads through the real UI and asserts the **"Upload successful" screen (embed code + real magnet) appears within `EMBED_BUDGET_SECONDS` (default 20)**. The blocking VirusTotal scan adds ~6.5s to every fresh-file finalize (submit + 5s poll), so a clean run lands around ~15s UI-to-success; the budget catches severe regressions (old double-write/slow-seek finalize, broken finalize) without flaking on the intentional VT tax. Records the finalize-leg duration (`timings.finalizeMs`) as a diagnostic |
@@ -68,6 +68,7 @@ The full batch additionally runs on every push and on manual dispatch via the
 | `E2E_BASE_URL` | Base URL under test (default `https://www.torrentcdn.store`) |
 | `E2E_TOKEN` | Existing account token — skips registration **and** user cleanup |
 | `E2E_FILE` | Path to a pre-made file — skips ffmpeg synthesis |
+| `E2E_STORAGE_HOSTS` | Extra storage-host substrings (comma-separated) to add to the storage matcher. Needed when `cdn.torrentcdn.store` becomes the media host (see `helpers.mjs` `STORAGE_HOST_RE`) — without it the P2P suites would stop blocking the origin and silently pass without proving WebRTC |
 | `E2E_FILE_ID` | (embed suite) Existing file id — skips the API upload |
 | `E2E_FILE` | (p2p suite) The seeder reproduces the backend infohash, so a pre-made file must have been uploaded with the same bytes — prefer the default synthesis |
 | `FFMPEG_PATH` | ffmpeg binary path (default `ffmpeg`) |
@@ -103,8 +104,9 @@ ffmpeg itself.
   backend; running them directly against `www.torrentcdn.store` is the
   post-deploy verification tool — do it after any upload/player/auth change.
 - The upload suites use CDP network throttling so the progress bar is
-  observable; the fallback suite also blocks `*.supabase.co` to force the
-  chunked path.
+  observable (scaled up for large `E2E_FILE`s so a multi-10MB probe doesn't
+  take minutes); the fallback suite also blocks the storage provider's hosts
+  (R2 now) to force the chunked path.
 - `playwright` ships without a postinstall, so `npm ci` in CI/Vercel never
   downloads browsers — the ~170MB download only happens locally via the
   explicit `npx playwright install chromium`.

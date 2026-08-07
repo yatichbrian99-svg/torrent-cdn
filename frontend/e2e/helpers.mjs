@@ -24,6 +24,30 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const BASE = (process.env.E2E_BASE_URL || 'https://www.torrentcdn.store').replace(/\/+$/, '')
+
+// Storage-host matcher. The direct-to-storage PUT and the origin media streams
+// live on the storage provider's hosts — Cloudflare R2 now (the S3 endpoint
+// *.r2.cloudflarestorage.com for the browser PUT, and the public base
+// pub-*.r2.dev for media), Supabase before the R2 migration (*.supabase.co).
+// Suites that assert "bytes went direct to storage" or that BLOCK origin
+// streaming to force P2P must match ALL of these hosts, so they stay valid
+// whichever provider is live (and a rollback to Supabase is caught instead of
+// silently passing the wrong assertion).
+//
+// Forward-looking: when the production CDN domain (cdn.torrentcdn.store) goes
+// live and MINIO_PUBLIC_URL points there, media URLs stop matching the defaults
+// below and the P2P suites would silently stop proving P2P (origin NOT blocked
+// → false pass) while embed-playback would false-fail. Add the new host either
+// via E2E_STORAGE_HOSTS (comma-separated substrings, e.g. "cdn.torrentcdn.store")
+// or by editing the defaults — mirroring the probes' EXPECTED_STORAGE_PREFIX.
+const EXTRA_HOSTS = (process.env.E2E_STORAGE_HOSTS || '')
+  .split(',').map((s) => s.trim()).filter(Boolean)
+export const STORAGE_HOST_RE = new RegExp(
+  ['supabase\\.co', 'r2\\.cloudflarestorage\\.com', '\\.r2\\.dev', ...EXTRA_HOSTS.map((h) => h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))].join('|'),
+  'i',
+)
+export const isStorageUrl = (u) => STORAGE_HOST_RE.test(u)
+export const DIRECT_PUT_LABEL = 'storage direct'
 // API calls normally go to BASE (the same-origin Vercel proxy). Override with
 // E2E_API_URL to hit a different backend directly — used to validate a NEW
 // frontend build locally (E2E_BASE_URL=http://localhost:3000) against the live
@@ -132,6 +156,9 @@ export function generateMedia({ format = 'mp4', duration = 5, bitrateMbps } = {}
 export async function uploadViaApi(token, file, { filename } = {}) {
   const name = filename || file.name
   const content_type = name.endsWith('.webm') ? 'video/webm' : 'video/mp4'
+  // A pre-made E2E_FILE is just { path, name } — the size needs a stat.
+  // generateMedia always sets .size, so this is a no-op for synthesized files.
+  if (!file.size && file.path) file.size = fs.statSync(file.path).size
   const presign = await api('/upload/presign', {
     method: 'POST',
     token,

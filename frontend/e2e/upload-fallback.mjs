@@ -1,10 +1,10 @@
 /**
  * E2E: chunked fallback upload (Vercel proxy) when the direct Supabase PUT dies.
  *
- * Blocks every *.supabase.co request at the network layer, forcing the app's
- * resilience path: one transient retry of the direct PUT → "Connection lost —
- * retrying…" → chunked upload through /upload/session + /upload/chunk/* +
- * /upload/finalize. Verifies:
+ * Blocks every request to the storage provider (R2's S3 endpoint now, Supabase
+ * before the migration) at the network layer, forcing the app's resilience
+ * path: one transient retry of the direct PUT → "Connection lost — retrying…"
+ * → chunked upload through /upload/session + /upload/chunk/* + /upload/finalize. Verifies:
  *   - the retry label appears and the upload recovers on its own
  *   - progress animates across both chunks (with the 50% plateau at the
  *     chunk handoff)
@@ -24,6 +24,8 @@ import {
   attachDiagnostics,
   summarizeProgress,
   report,
+  isStorageUrl,
+  DIRECT_PUT_LABEL,
 } from './helpers.mjs'
 
 const failures = []
@@ -58,11 +60,17 @@ try {
     window.sessionStorage.setItem('torrent_cdn_token', tok)
   }, authToken)
 
-  // BLOCK every request to Supabase Storage → the direct PUT dies at the
-  // network layer, which must trigger the chunked fallback.
-  await context.route('**supabase.co**', (route) => {
-    out.apiCalls.push(`[BLOCKED] ${route.request().method()} <supabase direct>`)
-    return route.abort('failed')
+  // BLOCK every request to storage (R2's S3 endpoint now, Supabase before) →
+  // the direct PUT dies at the network layer, which must trigger the chunked
+  // fallback. The chunked path goes through the same-origin Vercel proxy, so it
+  // is untouched by this rule.
+  await context.route('**/*', (route) => {
+    const u = route.request().url()
+    if (isStorageUrl(u)) {
+      out.apiCalls.push(`[BLOCKED] ${route.request().method()} <${DIRECT_PUT_LABEL}>`)
+      return route.abort('failed')
+    }
+    return route.continue()
   })
 
   const page = await context.newPage()
@@ -89,7 +97,7 @@ try {
 
   // 3) Start the upload
   await page.setInputFiles('input[type="file"]', file.path)
-  out.steps.push('file selected, upload started (supabase PUTs are BLOCKED)')
+  out.steps.push('file selected, upload started (storage PUTs are BLOCKED)')
 
   // 4) Watch for the retry label, progress, then success
   let success = false
@@ -119,7 +127,7 @@ try {
     out.magnet = magnet
     out.fileId = embed
     out.realInfohash = !!magnet && /^magnet:\?xt=urn:btih:[0-9a-f]{40}/.test(magnet)
-    out.hasUploadAnother = bodyText.includes('Upload another file')
+    out.hasUploadAnother = bodyText.includes('Upload or import another file')
     out.filenameShown = bodyText.includes(file.name)
 
     if (!retrySeen) failures.push('"Connection lost — retrying…" label never appeared')
@@ -137,7 +145,7 @@ try {
     }
     // Blocked PUTs are expected to log console errors — anything else is a bug
     const unexpectedConsole = out.consoleErrors.filter(
-      (c) => !/supabase|ERR_FAILED|net::ERR/i.test(c),
+      (c) => !isStorageUrl(c) && !/ERR_FAILED|net::ERR/i.test(c),
     )
     if (unexpectedConsole.length) failures.push(`unexpected console errors: ${unexpectedConsole.join(' | ')}`)
     if (out.pageErrors.length) failures.push(`JS page errors: ${out.pageErrors.join(' | ')}`)
