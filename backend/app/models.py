@@ -15,6 +15,7 @@ MAX_TOKEN_LEN = 2048       # JWTs: verify (~200 chars) / reset (~200 chars) + he
 MAX_FILENAME_LEN = 255     # uploads.filename is VARCHAR(255)
 MAX_IDEMPOTENCY_KEY_LEN = 64
 MAX_REF_CODE_LEN = 20      # users.referral_code is VARCHAR(20)
+MAX_URL_LEN = 2048         # import-by-URL: a URL is a VARCHAR-free request field
 
 
 class UserInDB(BaseModel):
@@ -235,3 +236,14 @@ class UploadPresignResponse(BaseModel):
     content_type: str = ""
     expires_in: int = 0
     result: Optional[UploadResponse] = None
+
+
+class UploadImportRequest(BaseModel):
+    """Import a media file by URL: the server downloads a copy (SSRF-guarded),
+    runs the same validation/storage pipeline as every upload path, and
+    content-hash dedup applies — identical bytes store once regardless of
+    source. `filename` is optional; when absent it is derived from the URL path
+    or the response Content-Type."""
+    url: str = Field(max_length=MAX_URL_LEN)
+    filename: Optional[str] = Field(default=None, max_length=MAX_FILENAME_LEN)
+    idempotency_key: Optional[str] = Field(default=None, max_length=MAX_IDEMPOTENCY_KEY_LEN)
