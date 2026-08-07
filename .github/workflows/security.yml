@@ -351,6 +351,33 @@ jobs:
       - name: Run the API-key flow probe against production
         run: bash backend/scripts/api_key_audit_prod.sh
 
+  # ── Content-dedup + refcount live probe (scheduled production check) ──
+  # Verifies the storage dedup and refcount-aware deletions against the LIVE
+  # deployment: two throwaway accounts upload IDENTICAL bytes (unique per run),
+  # B's row must point at A's stored object, deleting A must NOT remove the
+  # shared bytes (B still references them and B's embed must resolve), and
+  # deleting B — the last reference — MUST remove the object from storage.
+  # Catches regressions the mocked unit suite can't: a broken dedup lookup, a
+  # refcount delete that drops bytes still in use, or the orphan sweep deleting
+  # dedup-referenced objects.
+  #
+  # Schedule + manual dispatch ONLY (NOT push/PR) — same reasoning as the
+  # other live probes: it WRITES to production (two throwaway uploads + two
+  # accounts), and per-push runs would burn the shared per-IP register/upload
+  # budgets. Chained after api-key-live (which chains after upload-live) so
+  # the three probes serialize instead of bursting the 10/hr-per-IP register
+  # and upload budgets from GitHub's shared runner IP pool.
+  dedup-live:
+    needs: [api-key-live]
+    if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Run the content-dedup + refcount probe against production
+        run: bash backend/scripts/dedup_audit_prod.sh
+
   # ── Upload (presigned) flow live probe (scheduled production check) ──
   # Exercises the PRIMARY upload path end-to-end against the LIVE deployment,
   # exactly as the browser drives it: register throwaway account → POST
