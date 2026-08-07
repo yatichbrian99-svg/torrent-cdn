@@ -98,6 +98,14 @@ def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
     monkeypatch.setattr(app.routes.billing, "get_db_pool", AsyncMock(return_value=mock_pool))
     monkeypatch.setattr(app.routes.analytics, "get_db_pool", AsyncMock(return_value=mock_pool))
     monkeypatch.setattr(app.routes.admin, "get_db_pool", AsyncMock(return_value=mock_pool))
+    # verification + notifications were NOT patched here — a module imported once
+    # (app.main import) keeps the FIRST test's patched binding forever, so any
+    # test exercising /auth/resend-verification or /notifications would read
+    # the stale first-test mock_conn. Patch them like the rest.
+    import app.routes.verification
+    import app.routes.notifications
+    monkeypatch.setattr(app.routes.verification, "get_db_pool", AsyncMock(return_value=mock_pool))
+    monkeypatch.setattr(app.routes.notifications, "get_db_pool", AsyncMock(return_value=mock_pool))
 
     # Patch Redis in route modules that import it
     monkeypatch.setattr(app.routes.auth, "get_redis", AsyncMock(return_value=mock_redis))

@@ -14,6 +14,9 @@
  * Env overrides:
  *   E2E_BASE_URL  base URL under test (default https://www.torrentcdn.store)
  *   E2E_TOKEN     existing account token — skips registration AND user cleanup
+ *   E2E_ADMIN_TOKEN  admin token used to verify a freshly registered throwaway
+ *                    account (POST /admin/users/{id}/verify) when email
+ *                    verification is enforced in production
  *   E2E_FILE      path to a pre-made file — skips ffmpeg synthesis
  *   E2E_FILE_ID   (embed suite) existing file id — skips API upload
  *   FFMPEG_PATH   ffmpeg binary (default `ffmpeg`)
@@ -80,7 +83,37 @@ export async function api(pathname, { method = 'GET', token, body } = {}) {
   return { ok: res.ok, status: res.status, data }
 }
 
-/** Register a throwaway account; returns { email, token }. */
+/**
+ * Decode the `sub` (user id) claim from an access-token JWT payload.
+ * Deliberately NO signature verification — this only extracts the id needed
+ * to address the admin-verify endpoint; the admin call itself authenticates
+ * with E2E_ADMIN_TOKEN. Base64url payload segment; never throws.
+ */
+export function jwtSub(token) {
+  try {
+    const payload = token.split('.')[1]
+    const json = Buffer.from(payload, 'base64url').toString('utf8')
+    return JSON.parse(json).sub || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Register a throwaway account; returns { email, token }.
+ *
+ * Production now restricts a register-issued token for an UNVERIFIED account
+ * to the verification endpoints (the session gate). So a freshly registered
+ * account can't upload until its email is verified. Two paths make the suite
+ * work anyway:
+ *   - No email service configured → register auto-verifies, token works.
+ *   - Email service configured → the account must be admin-verified. When
+ *     E2E_ADMIN_TOKEN (an admin user's token) is set, this helper verifies
+ *     the throwaway account via POST /admin/users/{id}/verify so the suites
+ *     can proceed. Without it and with email enforced, the first protected
+ *     call will 403 — pass E2E_ADMIN_TOKEN or use E2E_TOKEN (shared verified
+ *     account, which skips registration entirely).
+ */
 export async function registerUser(prefix = 'e2e') {
   const email = `${prefix}-${Date.now()}@example.com`
   const { ok, status, data } = await api('/auth/register', {
@@ -90,7 +123,23 @@ export async function registerUser(prefix = 'e2e') {
   if (!ok || !data.access_token) {
     throw new Error(`register failed (${status}): ${JSON.stringify(data).slice(0, 300)}`)
   }
-  return { email, token: data.access_token }
+  const token = data.access_token
+  const adminToken = process.env.E2E_ADMIN_TOKEN
+  const userId = jwtSub(token)
+  if (adminToken && userId) {
+    const v = await api(`/admin/users/${userId}/verify`, { method: 'POST', token: adminToken })
+    if (!v.ok) {
+      throw new Error(`admin-verify failed (${v.status}): ${JSON.stringify(v.data).slice(0, 300)}`)
+    }
+    const detail = v.data?.detail || ''
+    if (!/verified/i.test(detail)) {
+      throw new Error(`admin-verify unexpected response: ${detail.slice(0, 200)}`)
+    }
+  } else if (!adminToken) {
+    // No admin token: warn so a failing suite points at the config, not the gate.
+    console.warn(`[registerUser] no E2E_ADMIN_TOKEN set — if email verification is enforced, ${prefix} suite will 403 on protected calls. Use E2E_TOKEN or E2E_ADMIN_TOKEN.`)
+  }
+  return { email, token }
 }
 
 /** Best-effort cleanup: delete the uploaded file and/or the throwaway user.
