@@ -28,6 +28,18 @@ def _get_resend() -> Optional[any]:
         return None
 
 
+def is_email_service_configured() -> bool:
+    """True when a usable Resend API key is present, regardless of whether a
+    specific send succeeds.
+
+    Auto-verify fallbacks must key off THIS, not off a single send result: a
+    configured-but-flaky provider must never silently mark accounts verified
+    (that would reopen the unverified-access hole for the price of an email
+    outage). Only a genuinely absent provider — where verification is
+    impossible — may auto-verify."""
+    return _get_resend() is not None
+
+
 def create_verification_token(user_id: UUID) -> str:
     """Create a JWT token for email verification that expires in 24 hours.
     Uses a separate secret from auth tokens to prevent cross-use attacks.

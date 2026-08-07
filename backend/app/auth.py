@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import jwt
 from jwt.exceptions import InvalidTokenError
@@ -176,6 +176,52 @@ async def get_user_security_stamp(user_id) -> Optional[datetime]:
     return row["security_stamp"] if row else None
 
 
+# Endpoints an UNVERIFIED session may still reach when email verification is
+# required: completing verification itself and inspecting its own identity +
+# verification state (the dashboard's "verify your email" banner flow). Every
+# other endpoint requires a verified email — a freshly registered account's
+# token must not unlock uploads, files, billing, API keys, or admin surfaces
+# until the owner proves the inbox. (POST /auth/verify-email needs no session
+# at all — it authenticates with the emailed JWT.)
+_UNVERIFIED_ALLOWLIST = {
+    "/auth/verification-status",
+    "/auth/resend-verification",
+    "/auth/me",
+}
+
+
+async def _enforce_email_verified(request: Request, user_id: UUID) -> None:
+    """403 when the session owner's email is unverified unless the endpoint is
+    in the verification allowlist.
+
+    Mirrors the login gate (``settings.email_verification_required and not
+    verified``) at the session layer, so a register-issued token for an
+    unverified account can no longer reach anything but the verification flow.
+    No-op when the flag is off (dev/test), so existing behaviour is unchanged.
+    A missing user row (deleted account) fails closed with 401."""
+    _settings = get_settings()
+    if not _settings.email_verification_required:
+        return
+    if request.url.path in _UNVERIFIED_ALLOWLIST:
+        return
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT verified FROM users WHERE id = $1", str(user_id)
+        )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if not row["verified"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email not verified. Please check your inbox or request a new verification link.",
+        )
+
+
 async def _token_revoked_by_password_change(payload: dict) -> bool:
     """Return True when the token was issued BEFORE a password/privilege change.
 
@@ -222,6 +268,7 @@ async def _token_revoked_by_password_change(payload: dict) -> bool:
 
 
 async def get_current_user_id(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> UUID:
     """Dependency that extracts and validates the user ID from a Bearer credential.
@@ -229,7 +276,12 @@ async def get_current_user_id(
     Accepts either a JWT (validated signature/exp, with password-change
     revocation via the pw_change marker) or a tcdn_ API key (validated against
     the stored hash). API keys intentionally survive password changes — they
-    are long-lived credentials and are revoked explicitly from the dashboard."""
+    are long-lived credentials and are revoked explicitly from the dashboard.
+
+    When email verification is required, unverified sessions are restricted to
+    the verification allowlist (see _enforce_email_verified) — closing the
+    register-issued-token hole where a brand-new account got full access
+    before proving its inbox."""
     token = credentials.credentials
     if token.startswith(API_KEY_PREFIX):
         user_id = await _resolve_api_key_user(token)
@@ -239,6 +291,7 @@ async def get_current_user_id(
                 detail="Invalid or revoked API key",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+        await _enforce_email_verified(request, user_id)
         return user_id
     payload = decode_access_token(token)
     if payload is None or "sub" not in payload:
@@ -253,7 +306,9 @@ async def get_current_user_id(
             detail="Session invalidated. Please log in again.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return UUID(payload["sub"])
+    user_id = UUID(payload["sub"])
+    await _enforce_email_verified(request, user_id)
+    return user_id
 
 
 async def get_optional_user_id(

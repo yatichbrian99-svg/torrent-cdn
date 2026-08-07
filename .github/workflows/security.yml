@@ -173,9 +173,11 @@ jobs:
   #   - api-key-ui + finalize-retry (dashboard key lifecycle; cold-start
   #     finalize 502 → client re-sends → success)
   #   - login-flow + visual-pass (real auth form surfacing, page rendering)
-  # Each suite deletes its own test file in cleanup; one SHARED throwaway
-  # account is registered up front (see step below) and deleted at the end.
-  # Requires Playwright Chromium + ffmpeg (installed below).
+  # Each suite deletes its own test file in cleanup; the batch logs in a
+  # SHARED VERIFIED account (E2E_EMAIL/E2E_PASSWORD secrets — see the step
+  # below) because production now restricts unverified register tokens to the
+  # verification endpoints. Requires Playwright Chromium + ffmpeg (installed
+  # below).
   # NOTE: production rate limits are per-IP (10 uploads/hr, 5 req/10s); GitHub
   # runners egress from a shared Azure IP pool, so rare concurrent runs could
   # 429 — the batch paces its calls well under the limits per run. If the
@@ -223,20 +225,31 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Register ONE throwaway account shared by the whole batch. run-all
-      # registers per suite when no token is given, and on a manual dispatch
-      # api-key-live + upload-live register from the same shared runner IPs —
-      # 9 suite registers + 2 probe registers would blow the live 10/hr/IP
-      # register budget (the probes retry 429s; the suites' registerUser does
-      # not). A shared token keeps the batch to a single registration.
-      - name: Register shared E2E account
+      # Login the SHARED VERIFIED E2E account used by the whole batch. Email
+      # verification is enforced in production (a register-issued token for an
+      # unverified account is restricted to the verification endpoints), so the
+      # batch needs a real verified account: E2E_EMAIL + E2E_PASSWORD are repo
+      # secrets for an account whose email was verified ONCE (click the link in
+      # the inbox; do NOT enable MFA on it — login must return a plain token).
+      # run-all registers per suite when no token is given; a shared token keeps
+      # the batch to a single login and avoids the live 10/hr/IP register
+      # budget entirely.
+      - name: Login shared verified E2E account
         run: |
           set -euo pipefail
-          TOKEN=$(curl -sf --max-time 60 -X POST https://www.torrentcdn.store/auth/register \
-            -H 'Content-Type: application/json' \
-            -d "{\"email\":\"ci-e2e-$(date +%s)@example.com\",\"password\":\"testpass123\",\"terms_accepted\":true}" \
-            | python3 -c 'import sys,json; print(json.load(sys.stdin).get("access_token",""))')
-          [ -n "$TOKEN" ] || { echo "shared account register failed" >&2; exit 1; }
+          : "${E2E_EMAIL:?set E2E_EMAIL secret — a VERIFIED account's email}"
+          : "${E2E_PASSWORD:?set E2E_PASSWORD secret}"
+          TOKEN=""
+          for i in 1 2 3; do
+            TOKEN=$(curl -sf --max-time 60 -X POST https://www.torrentcdn.store/auth/login \
+              -H 'Content-Type: application/json' \
+              -d "{\"email\":\"$E2E_EMAIL\",\"password\":\"$E2E_PASSWORD\"}" \
+              | python3 -c 'import sys,json; print(json.load(sys.stdin).get("access_token",""))' \
+              || true)
+            [ -n "$TOKEN" ] && break
+            sleep 5
+          done
+          [ -n "$TOKEN" ] || { echo "shared account login failed — is E2E_EMAIL verified (no MFA)?" >&2; exit 1; }
           echo "E2E_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
       # Everything in ONE step so the local stack lives for the batch: next
@@ -279,16 +292,6 @@ jobs:
           echo "===== /tmp/proxy.log ====="
           tail -40 /tmp/proxy.log 2>/dev/null || true
 
-      # Delete the shared throwaway account even when a suite failed (each
-      # suite deletes its own test files; the shared account itself is only
-      # removed here so CI never accumulates test users).
-      - name: Delete shared E2E account
-        if: always()
-        run: |
-          if [ -n "${E2E_TOKEN:-}" ]; then
-            curl -sf --max-time 60 -X DELETE https://www.torrentcdn.store/auth/me \
-              -H "Authorization: Bearer $E2E_TOKEN" > /dev/null || true
-          fi
 
   # ── Storage bucket publicity gate (credential-free live check) ──
   # The app serves every file through the bucket's public object URL; a private
@@ -345,6 +348,12 @@ jobs:
     if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # Admin token for the probes' email-verification step (they register
+      # throwaway accounts, which production restricts until verified — see
+      # verify_account() in each script). Get one from an admin account's
+      # login; store as a repo secret named E2E_ADMIN_TOKEN.
+      E2E_ADMIN_TOKEN: ${{ secrets.E2E_ADMIN_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -372,6 +381,8 @@ jobs:
     if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      E2E_ADMIN_TOKEN: ${{ secrets.E2E_ADMIN_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -401,6 +412,8 @@ jobs:
     if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      E2E_ADMIN_TOKEN: ${{ secrets.E2E_ADMIN_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -430,6 +443,8 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      E2E_ADMIN_TOKEN: ${{ secrets.E2E_ADMIN_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7

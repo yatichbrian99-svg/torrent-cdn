@@ -146,6 +146,38 @@ post_proxy() {
   echo "$body"
 }
 
+# verify_account <jwt> — make the throwaway account's email-verification state
+# usable for the rest of the probe. See upload_audit_prod.sh for the full
+# rationale: with no email service register auto-verifies; with email enforced
+# the account is verified via POST /admin/users/{id}/verify using the
+# E2E_ADMIN_TOKEN secret. Aborts (exit 2) if the account can't be verified —
+# every subsequent step would otherwise 403 on the session gate.
+verify_account() {
+  local jwt="$1" status uid ver
+  status=$(curl -s -m 30 "$FE/auth/verification-status" -H "Authorization: Bearer $jwt" 2>/dev/null)
+  if echo "$status" | grep -q '"verified":true'; then
+    check 0 "Email verification: auto-verified (no email service)"
+    return 0
+  fi
+  if [ -z "${E2E_ADMIN_TOKEN:-}" ]; then
+    check 1 "Email verification required but E2E_ADMIN_TOKEN not set — cannot verify throwaway account"
+    return 1
+  fi
+  uid=$(echo "$jwt" | cut -d. -f2 | python3 -c "import sys,base64,json; p=sys.stdin.read().strip(); p+='='*(-len(p)%4); print(json.loads(base64.urlsafe_b64decode(p)).get('sub',''))" 2>/dev/null)
+  if [ -z "$uid" ]; then
+    check 1 "Could not decode user id from register JWT"
+    return 1
+  fi
+  ver=$(curl -s -m 30 -X POST "$FE/admin/users/$uid/verify" \
+    -H "Content-Type: application/json" -H "Authorization: Bearer $E2E_ADMIN_TOKEN" -d '{}' 2>/dev/null)
+  if echo "$ver" | grep -qE 'verified successfully|already verified'; then
+    check 0 "Email verification: admin-verified"
+    return 0
+  fi
+  check 1 "Admin-verify failed: $(echo "$ver" | head -c 200)"
+  return 1
+}
+
 # ── 1. REGISTER THROWAWAY ACCOUNT ──
 echo ""
 echo "── 1. REGISTRATION ──"
@@ -162,6 +194,15 @@ else
   cleanup_account
   echo "❌ Aborting — the remaining steps need a registered account." >&2
   sum "**🔴 ABORTED** — registration failed; remaining steps skipped."
+  exit 2
+fi
+
+# Email-verify the throwaway account (see verify_account above). Abort on
+# failure — the remaining steps are all verification-gated.
+if ! verify_account "$JWT"; then
+  cleanup_account
+  echo "❌ Aborting — the remaining steps need a verified account." >&2
+  sum "**🔴 ABORTED** — verification failed; remaining steps skipped."
   exit 2
 fi
 

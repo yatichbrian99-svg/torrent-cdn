@@ -5,7 +5,11 @@ from uuid import UUID
 from ..database import get_db_pool
 from ..auth import get_current_user_id
 from ..models import EmailVerifyRequest
-from ..email_service import decode_verification_token, send_verification_email
+from ..email_service import (
+    decode_verification_token,
+    is_email_service_configured,
+    send_verification_email,
+)
 
 # Simple in-memory rate limiting for resend (Redis not required)
 # Bounded: entries older than the 60s cooldown window are dropped on every
@@ -80,7 +84,20 @@ async def resend_verification(user_id: UUID = Depends(get_current_user_id)):
     sent = await send_verification_email(user["email"], user_id)
     if sent:
         return {"detail": "Verification email sent"}
-    return {"detail": "Email verified automatically (email service not configured)"}
+    # No email provider at all → verification is impossible; mark the account
+    # verified so it isn't locked out forever (the session gate restricts
+    # unverified sessions to this allowlist). Keyed on the provider being
+    # ABSENT, not on a flaky send: a configured-but-failing provider keeps the
+    # user unverified and the gate engaged. (Previously this response claimed
+    # auto-verification without actually setting the flag — the message lied.)
+    if not is_email_service_configured():
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET verified = TRUE WHERE id = $1", user_id
+            )
+        return {"detail": "Email verified automatically (email service not configured)"}
+    return {"detail": "Verification email could not be sent — please try again later."}
 
 
 @router.get("/verification-status")

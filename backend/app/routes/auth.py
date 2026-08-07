@@ -19,7 +19,12 @@ from ..auth import (
     get_current_user_id,
     revoke_user_sessions,
 )
-from ..email_service import send_verification_email, send_password_reset_email, decode_password_reset_token
+from ..email_service import (
+    is_email_service_configured,
+    send_verification_email,
+    send_password_reset_email,
+    decode_password_reset_token,
+)
 from ..mfa import (
     backup_code_matches,
     create_mfa_token,
@@ -359,9 +364,22 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks, reques
         token = create_access_token({"sub": str(user["id"])})
 
         # Send verification email after successful registration
-        # Wrap in try/except so registration succeeds even if email delivery fails
+        # Wrap in try/except so registration succeeds even if email delivery fails.
+        # If no email service is configured AT ALL (impossible to verify), the
+        # account is marked verified immediately — otherwise the session gate
+        # would lock every new user out permanently (they can never receive the
+        # link). This is keyed on the provider being ABSENT, not on a flaky
+        # send: a configured-but-failing provider keeps the user unverified
+        # (they can retry via resend) and the strict gate stays engaged.
         try:
-            await send_verification_email(data.email, user["id"])
+            sent = await send_verification_email(data.email, user["id"])
+            if not sent and not is_email_service_configured():
+                await conn.execute(
+                    "UPDATE users SET verified = TRUE WHERE id = $1", user["id"]
+                )
+                logger.info(
+                    "No email service configured — auto-verified new user %s", user["id"]
+                )
         except Exception as e:
             logger.warning("Verification email failed after registration: %s", e)
 

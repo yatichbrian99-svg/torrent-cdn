@@ -134,6 +134,45 @@ post_proxy() {
   echo "$body"
 }
 
+# verify_account <jwt> — make the throwaway account's email-verification state
+# usable for the rest of the probe.
+#
+# Production restricts a register-issued token for an UNVERIFIED account to the
+# verification endpoints (the session gate), so a fresh account can't upload
+# until verified. Two paths resolve this:
+#   1. No email service configured → register auto-verifies; verification-status
+#      returns true and there is nothing to do.
+#   2. Email service configured → the probe verifies the account through the
+#      admin endpoint (POST /admin/users/{id}/verify) using E2E_ADMIN_TOKEN
+#      (an ADMIN user's Bearer token, repo secret). Without a valid admin token
+#      the probe aborts (exit 2): every subsequent step would 403 and the
+#      cascade would be noise instead of a verdict.
+verify_account() {
+  local jwt="$1" status uid ver
+  status=$(curl -s -m 30 "$FE/auth/verification-status" -H "Authorization: Bearer $jwt" 2>/dev/null)
+  if echo "$status" | grep -q '"verified":true'; then
+    check 0 "Email verification: auto-verified (no email service)"
+    return 0
+  fi
+  if [ -z "${E2E_ADMIN_TOKEN:-}" ]; then
+    check 1 "Email verification required but E2E_ADMIN_TOKEN not set — cannot verify throwaway account"
+    return 1
+  fi
+  uid=$(echo "$jwt" | cut -d. -f2 | python3 -c "import sys,base64,json; p=sys.stdin.read().strip(); p+='='*(-len(p)%4); print(json.loads(base64.urlsafe_b64decode(p)).get('sub',''))" 2>/dev/null)
+  if [ -z "$uid" ]; then
+    check 1 "Could not decode user id from register JWT"
+    return 1
+  fi
+  ver=$(curl -s -m 30 -X POST "$FE/admin/users/$uid/verify" \
+    -H "Content-Type: application/json" -H "Authorization: Bearer $E2E_ADMIN_TOKEN" -d '{}' 2>/dev/null)
+  if echo "$ver" | grep -qE 'verified successfully|already verified'; then
+    check 0 "Email verification: admin-verified"
+    return 0
+  fi
+  check 1 "Admin-verify failed: $(echo "$ver" | head -c 200)"
+  return 1
+}
+
 # ── 1. REGISTER THROWAWAY ACCOUNT ──
 echo ""
 echo "── 1. REGISTRATION ──"
@@ -148,6 +187,14 @@ else
   check 1 "Registration failed (no access_token)"
   cleanup_all
   echo "❌ Aborting — the remaining steps need a registered account." >&2
+  exit 2
+fi
+
+# Email-verify the throwaway account (see verify_account above). Abort on
+# failure — the remaining steps are all verification-gated.
+if ! verify_account "$JWT"; then
+  cleanup_all
+  echo "❌ Aborting — the remaining steps need a verified account." >&2
   exit 2
 fi
 
