@@ -193,6 +193,12 @@ jobs:
     # (run-all.mjs caps each suite at 10 min), so 60 minutes keeps the E2E gate
     # without letting a hung suite run forever.
     timeout-minutes: 60
+    env:
+      # Repo secrets are NOT auto-injected — each job must map the ones it
+      # needs. The login step below reads these two shell vars; without this
+      # mapping the ${E2E_EMAIL:?...} fail-closed check aborts the job.
+      E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
+      E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
     defaults:
       run:
         working-directory: frontend
