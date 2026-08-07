@@ -37,25 +37,39 @@ try {
   const page = await context.newPage()
   attachDiagnostics(page, out)
 
-  const check = async (name, pathname, keyText) => {
+  // Retry transient navigation failures once (bounded). Long-lived headless
+  // Chromium under CI load intermittently aborts a goto (net::ERR_ABORTED) or
+  // races the client-side auth redirect ("interrupted by another navigation" —
+  // seen on /dashboard). A real missing feature fails both attempts with the
+  // same timeout; a one-off abort passes on the retry, mirroring how
+  // login-flow waits out its async race instead of asserting immediately.
+  const check = async (name, pathname, keyText, retries = 1) => {
     const entry = { name, url: `${BASE}${pathname}` }
-    try {
-      await page.goto(entry.url, { waitUntil: 'domcontentloaded', timeout: 60000 })
-      if (keyText) {
-        await page.waitForSelector(`text=${keyText}`, { timeout: 30000 })
-        entry.keyTextFound = true
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await page.goto(entry.url, { waitUntil: 'domcontentloaded', timeout: 60000 })
+        if (keyText) {
+          await page.waitForSelector(`text=${keyText}`, { timeout: 30000 })
+          entry.keyTextFound = true
+        }
+        await page.waitForTimeout(1500) // let late hydration/analytics settle
+        entry.screenshot = path.join(ARTIFACTS_DIR, `visual-${name}.png`)
+        await page.screenshot({ path: entry.screenshot, fullPage: true })
+        out.pages.push(entry)
+        return entry
+      } catch (e) {
+        const msg = String(e.message)
+        if (attempt < retries && /net::ERR_|interrupted by another navigation/i.test(msg)) {
+          entry.error = `${msg.split('\n')[0].slice(0, 120)} (retrying)`
+          await page.waitForTimeout(1500)
+          continue
+        }
+        entry.keyTextFound = false
+        entry.error = msg.split('\n')[0].slice(0, 160)
+        failures.push(`${name}: key content "${keyText}" never rendered (${entry.error})`)
+        out.pages.push(entry)
+        return entry
       }
-      await page.waitForTimeout(1500) // let late hydration/analytics settle
-      entry.screenshot = path.join(ARTIFACTS_DIR, `visual-${name}.png`)
-      await page.screenshot({ path: entry.screenshot, fullPage: true })
-      out.pages.push(entry)
-      return entry
-    } catch (e) {
-      entry.keyTextFound = false
-      entry.error = String(e.message).split('\n')[0].slice(0, 160)
-      failures.push(`${name}: key content "${keyText}" never rendered (${entry.error})`)
-      out.pages.push(entry)
-      return entry
     }
   }
 
