@@ -19,17 +19,16 @@ describe('parseMagnet', () => {
   it('extracts the dn name (the torrent name the backend used)', () => {
     // Backend magnet format: magnet:?xt=urn:btih:<hash>&dn=<safe_filename>&tr=...
     const magnet =
-      'magnet:?xt=urn:btih:040dfc1fa956b96eb875babb156b7677f18059ca&dn=My_Video_Clip.mp4&tr=wss%3A%2F%2Ftracker.webtorrent.dev&tr=wss%3A%2F%2Ftracker.btorrent.xyz'
+      'magnet:?xt=urn:btih:040dfc1fa956b96eb875babb156b7677f18059ca&dn=My_Video_Clip.mp4&tr=wss%3A%2F%2Ftracker.webtorrent.dev&tr=wss%3A%2F%2Ftracker.openwebtorrent.com'
     expect(parseMagnet(magnet).name).toBe('My_Video_Clip.mp4')
   })
 
   it('extracts all tr= trackers', () => {
     const magnet =
-      'magnet:?xt=urn:btih:040dfc1fa956b96eb875babb156b7677f18059ca&dn=x.mp4&tr=wss%3A%2F%2Ftracker.webtorrent.dev&tr=wss%3A%2F%2Ftracker.openwebtorrent.com&tr=wss%3A%2F%2Ftracker.btorrent.xyz'
+      'magnet:?xt=urn:btih:040dfc1fa956b96eb875babb156b7677f18059ca&dn=x.mp4&tr=wss%3A%2F%2Ftracker.webtorrent.dev&tr=wss%3A%2F%2Ftracker.openwebtorrent.com'
     expect(parseMagnet(magnet).trackers).toEqual([
       'wss://tracker.webtorrent.dev',
       'wss://tracker.openwebtorrent.com',
-      'wss://tracker.btorrent.xyz',
     ])
   })
 

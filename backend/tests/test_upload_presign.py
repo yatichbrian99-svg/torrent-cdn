@@ -412,7 +412,6 @@ class TestTorrentGeneration:
         assert m, f"magnet malformed: {magnet}"
         assert "wss%3A%2F%2Ftracker.webtorrent.dev" in magnet
         assert "wss%3A%2F%2Ftracker.openwebtorrent.com" in magnet
-        assert "wss%3A%2F%2Ftracker.btorrent.xyz" in magnet
 
         # The infohash is REPRODUCIBLE from the file bytes + name (what a browser
         # seeder does with create-torrent). The old mkstemp temp-prefix naming

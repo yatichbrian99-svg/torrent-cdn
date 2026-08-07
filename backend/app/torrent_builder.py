@@ -23,15 +23,17 @@ find each other. The recipe is pinned by
 import hashlib
 import urllib.parse
 
-# Public WebTorrent WSS trackers baked into every magnet. fastcast.nz is
-# defunct (TCP connects fail) — this trio is the canonical, currently-live set.
-# The magnet MUST carry them as tr= params: webtorrent's client has NO default
-# tracker list and only announces to the magnet's `tr`, so without them the
-# embed player could never discover peers and P2P would silently never engage.
+# Public WebTorrent WSS trackers baked into every magnet. fastcast.nz and
+# tracker.btorrent.xyz are dead/unreliable (TCP connects fail / live WS 500s —
+# the embed suite kept logging btorrent's WebSocket 500 while peers still
+# connected fine through the other two), so this pair is the canonical,
+# currently-live set. The magnet MUST carry them as tr= params: webtorrent's
+# client has NO default tracker list and only announces to the magnet's `tr`,
+# so without them the embed player could never discover peers and P2P would
+# silently never engage.
 PUBLIC_TRACKERS = [
     "wss://tracker.webtorrent.dev",
     "wss://tracker.openwebtorrent.com",
-    "wss://tracker.btorrent.xyz",
 ]
 
 
