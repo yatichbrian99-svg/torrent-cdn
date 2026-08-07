@@ -32,6 +32,7 @@ import {
   cleanup,
   generateMedia,
   attachDiagnostics,
+  waitForUploadPageHydration,
   report,
   isStorageUrl,
   DIRECT_PUT_LABEL,
@@ -103,14 +104,13 @@ try {
 
   // 1) Load the upload page while logged in. The file input exists in the SSR
   //    HTML before React hydrates, so setInputFiles fired on a not-yet-hydrated
-  //    input dispatches no onChange (the upload silently never starts). Wait
-  //    for a CLIENT-ONLY signal — the logged-in navbar's "Logout" (sessionStorage
-  //    seeded by addInitScript is only read by client code) — before touching
-  //    the input, then a short settle for the handler to attach.
+  //    input dispatches no onChange (the upload silently never starts).
+  //    waitForUploadPageHydration waits for a CLIENT-ONLY signal — the
+  //    logged-in navbar's "Logout" — before touching the input, then settles
+  //    so the handler can attach. (Shared with selectFileForUpload so the
+  //    hydration logic can't drift between suites.)
   await page.goto(`${BASE}/dashboard/upload`, { waitUntil: 'domcontentloaded', timeout: 60000 })
-  await page.waitForSelector('input[type="file"]', { timeout: 30000 })
-  await page.waitForSelector('text=Logout', { timeout: 15000 })
-  await page.waitForTimeout(800)
+  await waitForUploadPageHydration(page)
   out.steps.push(`upload page loaded + hydrated: ${page.url()}`)
 
   // 2) Start the upload and time EVERYTHING from here to the success screen.

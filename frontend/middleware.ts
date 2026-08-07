@@ -49,16 +49,17 @@ export function middleware(request: NextRequest) {
     // governed by img-src/media-src (not connect-src). No bare https: — keeps
     // the blast radius of any script injection minimal.
     // These MUST match the tr= trackers the backend bakes into every magnet
-    // (routes/upload.py `torrent.announce_urls`) — the embed player announces
+    // (torrent_builder.PUBLIC_TRACKERS) — the embed player announces
     // to exactly that list, and a tracker not in connect-src is silently
-    // blocked by CSP (P2P then never connects). fastcast.nz was dropped: it is
-    // defunct. (A stale NEXT_PUBLIC_API_URL pointing at a direct backend host
-    // like https://torrent-cdn.onrender.com is NO LONGER allow-listed in
-    // production — see the apiOrigin block below; lib/api.ts ignores the env
-    // var in production, so the origin never needs to be in this list.)
+    // blocked by CSP (P2P then never connects). fastcast.nz was dropped (it is
+    // defunct) and tracker.btorrent.xyz was dropped (live WS 500s; peers still
+    // connect via the other two). (A stale NEXT_PUBLIC_API_URL pointing at a
+    // direct backend host like https://torrent-cdn.onrender.com is NO LONGER
+    // allow-listed in production — see the apiOrigin block below; lib/api.ts
+    // ignores the env var in production, so the origin never needs to be in
+    // this list.)
     'wss://tracker.webtorrent.dev',
     'wss://tracker.openwebtorrent.com',
-    'wss://tracker.btorrent.xyz',
     // File uploads go STRAIGHT to Supabase Storage via a presigned PUT (never
     // through the same-origin Vercel proxy, whose ~4.5MB body cap rejects real
     // videos). The presigned URL lives on the storage host (*.supabase.co) and

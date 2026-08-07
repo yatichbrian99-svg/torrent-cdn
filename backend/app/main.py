@@ -198,7 +198,6 @@ class CSPMiddleware(BaseHTTPMiddleware):
             "connect-src 'self' "
             "wss://tracker.webtorrent.dev "
             "wss://tracker.openwebtorrent.com "
-            "wss://tracker.btorrent.xyz "
             f"{minio_src}; "
             "frame-src 'self'; "
             "worker-src 'self' blob:; "

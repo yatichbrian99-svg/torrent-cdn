@@ -49,7 +49,11 @@ try {
       try {
         await page.goto(entry.url, { waitUntil: 'domcontentloaded', timeout: 60000 })
         if (keyText) {
-          await page.waitForSelector(`text=${keyText}`, { timeout: 30000 })
+          // keyText is normally plain text; when it starts with 'text=' it's
+          // already a Playwright selector (e.g. a regex alternation like
+          // 'text=/A|B/' for the dashboard's two valid rendered states).
+          const selector = keyText.startsWith('text=') ? keyText : `text=${keyText}`
+          await page.waitForSelector(selector, { timeout: 30000 })
           entry.keyTextFound = true
         }
         await page.waitForTimeout(1500) // let late hydration/analytics settle
@@ -77,11 +81,16 @@ try {
   const landing = await check('landing', '/', 'How it works')
   await check('docs', '/docs', 'API Reference')
 
-  // Logged-in dashboard (seeded token) — the navbar must flip to logged-in too
-  const dash = await check('dashboard', '/dashboard', 'Generate API key')
+  // Logged-in dashboard (seeded token) — the navbar must flip to logged-in
+  // too. The dashboard renders in either key state: "Generate API key" (no
+  // key yet) or "Current key:" (a key exists, e.g. when E2E_TOKEN is a shared
+  // account). visual-pass only asserts the dashboard RENDERS, so accept both
+  // and record which one appeared for diagnostics.
+  const dash = await check('dashboard', '/dashboard', 'text=/Generate API key|Current key:/')
   if (!dash.error) {
     const loggedInNav = (await page.locator('nav >> text=Logout').count()) > 0
     dash.navbarLoggedIn = loggedInNav
+    dash.keyState = (await page.locator('text=Current key:').count()) > 0 ? 'existing' : 'none'
     if (!loggedInNav) failures.push('dashboard: navbar did not show the logged-in state')
   }
 

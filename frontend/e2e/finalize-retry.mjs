@@ -34,6 +34,7 @@ import {
   cleanup,
   generateMedia,
   attachDiagnostics,
+  selectFileForUpload,
   report,
   isStorageUrl,
   DIRECT_PUT_LABEL,
@@ -105,11 +106,13 @@ try {
 
   // 1) Upload page while logged in
   await page.goto(`${BASE}/dashboard/upload`, { waitUntil: 'domcontentloaded', timeout: 60000 })
-  await page.waitForSelector('input[type="file"]', { timeout: 30000 })
   out.steps.push(`upload page loaded: ${page.url()}`)
 
-  // 2) Start the upload
-  await page.setInputFiles('input[type="file"]', file.path)
+  // 2) Start the upload. selectFileForUpload waits for React hydration before
+  //    touching the input and confirms the presign call fired (re-selecting
+  //    once if the picker raced the unhydrated input) — the "success screen
+  //    never appeared" flake caught at the source, not as a 3-minute timeout.
+  await selectFileForUpload(page, file.path, () => out.apiCalls.some((c) => c.includes('POST /upload/presign')))
   out.steps.push('file selected, upload started')
 
   // 3) Watch for the retry UI text, then the success screen

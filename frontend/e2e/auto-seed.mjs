@@ -33,6 +33,7 @@ import {
   cleanup,
   generateMedia,
   attachDiagnostics,
+  selectFileForUpload,
   report,
   isStorageUrl,
 } from './helpers.mjs'
@@ -41,6 +42,7 @@ const failures = []
 const out = {
   suite: 'auto-seed',
   steps: [],
+  apiCalls: [],
   consoleErrors: [],
   pageErrors: [],
   failedRequests: [],
@@ -70,10 +72,17 @@ try {
   }, authToken)
   const upPage = await upCtx.newPage()
   attachDiagnostics(upPage, out)
+  upPage.on('response', (r) => {
+    const u = r.url()
+    if (u.includes('/upload/')) out.apiCalls.push(`[${r.status()}] ${r.request().method()} ${u.replace(BASE, '')}`)
+  })
 
   await upPage.goto(`${BASE}/dashboard/upload`, { waitUntil: 'domcontentloaded', timeout: 60000 })
-  await upPage.waitForSelector('input[type="file"]', { timeout: 30000 })
-  await upPage.setInputFiles('input[type="file"]', file.path)
+  // selectFileForUpload waits for React hydration before touching the input
+  // (a setInputFiles on the unhydrated SSR input dispatches no onChange — the
+  // "success screen never appeared" flake) and confirms the presign call
+  // fired, re-selecting once if the picker raced.
+  await selectFileForUpload(upPage, file.path, () => out.apiCalls.some((c) => c.includes('POST /upload/presign')))
   out.steps.push('uploader: file selected, upload started')
 
   let success = false

@@ -116,30 +116,49 @@ export function jwtSub(token) {
  */
 export async function registerUser(prefix = 'e2e') {
   const email = `${prefix}-${Date.now()}@example.com`
-  const { ok, status, data } = await api('/auth/register', {
-    method: 'POST',
-    body: { email, password: 'testpass123', terms_accepted: true },
-  })
-  if (!ok || !data.access_token) {
-    throw new Error(`register failed (${status}): ${JSON.stringify(data).slice(0, 300)}`)
-  }
-  const token = data.access_token
-  const adminToken = process.env.E2E_ADMIN_TOKEN
-  const userId = jwtSub(token)
-  if (adminToken && userId) {
-    const v = await api(`/admin/users/${userId}/verify`, { method: 'POST', token: adminToken })
-    if (!v.ok) {
-      throw new Error(`admin-verify failed (${v.status}): ${JSON.stringify(v.data).slice(0, 300)}`)
+  // Retry once or twice on 429: production registers are limited to ~10
+  // accounts/hr/IP, and a burst of suites can trip it transiently. Backoff
+  // rides that out; an exhausted budget fails with an actionable message
+  // (the old code surfaced a confusing "register failed (429)" suite error).
+  let last = null
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const res = await api('/auth/register', {
+      method: 'POST',
+      body: { email, password: 'testpass123', terms_accepted: true },
+    })
+    if (res.ok && res.data.access_token) {
+      const token = res.data.access_token
+      const adminToken = process.env.E2E_ADMIN_TOKEN
+      const userId = jwtSub(token)
+      if (adminToken && userId) {
+        const v = await api(`/admin/users/${userId}/verify`, { method: 'POST', token: adminToken })
+        if (!v.ok) {
+          throw new Error(`admin-verify failed (${v.status}): ${JSON.stringify(v.data).slice(0, 300)}`)
+        }
+        const detail = v.data?.detail || ''
+        if (!/verified/i.test(detail)) {
+          throw new Error(`admin-verify unexpected response: ${detail.slice(0, 200)}`)
+        }
+      } else if (!adminToken) {
+        // No admin token: warn so a failing suite points at the config, not the gate.
+        console.warn(`[registerUser] no E2E_ADMIN_TOKEN set — if email verification is enforced, ${prefix} suite will 403 on protected calls. Use E2E_TOKEN or E2E_ADMIN_TOKEN.`)
+      }
+      return { email, token }
     }
-    const detail = v.data?.detail || ''
-    if (!/verified/i.test(detail)) {
-      throw new Error(`admin-verify unexpected response: ${detail.slice(0, 200)}`)
+    last = res
+    if (res.status === 429 && attempt < 3) {
+      await new Promise((r) => setTimeout(r, attempt * 3000))
+      continue
     }
-  } else if (!adminToken) {
-    // No admin token: warn so a failing suite points at the config, not the gate.
-    console.warn(`[registerUser] no E2E_ADMIN_TOKEN set — if email verification is enforced, ${prefix} suite will 403 on protected calls. Use E2E_TOKEN or E2E_ADMIN_TOKEN.`)
+    break
   }
-  return { email, token }
+  if (last?.status === 429) {
+    throw new Error(
+      `register rate-limited (429 — ~10 accounts/hr/IP): the ${prefix} suite couldn't create an account. ` +
+      'Wait for the window to reset, or reuse a verified shared account via E2E_TOKEN.',
+    )
+  }
+  throw new Error(`register failed (${last?.status}): ${JSON.stringify(last?.data).slice(0, 300)}`)
 }
 
 /** Best-effort cleanup: delete the uploaded file and/or the throwaway user.
@@ -225,16 +244,77 @@ export async function uploadViaApi(token, file, { filename } = {}) {
   if (!put.ok) throw new Error(`direct-to-storage PUT failed (${put.status})`)
 
   let finalized = null
-  for (let attempt = 1; attempt <= 2 && !finalized; attempt++) {
+  for (let attempt = 1; attempt <= 3 && !finalized; attempt++) {
     const fin = await api(`/upload/presign/finalize/${presign.data.upload_id}`, { method: 'POST', token })
     if (fin.ok && (fin.data.id || fin.data.file_id)) {
       finalized = fin.data
-    } else if (attempt === 1) {
-      await new Promise((r) => setTimeout(r, 2000))
+    } else if (attempt < 3) {
+      // Render cold starts can outlast a single 2s retry (observed: finalize
+      // blipped for >2s in the embed suite) — back off longer on the second.
+      await new Promise((r) => setTimeout(r, attempt === 1 ? 2000 : 6000))
     }
   }
   if (!finalized) throw new Error('finalize failed after retries')
   return finalized // { id|file_id, torrent_magnet, minio_url, filename, ... }
+}
+
+/**
+ * Select a file in the /dashboard/upload UI and confirm the upload STARTED.
+ *
+ * Regression guard for the file-picker flake: the <input type=file> exists in
+ * the SSR HTML before React hydrates, and a setInputFiles on the unhydrated
+ * input dispatches NO onChange — the upload silently never starts ("success
+ * screen never appeared" with zero presign call). Two layers of defense:
+ *   1. HYDRATION WAIT — "Logout" only renders after client code reads the
+ *      sessionStorage token (seeded by addInitScript), so it's a reliable
+ *      client-hydrated signal; a short settle then lets the input's change
+ *      handler attach (this is what embed-speed already did and it never
+ *      flakes).
+ *   2. START CONFIRM — after selecting, poll for proof the upload started:
+ *      the uploader UI ("Uploading..."/the retry label) and/or the suite's
+ *      own API-call observer (`sawUploadApi`, e.g. a presign response having
+ *      landed in its apiCalls collector). If nothing fires within a few
+ *      seconds the picker raced the unhydrated input — re-select once (a
+ *      second setInputFiles on the hydrated input reliably dispatches
+ *      onChange).
+ *
+ * Throws if the upload still hasn't started after the bounded re-select, so
+ * the suite fails with an actionable message instead of a timeout waiting for
+ * a success screen that was never going to appear.
+ */
+/**
+ * Wait for the upload page's React hydration before touching the file input.
+ *
+ * The <input type=file> exists in the SSR HTML before React hydrates; a
+ * setInputFiles on the unhydrated input dispatches NO onChange, so the upload
+ * silently never starts (the "success screen never appeared with zero presign
+ * call" flake). "Logout" renders only after client code reads the
+ * sessionStorage token (seeded by addInitScript), so it's a reliable
+ * client-hydration signal; the settle lets the input's change handler attach.
+ */
+export async function waitForUploadPageHydration(page, { settleMs = 800 } = {}) {
+  await page.waitForSelector('input[type="file"]', { timeout: 30000 })
+  await page.waitForSelector('text=Logout', { timeout: 15000 })
+  await page.waitForTimeout(settleMs)
+}
+
+export async function selectFileForUpload(page, filePath, sawUploadApi = null) {
+  await waitForUploadPageHydration(page)
+
+  const uploadUiVisible = async () => {
+    const body = await page.evaluate(() => document.body.innerText)
+    return /Uploading|Connection lost/i.test(body)
+  }
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    await page.setInputFiles('input[type="file"]', filePath)
+    const deadline = Date.now() + 10000
+    while (Date.now() < deadline) {
+      if (await uploadUiVisible()) return attempt
+      if (sawUploadApi && sawUploadApi()) return attempt
+      await page.waitForTimeout(250)
+    }
+  }
+  throw new Error('upload never started after selecting the file (input onChange never fired — picker raced an unhydrated input)')
 }
 
 /** Attach console/page-error/request-failed collectors that write into `out`. */

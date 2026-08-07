@@ -21,6 +21,7 @@ import {
   cleanup,
   generateMedia,
   attachDiagnostics,
+  selectFileForUpload,
   summarizeProgress,
   report,
   isStorageUrl,
@@ -71,7 +72,6 @@ try {
 
   // 1) Load the upload page while logged in
   await page.goto(`${BASE}/dashboard/upload`, { waitUntil: 'domcontentloaded', timeout: 60000 })
-  await page.waitForSelector('input[type="file"]', { timeout: 30000 })
   out.steps.push(`upload page loaded: ${page.url()}`)
 
   // 2) Throttle the upload leg so the progress bar is observable (~0.5 MB/s
@@ -88,8 +88,13 @@ try {
     uploadThroughput,
   })
 
-  // 3) Start the upload
-  await page.setInputFiles('input[type="file"]', file.path)
+  // 3) Start the upload. selectFileForUpload waits for React hydration (the
+  //    logged-in navbar) before touching the input — a setInputFiles on the
+  //    unhydrated SSR input dispatches no onChange and the upload silently
+  //    never starts — then confirms the presign call fired (re-selecting once
+  //    if the picker raced), so the "success screen never appeared" flake is
+  //    caught at the source instead of as a 2-minute timeout.
+  await selectFileForUpload(page, file.path, () => out.apiCalls.some((c) => c.includes('POST /upload/presign')))
   out.steps.push('file selected, upload started')
 
   // 4) Watch for progress, then the success screen
