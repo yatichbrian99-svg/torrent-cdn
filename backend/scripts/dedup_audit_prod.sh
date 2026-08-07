@@ -40,6 +40,21 @@ FE="${FRONTEND_URL:-https://www.torrentcdn.store}"
 PASS=0
 FAIL=0
 
+# Storage-provider assertion: every finalized minio_url must start with the
+# EXPECTED_STORAGE_PREFIX (default: the R2 public base) and every presigned PUT
+# URL must start with EXPECTED_S3_ENDPOINT (default: the R2 S3 endpoint). This
+# makes the audit catch an accidental rollback of the MINIO_* env vars to
+# Supabase (whose minio_urls start with project-ref.supabase.co and whose S3
+# endpoint is project-ref.supabase.co/storage/v1/s3 — both fail the prefix
+# checks). Override both when the custom CDN domain (cdn.torrentcdn.store) goes
+# live and MINIO_PUBLIC_URL changes, e.g.:
+#   EXPECTED_STORAGE_PREFIX=https://cdn.torrentcdn.store/ bash dedup_audit_prod.sh
+# The probe file is unique per run (random tail), so a cross-bucket dedup hit
+# against an OLD Supabase copy — which would legitimately produce a Supabase
+# minio_url — can never occur for this check.
+EXPECTED_STORAGE_PREFIX="${EXPECTED_STORAGE_PREFIX:-https://pub-db587f977d274a458f30d14fa2ddfb9e.r2.dev/}"
+EXPECTED_S3_ENDPOINT="${EXPECTED_S3_ENDPOINT:-https://a942dd172ffb3faa3dd24d9b92df6008.r2.cloudflarestorage.com/}"
+
 check() {
   if [ "$1" = "0" ]; then
     echo "  ✅  $2"
@@ -229,6 +244,24 @@ else
   [ -n "$SUMMARY_FILE" ] && sum "**🔴 ABORTED** — user A finalize failed; remaining steps skipped."
   exit 2
 fi
+
+# ── 3b. STORAGE PROVIDER ASSERTION (CI catches a rollback to Supabase) ──
+case "$URL_A" in
+  "$EXPECTED_STORAGE_PREFIX"*)
+    check 0 "minio_url on expected storage ($EXPECTED_STORAGE_PREFIX…)"
+    ;;
+  *)
+    check 1 "STORAGE ROLLBACK? minio_url does not start with $EXPECTED_STORAGE_PREFIX: $URL_A"
+    ;;
+esac
+case "$PRESIGNED_URL_A" in
+  "$EXPECTED_S3_ENDPOINT"*)
+    check 0 "Presigned PUT URL on expected S3 endpoint ($EXPECTED_S3_ENDPOINT…)"
+    ;;
+  *)
+    check 1 "STORAGE ROLLBACK? presigned URL not on $EXPECTED_S3_ENDPOINT: $PRESIGNED_URL_A"
+    ;;
+esac
 
 # ── 4. REGISTER USER B ──
 echo ""

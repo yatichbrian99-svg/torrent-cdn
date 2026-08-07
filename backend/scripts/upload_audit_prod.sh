@@ -3,9 +3,9 @@
 # production deployment. Verifies the PRIMARY upload path end-to-end exactly
 # as the browser drives it:
 #   register throwaway account → POST /upload/presign (Bearer JWT) → PUT the
-#   file bytes DIRECT to the presigned Supabase URL → POST
-#   /upload/presign/finalize/{id} → real 40-hex btih magnet → DELETE the file →
-#   DELETE /auth/me cleanup.
+#   file bytes DIRECT to the presigned storage URL (Supabase before the R2
+#   migration, Cloudflare R2 now) → POST /upload/presign/finalize/{id} → real
+#   40-hex btih magnet → DELETE the file → DELETE /auth/me cleanup.
 #
 # Mirrors api_key_audit_prod.sh conventions:
 #   - Paces requests (~2.2s apart) so the global rate limiter (30 req / 10s per
@@ -33,6 +33,18 @@ API="${API_URL:-https://torrent-cdn.onrender.com}"
 FE="${FRONTEND_URL:-https://www.torrentcdn.store}"
 PASS=0
 FAIL=0
+
+# Storage-provider assertion: the presigned PUT URL must start with
+# EXPECTED_S3_ENDPOINT and the finalized minio_url with EXPECTED_STORAGE_PREFIX
+# (defaults: the Cloudflare R2 S3 endpoint + public base). This catches an
+# accidental rollback of the MINIO_* env vars to Supabase (whose S3 endpoint is
+# project-ref.supabase.co/storage/v1/s3 and whose public URLs start with
+# project-ref.supabase.co — both fail the prefix checks). Override both when
+# the custom CDN domain (cdn.torrentcdn.store) goes live and MINIO_PUBLIC_URL
+# changes, e.g.:
+#   EXPECTED_STORAGE_PREFIX=https://cdn.torrentcdn.store/ bash upload_audit_prod.sh
+EXPECTED_STORAGE_PREFIX="${EXPECTED_STORAGE_PREFIX:-https://pub-db587f977d274a458f30d14fa2ddfb9e.r2.dev/}"
+EXPECTED_S3_ENDPOINT="${EXPECTED_S3_ENDPOINT:-https://a942dd172ffb3faa3dd24d9b92df6008.r2.cloudflarestorage.com/}"
 
 check() {
   if [ "$1" = "0" ]; then
@@ -182,21 +194,28 @@ else
   exit 2
 fi
 echo "$PRESIGNED_URL" | grep -q '^https://' && check 0 "Presigned URL is https" || check 1 "Presigned URL not https"
+case "$PRESIGNED_URL" in
+  "$EXPECTED_S3_ENDPOINT"*)
+    check 0 "Presigned PUT URL on expected S3 endpoint ($EXPECTED_S3_ENDPOINT…)"
+    ;;
+  *)
+    check 1 "STORAGE ROLLBACK? presigned URL not on $EXPECTED_S3_ENDPOINT: $PRESIGNED_URL"
+    ;;
+esac
 
-# ── 4. DIRECT PUT TO SUPABASE STORAGE (bytes never touch the proxy) ──
+# ── 4. DIRECT PUT TO STORAGE (bytes never touch the proxy) ──
 echo ""
 echo "── 4. DIRECT PUT TO STORAGE ──"
 # ContentType is a SIGNED header on the presigned URL — send exactly what the
-# backend minted, or Supabase rejects the signature.
+# backend minted, or the provider rejects the signature.
 PUT_CODE=$(curl -so /dev/null -w '%{http_code}' --max-time 120 -X PUT "$PRESIGNED_URL" \
   -H "Content-Type: $CT" --data-binary @"$TEST_FILE" 2>/dev/null || echo "000")
 sleep 2.2
 if [ "$PUT_CODE" = "200" ]; then
-  check 0 "PUT to Supabase → 200"
+  check 0 "PUT to storage → 200"
 else
-  check 1 "PUT to Supabase → $PUT_CODE"
+  check 1 "PUT to storage → $PUT_CODE"
 fi
-echo "$PRESIGNED_URL" | grep -q 'supabase' && check 0 "Bytes went to supabase.co (not the proxy)" || check 1 "Presigned URL host is not supabase.co"
 
 # ── 5. FINALIZE ──
 echo ""
@@ -209,6 +228,14 @@ if [ -n "$FILE_ID" ]; then
   check 0 "Finalize → file_id received"
   echo "$MAGNET" | grep -qE '^magnet:\?xt=urn:btih:[0-9a-f]{40}' && check 0 "Real 40-hex btih magnet" || check 1 "Magnet not a real btih: $(echo "$MAGNET" | head -c 80)"
   [ -n "$MINIO_URL" ] && check 0 "minio_url present" || check 1 "minio_url missing"
+  case "$MINIO_URL" in
+    "$EXPECTED_STORAGE_PREFIX"*)
+      check 0 "minio_url on expected storage ($EXPECTED_STORAGE_PREFIX…)"
+      ;;
+    *)
+      check 1 "STORAGE ROLLBACK? minio_url does not start with $EXPECTED_STORAGE_PREFIX: $MINIO_URL"
+      ;;
+  esac
 else
   check 1 "Finalize failed: $(echo "$FIN" | head -c 200)"
   cleanup_all
