@@ -2,7 +2,11 @@ name: "CI: Tests & Security Audits"
 
 # No paths filter: tests + audits (incl. the gitleaks secret scan) run on
 # every push/PR to main — a secret committed anywhere (frontend/, Caddyfile,
-# docker-compose.yml, root files) must never escape the scan.
+# docker-compose.yml, root files) must never escape the scan. The two HEAVY
+# jobs are path-scoped in their own workflow files to moderate Actions usage:
+# the E2E batch (ci-e2e.yml — runs when frontend/** or .github/** change, plus
+# a nightly sweep) and the full-stack Docker audit (ci-fullstack.yml — runs
+# when backend/** or the IaC/Docker files change).
 #
 # Daily cron + manual dispatch re-scan the FULL history: push-time gitleaks
 # only scans the pushed range, so a secret that slipped through an old commit
@@ -28,7 +32,8 @@ permissions:
 # on schedule events github.ref is the default branch, so without this a
 # coincidental push would share the group and cancel-in-progress would kill
 # the daily scan. workflow_dispatch gets the same group so a manual re-scan
-# can't cancel an in-flight push (which would skip its fullstack-audit).
+# can't cancel an in-flight push (which would skip the daily full-history
+# re-scan). The heavy jobs moved out to ci-e2e.yml / ci-fullstack.yml.
 concurrency:
   group: ${{ github.workflow }}-${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cron' || github.ref }}
   cancel-in-progress: true
@@ -156,156 +161,11 @@ jobs:
       - name: Domain guard (dead host + apex URLs)
         run: bash scripts/check_domains.sh
 
-  # ── E2E delivery + interaction gate (full Playwright batch) ──
-  # Every push must still deliver video over WebTorrent AND keep every user
-  # interaction green. Vercel deploys LAG the push (production often serves the
-  # previous build for a while), so hitting www.torrentcdn.store here would
-  # validate the LAST deploy, not this push. Instead this job BUILDS the pushed
-  # frontend, serves it locally (next start) behind the same-origin proxy
-  # (e2e/local-proxy.mjs — a vercel.json rewrite mirror), and runs the FULL E2E
-  # batch (e2e/run-all.mjs — all 9 suites) against that build with the
-  # PRODUCTION Render backend underneath:
-  #   - upload-direct / upload-fallback (presign direct + chunked resilience)
-  #   - embed-playback + auto-seed + p2p-two-peer (WebTorrent delivery: seeder
-  #     reproduces the backend infohash, leecher plays with *.supabase.co
-  #     BLOCKED so only WebRTC can deliver bytes → peers connect, video plays,
-  #     backend records chunk_downloaded bytes_p2p > 0)
-  #   - api-key-ui + finalize-retry (dashboard key lifecycle; cold-start
-  #     finalize 502 → client re-sends → success)
-  #   - login-flow + visual-pass (real auth form surfacing, page rendering)
-  # Each suite deletes its own test file in cleanup; the batch logs in a
-  # SHARED VERIFIED account (E2E_EMAIL/E2E_PASSWORD secrets — see the step
-  # below) because production now restricts unverified register tokens to the
-  # verification endpoints. Requires Playwright Chromium + ffmpeg (installed
-  # below).
-  # NOTE: production rate limits are per-IP (10 uploads/hr, 5 req/10s); GitHub
-  # runners egress from a shared Azure IP pool, so rare concurrent runs could
-  # 429 — the batch paces its calls well under the limits per run. If the
-  # public trackers ever prove flaky here, soften with continue-on-error.
-  # Push + manual dispatch only (NOT pull_request): this job WRITES to
-  # production (throwaway account registration + test uploads). On a public
-  # repo, a fork PR could otherwise trigger unlimited production writes from
-  # untrusted code with no secrets to gate it.
-  p2p-e2e:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    # npm ci + build + the full 9-suite batch: the batch alone runs ~25 min
-    # (run-all.mjs caps each suite at 10 min), so 60 minutes keeps the E2E gate
-    # without letting a hung suite run forever.
-    timeout-minutes: 60
-    env:
-      # Repo secrets are NOT auto-injected — each job must map the ones it
-      # needs. The login step below reads these two shell vars; without this
-      # mapping the ${E2E_EMAIL:?...} fail-closed check aborts the job.
-      E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
-      E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
-    defaults:
-      run:
-        working-directory: frontend
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      # Playwright ships without a postinstall, so `npm ci` never downloads
-      # browsers — install Chromium explicitly (--with-deps pulls the system
-      # libraries headless Chromium needs on ubuntu-latest).
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
-
-      - name: Install ffmpeg (test media synthesis)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg
-
-      - name: Build
-        run: npm run build
-
-      # Login the SHARED VERIFIED E2E account used by the whole batch. Email
-      # verification is enforced in production (a register-issued token for an
-      # unverified account is restricted to the verification endpoints), so the
-      # batch needs a real verified account: E2E_EMAIL + E2E_PASSWORD are repo
-      # secrets for an account whose email was verified ONCE (click the link in
-      # the inbox; do NOT enable MFA on it — login must return a plain token).
-      # run-all registers per suite when no token is given; a shared token keeps
-      # the batch to a single login and avoids the live 10/hr/IP register
-      # budget entirely.
-      - name: Login shared verified E2E account
-        run: |
-          set -euo pipefail
-          : "${E2E_EMAIL:?set E2E_EMAIL secret - a VERIFIED account email}"
-          : "${E2E_PASSWORD:?set E2E_PASSWORD secret}"
-          TOKEN=""
-          for i in 1 2 3; do
-            TOKEN=$(curl -sf --max-time 60 -X POST https://www.torrentcdn.store/auth/login \
-              -H 'Content-Type: application/json' \
-              -d "{\"email\":\"$E2E_EMAIL\",\"password\":\"$E2E_PASSWORD\"}" \
-              | python3 -c 'import sys,json; print(json.load(sys.stdin).get("access_token",""))' \
-              || true)
-            [ -n "$TOKEN" ] && break
-            sleep 5
-          done
-          [ -n "$TOKEN" ] || { echo "shared account login failed — is E2E_EMAIL verified (no MFA)?" >&2; exit 1; }
-          echo "E2E_TOKEN=$TOKEN" >> "$GITHUB_ENV"
-
-      # Everything in ONE step so the local stack lives for the batch: next
-      # start on :3001, the same-origin proxy on :3000 (vercel.json rewrite
-      # mirror → production Render), wait for readiness, then run ALL E2E
-      # suites (run-all.mjs) with E2E_BASE_URL pointed at the local build. The
-      # trap guarantees the background processes die even when a suite fails.
-      # Invoke the next binary directly (not via npx) so $NEXT_PID IS the
-      # server process — npx would wrap it and killing the wrapper could orphan
-      # next-server.
-      - name: Run full E2E suite batch (pushed build → production backend)
-        run: |
-          set -euo pipefail
-          ./node_modules/.bin/next start -p 3001 > /tmp/next.log 2>&1 &
-          NEXT_PID=$!
-          node e2e/local-proxy.mjs > /tmp/proxy.log 2>&1 &
-          PROXY_PID=$!
-          trap 'kill $NEXT_PID $PROXY_PID 2>/dev/null || true; pkill -f "next-server" 2>/dev/null || true' EXIT
-          for i in $(seq 1 60); do
-            if curl -sf -o /dev/null http://localhost:3000/; then
-              echo "local stack ready (:3000)"
-              break
-            fi
-            sleep 2
-          done
-          curl -sf -o /dev/null http://localhost:3000/ || {
-            echo "local stack never became ready" >&2
-            tail -20 /tmp/next.log /tmp/proxy.log 2>&1
-            exit 1
-          }
-          E2E_BASE_URL=http://localhost:3000 node e2e/run-all.mjs
-
-      # Surface the local stack logs whenever a suite fails (the readiness
-      # branch above only dumps them when the stack itself never came up).
-      - name: Dump stack logs
-        if: failure()
-        run: |
-          echo "===== /tmp/next.log ====="
-          tail -40 /tmp/next.log 2>/dev/null || true
-          echo "===== /tmp/proxy.log ====="
-          tail -40 /tmp/proxy.log 2>/dev/null || true
-
-
   # ── Storage bucket publicity gate (credential-free live check) ──
   # The app serves every file through the bucket's public object URL; a private
-  # bucket 404s ALL playback (NoSuchBucket) — a regression class that broke
-  # every minio_url until it was caught in a manual E2E. This read-only GET on
-  # the public URL (NoSuchBucket = private = fail; NoSuchKey = public = pass)
-  # runs on push/PR and on the daily cron re-check. Uses repo secrets when set,
-  # with this project's defaults baked in.
+  # bucket 404s ALL playback. This read-only GET on the public URL runs on
+  # push/PR and on the daily cron re-check. (The E2E delivery batch that used
+  # to live here moved to ci-e2e.yml, path-scoped to frontend changes.)
   storage-publicity:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -330,13 +190,14 @@ jobs:
   # Schedule + manual dispatch ONLY (NOT push/PR): unlike the read-only
   # storage-publicity GET, this probe WRITES to production (throwaway account
   # + key). On every push it would burn the 10/hr/IP registration budget from
-  # GitHub's shared runner IPs (and the p2p-e2e job already writes per-push),
-  # and on a public repo a fork PR could trigger unlimited production writes
-  # from untrusted code — same reasoning that gates p2p-e2e off PRs. The daily
-  # 04:00 UTC cron + manual dispatch is the alert surface: a red run means the
-  # API-key flow is broken on the live backend. The script always cleans up
-  # its throwaway account (including on abort paths), so scheduled runs never
-  # accumulate test users.
+  # GitHub's shared runner IPs (p2p-e2e in ci-e2e.yml also writes per-push on
+  # frontend/.github pushes plus its nightly sweep), and on a public repo a
+  # fork PR could trigger unlimited production writes from untrusted code —
+  # same reasoning that gates p2p-e2e off PRs. The daily 04:00 UTC cron +
+  # manual dispatch is the alert surface: a red run means the API-key flow is
+  # broken on the live backend. The script always cleans up its throwaway
+  # account (including on abort paths), so scheduled runs never accumulate
+  # test users.
   #
   # needs upload-live + if: always(): BOTH probes register a throwaway account
   # against the LIVE 10/hr-per-IP register limiter, and GitHub runners egress
@@ -569,82 +430,4 @@ jobs:
           JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
           APP_ENV: "production"
 
-  # ── Full-stack audit (requires Docker) ──
-  # Push/PR only: the daily cron exists to re-scan secrets (gitleaks full
-  # history + secret-scan --full), not to rebuild Docker nightly.
-  # if: always() — runs even when the secret gates (needs) fail, so a leak PR
-  # still gets its Docker e2e signal instead of silently skipping it. The
-  # throwaway stack only holds test data; the leak is already caught by the
-  # failing gates themselves.
-  fullstack-audit:
-    if: always() && (github.event_name == 'push' || github.event_name == 'pull_request')
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: [static-audit, secret-scan]
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      # Note: compose interpolates the whole file, so JWT_SECRET must be set here
-      # too even though the backend service isn't started in this step.
-      - name: Start infrastructure (Postgres, Redis, MinIO)
-        env:
-          JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
-          POSTGRES_PASSWORD: ci-test-password
-          MINIO_ROOT_PASSWORD: ci-test-minio-password
-        run: |
-          docker compose up -d postgres redis minio
-          echo "Waiting for services to be healthy..."
-          for i in $(seq 1 30); do
-            STATUS=$(docker compose ps --format '{{.Status}}' | grep -c 'healthy' || true)
-            [ "$STATUS" -ge 3 ] && echo "All services healthy" && break
-            sleep 3
-          done
-          # Fail hard if infra never becomes healthy instead of letting the
-          # backend step diagnose it blind (the backend health wait is still a
-          # second gate, but the failure should point here first).
-          if [ "$STATUS" -lt 3 ]; then
-            echo "Infrastructure never became healthy ($STATUS/3) — aborting" >&2
-            docker compose ps
-            exit 1
-          fi
-
-      - name: Build and start backend
-        env:
-          JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
-          POSTGRES_PASSWORD: ci-test-password
-          MINIO_ROOT_PASSWORD: ci-test-minio-password
-        run: |
-          docker compose build backend
-          APP_ENV="production" \
-            docker compose up -d backend
-          echo "Waiting for backend..."
-          for i in $(seq 1 30); do
-            CODE=$(curl -so /dev/null -w '%{http_code}' http://localhost:8000/health 2>/dev/null || echo "000")
-            [ "$CODE" = "200" ] && echo "Backend healthy" && break
-            sleep 3
-          done
-          if [ "$CODE" != "200" ]; then
-            echo "Backend never became healthy on :8000" >&2
-            docker compose logs backend --tail 40 2>&1
-            exit 1
-          fi
-
-      # This job runs from the repo root (no working-directory default, since the
-      # docker compose steps need the root-level compose file), so reference the
-      # audit script by its full path under backend/.
-      - name: Run full-stack curl audit
-        run: bash backend/scripts/curl_audit.sh
-        env:
-          API_URL: "http://localhost:8000"
-
-      # Compose interpolates the whole file, so the required env vars must be
-      # present even for teardown (docker compose down -v).
-      - name: Cleanup
-        if: always()
-        env:
-          JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
-          POSTGRES_PASSWORD: ci-test-password
-          MINIO_ROOT_PASSWORD: ci-test-minio-password
-        run: docker compose down -v
