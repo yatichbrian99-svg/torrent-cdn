@@ -9,9 +9,10 @@
  *      pieceLength 262144 as torrentool, so the info dict — and therefore the
  *      SHA-1 infohash — matches the magnet). Announces to the magnet's tr=
  *      trackers (the backend bakes them in — fix(upload) ac9e86b).
- *   2. LEECHER — opens the real /embed/{file_id} with every *.supabase.co
- *      request BLOCKED, so direct origin streaming is impossible and the ONLY
- *      way the video can play is via WebRTC from the seeder peer.
+ *   2. LEECHER — opens the real /embed/{file_id} with every request to the
+ *      storage provider (R2's public URL now, Supabase before the migration)
+ *      BLOCKED, so direct origin streaming is impossible and the ONLY way the
+ *      video can play is via WebRTC from the seeder peer.
  *
  * Asserts:
  *   - seeder infohash == magnet infohash (the reproducible-infohash guarantee)
@@ -39,6 +40,7 @@ import {
   uploadViaApi,
   attachDiagnostics,
   report,
+  isStorageUrl,
 } from './helpers.mjs'
 
 const E2E_DIR = path.dirname(fileURLToPath(import.meta.url))
@@ -194,7 +196,7 @@ try {
     })
     // Deliberately-blocked direct GETs log console noise — filtered at assert time.
     await page2.route('**/*', (route) => {
-      if (route.request().url().includes('supabase.co')) return route.abort()
+      if (isStorageUrl(route.request().url())) return route.abort()
       return route.continue()
     })
     await page2.goto(`${BASE}/embed/${fileId}`, { waitUntil: 'domcontentloaded', timeout: 60000 })
@@ -291,7 +293,7 @@ try {
   if (out.pageErrors.length) {
     failures.push(`JS page errors: ${out.pageErrors.slice(0, 3).join(' | ')}`)
   }
-  const nonBlockedFailed = out.failedRequests.filter((r) => !r.includes('supabase.co'))
+  const nonBlockedFailed = out.failedRequests.filter((r) => !isStorageUrl(r))
   if (nonBlockedFailed.length) {
     failures.push(`failed requests (non-blocked): ${nonBlockedFailed.slice(0, 3).join(' | ')}`)
   }

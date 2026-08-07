@@ -6,7 +6,8 @@
  *   - the <video> element renders
  *   - playback actually starts (videoWidth > 0 and currentTime advances)
  *   - the player reaches the "(direct)" fallback (or "connecting to peers")
- *     state and streams the object from Supabase with an HTTP 200/206
+ *     state and streams the object from storage (R2's public URL now, Supabase
+ *     before the migration) with an HTTP 200/206
  *   - ZERO JS page errors — in particular the WebTorrent P2P attempt must NOT
  *     throw `TypeError: e.toHex is not a function` (the uint8-util patch
  *     regression guard; see patches/uint8-util+2.3.2.patch)
@@ -25,6 +26,7 @@ import {
   uploadViaApi,
   attachDiagnostics,
   report,
+  isStorageUrl,
 } from './helpers.mjs'
 
 const failures = []
@@ -72,7 +74,7 @@ try {
   attachDiagnostics(page, out)
   page.on('response', (r) => {
     const u = r.url()
-    if (u.includes('supabase.co')) {
+    if (isStorageUrl(u)) {
       out.mediaResponses.push(
         `[${r.status()}] ${r.request().method()} .../${u.split('/').slice(-2).join('/')} ct=${r.headers()['content-type'] || '?'}`,
       )
@@ -133,7 +135,7 @@ try {
   }
   if (out.failedRequests.length) failures.push(`failed requests: ${out.failedRequests.join(' | ')}`)
   if (!out.mediaResponses.some((r) => /\[20[06]\]/.test(r) && /PUT|GET/.test(r))) {
-    failures.push('no successful media response from Supabase (direct streaming not observed)')
+    failures.push('no successful media response from storage (direct streaming not observed)')
   }
 
   out.screenshot = path.join(ARTIFACTS_DIR, 'embed-playback.png')

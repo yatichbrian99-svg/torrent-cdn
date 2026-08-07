@@ -33,6 +33,8 @@ import {
   generateMedia,
   attachDiagnostics,
   report,
+  isStorageUrl,
+  DIRECT_PUT_LABEL,
 } from './helpers.mjs'
 
 const BUDGET_MS = (Number(process.env.EMBED_BUDGET_SECONDS) || 20) * 1000
@@ -76,7 +78,7 @@ try {
     const u = r.url()
     const m = r.request().method()
     if (u.includes('/upload/')) out.apiCalls.push(`[${r.status()}] ${m} ${u.replace(BASE, '')}`)
-    else if (u.includes('supabase.co') && m === 'PUT') out.apiCalls.push(`[${r.status()}] PUT <supabase direct>`)
+    else if (isStorageUrl(u) && m === 'PUT') out.apiCalls.push(`[${r.status()}] PUT <${DIRECT_PUT_LABEL}>`)
   })
 
   // Time the FINALIZE leg precisely (the torrent-hash + thumbnail step that
@@ -145,7 +147,7 @@ try {
     out.magnet = magnet
     out.fileId = embed
     out.realInfohash = !!magnet && /^magnet:\?xt=urn:btih:[0-9a-f]{40}/.test(magnet)
-    out.hasUploadAnother = bodyText.includes('Upload another file')
+    out.hasUploadAnother = bodyText.includes('Upload or import another file')
 
     // THE time-budget assertion.
     if (totalMs > BUDGET_MS) {

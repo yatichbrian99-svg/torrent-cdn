@@ -10,10 +10,11 @@
  *      (the app's own presign→PUT→finalize flow). The UploadForm then seeds the
  *      file via lib/seeder.ts (magnet `dn` name + torrentool piece-length rule
  *      + magnet `tr=` trackers), so the uploader's tab is a seeder.
- *   2. LEECHER — opens /embed/{file_id} in a SECOND browser with every
- *      *.supabase.co request BLOCKED (direct origin streaming is impossible),
- *      so the ONLY way the video can play is via WebRTC from the uploader's
- *      seed. It must show "N peers connected" and advance currentTime.
+ *   2. LEECHER — opens /embed/{file_id} in a SECOND browser with every request
+ *      to the storage provider (R2's public URL now, Supabase before the
+ *      migration) BLOCKED (direct origin streaming is impossible), so the ONLY
+ *      way the video can play is via WebRTC from the uploader's seed. It must
+ *      show "N peers connected" and advance currentTime.
  *
  * Asserts:
  *   - the success screen shows the "seeding…" indicator (auto-seed engaged)
@@ -33,6 +34,7 @@ import {
   generateMedia,
   attachDiagnostics,
   report,
+  isStorageUrl,
 } from './helpers.mjs'
 
 const failures = []
@@ -128,7 +130,7 @@ try {
       if (r.url().includes('/analytics/event')) out.analyticsPosts.push(`<- [${r.status()}]`)
     })
     await page2.route('**/*', (route) => {
-      if (route.request().url().includes('supabase.co')) return route.abort()
+      if (isStorageUrl(route.request().url())) return route.abort()
       return route.continue()
     })
     await page2.goto(`${BASE}/embed/${fileId}`, { waitUntil: 'domcontentloaded', timeout: 60000 })

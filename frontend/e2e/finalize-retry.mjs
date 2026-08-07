@@ -1,8 +1,8 @@
 /**
  * E2E: presign finalize auto-retry after a 502 (the Render cold-start case).
  *
- * The browser PUTs the file direct to Supabase, then POSTs
- * /upload/presign/finalize/{id}. That finalize is the last hop before the
+ * The browser PUTs the file direct to storage (R2 now, Supabase before the
+ * migration), then POSTs /upload/presign/finalize/{id}. That finalize is the last hop before the
  * success screen — and it is the hop that dies on a cold start: the request
  * either 502s at the Vercel proxy before reaching Render (mode A) or COMPLETES
  * server-side while the response is lost at the proxy (mode B). This suite
@@ -35,6 +35,8 @@ import {
   generateMedia,
   attachDiagnostics,
   report,
+  isStorageUrl,
+  DIRECT_PUT_LABEL,
 } from './helpers.mjs'
 
 const LOST_RESPONSE = process.env.FINALIZE_LOST_RESPONSE === '1'
@@ -76,7 +78,7 @@ try {
     const u = r.url()
     const m = r.request().method()
     if (u.includes('/upload/')) out.apiCalls.push(`[${r.status()}] ${m} ${u.replace(BASE, '')}`)
-    else if (u.includes('supabase.co') && m === 'PUT') out.apiCalls.push(`[${r.status()}] PUT <supabase direct>`)
+    else if (isStorageUrl(u) && m === 'PUT') out.apiCalls.push(`[${r.status()}] PUT <${DIRECT_PUT_LABEL}>`)
   })
 
   // Intercept ONLY the presign finalize. Every browser-issued finalize passes
