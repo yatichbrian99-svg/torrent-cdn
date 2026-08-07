@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { isScannerUserAgent } from './lib/security'
 
 /**
  * Nonce-based Content Security Policy (official Next.js pattern).
@@ -14,6 +15,22 @@ import { NextRequest, NextResponse } from 'next/server'
  * without nonces.
  */
 export function middleware(request: NextRequest) {
+  // Edge-level scanner block — the no-DNS-change WAF gap closer. Known
+  // attack-tooling UAs (sqlmap, nikto, nmap, …) get a 403 here, before the
+  // page renders and before the Vercel rewrites forward /auth, /upload, etc.
+  // to the backend. This is what makes check_waf.sh's probes (sqlmap/nikto
+  // UAs) return 403 instead of 200. Generic clients (curl, python-requests)
+  // are deliberately NOT blocked — the repo's own audit probes rely on them.
+  if (isScannerUserAgent(request.headers.get('user-agent') || '')) {
+    return new NextResponse('403 Forbidden — scanner traffic is not welcome here', {
+      status: 403,
+      headers: {
+        'X-Content-Type-Options': 'nosniff',
+        'Cache-Control': 'no-store',
+      },
+    })
+  }
+
   const nonce = crypto.randomUUID().replace(/[^a-zA-Z0-9]/g, '')
   const isProduction = process.env.NODE_ENV === 'production'
 
