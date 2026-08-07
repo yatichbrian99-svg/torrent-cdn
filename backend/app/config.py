@@ -85,7 +85,11 @@ class Settings(BaseSettings):
     trusted_hosts: str = "localhost,127.0.0.1,frontend,*.onrender.com,*.vercel.app"
 
     # Limits
-    max_upload_size_mb: int = 1024  # 1 GB max file size (reduced from 2GB)
+    # 2GB — the app's own ceiling for a single file. Supabase Storage free tier
+    # hard-caps objects at 50MB regardless of this value (the 50MB cap is a
+    # plan limit, not ours); on a plan/provider without a per-file cap (e.g.
+    # Cloudflare R2, Backblaze B2, Supabase Pro) this is the real limit.
+    max_upload_size_mb: int = 2048
     rate_limit_analytics: int = 60  # max events per minute per IP
     # Global per-IP request budget — a BURST CAP, not the primary flood gate.
     # 30/10s (3 req/s sustained) — the dashboard fires 6 concurrent authed GETs

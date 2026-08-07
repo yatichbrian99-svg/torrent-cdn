@@ -66,6 +66,28 @@ class TestPresign:
         assert kwargs["ExpiresIn"] == upload_route.PRESIGN_URL_TTL
         _cleanup_session(data["upload_id"])
 
+    def test_presign_ensures_bucket_with_browser_cors(self, client, auth_headers, mock_conn, mock_s3_client):
+        """The presign path bootstraps the bucket + browser-CORS rules so the
+        direct browser -> storage PUT isn't blocked by CORS preflight (the
+        whole point of the presigned flow). Best-effort: a provider that can't
+        set bucket CORS via the S3 API still uploads fine."""
+        mock_conn.fetchrow.side_effect = [None, TEST_USER, None]
+        mock_s3_client.generate_presigned_url.return_value = "https://storage.example/put"
+
+        resp = client.post(
+            PRESIGN_URL,
+            headers=auth_headers,
+            json={"filename": "movie.mp4", "file_size": 1000, "idempotency_key": "cors-key"},
+        )
+        assert resp.status_code == 200
+        cors_calls = [c for c in mock_s3_client.put_bucket_cors.call_args_list]
+        assert cors_calls, "CORS rules were never sent to the bucket"
+        rules = cors_calls[0].kwargs["CORSConfiguration"]["CORSRules"]
+        assert set(rules[0]["AllowedMethods"]) == {"GET", "HEAD", "PUT"}
+        assert "*" in rules[0]["AllowedOrigins"]  # presigned URL is the credential
+        assert "Content-Type" in rules[0]["AllowedHeaders"]
+        _cleanup_session(resp.json()["upload_id"])
+
     def test_presign_no_auth(self, client):
         resp = client.post(
             PRESIGN_URL,
@@ -95,7 +117,7 @@ class TestPresign:
         resp = client.post(
             PRESIGN_URL,
             headers=auth_headers,
-            json={"filename": "big.mp4", "file_size": 2 * 1024 * 1024 * 1024},
+            json={"filename": "big.mp4", "file_size": 3 * 1024 * 1024 * 1024},
         )
         assert resp.status_code == 413
         assert "File too large" in resp.json()["detail"]
