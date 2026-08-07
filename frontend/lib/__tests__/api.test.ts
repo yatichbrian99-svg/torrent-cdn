@@ -37,6 +37,12 @@ vi.mock('../auth', () => ({
 // and gives us the api client to test the login retry behavior.
 import api from '../api'
 
+// The axios instance THIS import created. The production-routing describe below
+// re-imports the module (vi.resetModules) to flip NODE_ENV, which reassigns
+// mocks.instance to a fresh instance — the original api object keeps talking to
+// this captured one, so tests that must stay on the original instance use it.
+const devInstance = mocks.instance
+
 // Captured once — the arrays are populated at import time and must not be cleared.
 const requestInterceptor = mocks.requestHandlers[0]
 const responseInterceptor = mocks.responseHandlers[0]
@@ -438,5 +444,39 @@ describe('api client interceptors', () => {
       await assertion
       expect(mocks.instance.post).toHaveBeenCalledTimes(2)
     })
+  })
+})
+
+// The /auth/forgot-password and /auth/reset-password PAGES shadow the
+// vercel.json /auth/* rewrite in production (afterFiles ordering), so the API
+// calls must go through the /api/* rewrite instead. `isProduction` is baked at
+// module load — the production case re-imports the module with NODE_ENV set,
+// and asserts on the FRESH instance that re-import created.
+describe('password reset API routing — page-shadowing fix', () => {
+  it('routes forgot/reset through the /api rewrite in production', async () => {
+    vi.resetModules()
+    const prev = process.env.NODE_ENV
+    ;(process.env as any).NODE_ENV = 'production'
+    try {
+      const prodApi = (await import('../api')).default
+      const prodInstance = mocks.instance // the fresh instance from the re-import
+      prodInstance.post.mockReset()
+      prodInstance.post.mockResolvedValue({ data: { detail: 'ok' } })
+      await prodApi.forgotPassword('user@example.com')
+      await prodApi.resetPassword('reset-token-123', 'NewPass1')
+      const urls: string[] = prodInstance.post.mock.calls.map((c: any[]) => String(c[0]))
+      expect(urls).toEqual(['/api/auth/forgot-password', '/api/auth/reset-password'])
+    } finally {
+      ;(process.env as any).NODE_ENV = prev
+    }
+  })
+
+  it('keeps plain /auth paths when calling the backend directly (dev/test)', async () => {
+    devInstance.post.mockReset()
+    devInstance.post.mockResolvedValue({ data: { detail: 'ok' } })
+    await api.forgotPassword('user@example.com')
+    await api.resetPassword('reset-token-123', 'NewPass1')
+    const urls: string[] = devInstance.post.mock.calls.map((c: any[]) => String(c[0]))
+    expect(urls).toEqual(['/auth/forgot-password', '/auth/reset-password'])
   })
 })

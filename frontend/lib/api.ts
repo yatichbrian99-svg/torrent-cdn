@@ -26,6 +26,16 @@ import { getToken, removeToken } from './auth'
 const isProduction = process.env.NODE_ENV === 'production'
 const API_BASE = isProduction ? '' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
 
+// /auth/forgot-password and /auth/reset-password have REAL Next.js pages at
+// those exact paths, which SHADOW the vercel.json /auth/* rewrite (afterFiles)
+// in production — a same-origin POST to them returns the page HTML instead of
+// reaching the backend (the same bug class as /admin/health, fixed earlier).
+// Route those two API calls through the /api/* rewrite instead: no pages live
+// under /api, and the rewrite strips the prefix onto the backend's /auth/*
+// routes. In local dev there is no proxy — the frontend calls the backend
+// directly, where the /api prefix does not exist — so only production uses it.
+const passwordResetPath = (p: string) => (isProduction ? `/api/auth${p}` : `/auth${p}`)
+
 // Human-friendly error text for UI forms. Backend errors are JSON
 // {detail: "..."}; proxy/platform failures (e.g. Vercel's plain-text 413 page)
 // have no detail, and network errors have no response at all — fall back to the
@@ -361,10 +371,10 @@ export default {
     api.get('/auth/verification-status').then((r) => r.data),
 
   forgotPassword: (email: string) =>
-    api.post('/auth/forgot-password', { email }).then((r) => r.data),
+    api.post(passwordResetPath('/forgot-password'), { email }).then((r) => r.data),
 
   resetPassword: (token: string, password: string) =>
-    api.post('/auth/reset-password', { token, password }).then((r) => r.data),
+    api.post(passwordResetPath('/reset-password'), { token, password }).then((r) => r.data),
 
   deleteAccount: () => api.delete('/auth/me').then((r) => r.data),
 
