@@ -36,3 +36,21 @@ export function isSafeHttpsUrl(url: string): boolean {
 export function sanitizeRefCode(ref: string): string {
   return (ref || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 20)
 }
+
+/**
+ * Known attack-scanner tool signatures, matched with word boundaries so common
+ * legitimate UAs (e.g. "zapier", "Nmaple") never trip the block. The edge
+ * middleware 403s these BEFORE the app renders — the no-DNS-change WAF gap
+ * closer that makes check_waf.sh's probes (sqlmap/nikto UAs) return 403.
+ *
+ * Deliberately NOT matched: generic HTTP clients (curl, python-requests,
+ * go-http-client, wget). The repo's own audit probes and health checks send
+ * those UAs — blocking them would break CI and monitoring.
+ */
+const SCANNER_UA_RE =
+  /\b(acunetix|arachni|dirbuster|feroxbuster|gobuster|hydra|masscan|metasploit|nessus|nikto|nmap|nuclei|openvas|sqlmap|wfuzz|wpscan|zap)\b/i
+
+/** True when a User-Agent string identifies known attack-scanning tooling. */
+export function isScannerUserAgent(ua: string): boolean {
+  return SCANNER_UA_RE.test(ua || '')
+}
