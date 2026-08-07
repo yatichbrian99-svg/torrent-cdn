@@ -1,33 +1,113 @@
 {
-  "generated_at": "2026-08-04T14:12:07+00:00",
+  "generated_at": "2026-08-07T21:08:56+00:00",
   "critical": 0,
-  "high": 4,
+  "high": 0,
   "moderate": 0,
-  "low": 0,
+  "low": 20,
   "info": 0,
-  "pip": 0,
-  "npm": 4,
-  "total": 4,
+  "pip": 20,
+  "npm": 0,
+  "total": 20,
   "findings": [
     [
-      "npm",
-      "bittorrent-tracker",
-      "high"
+      "pip",
+      "aiohttp",
+      "PYSEC-2026-237"
     ],
     [
-      "npm",
-      "ip",
-      "high"
+      "pip",
+      "aiohttp",
+      "PYSEC-2026-2104"
     ],
     [
-      "npm",
-      "torrent-discovery",
-      "high"
+      "pip",
+      "aiohttp",
+      "PYSEC-2026-2112"
     ],
     [
-      "npm",
-      "webtorrent",
-      "high"
+      "pip",
+      "aiohttp",
+      "PYSEC-2026-2111"
+    ],
+    [
+      "pip",
+      "aiohttp",
+      "PYSEC-2026-2113"
+    ],
+    [
+      "pip",
+      "aiohttp",
+      "PYSEC-2026-2109"
+    ],
+    [
+      "pip",
+      "aiohttp",
+      "PYSEC-2026-2110"
+    ],
+    [
+      "pip",
+      "aiohttp",
+      "PYSEC-2026-2108"
+    ],
+    [
+      "pip",
+      "aiohttp",
+      "PYSEC-2026-2105"
+    ],
+    [
+      "pip",
+      "aiohttp",
+      "PYSEC-2026-2106"
+    ],
+    [
+      "pip",
+      "aiohttp",
+      "PYSEC-2026-2107"
+    ],
+    [
+      "pip",
+      "aiohttp",
+      "PYSEC-2026-3545"
+    ],
+    [
+      "pip",
+      "aiohttp",
+      "PYSEC-2026-3546"
+    ],
+    [
+      "pip",
+      "aiohttp",
+      "PYSEC-2026-3547"
+    ],
+    [
+      "pip",
+      "ecdsa",
+      "PYSEC-2026-1325"
+    ],
+    [
+      "pip",
+      "gitpython",
+      "GHSA-9rj7-rf2p-w77r"
+    ],
+    [
+      "pip",
+      "gitpython",
+      "GHSA-4gmw-gg2m-w46p"
+    ],
+    [
+      "pip",
+      "gitpython",
+      "GHSA-hh9p-6wh2-4mfc"
+    ],
+    [
+      "pip",
+      "gitpython",
+      "GHSA-wvpp-8hx9-p66j"
+    ],
+    [
+      "pip",
+      "gitpython",
+      "GHSA-jm78-9fvv-mhgr"
     ]
   ]
 }
