@@ -81,6 +81,16 @@ try {
     out.tokenStored = await page.evaluate(() => !!sessionStorage.getItem('torrent_cdn_token'))
     out.modalClosed = !(await page.locator('input[type="email"]').count())
     out.navbarDashboard = (await page.locator('nav >> text=Dashboard').count()) > 0
+    // The navbar email renders only after the async api.getMe() resolves (the
+    // Logout/Dashboard links appear as soon as loggedIn flips true — BEFORE the
+    // user object arrives). Wait for the email span to show, so the assertion
+    // below samples the settled state, not the race window.
+    try {
+      await page.waitForFunction(() => {
+        const span = [...document.querySelectorAll('nav span')].find((s) => s.textContent?.includes('@'))
+        return !!span
+      }, { timeout: 15000 })
+    } catch {}
     out.navbarEmail = await page.evaluate(() => {
       const span = [...document.querySelectorAll('nav span')].find((s) => s.textContent?.includes('@'))
       return span?.textContent || null
