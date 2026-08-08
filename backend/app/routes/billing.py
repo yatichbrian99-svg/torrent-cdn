@@ -202,7 +202,9 @@ async def paystack_webhook(request: Request):
             return {"detail": "Already processed"}
         await redis.setex(f"webhook:{event_id}", 86400, "1")  # 24h TTL
 
-    if event.get("event") == "charge.success":
+    event_type = event.get("event")
+
+    if event_type == "charge.success":
         # Business-logic gate: only a settled, successful charge upgrades a
         # plan — a failed charge must never be a free-upgrade bypass.
         if data.get("status") != "success":
@@ -239,5 +241,45 @@ async def paystack_webhook(request: Request):
                 "UPDATE users SET plan = $1 WHERE id = $2",
                 tier, parsed_user_id,
             )
+
+    # Paystack Transfers events (admin payouts to M-PESA) — keep the local
+    # payout status in sync and notify the admin who initiated the transfer.
+    # These never grant a plan (only the charge.success branch above does).
+    transfer_status_map = {
+        "transfer.success": "success",
+        "transfer.failed": "failed",
+        "transfer.reversed": "reversed",
+    }
+    if event_type in transfer_status_map:
+        transfer_code = data.get("transfer_code")
+        if not transfer_code:
+            return {"detail": "Missing transfer_code, ignoring"}
+
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT amount_cents, created_by FROM payouts WHERE transfer_code = $1",
+                transfer_code,
+            )
+            if not row:
+                logger.warning(
+                    "Paystack %s for unknown transfer %s — ignoring",
+                    event_type, transfer_code,
+                )
+                return {"detail": "Unknown transfer, ignoring"}
+
+            new_status = transfer_status_map[event_type]
+            await conn.execute(
+                "UPDATE payouts SET status = $1, updated_at = NOW() WHERE transfer_code = $2",
+                new_status, transfer_code,
+            )
+            if row.get("created_by"):
+                amount_kes = (row["amount_cents"] or 0) / 100
+                await conn.execute(
+                    "INSERT INTO notifications (user_id, type, message) VALUES ($1, 'payout', $2)",
+                    row["created_by"],
+                    f"Payout {new_status}: {transfer_code} (KES {amount_kes:,.2f})",
+                )
+        return {"detail": "Webhook received"}
 
     return {"detail": "Webhook received"}

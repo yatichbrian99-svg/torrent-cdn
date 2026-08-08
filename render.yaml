@@ -62,10 +62,15 @@ services:
         value: ""  # ← Set this in Render dashboard (get a free key at https://resend.com/api-keys)
       - key: RESEND_FROM
         value: "TorrentCDN <noreply@torrentcdn.store>"  # Your verified domain
-      # Bootstrap: set ADMIN_SETUP_ENABLED=true temporarily, call POST /auth/setup
-      # once, then remove it. Admins are NOT auto-created on first registration.
+      # Bootstrap: set ADMIN_SETUP_ENABLED=true + a random ADMIN_SETUP_TOKEN,
+      # call POST /auth/setup once with the token in the X-Admin-Setup-Token
+      # header, then remove both. Admins are NOT auto-created on first
+      # registration. The token is REQUIRED if set — without it a flag left on
+      # lets any authenticated user self-promote.
       # - key: ADMIN_SETUP_ENABLED
       #   value: "true"
+      # - key: ADMIN_SETUP_TOKEN
+      #   generateValue: true
 
   # Managed Redis (Render Key Value, Valkey 8 — a drop-in for redis-py). Presign
   # upload sessions are stored here with a 30-min TTL, so a session survives a

@@ -291,6 +291,13 @@ export default function AdminPage() {
         <div className="flex items-center justify-between mt-2">
           <p className="text-xs" style={{ color: '#555' }}>Monitor platform activity and manage users</p>
           <Link
+            href="/admin/payouts"
+            className="flex items-center gap-1.5 border px-3 py-1.5 text-[10px] uppercase tracking-widest transition-colors hover:border-white/20"
+            style={{ borderColor: '#222', color: '#fbbf24', fontFamily: 'monospace' }}
+          >
+            <DollarSign size={11} /> Payouts
+          </Link>
+          <Link
             href="/admin/health"
             className="flex items-center gap-1.5 border px-3 py-1.5 text-[10px] uppercase tracking-widest transition-colors hover:border-white/20"
             style={{ borderColor: '#222', color: '#4ade80', fontFamily: 'monospace' }}

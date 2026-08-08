@@ -414,5 +414,25 @@ export default {
   // (the page then crashed on Object.values(html).checks). /admin/health/status
   // has no page, so the rewrite forwards it to the backend untouched.
   getAdminHealth: () => api.get('/admin/health/status').then((r) => r.data),
+
+  // Paystack Transfers — admin payouts to M-PESA. All admin-only. Amounts the
+  // backend stores/receives in KES cents; the UI works in whole KES.
+  getPayoutBalance: () => api.get('/billing/payouts/balance').then((r) => r.data),
+
+  listPayoutRecipients: () => api.get('/billing/payouts/recipients').then((r) => r.data),
+
+  createPayoutRecipient: (data: { name: string; account_number: string; description?: string }) =>
+    api.post('/billing/payouts/recipients', data).then((r) => r.data),
+
+  deactivatePayoutRecipient: (recipientCode: string) =>
+    api.delete(`/billing/payouts/recipients/${recipientCode}`).then((r) => r.data),
+
+  listPayouts: () => api.get('/billing/payouts').then((r) => r.data),
+
+  initiatePayout: (data: { recipient_code: string; amount: number; reason?: string }) =>
+    api.post('/billing/payouts', data).then((r) => r.data),
+
+  fetchPayout: (transferCode: string) =>
+    api.get(`/billing/payouts/${transferCode}`).then((r) => r.data),
 }
 

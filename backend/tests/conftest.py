@@ -90,6 +90,7 @@ def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
     import app.routes.analytics
     import app.routes.csp
     import app.routes.admin
+    import app.routes.payouts
 
     # Patch each route module's local reference imported via `from ..database import ...`
     monkeypatch.setattr(app.routes.auth, "get_db_pool", AsyncMock(return_value=mock_pool))
@@ -98,6 +99,7 @@ def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
     monkeypatch.setattr(app.routes.billing, "get_db_pool", AsyncMock(return_value=mock_pool))
     monkeypatch.setattr(app.routes.analytics, "get_db_pool", AsyncMock(return_value=mock_pool))
     monkeypatch.setattr(app.routes.admin, "get_db_pool", AsyncMock(return_value=mock_pool))
+    monkeypatch.setattr(app.routes.payouts, "get_db_pool", AsyncMock(return_value=mock_pool))
     # verification + notifications were NOT patched here — a module imported once
     # (app.main import) keeps the FIRST test's patched binding forever, so any
     # test exercising /auth/resend-verification or /notifications would read

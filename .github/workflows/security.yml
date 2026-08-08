@@ -430,4 +430,13 @@ jobs:
           JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
           APP_ENV: "production"
 
+      # AST-based SQL-injection gate: every asyncpg call must pass a plain
+      # string literal with $1/$2 placeholders and values as separate args
+      # (parameterized — the driver binds, it never re-parses values as SQL).
+      # Fails on f-string/format/%/concatenation/variable SQL with file:line.
+      # Also enforced as a pytest regression test (tests/test_sql_injection.py)
+      # so a new non-parameterized query reds the `tests` job too.
+      - name: Run SQL injection static audit
+        run: python scripts/sql_injection_audit.py
+
 

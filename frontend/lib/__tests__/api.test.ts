@@ -447,6 +447,67 @@ describe('api client interceptors', () => {
   })
 })
 
+  describe('Paystack payouts (M-PESA transfers)', () => {
+    beforeEach(() => {
+      mocks.instance.get.mockReset()
+      mocks.instance.post.mockReset()
+      mocks.instance.delete.mockReset()
+    })
+
+    it('getPayoutBalance fetches the available balance', async () => {
+      mocks.instance.get.mockResolvedValueOnce({
+        data: { currency: 'KES', balance_cents: 150000, balance_kes: 1500.0 },
+      })
+      const data = await api.getPayoutBalance()
+      expect(mocks.instance.get).toHaveBeenCalledWith('/billing/payouts/balance')
+      expect(data.balance_kes).toBe(1500.0)
+    })
+
+    it('createPayoutRecipient POSTs the M-PESA details', async () => {
+      mocks.instance.post.mockResolvedValueOnce({
+        data: { recipient_code: 'RCP_abc', name: 'Jane M', active: true },
+      })
+      const data = await api.createPayoutRecipient({
+        name: 'Jane M',
+        account_number: '254712345678',
+        description: 'Creator payout',
+      })
+      expect(mocks.instance.post).toHaveBeenCalledWith('/billing/payouts/recipients', {
+        name: 'Jane M',
+        account_number: '254712345678',
+        description: 'Creator payout',
+      })
+      expect(data.recipient_code).toBe('RCP_abc')
+    })
+
+    it('initiatePayout POSTs the recipient + amount (whole KES)', async () => {
+      mocks.instance.post.mockResolvedValueOnce({
+        data: { transfer_code: 'TRF_123', status: 'pending', amount_kes: 500 },
+      })
+      const data = await api.initiatePayout({ recipient_code: 'RCP_abc', amount: 500, reason: 'test' })
+      expect(mocks.instance.post).toHaveBeenCalledWith('/billing/payouts', {
+        recipient_code: 'RCP_abc',
+        amount: 500,
+        reason: 'test',
+      })
+      expect(data.transfer_code).toBe('TRF_123')
+    })
+
+    it('deactivatePayoutRecipient DELETEs by recipient code', async () => {
+      mocks.instance.delete.mockResolvedValueOnce({ data: { detail: 'Recipient deactivated' } })
+      const data = await api.deactivatePayoutRecipient('RCP_abc')
+      expect(mocks.instance.delete).toHaveBeenCalledWith('/billing/payouts/recipients/RCP_abc')
+      expect(data.detail).toBe('Recipient deactivated')
+    })
+
+    it('fetchPayout GETs a transfer by code (status refresh)', async () => {
+      mocks.instance.get.mockResolvedValueOnce({ data: { transfer_code: 'TRF_123', status: 'success' } })
+      const data = await api.fetchPayout('TRF_123')
+      expect(mocks.instance.get).toHaveBeenCalledWith('/billing/payouts/TRF_123')
+      expect(data.status).toBe('success')
+    })
+  })
+
 // The /auth/forgot-password and /auth/reset-password PAGES shadow the
 // vercel.json /auth/* rewrite in production (afterFiles ordering), so the API
 // calls must go through the /api/* rewrite instead. `isProduction` is baked at

@@ -168,7 +168,7 @@ Every push/PR to `main` runs `.github/workflows/security.yml` + `.github/workflo
 |---|---|
 | `tests` | Backend unit suite (pytest, fully mocked — no infra) + **domain guard** (dead `api.torrentcdn.store` host / apex-only `torrentcdn.store` URLs in `backend/app`, `Caddyfile`, `render.yaml`) |
 | `secret-scan` | Diff-scoped high-signal secret gate (`backend/scripts/secret_scan.sh`) + whole-tree scan — GitHub PATs, AWS/Stripe/SendGrid/Resend keys, private keys, webhooks |
-| `static-audit` | Gitleaks secret scan (pushed-range on push, **full history** on the daily cron/dispatch; posts inline PR comments, uploads SARIF) + `security_audit.py` header/CSP/auth/API-docs-gating checks |
+| `static-audit` | Gitleaks secret scan (pushed-range on push, **full history** on the daily cron/dispatch; posts inline PR comments, uploads SARIF) + `security_audit.py` header/CSP/auth/API-docs-gating checks + **SQL-injection static audit** (`sql_injection_audit.py` — AST gate: every asyncpg call must pass plain-literal SQL with `$1`/`$2` placeholders; f-string/format/%/concat/variable SQL fails with file:line) |
 | `frontend-checks` | **Frontend pipeline:** `npm ci` → `tsc --noEmit` → vitest unit tests **+ coverage gate** → `next build` → **OG image guard** + **API baseURL guard** + **domain guard** (dead `api.torrentcdn.store` host / apex-only `torrentcdn.store` URLs) |
 | `fullstack-audit` | Docker stack (Postgres/Redis/MinIO) + `curl_audit.sh` end-to-end (push/PR only; runs even when the secret gates are red, so a leak PR keeps its e2e signal) |
 | `p2p-e2e` | **Real 2-peer WebTorrent delivery gate** (push/manual only — writes throwaway accounts/files to production): builds the pushed frontend, serves it behind the same-origin proxy, and runs `e2e/p2p-two-peer.mjs` — seeder reproduces the backend infohash and seeds; leecher plays `/embed/{id}` with every `*.supabase.co` request BLOCKED (only WebRTC can deliver) → peers connect, video plays, `chunk_downloaded` with `bytes_p2p > 0` lands in analytics |
@@ -202,7 +202,40 @@ CI keeps the frontend fast: npm packages are cached via `setup-node`'s `cache: n
 
 ## Hardening Log
 
-A chronological record of security hardening work. Each entry lists what was fixed, the severity, and how it was verified — so a future reviewer can tell at a glance whether a finding was already addressed and which tests/commits prove it.
+A chronological record of security hardening work.
+
+### 2026-08-08 — Full-scope security audit: admin-bootstrap token + infra hardening
+
+Full attack-surface re-audit (auth, authorization/IDOR, input validation, XSS, SSRF/CSRF, file security, API, business logic, rate limiting, headers/CORS, cloud/containers/CI-CD, secrets, dependencies, DoS, race conditions, privacy, logging). Baseline is strong — every DB call parameterized (SQL-injection gate + 459-test suite), HMAC-verified webhooks, DNS-pinned SSRF guard on import, magic-byte/blocked-signature/compression-bomb upload validation, nonce-CSP + `strict-dynamic`, JWT fail-closed config, per-IP lockouts with Redis + in-memory fallbacks, session revocation (DB `security_stamp` authoritative), refcount-aware storage deletion, loopback-bound datastores, non-root backend container, `secret-scan` + gitleaks clean, **npm audit 0 vulnerabilities**, pip baseline 0 critical/0 high (20 low accepted). Fixes from this pass:
+
+- **[Medium] Admin bootstrap open door** — with `ADMIN_SETUP_ENABLED=true`, any authenticated user could promote themselves (or anyone) to admin; a flag left on after bootstrap is a standing vertical-privilege-escalation hole. New optional **`ADMIN_SETUP_TOKEN`**: when set, `POST /auth/setup` requires it in the **`X-Admin-Setup-Token` header** (constant-time `hmac.compare_digest`; header transport keeps the secret out of access logs, which capture request URIs verbatim). Config logs an ERROR at startup in production when the flag is on without a token. Existing no-token behavior is unchanged when unset (backwards compatible). Tests: 3 new in `TestAuthSetupGating` (missing header → 403 no-promotion, wrong token → 403, correct token → 200) + 2 config fail-loud tests.
+- **[Low] Backend API bound to `0.0.0.0` in docker-compose** — the dev API (no TLS) was LAN-reachable on :8000 while the datastores were loopback-only. Bound to `127.0.0.1` like the rest.
+- **[Low] Frontend container ran as root + `npm install`** — `frontend/Dockerfile` now runs as the image's `node` user (least privilege) and uses `npm ci` (lockfile-exact, no silent dependency drift); `frontend/vercel.json` `installCommand` → `npm ci`.
+- **[Low] Mutable base-image tags** — patch-pinned for reproducible builds: `python:3.11.9-slim`, `node:20.18.0-alpine`, `postgres:16.4-alpine`, `redis:7.4.2-alpine`, `caddy:2.8.4-alpine` (MinIO was already pinned).
+
+Verified: **464 backend tests** (5 new), secret scan clean, scanner green.
+
+### 2026-08-08 — SQL-injection regression gate (AST static audit)
+
+Full-tree re-read confirmed **zero SQL-injection vectors**: all **130** asyncpg call sites pass a plain string literal with `$1`/`$2` placeholders and values as separate arguments (the driver binds values — it never re-parses them as SQL); a scan found no f-string/`.format()`/`%`-format/concatenation SQL and no string-built queries. To keep it that way, the audit is now a **CI gate**:
+
+- **`backend/scripts/sql_injection_audit.py`** — AST-based scanner (stdlib `ast`, no deps). **Gate A** flags any asyncpg SQL method call (`execute`/`fetch`/`fetchrow`/`fetchval`/`executemany`/`prepare`/`copy_*`) whose first argument isn't a provably-plain string literal — f-strings, `.format()`, `%`-format, `+` concatenation, and unverifiable variables all fail with `file:line`. Module-level constants (e.g. the `*_TABLE_DDL` in `database.py`) resolve through `from X import NAME` / `import X` chains and stay accepted. **Gate B** flags any f-string/format/`%`/concat expression anywhere whose value contains an unambiguous SQL marker (`SELECT `/`INSERT INTO`/`UPDATE `/`DELETE FROM`/`CREATE TABLE`...), catching a query assembled in a helper far from the call site. Exit 0 = clean.
+- **`backend/tests/test_sql_injection.py`** — 3 regression tests: the whole tree must stay clean; the legitimate forms (DDL constants incl. relative-import resolution + `$N` placeholders) must pass; and **guard-the-guard** — the scanner itself must flag every dynamic-SQL vector (f-string, concatenation, `%`-format, `.format()`, local variable) so a weakened scanner can't slip through.
+- **CI** — `static-audit` job in `security.yml` now runs `python scripts/sql_injection_audit.py` (next to `security_audit.py`); the pytest test additionally reds the `tests` job on any regression.
+
+Verified: **459 backend tests** (3 new), scanner green on the real tree, and the poisoned-fixture run flags all 5 vector classes.
+
+### 2026-08-08 — Paystack Transfers (admin payouts to M-PESA)
+
+Implements the **Transfers API** (the payout half of the Paystack integration — receiving money lives in `billing.py`): a new admin-only surface (`/admin/payouts` page + `/billing/payouts/*` API) to create M-PESA recipients (`transferrecipient`, `mobile_money`/`MPESA`), initiate transfers (`transfer`, `source=balance`, amount KES→cents), fetch/refresh transfer status, deactivate recipients, and view the available balance. Webhook now also handles `transfer.success` / `transfer.failed` / `transfer.reversed`. Security posture:
+
+- **Admin-only everywhere** — every payout endpoint is gated by `require_admin` (403 for regular users), matching `/admin/*`.
+- **Only locally-created recipients can be paid** — `POST /billing/payouts` looks up the recipient in the local `payout_recipients` table first (404 otherwise); an admin can never hand-type a `recipient_code`.
+- **Minimum amount enforced before any Paystack call** — KES 3 (Paystack's 300-cent floor); amounts are converted KES→cents server-side (same smallest-unit convention as payments).
+- **Transfer webhooks never grant plans** — the HMAC-SHA512 webhook treats `transfer.*` events as status updates + admin notification only; only `charge.success` with a configured `plan_code` can upgrade a plan (regression-tested: `TestTransferWebhooks::test_transfer_event_never_grants_plan`).
+- **Money-motion audit trail** — every recipient/transfer row records `created_by` (admin UUID); initiations and deactivations are logged.
+
+Verified: **464 backend tests** (20 new in `backend/tests/test_payouts.py` covering admin gating, KES→cents conversion, minimum-amount enforcement, unknown/inactive-recipient rejection, status refresh, and all three transfer webhooks), **108 frontend tests** (5 new api-client cases), clean `tsc`. Each entry lists what was fixed, the severity, and how it was verified — so a future reviewer can tell at a glance whether a finding was already addressed and which tests/commits prove it.
 
 ### 2026-08-07 — Cleared the 4 HIGH `ip`-via-webtorrent advisories (npm override → `@bybrave/ip2`)
 
@@ -238,7 +271,7 @@ A systematic security audit (OWASP-style, zero-trust assumptions) produced the f
 
 #### Already solid (verified, no changes needed)
 
-- **SQL injection:** all queries parameterized (asyncpg `$1`), zero string concatenation.
+- **SQL injection:** all queries parameterized (asyncpg `$1`), zero string concatenation — and now **enforced as a CI gate** (`scripts/sql_injection_audit.py` + `tests/test_sql_injection.py`): a non-parameterized query added anywhere reds both `static-audit` and `tests`.
 - **Uploads:** magic-byte + content-type validation, blocked signatures (ZIP/ELF/PE/tar…), compression-bomb check, sanitized filenames, UUID object keys, server-side size enforcement, per-IP upload caps, idempotent presign/chunk/finalize.
 - **Auth:** bcrypt hashing, fail-closed JWT secret (>32 chars, `changeme` rejected), per-IP+email login lockout, anti-enumeration forgot-password, one-time reset tokens (Redis tombstone), admin bootstrap gated by env, admin-only routes server-verified.
 - **Ownership:** every file/analytics/notification query scoped by `user_id` (no IDOR).
@@ -479,12 +512,14 @@ git push --force --tags origin
 Admins are **never** auto-created. Bootstrap is a temporary, gated process:
 
 ```bash
-# 1. Deploy with ADMIN_SETUP_ENABLED=true (Render env var)
-# 2. Register your account via the app, then promote it.
+# 1. Deploy with ADMIN_SETUP_ENABLED=true + a random ADMIN_SETUP_TOKEN (Render env vars)
+# 2. Register your account via the app, then promote it. The token travels in a
+#    HEADER (never a query param — access logs capture URLs verbatim).
 #    Replace $API with your API base, e.g. https://torrent-cdn.onrender.com
 curl -X POST "$API/auth/setup?email=you@example.com" \
-  -H "Authorization: Bearer <your-jwt-token>"
-# 3. REMOVE ADMIN_SETUP_ENABLED from Render immediately (back to unset/false)
+  -H "Authorization: Bearer <your-jwt-token>" \
+  -H "X-Admin-Setup-Token: <your-ADMIN_SETUP_TOKEN>"
+# 3. REMOVE ADMIN_SETUP_ENABLED and ADMIN_SETUP_TOKEN from Render immediately
 # 4. Verify: GET $API/admin/users with your token returns 200
 ```
 

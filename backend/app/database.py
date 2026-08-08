@@ -71,6 +71,46 @@ CREATE TABLE IF NOT EXISTS api_keys (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
 """
 
+# Payout tables DDL — Paystack Transfers API (admin payouts to M-PESA).
+# `payout_recipients` holds the recipients created through the Paystack
+# /transferrecipient endpoint (recipient_code is the handle Paystack returns);
+# `payouts` records every initiated transfer (transfer_code) and its latest
+# status, which the billing webhook keeps in sync via transfer.* events.
+# Both reference users(id) with ON DELETE SET NULL so the admin audit trail
+# survives account deletion. amount_cents is BIGINT: KES 10M * 100 = 1e9 cents
+# exceeds the INT32 ceiling.
+PAYOUTS_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS payout_recipients (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    recipient_code VARCHAR(64) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    account_number VARCHAR(32) NOT NULL,
+    bank_code VARCHAR(32) NOT NULL,
+    bank_name VARCHAR(255),
+    type VARCHAR(32) NOT NULL DEFAULT 'mobile_money',
+    currency VARCHAR(8) NOT NULL DEFAULT 'KES',
+    active BOOLEAN DEFAULT TRUE,
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS payouts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    transfer_code VARCHAR(64) NOT NULL UNIQUE,
+    recipient_code VARCHAR(64) NOT NULL,
+    recipient_name VARCHAR(255),
+    amount_cents BIGINT NOT NULL,
+    currency VARCHAR(8) NOT NULL DEFAULT 'KES',
+    reason TEXT,
+    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    reference VARCHAR(64),
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_payouts_recipient ON payouts(recipient_code);
+CREATE INDEX IF NOT EXISTS idx_payouts_created_at ON payouts(created_at DESC);
+"""
+
 # Connection pools
 pg_pool: Optional[asyncpg.Pool] = None
 redis_client: Optional[Redis] = None

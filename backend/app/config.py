@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     # Admin bootstrap: when True, /auth/setup can promote users to admin.
     # Set ADMIN_SETUP_ENABLED=true temporarily to create the first admin, then disable it.
     admin_setup_enabled: bool = False
+    # Optional bootstrap secret (ADMIN_SETUP_TOKEN): when set, POST /auth/setup
+    # requires ?token=<value> (constant-time compared). With this set, an
+    # accidentally-left-on ADMIN_SETUP_ENABLED no longer lets any authenticated
+    # user self-promote — the operator holds the only key to the door.
+    admin_setup_token: str = ""
 
     # API docs (Swagger UI / ReDoc / OpenAPI schema). Off in production by
     # default — the public schema hands attackers a precise route map (OWASP
@@ -168,6 +173,17 @@ def get_settings() -> Settings:
         if settings.paystack_secret_key in ("sk_test_xxx", "sk_live_xxx"):
             logger.warning(
                 "PAYSTACK_SECRET_KEY looks like a placeholder — set a real Paystack secret key in production"
+            )
+        # Admin bootstrap without a token is an open admin-promotion door: any
+        # authenticated user can promote themselves (or anyone) while the flag
+        # is up. Fail loudly at startup so an operator who forgot to set
+        # ADMIN_SETUP_TOKEN (or forgot to disable the flag) sees it before an
+        # attacker does.
+        if settings.admin_setup_enabled and not settings.admin_setup_token:
+            logger.error(
+                "ADMIN_SETUP_ENABLED=true without ADMIN_SETUP_TOKEN — POST /auth/setup is "
+                "open to ANY authenticated user. Set ADMIN_SETUP_TOKEN, or better: "
+                "disable ADMIN_SETUP_ENABLED now that the first admin exists."
             )
 
         # APP_URL drives every user-facing link the backend emits (email

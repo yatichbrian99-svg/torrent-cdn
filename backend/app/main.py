@@ -16,8 +16,8 @@ from .security import get_client_ip
 import os
 import threading
 
-from .routes import auth, upload, files, analytics, billing, csp, admin, verification, notifications
-from .database import API_KEYS_TABLE_DDL, NOTIFICATIONS_TABLE_DDL, USERS_TABLE_DDL
+from .routes import auth, upload, files, analytics, billing, csp, admin, verification, notifications, payouts
+from .database import API_KEYS_TABLE_DDL, NOTIFICATIONS_TABLE_DDL, PAYOUTS_TABLE_DDL, USERS_TABLE_DDL
 
 settings = get_settings()
 
@@ -34,6 +34,8 @@ async def run_startup_migrations():
             await conn.execute(NOTIFICATIONS_TABLE_DDL)
             # API keys reference users — create after both (idempotent on existing DBs).
             await conn.execute(API_KEYS_TABLE_DDL)
+            # Payout tables reference users — after users (idempotent on existing DBs).
+            await conn.execute(PAYOUTS_TABLE_DDL)
             await conn.execute("""
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT FALSE;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;
@@ -394,6 +396,7 @@ app.include_router(upload.router)
 app.include_router(files.router)
 app.include_router(analytics.router)
 app.include_router(billing.router)
+app.include_router(payouts.router)
 app.include_router(csp.router)
 app.include_router(admin.router)
 app.include_router(verification.router)

@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import json
 import re
 import secrets
@@ -6,7 +7,7 @@ import time
 import logging
 import unicodedata
 import uuid
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, status
 from uuid import UUID
 
 from ..database import get_db_pool, get_redis, USERS_TABLE_DDL, API_KEYS_TABLE_DDL
@@ -632,11 +633,17 @@ async def reset_password(data: ResetPasswordRequest):
 @router.post("/setup")
 async def setup_first_admin(
     email: str = None,
+    presented_token: str | None = Header(default=None, alias="X-Admin-Setup-Token"),
     requester_id: UUID = Depends(get_current_user_id),
 ):
     """
     Promote a user to admin.
     - Only available while ADMIN_SETUP_ENABLED=true (bootstrap mode).
+    - If ADMIN_SETUP_TOKEN is configured, the request must present it in the
+      X-Admin-Setup-Token header (constant-time compared). The header — NOT a
+      query param — keeps the secret out of access logs (Caddy/Vercel/Render
+      log request URIs verbatim). Without it, an accidentally-left-on flag lets
+      any authenticated user self-promote.
     - If an admin already exists, the requester must be an admin.
     - If called without email and no admin exists, promotes the first registered user.
     """
@@ -646,6 +653,17 @@ async def setup_first_admin(
             status_code=403,
             detail="Admin setup is disabled. Set ADMIN_SETUP_ENABLED=true to bootstrap the first admin.",
         )
+
+    # Optional bootstrap secret: when configured, the X-Admin-Setup-Token header
+    # must match. Constant-time (hmac.compare_digest) so a wrong token can't be
+    # distinguished by timing; missing/empty short-circuit to the same 403.
+    setup_token = getattr(_settings, "admin_setup_token", "") or ""
+    if setup_token:
+        if not presented_token or not hmac.compare_digest(presented_token, setup_token):
+            raise HTTPException(
+                status_code=403,
+                detail="Admin setup requires the ADMIN_SETUP_TOKEN.",
+            )
 
     pool = await get_db_pool()
     async with pool.acquire() as conn:

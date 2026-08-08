@@ -1,4 +1,7 @@
-FROM python:3.11-slim
+# Patch-pinned (python:3.11.9-slim, not the mutable python:3.11-slim) so a
+# rebuilt image is byte-reproducible and can't silently drift to a newer base.
+# Bump deliberately when a security release lands.
+FROM python:3.11.9-slim
 
 WORKDIR /app
 

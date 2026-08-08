@@ -247,3 +247,66 @@ class UploadImportRequest(BaseModel):
     url: str = Field(max_length=MAX_URL_LEN)
     filename: Optional[str] = Field(default=None, max_length=MAX_FILENAME_LEN)
     idempotency_key: Optional[str] = Field(default=None, max_length=MAX_IDEMPOTENCY_KEY_LEN)
+
+
+# Paystack Transfers API (admin payouts to M-PESA) — see routes/payouts.py.
+# Amounts are in the currency's smallest unit (KES cents), matching the
+# existing payment integration: KES 500 = amount 50000.
+
+
+class PayoutRecipientCreate(BaseModel):
+    """Create an M-PESA (mobile_money) transfer recipient.
+
+    `account_number` is the recipient's phone number (e.g. 254712345678 or
+    0712345678); `bank_code` defaults to MPESA (Safaricom M-PESA).
+    """
+    name: str = Field(min_length=1, max_length=255)
+    account_number: str = Field(min_length=9, max_length=20)
+    bank_code: str = Field(default="MPESA", max_length=32)
+    type: str = Field(default="mobile_money", max_length=32)
+    currency: str = Field(default="KES", max_length=8)
+    description: Optional[str] = Field(default=None, max_length=255)
+
+
+class PayoutRecipientResponse(BaseModel):
+    """A stored transfer recipient (recipient_code returned by Paystack)."""
+    recipient_code: str
+    name: str
+    account_number: str
+    bank_code: str
+    bank_name: Optional[str] = None
+    type: str = "mobile_money"
+    currency: str = "KES"
+    active: bool = True
+    created_at: datetime
+
+
+class PayoutInitiateRequest(BaseModel):
+    """Initiate a payout from the Paystack balance. `amount` is in whole KES
+    (the server converts to cents for the Paystack API, same unit as payments).
+    """
+    recipient_code: str = Field(min_length=1, max_length=64)
+    amount: int = Field(gt=0, le=10_000_000)
+    reason: Optional[str] = Field(default=None, max_length=255)
+
+
+class PayoutResponse(BaseModel):
+    """A transfer as stored locally (mirrors Paystack's transfer object)."""
+    transfer_code: str
+    recipient_code: str
+    recipient_name: str = ""
+    amount_cents: int
+    amount_kes: float
+    currency: str = "KES"
+    reason: Optional[str] = None
+    status: str = "pending"
+    reference: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+
+class PayoutBalanceResponse(BaseModel):
+    """Available Paystack balance for the configured currency (KES)."""
+    currency: str
+    balance_cents: int
+    balance_kes: float

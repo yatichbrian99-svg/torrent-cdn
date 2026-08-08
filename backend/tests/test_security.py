@@ -68,12 +68,14 @@ class TestAuthSetupGating:
     URL = "/auth/setup"
 
     @staticmethod
-    def _enable_setup(monkeypatch, enabled: bool):
-        """Patch the route's get_settings to return a fake settings with admin_setup_enabled."""
+    def _enable_setup(monkeypatch, enabled: bool, token: str = ""):
+        """Patch the route's get_settings to return a fake settings with admin_setup_enabled
+        (and optionally a configured ADMIN_SETUP_TOKEN)."""
         import app.routes.auth
 
         class _FakeSettings:
             admin_setup_enabled = enabled
+            admin_setup_token = token
 
         monkeypatch.setattr(app.routes.auth, "get_settings", lambda: _FakeSettings())
 
@@ -158,6 +160,47 @@ class TestAuthSetupGating:
         resp = client.post(self.URL, headers=auth_headers, params={"email": "admin@example.com"})
         assert resp.status_code == 200
         assert "already an admin" in resp.json()["detail"]
+
+    def test_setup_requires_token_when_configured(self, client, auth_headers, mock_conn, monkeypatch):
+        """With ADMIN_SETUP_TOKEN configured, a missing header blocks the promotion —
+        an accidentally-left-on flag can't be used to self-promote."""
+        self._enable_setup(monkeypatch, enabled=True, token="s3cret-bootstrap")
+        mock_conn.fetchval.return_value = False  # no admin exists
+        resp = client.post(self.URL, headers=auth_headers, params={"email": "newadmin@example.com"})
+        assert resp.status_code == 403
+        assert "ADMIN_SETUP_TOKEN" in resp.json()["detail"]
+        mock_conn.execute.assert_not_called()  # no promotion may happen
+
+    def test_setup_wrong_token_rejected(self, client, auth_headers, mock_conn, monkeypatch):
+        """A wrong token is rejected the same way as a missing one."""
+        self._enable_setup(monkeypatch, enabled=True, token="s3cret-bootstrap")
+        mock_conn.fetchval.return_value = False
+        resp = client.post(
+            self.URL,
+            headers={**auth_headers, "X-Admin-Setup-Token": "wrong-token"},
+            params={"email": "newadmin@example.com"},
+        )
+        assert resp.status_code == 403
+        assert "ADMIN_SETUP_TOKEN" in resp.json()["detail"]
+        mock_conn.execute.assert_not_called()
+
+    def test_setup_correct_token_promotes(self, client, auth_headers, mock_conn, monkeypatch):
+        """The configured token unlocks the bootstrap promotion via the header."""
+        self._enable_setup(monkeypatch, enabled=True, token="s3cret-bootstrap")
+        mock_conn.fetchval.return_value = False  # no admin exists
+        mock_conn.fetchrow.return_value = {
+            "id": UUID("11111111-1111-4111-8111-111111111111"),
+            "email": "newadmin@example.com",
+            "is_admin": False,
+        }
+        resp = client.post(
+            self.URL,
+            headers={**auth_headers, "X-Admin-Setup-Token": "s3cret-bootstrap"},
+            params={"email": "newadmin@example.com"},
+        )
+        assert resp.status_code == 200
+        assert "promoted to admin" in resp.json()["detail"]
+        mock_conn.execute.assert_called_once()
 
 
 class TestLoginLockout:
@@ -353,6 +396,37 @@ class TestFailClosedConfig:
         settings = get_settings()
         assert settings.jwt_verify_secret == "custom-verify-secret"
         assert settings.jwt_reset_secret == "custom-reset-secret"
+        get_settings.cache_clear()
+
+    def test_prod_admin_setup_without_token_logs_error(self, monkeypatch, caplog):
+        """Production with ADMIN_SETUP_ENABLED=true but no ADMIN_SETUP_TOKEN must
+        fail loudly at startup (an open admin-promotion door)."""
+        import logging
+
+        get_settings = self._fresh_settings(monkeypatch, jwt_secret=self.GOOD_SECRET)
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("APP_URL", "https://www.torrentcdn.store")
+        monkeypatch.delenv("EMAIL_VERIFICATION_REQUIRED", raising=False)
+        monkeypatch.setenv("ADMIN_SETUP_ENABLED", "true")
+        monkeypatch.delenv("ADMIN_SETUP_TOKEN", raising=False)
+        with caplog.at_level(logging.ERROR, logger="app.config"):
+            get_settings()
+        assert any("ADMIN_SETUP_ENABLED=true without ADMIN_SETUP_TOKEN" in r.message for r in caplog.records)
+        get_settings.cache_clear()
+
+    def test_prod_admin_setup_with_token_no_error(self, monkeypatch, caplog):
+        """With the token configured, the fail-loud startup ERROR is gone."""
+        import logging
+
+        get_settings = self._fresh_settings(monkeypatch, jwt_secret=self.GOOD_SECRET)
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("APP_URL", "https://www.torrentcdn.store")
+        monkeypatch.delenv("EMAIL_VERIFICATION_REQUIRED", raising=False)
+        monkeypatch.setenv("ADMIN_SETUP_ENABLED", "true")
+        monkeypatch.setenv("ADMIN_SETUP_TOKEN", "super-secret-bootstrap")
+        with caplog.at_level(logging.ERROR, logger="app.config"):
+            get_settings()
+        assert not any("ADMIN_SETUP_ENABLED=true without ADMIN_SETUP_TOKEN" in r.message for r in caplog.records)
         get_settings.cache_clear()
 
 
