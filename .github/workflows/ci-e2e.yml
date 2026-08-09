@@ -1,14 +1,17 @@
 name: "CI: E2E delivery gate (pushed frontend → production backend)"
 
-# Path-filtered to moderate Actions usage: the full Playwright batch (npm ci +
-# Playwright Chromium + build + all suites) is the most expensive job in CI, so
+# Path-filtered to moderate Actions usage: the Playwright batch (npm ci +
+# Playwright Chromium + build + suites) is the most expensive job in CI, so
 # on push it runs ONLY when the frontend or the workflow itself changed — a
 # backend-only push cannot change what this batch tests (the backend has its
-# own unit suite + the fullstack Docker audit). A nightly cron keeps a full
-# sweep even when pushes are backend-only, and workflow_dispatch is the manual
-# "run E2E now" button. NEVER on pull_request: the batch WRITES to production
-# (throwaway account + test uploads) and fork PRs must not be able to trigger
-# unlimited production writes.
+# own unit suite + the fullstack Docker audit). Push runs the DELIVERY-
+# CRITICAL subset (upload paths + WebTorrent playback/P2P + auth + rendering:
+# upload-direct, upload-fallback, embed-playback, auto-seed, p2p-two-peer,
+# login-flow, visual-pass); the full 11-suite sweep runs on the nightly cron
+# (covers api-key-ui, finalize-retry, mfa-flow, embed-speed) and via
+# workflow_dispatch (the manual "run E2E now" button). NEVER on pull_request:
+# the batch WRITES to production (throwaway account + test uploads) and fork
+# PRs must not be able to trigger unlimited production writes.
 on:
   push:
     branches: [main]
@@ -128,13 +131,17 @@ jobs:
 
       # Everything in ONE step so the local stack lives for the batch: next
       # start on :3001, the same-origin proxy on :3000 (vercel.json rewrite
-      # mirror → production Render), wait for readiness, then run ALL E2E
-      # suites (run-all.mjs) with E2E_BASE_URL pointed at the local build. The
-      # trap guarantees the background processes die even when a suite fails.
+      # mirror → production Render), wait for readiness, then run the E2E
+      # suites (run-all.mjs, prefix-matched args) with E2E_BASE_URL pointed at
+      # the local build. Push runs the delivery-critical subset (~7 suites,
+      # the gate this workflow exists for); nightly cron + workflow_dispatch
+      # run ALL suites (empty SUITES → run-all.mjs defaults to the full list),
+      # covering api-key-ui, finalize-retry, mfa-flow and embed-speed. The trap
+      # guarantees the background processes die even when a suite fails.
       # Invoke the next binary directly (not via npx) so $NEXT_PID IS the
       # server process — npx would wrap it and killing the wrapper could orphan
       # next-server.
-      - name: Run full E2E suite batch (pushed build → production backend)
+      - name: Run E2E suite batch (pushed build → production backend)
         run: |
           set -euo pipefail
           ./node_modules/.bin/next start -p 3001 > /tmp/next.log 2>&1 &
@@ -154,7 +161,15 @@ jobs:
             tail -20 /tmp/next.log /tmp/proxy.log 2>&1
             exit 1
           }
-          E2E_BASE_URL=http://localhost:3000 node e2e/run-all.mjs
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # Delivery gate: the flows this job exists to guard. Nightly + dispatch
+            # get the FULL sweep below (empty SUITES).
+            SUITES="upload-direct upload-fallback embed-playback auto-seed p2p-two-peer login-flow visual-pass"
+          else
+            SUITES=""
+          fi
+          # shellcheck disable=SC2086 (intentional word-splitting into suite args)
+          E2E_BASE_URL=http://localhost:3000 node e2e/run-all.mjs $SUITES
 
       # Surface the local stack logs whenever a suite fails (the readiness
       # branch above only dumps them when the stack itself never came up).

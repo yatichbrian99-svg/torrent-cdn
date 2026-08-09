@@ -1,12 +1,17 @@
 name: "CI: Tests & Security Audits"
 
-# No paths filter: tests + audits (incl. the gitleaks secret scan) run on
-# every push/PR to main — a secret committed anywhere (frontend/, Caddyfile,
-# docker-compose.yml, root files) must never escape the scan. The two HEAVY
-# jobs are path-scoped in their own workflow files to moderate Actions usage:
-# the E2E batch (ci-e2e.yml — runs when frontend/** or .github/** change, plus
-# a nightly sweep) and the full-stack Docker audit (ci-fullstack.yml — runs
-# when backend/** or the IaC/Docker files change).
+# NO paths filter on the SECRET GATES: secret-scan + static-audit (gitleaks,
+# header audit, SQL-injection audit) run on every push/PR to main — a secret
+# committed anywhere (frontend/, Caddyfile, docker-compose.yml, root files)
+# must never escape the scan. The two HEAVY non-gate jobs (frontend-checks,
+# tests) are gated on their own inputs via the `changes` job below, so a push
+# that doesn't touch the frontend doesn't pay for npm ci + vitest + next build
+# (~5-10 min) and a push that doesn't touch the backend doesn't pay for the
+# pytest suite (~3-4 min). The other two heavy jobs live path-scoped in their
+# own workflow files to moderate Actions usage: the E2E batch (ci-e2e.yml —
+# runs when frontend/** or .github/** change, plus a nightly sweep) and the
+# full-stack Docker audit (ci-fullstack.yml — runs when backend/** or the
+# IaC/Docker files change).
 #
 # Daily cron + manual dispatch re-scan the FULL history: push-time gitleaks
 # only scans the pushed range, so a secret that slipped through an old commit
@@ -39,6 +44,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── Change detection (fast, no infra, no third-party action) ──
+  # Computes which areas the changeset touches so frontend-checks and tests can
+  # gate themselves (the secret gates below stay ALWAYS-ON — a secret can land
+  # in any directory). Pure git diff + case patterns; no dorny/paths-filter or
+  # other third-party action (the repo only uses official actions, for supply-
+  # chain reasons). On schedule/workflow_dispatch (no diff base) and on the
+  # first push to a branch (all-zero before), reports both areas changed so the
+  # full re-verify semantics are preserved. The paths mirror ci-fullstack.yml's
+  # scope for backend + .github/**, and frontend/** + .github/** for the
+  # frontend (workflow edits can break either job, so .github/** triggers both).
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      frontend: ${{ steps.diff.outputs.frontend }}
+      backend: ${{ steps.diff.outputs.backend }}
+    steps:
+      - name: Checkout (full history for an accurate diff base)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Compute changed areas
+        id: diff
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            # schedule / workflow_dispatch / first push: no meaningful diff — run everything
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Fail-closed: if the diff itself errors (shouldn't with a full-history
+          # checkout, but guard anyway), run EVERYTHING rather than silently
+          # skipping the heavy jobs on a bogus empty diff.
+          CHANGED=$(git diff --name-only "$BASE" "$GITHUB_SHA" 2>/dev/null) || {
+            echo "warning: git diff failed — running all jobs (fail-closed)" >&2
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          echo "changed files: $(echo "$CHANGED" | sed '/^$/d' | wc -l)"
+          FRONTEND=false
+          BACKEND=false
+          while IFS= read -r f; do
+            case "$f" in
+              frontend/*|.github/*) FRONTEND=true ;;
+              backend/*|Caddyfile|docker-compose.yml|render.yaml|.github/*) BACKEND=true ;;
+            esac
+          done <<< "$CHANGED"
+          echo "frontend=$FRONTEND" >> "$GITHUB_OUTPUT"
+          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
+
   # ── Diff-scoped secret gate (fast, no infra) ──
   # Fails the build the moment a high-signal secret (GitHub PAT, AWS/Stripe/
   # SendGrid/Resend key, private key, …) lands in the changeset — with a
@@ -76,7 +134,13 @@ jobs:
   # tests + 3 audit layers, but the frontend was the only CI-blind spot: type
   # errors, build breaks, and broken imports could merge silently. Node 20
   # matches the production image (frontend/Dockerfile: node:20-alpine).
+  # Gated on frontend/** + .github/** changes (see `changes` job): the heaviest
+  # job in this workflow (npm ci + tsc + vitest coverage + next build) must not
+  # run on a backend-only push. The nightly cron + workflow_dispatch report
+  # both areas changed, so the full daily re-verify is preserved.
   frontend-checks:
+    needs: [changes]
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -319,7 +383,16 @@ jobs:
         run: bash backend/scripts/upload_audit_prod.sh
 
   # ── Backend unit test suite (fully mocked — no infra required) ──
+  # Gated on backend/** + IaC + .github/** changes (see `changes` job): the
+  # suite cannot be affected by a frontend-only push (its tests are fully
+  # mocked; the frontend has its own gate). The SQL-injection gate this suite
+  # also carries (tests/test_sql_injection.py) is independently enforced by
+  # the ALWAYS-ON static-audit job (scripts/sql_injection_audit.py), so a
+  # skipped `tests` run never weakens that gate. Schedule/dispatch report
+  # backend=true, so the daily cron still re-runs the full suite.
   tests:
+    needs: [changes]
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:

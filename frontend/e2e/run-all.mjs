@@ -2,8 +2,9 @@
  * E2E runner: executes the three production Playwright suites sequentially.
  *
  * Usage:
- *   node e2e/run-all.mjs                 # all three suites
- *   node e2e/run-all.mjs upload-direct   # just one suite
+ *   node e2e/run-all.mjs                     # all suites
+ *   node e2e/run-all.mjs upload-direct       # just one suite
+ *   node e2e/run-all.mjs upload embed p2p    # several (prefix-matched)
  *
  * Each suite creates (and cleans up) its own throwaway account + file, so runs
  * are repeatable against the live site. See README.md for prerequisites.
@@ -14,10 +15,12 @@ import { fileURLToPath } from 'node:url'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const suites = ['upload-direct.mjs', 'upload-fallback.mjs', 'embed-playback.mjs', 'auto-seed.mjs', 'p2p-two-peer.mjs', 'api-key-ui.mjs', 'finalize-retry.mjs', 'embed-speed.mjs', 'login-flow.mjs', 'mfa-flow.mjs', 'visual-pass.mjs']
-const requested = process.argv[2]
-const toRun = requested ? suites.filter((s) => s.startsWith(requested)) : suites
+const requested = process.argv.slice(2)
+const toRun = requested.length
+  ? suites.filter((s) => requested.some((r) => s.startsWith(r)))
+  : suites
 if (!toRun.length) {
-  console.error(`unknown suite "${requested}" — options: ${suites.join(', ')}`)
+  console.error(`unknown suite(s) "${requested.join(' ')}" — options: ${suites.join(', ')}`)
   process.exit(2)
 }
 
