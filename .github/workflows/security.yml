@@ -89,9 +89,16 @@ jobs:
           FRONTEND=false
           BACKEND=false
           while IFS= read -r f; do
+            # Order matters: shell case takes the FIRST matching arm only, so
+            # .github/* must be its own arm (workflow edits can break EITHER
+            # job — they trigger both). frontend/* then backend/* fall through
+            # cleanly. (A prior ordering lumped .github/* into both arms and
+            # the first match won, silently skipping `tests` on .github-only
+            # pushes.)
             case "$f" in
-              frontend/*|.github/*) FRONTEND=true ;;
-              backend/*|Caddyfile|docker-compose.yml|render.yaml|.github/*) BACKEND=true ;;
+              .github/*) FRONTEND=true; BACKEND=true ;;
+              frontend/*) FRONTEND=true ;;
+              backend/*|Caddyfile|docker-compose.yml|render.yaml) BACKEND=true ;;
             esac
           done <<< "$CHANGED"
           echo "frontend=$FRONTEND" >> "$GITHUB_OUTPUT"
