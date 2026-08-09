@@ -198,11 +198,14 @@ export default function LandingPage() {
       <footer className="py-8">
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm" style={{ color: '#444' }}>TorrentCDN &copy; 2026</p>
-          <div className="flex items-center gap-6">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
             <a href="https://github.com/yatichbrian99-svg/torrent-cdn" target="_blank" rel="noopener noreferrer" className="text-sm transition-colors hover:text-white" style={{ color: '#444' }}>GitHub</a>
             <a href="/terms" className="text-sm transition-colors hover:text-white" style={{ color: '#444' }}>Terms</a>
             <a href="/privacy" className="text-sm transition-colors hover:text-white" style={{ color: '#444' }}>Privacy</a>
-            <span className="text-sm" style={{ color: '#444' }}>Docs</span>
+            <a href="/cookies" className="text-sm transition-colors hover:text-white" style={{ color: '#444' }}>Cookies</a>
+            <a href="/aup" className="text-sm transition-colors hover:text-white" style={{ color: '#444' }}>AUP</a>
+            <a href="/dmca" className="text-sm transition-colors hover:text-white" style={{ color: '#444' }}>DMCA</a>
+            <a href="/docs" className="text-sm transition-colors hover:text-white" style={{ color: '#444' }}>Docs</a>
           </div>
         </div>
       </footer>
