@@ -112,10 +112,14 @@ class TestAdminHealthRedisStates:
         # app.database binding at call time — patch that (like conftest does).
         import app.database as database_mod
         monkeypatch.setattr(database_mod, "get_redis", AsyncMock(return_value=None))
+        # Simulate a recorded underlying failure — the detail must surface it so
+        # the dashboard says WHY (DNS/TLS/auth/timeout), not just "unreachable".
+        monkeypatch.setattr(database_mod, "last_redis_error", "TimeoutError: connect timed out")
 
         data = self._health(client, admin_headers, monkeypatch)
         assert data["checks"]["redis"]["status"] == "absent"
         assert "unreachable" in data["checks"]["redis"]["detail"]
+        assert "TimeoutError: connect timed out" in data["checks"]["redis"]["detail"]
 
     def test_redis_ok_when_ping_succeeds(self, client, admin_headers, mock_conn, mock_redis, mock_s3_client, monkeypatch):
         """REDIS_URL set + ping ok -> 'ok'."""

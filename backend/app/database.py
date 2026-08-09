@@ -119,6 +119,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_payouts_reference ON payouts(reference) WH
 # Connection pools
 pg_pool: Optional[asyncpg.Pool] = None
 redis_client: Optional[Redis] = None
+# Last Redis connection failure reason (str(e), truncated) — surfaced on the
+# admin health dashboard so an operator can see WHY the optional Redis
+# dependency is down (DNS, TLS, auth, timeout, paused instance) instead of a
+# generic "unreachable". Cleared on a successful connection.
+last_redis_error: Optional[str] = None
 
 
 async def get_db_pool() -> asyncpg.Pool:
@@ -136,7 +141,7 @@ async def get_db_pool() -> asyncpg.Pool:
 
 async def get_redis() -> Optional[Redis]:
     """Get Redis client. Returns None if Redis is unavailable (optional dependency)."""
-    global redis_client
+    global redis_client, last_redis_error
     if redis_client is None:
         try:
             redis_client = await Redis.from_url(
@@ -144,8 +149,10 @@ async def get_redis() -> Optional[Redis]:
                 decode_responses=True,
             )
             await redis_client.ping()
+            last_redis_error = None
         except Exception as e:
             logger.warning("Redis unavailable — skipping (optional dependency): %s", e)
+            last_redis_error = str(e)[:300]
             redis_client = None
             return None
     return redis_client
@@ -159,7 +166,8 @@ async def close_db():
 
 
 async def close_redis():
-    global redis_client
+    global redis_client, last_redis_error
     if redis_client:
         await redis_client.close()
-        redis_client = None
+    redis_client = None
+    last_redis_error = None

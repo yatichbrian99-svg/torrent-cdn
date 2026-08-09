@@ -414,7 +414,7 @@ async def admin_health(_: UUID = Depends(require_admin)):
     Admin-only — the same data in a public endpoint would leak operational
     posture to attackers.
     """
-    from ..database import get_redis
+    from ..database import get_redis, last_redis_error
     from ..security_events import recent as recent_events
 
     now = time.time()
@@ -443,9 +443,13 @@ async def admin_health(_: UUID = Depends(require_admin)):
         else:
             redis = await get_redis()
             if redis is None:
+                # Surface the underlying failure (DNS / TLS / auth / timeout /
+                # paused instance) so the dashboard is actionable instead of a
+                # generic "unreachable". Truncated + sanitized by get_redis.
+                reason = f" ({last_redis_error})" if last_redis_error else ""
                 checks["redis"] = {
                     "status": "absent",
-                    "detail": "unreachable — REDIS_URL is set but the connection/ping failed (check the URL, network, and instance)",
+                    "detail": f"unreachable — REDIS_URL is set but the connection/ping failed{reason}",
                 }
             else:
                 await redis.ping()
