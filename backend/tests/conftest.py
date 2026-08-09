@@ -35,6 +35,23 @@ def mock_conn():
     conn.fetchrow = AsyncMock(return_value=None)
     conn.fetchval = AsyncMock(return_value=0)
     conn.execute = AsyncMock(return_value=None)
+
+    # Model asyncpg's transaction(): a SYNCHRONOUS call returning an async
+    # context manager (calling an AsyncMock here would return a coroutine and
+    # break `async with conn.transaction():`). Inside the tx block the routes
+    # keep using the outer `conn` (execute/fetchrow), so __aenter__ just
+    # returns it.
+    class _FakeTx:
+        def __init__(self, c):
+            self._c = c
+
+        async def __aenter__(self):
+            return self._c
+
+        async def __aexit__(self, *exc):
+            return False
+
+    conn.transaction = MagicMock(return_value=_FakeTx(conn))
     return conn
 
 

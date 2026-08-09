@@ -79,6 +79,56 @@ class TestAdminHealthAccess:
         assert isinstance(data["events"], list)
 
 
+class TestAdminHealthRedisStates:
+    """The Redis check must distinguish 'not configured' (env var absent) from
+    'unreachable' (set but connection failed) so the dashboard is actionable."""
+
+    def _health(self, client, admin_headers, monkeypatch):
+        import app.routes.admin as admin_mod
+        monkeypatch.setattr(admin_mod._WafProbeCache, "get",
+                            AsyncMock(return_value={"status": "unknown", "detail": "stubbed", "headers": {}}))
+        resp = client.get(ADMIN_URL, headers=admin_headers)
+        assert resp.status_code == 200
+        return resp.json()
+
+    def test_redis_unset_reports_not_configured(self, client, admin_headers, mock_conn, mock_redis, mock_s3_client, monkeypatch):
+        """REDIS_URL absent -> 'absent / not configured', and Redis is never
+        touched (nothing to connect to)."""
+        mock_conn.fetchrow.return_value = {"is_admin": True}
+        mock_conn.fetchval.return_value = 1
+        monkeypatch.delenv("REDIS_URL", raising=False)
+
+        data = self._health(client, admin_headers, monkeypatch)
+        assert data["checks"]["redis"]["status"] == "absent"
+        assert "not configured" in data["checks"]["redis"]["detail"]
+        mock_redis.ping.assert_not_called()
+
+    def test_redis_unreachable_reports_unreachable(self, client, admin_headers, mock_conn, mock_redis, mock_s3_client, monkeypatch):
+        """REDIS_URL set but get_redis() returns None -> 'absent / unreachable'."""
+        mock_conn.fetchrow.return_value = {"is_admin": True}
+        mock_conn.fetchval.return_value = 1
+        monkeypatch.setenv("REDIS_URL", "redis://127.0.0.1:1")
+        # get_redis is imported INSIDE the health handler, so it resolves the
+        # app.database binding at call time — patch that (like conftest does).
+        import app.database as database_mod
+        monkeypatch.setattr(database_mod, "get_redis", AsyncMock(return_value=None))
+
+        data = self._health(client, admin_headers, monkeypatch)
+        assert data["checks"]["redis"]["status"] == "absent"
+        assert "unreachable" in data["checks"]["redis"]["detail"]
+
+    def test_redis_ok_when_ping_succeeds(self, client, admin_headers, mock_conn, mock_redis, mock_s3_client, monkeypatch):
+        """REDIS_URL set + ping ok -> 'ok'."""
+        mock_conn.fetchrow.return_value = {"is_admin": True}
+        mock_conn.fetchval.return_value = 1
+        monkeypatch.setenv("REDIS_URL", "redis://127.0.0.1:6379")
+        mock_redis.ping = AsyncMock(return_value=True)
+
+        data = self._health(client, admin_headers, monkeypatch)
+        assert data["checks"]["redis"]["status"] == "ok"
+        assert data["checks"]["redis"]["detail"] == "ping ok"
+
+
 class TestSecurityEventsRecorder:
     def test_record_and_recent_newest_first(self):
         clear()

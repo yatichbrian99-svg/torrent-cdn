@@ -174,6 +174,20 @@ def get_settings() -> Settings:
             logger.warning(
                 "PAYSTACK_SECRET_KEY looks like a placeholder — set a real Paystack secret key in production"
             )
+        # Redis is an optional dependency (fail-open fallbacks), so this is a
+        # WARNING not a hard failure — but a production deploy without it
+        # silently loses shared rate limits, webhook idempotency, presign
+        # sessions, and the session-revocation fast path. Fail loudly so an
+        # operator who forgot REDIS_URL (or left the docker-compose default)
+        # sees it at startup instead of in the admin health dashboard.
+        redis_url = os.environ.get("REDIS_URL", "").strip()
+        if not redis_url or redis_url == "redis://redis:6379":
+            logger.warning(
+                "REDIS_URL is %r — Redis features (shared rate limits, webhook "
+                "idempotency, presign sessions) will fall back to in-memory/DB. "
+                "Set REDIS_URL to your managed Redis connection string in production.",
+                redis_url or "unset",
+            )
         # Admin bootstrap without a token is an open admin-promotion door: any
         # authenticated user can promote themselves (or anyone) while the flag
         # is up. Fail loudly at startup so an operator who forgot to set

@@ -14,7 +14,7 @@ Payout tests for the Paystack Transfers API (Kenya, M-PESA). Admin-only.
 Security gates under test:
   * every payout endpoint requires admin (403 for non-admins)
   * an admin can only pay a recipient that exists (and is active) locally
-  * minimum transfer amount enforced BEFORE calling Paystack (KES 3 = 300 cents)
+  * minimum transfer amount enforced BEFORE calling Paystack (KES 10 = 1000 cents)
   * transfer webhooks NEVER grant a plan (regression against the free-upgrade bypass)
 """
 import hashlib
@@ -24,7 +24,10 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock
 from uuid import UUID
 
+import asyncpg
 import httpx
+
+UniqueViolationError = asyncpg.exceptions.UniqueViolationError
 
 ADMIN_ID = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
 NOW = datetime.now(timezone.utc)
@@ -97,6 +100,23 @@ class TestCreateRecipient:
             return resp
 
         return _post, calls
+
+    def test_recipient_type_bank_code_currency_pinned(self, client, admin_headers, mock_conn, monkeypatch):
+        """Only the supported M-PESA / KES combination is accepted — a crafted
+        NGN / nuban recipient is rejected at the API boundary (422)."""
+        mock_conn.fetchrow.return_value = {"is_admin": True}
+
+        def _boom(self, *args, **kwargs):
+            raise AssertionError("Paystack must not be called for an invalid recipient")
+
+        monkeypatch.setattr(httpx.AsyncClient, "post", _boom)
+        for bad in (
+            {"name": "X", "account_number": "254712345678", "type": "nuban"},
+            {"name": "X", "account_number": "254712345678", "bank_code": "058"},
+            {"name": "X", "account_number": "254712345678", "currency": "NGN"},
+        ):
+            resp = client.post(self.URL, json=bad, headers=admin_headers)
+            assert resp.status_code == 422, f"{bad} must be rejected"
 
     def test_creates_recipient_on_paystack_and_stores(self, client, admin_headers, mock_conn, monkeypatch):
         mock_conn.fetchrow.side_effect = [
@@ -221,20 +241,113 @@ class TestInitiateTransfer:
         }
 
     def test_minimum_amount_enforced_before_paystack(self, client, admin_headers, mock_conn, monkeypatch):
-        """KES 2 is below Paystack's 300-cent floor — rejected before any call."""
+        """KES 2 is below Paystack's 1000-cent (KES 10) floor — rejected before
+        any call, and the boundary KES 9 is rejected too."""
         mock_conn.fetchrow.return_value = {"is_admin": True}
 
         def _boom(self, *args, **kwargs):
             raise AssertionError("Paystack must not be called for a below-minimum transfer")
 
         monkeypatch.setattr(httpx.AsyncClient, "post", _boom)
+        for below in (2, 9):
+            resp = client.post(
+                self.URL,
+                json={"recipient_code": "RCP_abc", "amount": below},
+                headers=admin_headers,
+            )
+            assert resp.status_code == 400, f"KES {below} must be rejected"
+            assert "Minimum payout" in resp.json()["detail"]
+
+    def test_idempotent_key_short_circuits_existing_transfer(self, client, admin_headers, mock_conn, monkeypatch):
+        """Re-sending the same idempotency_key returns the stored payout and
+        never calls Paystack — no double transfer of the same money."""
+        existing = dict(PAYOUT_ROW, reference="idem-abc-1")
+        mock_conn.fetchrow.side_effect = [
+            {"is_admin": True},  # require_admin
+            existing,            # SELECT by reference
+        ]
+
+        def _boom(self, *args, **kwargs):
+            raise AssertionError("Paystack must not be called for an already-initiated key")
+
+        monkeypatch.setattr(httpx.AsyncClient, "post", _boom)
         resp = client.post(
             self.URL,
-            json={"recipient_code": "RCP_abc", "amount": 2},
+            json={"recipient_code": "RCP_abc", "amount": 500, "idempotency_key": "idem-abc-1"},
             headers=admin_headers,
         )
-        assert resp.status_code == 400
-        assert "Minimum payout" in resp.json()["detail"]
+        assert resp.status_code == 200
+        assert resp.json()["transfer_code"] == "TRF_123"
+
+    def test_initiate_forwards_idempotency_key_as_reference(self, client, admin_headers, mock_conn, monkeypatch):
+        """The caller's idempotency_key must reach Paystack as `reference` so
+        Paystack itself dedupes a retry."""
+        mock_conn.fetchrow.side_effect = [
+            {"is_admin": True},
+            None,  # no existing row for the key
+            {"recipient_code": "RCP_abc", "name": "Jane M", "active": True},
+            dict(PAYOUT_ROW),  # INSERT ... RETURNING *
+        ]
+        fake_post, calls = self._fake_post({
+            "status": True,
+            "data": {"transfer_code": "TRF_123", "status": "pending", "reference": "idem-abc-1"},
+        })
+        monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+        resp = client.post(
+            self.URL,
+            json={"recipient_code": "RCP_abc", "amount": 500, "idempotency_key": "idem-abc-1"},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        assert calls["kwargs"]["json"]["reference"] == "idem-abc-1"
+
+    def test_initiate_without_key_omits_reference(self, client, admin_headers, mock_conn, monkeypatch):
+        """Legacy callers without a key still work — no reference sent."""
+        mock_conn.fetchrow.side_effect = [
+            {"is_admin": True},
+            {"recipient_code": "RCP_abc", "name": "Jane M", "active": True},
+            dict(PAYOUT_ROW),
+        ]
+        fake_post, calls = self._fake_post({
+            "status": True,
+            "data": {"transfer_code": "TRF_123", "status": "pending"},
+        })
+        monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+        resp = client.post(
+            self.URL,
+            json={"recipient_code": "RCP_abc", "amount": 500},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        assert "reference" not in calls["kwargs"]["json"]
+
+    def test_concurrent_same_key_unique_violation_returns_existing(self, client, admin_headers, mock_conn, monkeypatch):
+        """Two concurrent initiates with the same key: the second INSERT hits the
+        partial unique index — the route catches it and returns the other
+        request's row instead of 500ing."""
+        existing = dict(PAYOUT_ROW, reference="idem-race-1")
+        mock_conn.fetchrow.side_effect = [
+            {"is_admin": True},
+            None,  # key not yet present
+            {"recipient_code": "RCP_abc", "name": "Jane M", "active": True},
+            UniqueViolationError("duplicate key value violates unique constraint"),
+            existing,  # re-select after the violation
+        ]
+        fake_post, _ = self._fake_post({
+            "status": True,
+            "data": {"transfer_code": "TRF_123", "status": "pending", "reference": "idem-race-1"},
+        })
+        monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+        resp = client.post(
+            self.URL,
+            json={"recipient_code": "RCP_abc", "amount": 500, "idempotency_key": "idem-race-1"},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["transfer_code"] == "TRF_123"
 
     def test_unknown_recipient_rejected(self, client, admin_headers, mock_conn, monkeypatch):
         """Only recipients created (and stored) locally can be paid."""
@@ -335,11 +448,15 @@ class TestFetchPayout:
         assert len(updates) == 1
         assert updates[0].args[1] == "success"
 
-    def test_fetch_unknown_local_transfer_404(self, client, admin_headers, mock_conn, monkeypatch):
+    def test_fetch_unknown_local_transfer_404_before_paystack(self, client, admin_headers, mock_conn, monkeypatch):
+        """The local row is checked FIRST — an unknown transfer_code 404s
+        without making any outbound Paystack call."""
         mock_conn.fetchrow.side_effect = [{"is_admin": True}, None]
-        fake_get = self._fake_get({"status": True, "data": {"status": "success"}})
-        monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
 
+        def _boom(self, *args, **kwargs):
+            raise AssertionError("Paystack must not be called for an unknown transfer")
+
+        monkeypatch.setattr(httpx.AsyncClient, "get", _boom)
         resp = client.get(self.URL, headers=admin_headers)
         assert resp.status_code == 404
 
@@ -442,6 +559,30 @@ class TestDeactivateRecipient:
         resp = client.delete(self.URL, headers=admin_headers)
         assert resp.status_code == 404
 
+    def test_paystack_failure_reverts_local_deactivation(self, client, admin_headers, mock_conn, monkeypatch):
+        """If Paystack rejects the deactivate, the local soft-deactivate is
+        reverted (active=TRUE) so the recipient isn't stuck inactive with no
+        re-activate path — the admin can simply retry."""
+        mock_conn.fetchrow.return_value = {"is_admin": True}
+        mock_conn.fetchval.return_value = 1
+
+        async def _raise(self, *args, **kwargs):
+            raise httpx.ConnectError("paystack down")
+
+        monkeypatch.setattr(httpx.AsyncClient, "delete", _raise)
+        resp = client.delete(self.URL, headers=admin_headers)
+        assert resp.status_code == 502
+
+        # Order: soft-deactivate (active = FALSE) first, then a revert
+        # (active = TRUE) on failure. The flag is inline SQL, so assert on text.
+        updates = [
+            c.args[0] for c in mock_conn.execute.call_args_list
+            if "UPDATE payout_recipients SET active" in c.args[0]
+        ]
+        assert len(updates) == 2
+        assert "active = FALSE" in updates[0]  # gate off
+        assert "active = TRUE" in updates[1]   # reverted
+
 
 class TestListEndpoints:
     def test_list_payouts(self, client, admin_headers, mock_conn):
@@ -487,7 +628,7 @@ class TestTransferWebhooks:
         return {"event": event, "data": {"id": 9001, "transfer_code": transfer_code}}
 
     def test_transfer_success_updates_status_and_notifies(self, client, mock_conn):
-        mock_conn.fetchrow.return_value = {"amount_cents": 50000, "created_by": ADMIN_ID}
+        mock_conn.fetchrow.return_value = {"amount_cents": 50000, "status": "pending", "created_by": ADMIN_ID}
         resp = self._post(client, self._transfer_event("transfer.success"))
         assert resp.status_code == 200
 
@@ -508,7 +649,7 @@ class TestTransferWebhooks:
         assert "KES 500" in inserts[0].args[2]  # message
 
     def test_transfer_failed_updates_status(self, client, mock_conn):
-        mock_conn.fetchrow.return_value = {"amount_cents": 50000, "created_by": ADMIN_ID}
+        mock_conn.fetchrow.return_value = {"amount_cents": 50000, "status": "pending", "created_by": ADMIN_ID}
         resp = self._post(client, self._transfer_event("transfer.failed"))
         assert resp.status_code == 200
         updates = [
@@ -518,7 +659,7 @@ class TestTransferWebhooks:
         assert updates[0].args[1] == "failed"
 
     def test_transfer_reversed_updates_status(self, client, mock_conn):
-        mock_conn.fetchrow.return_value = {"amount_cents": 50000, "created_by": ADMIN_ID}
+        mock_conn.fetchrow.return_value = {"amount_cents": 50000, "status": "pending", "created_by": ADMIN_ID}
         resp = self._post(client, self._transfer_event("transfer.reversed"))
         assert resp.status_code == 200
         updates = [
@@ -526,6 +667,50 @@ class TestTransferWebhooks:
             if "UPDATE payouts SET status" in c.args[0]
         ]
         assert updates[0].args[1] == "reversed"
+
+    def test_transfer_otp_updates_status(self, client, mock_conn):
+        """Paystack sends transfer.otp when a phone OTP is required to approve
+        the payout — the local status must reflect it."""
+        mock_conn.fetchrow.return_value = {"amount_cents": 50000, "status": "pending", "created_by": ADMIN_ID}
+        resp = self._post(client, self._transfer_event("transfer.otp"))
+        assert resp.status_code == 200
+        updates = [
+            c for c in mock_conn.execute.call_args_list
+            if "UPDATE payouts SET status" in c.args[0]
+        ]
+        assert updates[0].args[1] == "otp"
+
+    def test_same_status_retry_is_a_noop(self, client, mock_conn):
+        """A redelivered event whose status already matches is skipped entirely —
+        no double UPDATE, no duplicate notification (crash-before-marker-set
+        retries re-run harmlessly)."""
+        mock_conn.fetchrow.return_value = {"amount_cents": 50000, "status": "success", "created_by": ADMIN_ID}
+        resp = self._post(client, self._transfer_event("transfer.success"))
+        assert resp.status_code == 200
+        mock_conn.execute.assert_not_called()
+
+    def test_webhook_failure_does_not_mark_processed(self, client, mock_conn, mock_redis):
+        """Regression: a transient DB failure during processing must NOT set the
+        idempotency marker — Paystack's retry then actually reprocesses instead
+        of being swallowed by "Already processed"."""
+        mock_conn.fetchrow.return_value = {"amount_cents": 50000, "status": "pending", "created_by": ADMIN_ID}
+        # First delivery: the UPDATE fails (transient DB blip).
+        mock_conn.execute.side_effect = RuntimeError("db connection reset")
+
+        resp = self._post(client, self._transfer_event("transfer.success"))
+        assert resp.status_code == 500
+        mock_redis.setex.assert_not_called()  # marker must NOT be set
+
+        # Retry succeeds: marker is set after successful processing.
+        mock_conn.execute.side_effect = None
+        resp = self._post(client, self._transfer_event("transfer.success"))
+        assert resp.status_code == 200
+        mock_redis.setex.assert_called_once()
+        updates = [
+            c for c in mock_conn.execute.call_args_list
+            if "UPDATE payouts SET status" in c.args[0]
+        ]
+        assert updates, "the retry must have completed the status update"
 
     def test_transfer_event_never_grants_plan(self, client, mock_conn):
         """Regression: a transfer.success must NOT run the charge-success plan

@@ -429,7 +429,7 @@ export default {
 
   listPayouts: () => api.get('/billing/payouts').then((r) => r.data),
 
-  initiatePayout: (data: { recipient_code: string; amount: number; reason?: string }) =>
+  initiatePayout: (data: { recipient_code: string; amount: number; reason?: string; idempotency_key?: string }) =>
     api.post('/billing/payouts', data).then((r) => r.data),
 
   fetchPayout: (transferCode: string) =>

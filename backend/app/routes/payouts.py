@@ -31,6 +31,7 @@ from datetime import datetime
 from uuid import UUID
 
 import httpx
+from asyncpg.exceptions import UniqueViolationError
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..config import get_settings
@@ -53,9 +54,26 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/billing/payouts", tags=["payouts"])
 
-# Paystack's KES transfer floor is 300 cents (KES 3.00). Anything below that is
-# rejected before it ever reaches the API.
-MIN_TRANSFER_CENTS = 300
+# Paystack's documented KES mobile-money floor is 1000 cents (KES 10.00).
+# Anything below that is rejected before it ever reaches the API. (Verify
+# against the live account — if the floor is ever raised, bump this to match.)
+MIN_TRANSFER_CENTS = 1000
+
+
+async def _reactivate_recipient(pool, recipient_code: str) -> None:
+    """Best-effort revert of the local soft-deactivate (used when the Paystack
+    call fails — see deactivate_recipient). Never raises: deactivation failure
+    already surfaces as a 502; a failed revert is logged and left for retry."""
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE payout_recipients SET active = TRUE WHERE recipient_code = $1",
+                recipient_code,
+            )
+    except Exception:
+        logger.exception(
+            "Could not revert local deactivation for recipient %s", recipient_code,
+        )
 
 
 def _payout_from_row(row) -> PayoutResponse:
@@ -209,12 +227,21 @@ async def deactivate_recipient(
     recipient_code: str,
     admin_id: UUID = Depends(require_admin),
 ):
-    """Deactivate a transfer recipient (Paystack DELETE + local soft-deactivate).
+    """Deactivate a transfer recipient (local soft-deactivate + Paystack).
 
-    Soft-deactivate locally (active=false) so historical payouts referencing it
-    still resolve. Paystack's endpoint permanently deactivates on their side.
-    The local row is checked FIRST so a 404 can never leave Paystack already
-    deactivated for a recipient we don't know about.
+    Soft-deactivate locally FIRST so the `active` gate blocks any new transfer
+    to this recipient the instant the admin confirms. Paystack's endpoint
+    permanently deactivates on their side. The local existence check runs
+    before anything else so a 404 can never leave Paystack already deactivated
+    for a recipient we don't know about.
+
+    If the Paystack call then fails, the local row is REVERTED to active=TRUE
+    (best effort) before the 502 — Paystack is still active, so money can
+    still move and the admin can simply retry the deactivation later. Without
+    the revert the recipient would be stuck inactive with no re-activate
+    endpoint, and recreating it would hit the recipient_code UNIQUE constraint
+    (Paystack dedupes recipients by account details and returns the same
+    recipient_code).
     """
     pool = await get_db_pool()
     async with pool.acquire() as conn:
@@ -224,6 +251,11 @@ async def deactivate_recipient(
         )
         if not exists:
             raise HTTPException(status_code=404, detail="Recipient not found")
+        # Gate first: block new transfers to this recipient immediately.
+        await conn.execute(
+            "UPDATE payout_recipients SET active = FALSE WHERE recipient_code = $1",
+            recipient_code,
+        )
 
     try:
         async with httpx.AsyncClient(
@@ -235,19 +267,17 @@ async def deactivate_recipient(
                 "Paystack deactivate recipient failed (HTTP %s): %s",
                 resp.status_code, resp.text[:500],
             )
+            await _reactivate_recipient(pool, recipient_code)
             raise HTTPException(status_code=502, detail="Could not deactivate recipient.")
         body = resp.json()
         if not body.get("status"):
+            await _reactivate_recipient(pool, recipient_code)
             raise HTTPException(status_code=502, detail="Could not deactivate recipient.")
     except httpx.HTTPError as e:
         logger.error("Paystack deactivate recipient request failed: %s", e)
+        await _reactivate_recipient(pool, recipient_code)
         raise HTTPException(status_code=502, detail="Could not deactivate recipient.")
 
-    async with pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE payout_recipients SET active = FALSE WHERE recipient_code = $1",
-            recipient_code,
-        )
     logger.info("Admin %s deactivated payout recipient %s", admin_id, recipient_code)
     record_event("payout_recipient_deactivate", detail=f"{admin_id} -> {recipient_code}")
     return {"detail": "Recipient deactivated"}
@@ -276,6 +306,13 @@ async def initiate_payout(
     created through this module (present in the local table, still active) can
     be paid — an admin can never hand-type a recipient_code.
 
+    Idempotent initiation: an optional `idempotency_key` is forwarded to
+    Paystack as the transfer `reference`. Paystack dedupes on reference, so a
+    retry (double-click, network timeout) can never create a second transfer of
+    the same money. A locally-stored payout with that reference short-circuits
+    before any outbound call, and the DB partial-unique index on reference
+    catches the concurrent same-key race (returning the existing row).
+
     First transfers from a new balance may come back with status "otp"
     (Paystack requires a phone OTP to approve the first payout). The status is
     stored/surfaced as-is and the OTP is completed in the Paystack dashboard
@@ -290,6 +327,21 @@ async def initiate_payout(
         )
 
     pool = await get_db_pool()
+
+    # Idempotency short-circuit: same key -> same transfer, returned as-is.
+    if data.idempotency_key:
+        async with pool.acquire() as conn:
+            existing = await conn.fetchrow(
+                "SELECT * FROM payouts WHERE reference = $1",
+                data.idempotency_key,
+            )
+        if existing:
+            logger.info(
+                "Admin %s re-sent idempotent payout key %s — returning existing %s",
+                admin_id, data.idempotency_key, existing["transfer_code"],
+            )
+            return _payout_from_row(existing)
+
     async with pool.acquire() as conn:
         recipient = await conn.fetchrow(
             "SELECT recipient_code, name, active FROM payout_recipients WHERE recipient_code = $1",
@@ -301,19 +353,25 @@ async def initiate_payout(
                 detail="Recipient not found — create it first (or it was deactivated)",
             )
 
+    transfer_payload = {
+        "source": "balance",
+        "amount": cents,
+        "recipient": data.recipient_code,
+        "reason": data.reason,
+        "currency": settings.paystack_currency,
+    }
+    if data.idempotency_key:
+        # Paystack dedupes on reference — a retried initiate with the same key
+        # returns the original transfer instead of sending money twice.
+        transfer_payload["reference"] = data.idempotency_key
+
     try:
         async with httpx.AsyncClient(
             base_url=PAYSTACK_API_BASE, headers=_PAYSTACK_HEADERS, timeout=15
         ) as client:
             resp = await client.post(
                 "/transfer",
-                json={
-                    "source": "balance",
-                    "amount": cents,
-                    "recipient": data.recipient_code,
-                    "reason": data.reason,
-                    "currency": settings.paystack_currency,
-                },
+                json=transfer_payload,
             )
         if resp.status_code != 200:
             logger.error(
@@ -333,24 +391,44 @@ async def initiate_payout(
         raise HTTPException(status_code=502, detail="Transfer failed. Please try again.")
 
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            INSERT INTO payouts
-                (transfer_code, recipient_code, recipient_name, amount_cents,
-                 currency, reason, status, reference, created_by)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING *
-            """,
-            transfer_code,
-            data.recipient_code,
-            recipient["name"],
-            cents,
-            settings.paystack_currency,
-            data.reason,
-            ps_data.get("status") or "pending",
-            ps_data.get("reference"),
-            admin_id,
-        )
+        try:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO payouts
+                    (transfer_code, recipient_code, recipient_name, amount_cents,
+                     currency, reason, status, reference, created_by)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                RETURNING *
+                """,
+                transfer_code,
+                data.recipient_code,
+                recipient["name"],
+                cents,
+                settings.paystack_currency,
+                data.reason,
+                ps_data.get("status") or "pending",
+                ps_data.get("reference"),
+                admin_id,
+            )
+        except UniqueViolationError:
+            # Concurrent same-key initiate: the other request's row already
+            # committed (Paystack deduped on reference). Return it — but if
+            # the re-select finds nothing (e.g. the violation was on a
+            # different constraint), surface a clear 409 instead of crashing.
+            row = await conn.fetchrow(
+                "SELECT * FROM payouts WHERE reference = $1",
+                data.idempotency_key,
+            )
+            if row is None:
+                logger.error(
+                    "Unique violation on payout insert with no matching row "
+                    "(recipient=%s, reference=%s)",
+                    data.recipient_code, data.idempotency_key,
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail="Transfer already recorded but could not be retrieved — please refresh.",
+                )
     logger.info(
         "Admin %s initiated payout %s (KES %s) to %s",
         admin_id, transfer_code, data.amount, data.recipient_code,
@@ -369,9 +447,20 @@ async def fetch_payout(
 ):
     """Fetch a transfer from Paystack and refresh the local status.
 
-    The response from Paystack is authoritative — a transfer stuck in `pending`
-    locally but `success` upstream gets corrected here.
+    The local row is checked FIRST so an unknown transfer_code 404s without
+    making an outbound call. The response from Paystack is authoritative — a
+    transfer stuck in `pending` locally but `success` upstream gets corrected
+    here.
     """
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM payouts WHERE transfer_code = $1",
+            transfer_code,
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Transfer not found")
+
     try:
         async with httpx.AsyncClient(
             base_url=PAYSTACK_API_BASE, headers=_PAYSTACK_HEADERS, timeout=15
@@ -391,14 +480,7 @@ async def fetch_payout(
         logger.error("Paystack fetch transfer request failed: %s", e)
         raise HTTPException(status_code=502, detail="Could not fetch transfer.")
 
-    pool = await get_db_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT * FROM payouts WHERE transfer_code = $1",
-            transfer_code,
-        )
-        if not row:
-            raise HTTPException(status_code=404, detail="Transfer not found")
         new_status = ps_data.get("status")
         if new_status and new_status != row["status"]:
             await conn.execute(

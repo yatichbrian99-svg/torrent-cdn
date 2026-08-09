@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import time
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
@@ -430,12 +431,25 @@ async def admin_health(_: UUID = Depends(require_admin)):
 
     # --- Redis -------------------------------------------------------------
     try:
-        redis = await get_redis()
-        if redis is None:
-            checks["redis"] = {"status": "absent", "detail": "not configured / unreachable (fail-open fallbacks active)"}
+        # Distinguish the two failure modes so the dashboard is actionable:
+        # "not configured" (env var absent) vs "unreachable" (set but the
+        # connection/ping failed). Both keep the fail-open fallbacks, but only
+        # the second one is a live-connectivity problem.
+        if not os.environ.get("REDIS_URL"):
+            checks["redis"] = {
+                "status": "absent",
+                "detail": "not configured — REDIS_URL is unset (rate limiting / webhook idempotency / presign sessions fall back to in-memory/DB)",
+            }
         else:
-            await redis.ping()
-            checks["redis"] = {"status": "ok", "detail": "ping ok"}
+            redis = await get_redis()
+            if redis is None:
+                checks["redis"] = {
+                    "status": "absent",
+                    "detail": "unreachable — REDIS_URL is set but the connection/ping failed (check the URL, network, and instance)",
+                }
+            else:
+                await redis.ping()
+                checks["redis"] = {"status": "ok", "detail": "ping ok"}
     except Exception as e:
         checks["redis"] = {"status": "error", "detail": str(e)[:200]}
 

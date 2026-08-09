@@ -493,6 +493,20 @@ describe('api client interceptors', () => {
       expect(data.transfer_code).toBe('TRF_123')
     })
 
+    it('initiatePayout forwards the idempotency key (Paystack reference)', async () => {
+      mocks.instance.post.mockResolvedValueOnce({ data: { transfer_code: 'TRF_123' } })
+      await api.initiatePayout({
+        recipient_code: 'RCP_abc',
+        amount: 500,
+        idempotency_key: 'idem-1',
+      })
+      expect(mocks.instance.post).toHaveBeenCalledWith('/billing/payouts', {
+        recipient_code: 'RCP_abc',
+        amount: 500,
+        idempotency_key: 'idem-1',
+      })
+    })
+
     it('deactivatePayoutRecipient DELETEs by recipient code', async () => {
       mocks.instance.delete.mockResolvedValueOnce({ data: { detail: 'Recipient deactivated' } })
       const data = await api.deactivatePayoutRecipient('RCP_abc')

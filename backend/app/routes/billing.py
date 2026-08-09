@@ -194,92 +194,132 @@ async def paystack_webhook(request: Request):
     data = event.get("data") or {}
     event_id = data.get("id") or event.get("id")
 
-    # Idempotency check — skip if already processed (skip if Redis unavailable)
+    # Idempotency — the marker is set only AFTER the event is processed, never
+    # before. (Setting it first and then failing on a transient DB error would
+    # swallow Paystack's retry: the retry would hit "Already processed" and the
+    # plan grant / payout status update would be permanently lost.) Every
+    # handler below is an idempotent UPDATE guarded by a state check, so a
+    # retry after a crash-before-marker-set re-applies harmlessly.
     redis = await get_redis()
+
+    async def mark_processed() -> None:
+        """Mark this event id as handled for 24h (no-op without Redis)."""
+        if redis is not None and event_id:
+            await redis.setex(f"webhook:{event_id}", 86400, "1")
+
     if redis is not None and event_id:
         already_processed = await redis.get(f"webhook:{event_id}")
         if already_processed:
             return {"detail": "Already processed"}
-        await redis.setex(f"webhook:{event_id}", 86400, "1")  # 24h TTL
 
     event_type = event.get("event")
 
-    if event_type == "charge.success":
-        # Business-logic gate: only a settled, successful charge upgrades a
-        # plan — a failed charge must never be a free-upgrade bypass.
-        if data.get("status") != "success":
-            logger.warning(
-                "Paystack charge.success with status=%r — ignoring",
-                data.get("status"),
-            )
-            return {"detail": "Charge not successful, ignoring"}
-
-        # One-time charges carry no `plan` — only subscription charges do.
-        # The plan_code is Paystack's own server-side field (never supplied by
-        # the client), so it is authoritative for what was actually paid for.
-        plan_code = (data.get("plan") or {}).get("plan_code")
-        tier = PLAN_CODE_TO_TIER.get(plan_code)
-        if tier is None:
-            return {"detail": "Not a subscription charge, ignoring"}
-
-        metadata = data.get("metadata") or {}
-        user_id = metadata.get("user_id")
-
-        # Validate metadata before writing, and never trust malformed values
-        # (a bad UUID would otherwise 500 the webhook and trigger Paystack
-        # retries).
-        try:
-            parsed_user_id = UUID(user_id) if user_id else None
-        except (ValueError, TypeError, AttributeError):
-            parsed_user_id = None
-        if parsed_user_id is None:
-            return {"detail": "Missing/invalid user_id metadata, ignoring"}
-
-        pool = await get_db_pool()
-        async with pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE users SET plan = $1 WHERE id = $2",
-                tier, parsed_user_id,
-            )
-
-    # Paystack Transfers events (admin payouts to M-PESA) — keep the local
-    # payout status in sync and notify the admin who initiated the transfer.
-    # These never grant a plan (only the charge.success branch above does).
-    transfer_status_map = {
-        "transfer.success": "success",
-        "transfer.failed": "failed",
-        "transfer.reversed": "reversed",
-    }
-    if event_type in transfer_status_map:
-        transfer_code = data.get("transfer_code")
-        if not transfer_code:
-            return {"detail": "Missing transfer_code, ignoring"}
-
-        pool = await get_db_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT amount_cents, created_by FROM payouts WHERE transfer_code = $1",
-                transfer_code,
-            )
-            if not row:
+    try:
+        if event_type == "charge.success":
+            # Business-logic gate: only a settled, successful charge upgrades a
+            # plan — a failed charge must never be a free-upgrade bypass.
+            if data.get("status") != "success":
                 logger.warning(
-                    "Paystack %s for unknown transfer %s — ignoring",
-                    event_type, transfer_code,
+                    "Paystack charge.success with status=%r — ignoring",
+                    data.get("status"),
                 )
-                return {"detail": "Unknown transfer, ignoring"}
+                await mark_processed()
+                return {"detail": "Charge not successful, ignoring"}
 
-            new_status = transfer_status_map[event_type]
-            await conn.execute(
-                "UPDATE payouts SET status = $1, updated_at = NOW() WHERE transfer_code = $2",
-                new_status, transfer_code,
-            )
-            if row.get("created_by"):
-                amount_kes = (row["amount_cents"] or 0) / 100
+            # One-time charges carry no `plan` — only subscription charges do.
+            # The plan_code is Paystack's own server-side field (never supplied
+            # by the client), so it is authoritative for what was paid for.
+            plan_code = (data.get("plan") or {}).get("plan_code")
+            tier = PLAN_CODE_TO_TIER.get(plan_code)
+            if tier is None:
+                await mark_processed()
+                return {"detail": "Not a subscription charge, ignoring"}
+
+            metadata = data.get("metadata") or {}
+            user_id = metadata.get("user_id")
+
+            # Validate metadata before writing, and never trust malformed
+            # values (a bad UUID would otherwise 500 the webhook and trigger
+            # Paystack retries).
+            try:
+                parsed_user_id = UUID(user_id) if user_id else None
+            except (ValueError, TypeError, AttributeError):
+                parsed_user_id = None
+            if parsed_user_id is None:
+                await mark_processed()
+                return {"detail": "Missing/invalid user_id metadata, ignoring"}
+
+            pool = await get_db_pool()
+            async with pool.acquire() as conn:
                 await conn.execute(
-                    "INSERT INTO notifications (user_id, type, message) VALUES ($1, 'payout', $2)",
-                    row["created_by"],
-                    f"Payout {new_status}: {transfer_code} (KES {amount_kes:,.2f})",
+                    "UPDATE users SET plan = $1 WHERE id = $2",
+                    tier, parsed_user_id,
                 )
-        return {"detail": "Webhook received"}
+            await mark_processed()
+            return {"detail": "Webhook received"}
 
-    return {"detail": "Webhook received"}
+        # Paystack Transfers events (admin payouts to M-PESA) — keep the local
+        # payout status in sync and notify the admin who initiated the
+        # transfer. These never grant a plan (only charge.success does).
+        transfer_status_map = {
+            "transfer.success": "success",
+            "transfer.failed": "failed",
+            "transfer.reversed": "reversed",
+            "transfer.otp": "otp",
+        }
+        if event_type in transfer_status_map:
+            transfer_code = data.get("transfer_code")
+            if not transfer_code:
+                await mark_processed()
+                return {"detail": "Missing transfer_code, ignoring"}
+
+            pool = await get_db_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT amount_cents, status, created_by FROM payouts "
+                    "WHERE transfer_code = $1",
+                    transfer_code,
+                )
+                if not row:
+                    logger.warning(
+                        "Paystack %s for unknown transfer %s — ignoring",
+                        event_type, transfer_code,
+                    )
+                    await mark_processed()
+                    return {"detail": "Unknown transfer, ignoring"}
+
+                new_status = transfer_status_map[event_type]
+                # Guard on the current status: a retry after a crash-before-
+                # marker-set sees the new status and skips, so the UPDATE and
+                # the notification INSERT can never fire twice. UPDATE + INSERT
+                # share one transaction — no partial state.
+                if row.get("status") != new_status:
+                    async with conn.transaction():
+                        await conn.execute(
+                            "UPDATE payouts SET status = $1, updated_at = NOW() "
+                            "WHERE transfer_code = $2",
+                            new_status, transfer_code,
+                        )
+                        if row.get("created_by"):
+                            amount_kes = (row["amount_cents"] or 0) / 100
+                            await conn.execute(
+                                "INSERT INTO notifications "
+                                "(user_id, type, message) VALUES ($1, 'payout', $2)",
+                                row["created_by"],
+                                f"Payout {new_status}: {transfer_code} (KES {amount_kes:,.2f})",
+                            )
+            await mark_processed()
+            return {"detail": "Webhook received"}
+
+        # Unknown event type — nothing to do, but still dedupe it (deterministic
+        # no-op) so Paystack doesn't keep redelivering.
+        await mark_processed()
+        return {"detail": "Webhook received"}
+    except HTTPException:
+        raise
+    except Exception:
+        # A processing failure MUST NOT be swallowed as success: Paystack
+        # retries non-2xx responses, and the marker was never set, so the
+        # retry actually reprocesses. Log for visibility.
+        logger.exception("Paystack webhook processing failed (event=%s)", event_type)
+        raise HTTPException(status_code=500, detail="Webhook processing failed")

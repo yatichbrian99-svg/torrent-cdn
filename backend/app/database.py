@@ -109,6 +109,11 @@ CREATE TABLE IF NOT EXISTS payouts (
 );
 CREATE INDEX IF NOT EXISTS idx_payouts_recipient ON payouts(recipient_code);
 CREATE INDEX IF NOT EXISTS idx_payouts_created_at ON payouts(created_at DESC);
+-- Idempotent initiation: reference doubles as the caller-supplied idempotency
+-- key, so a concurrent same-key initiate can't create two rows (the route
+-- catches the unique violation and returns the existing row). Paystack
+-- references are unique per transfer, so this never collides in normal use.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payouts_reference ON payouts(reference) WHERE reference IS NOT NULL;
 """
 
 # Connection pools

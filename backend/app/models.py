@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 from datetime import datetime
 
@@ -258,13 +258,16 @@ class PayoutRecipientCreate(BaseModel):
     """Create an M-PESA (mobile_money) transfer recipient.
 
     `account_number` is the recipient's phone number (e.g. 254712345678 or
-    0712345678); `bank_code` defaults to MPESA (Safaricom M-PESA).
+    0712345678). `type`/`bank_code`/`currency` are pinned to the ONLY supported
+    combination (mobile_money / MPESA / KES) — transfers always draw KES from
+    the Paystack balance, so a crafted NGN/nuban recipient can never slip in
+    and then fail at transfer time.
     """
     name: str = Field(min_length=1, max_length=255)
     account_number: str = Field(min_length=9, max_length=20)
-    bank_code: str = Field(default="MPESA", max_length=32)
-    type: str = Field(default="mobile_money", max_length=32)
-    currency: str = Field(default="KES", max_length=8)
+    bank_code: Literal["MPESA"] = "MPESA"
+    type: Literal["mobile_money"] = "mobile_money"
+    currency: Literal["KES"] = "KES"
     description: Optional[str] = Field(default=None, max_length=255)
 
 
@@ -284,10 +287,16 @@ class PayoutRecipientResponse(BaseModel):
 class PayoutInitiateRequest(BaseModel):
     """Initiate a payout from the Paystack balance. `amount` is in whole KES
     (the server converts to cents for the Paystack API, same unit as payments).
+
+    `idempotency_key` (optional) is forwarded to Paystack as the transfer
+    `reference` — Paystack dedupes on it, so a retried initiate can never
+    double-send. The server also short-circuits a locally-known key and guards
+    the insert with a partial unique index on reference.
     """
     recipient_code: str = Field(min_length=1, max_length=64)
     amount: int = Field(gt=0, le=10_000_000)
     reason: Optional[str] = Field(default=None, max_length=255)
+    idempotency_key: Optional[str] = Field(default=None, max_length=64)
 
 
 class PayoutResponse(BaseModel):

@@ -231,7 +231,7 @@ Implements the **Transfers API** (the payout half of the Paystack integration �
 
 - **Admin-only everywhere** — every payout endpoint is gated by `require_admin` (403 for regular users), matching `/admin/*`.
 - **Only locally-created recipients can be paid** — `POST /billing/payouts` looks up the recipient in the local `payout_recipients` table first (404 otherwise); an admin can never hand-type a `recipient_code`.
-- **Minimum amount enforced before any Paystack call** — KES 3 (Paystack's 300-cent floor); amounts are converted KES→cents server-side (same smallest-unit convention as payments).
+- **Minimum amount enforced before any Paystack call** — KES 10 (Paystack's documented mobile-money floor, 1000 cents); amounts are converted KES→cents server-side (same smallest-unit convention as payments).
 - **Transfer webhooks never grant plans** — the HMAC-SHA512 webhook treats `transfer.*` events as status updates + admin notification only; only `charge.success` with a configured `plan_code` can upgrade a plan (regression-tested: `TestTransferWebhooks::test_transfer_event_never_grants_plan`).
 - **Money-motion audit trail** — every recipient/transfer row records `created_by` (admin UUID); initiations and deactivations are logged.
 

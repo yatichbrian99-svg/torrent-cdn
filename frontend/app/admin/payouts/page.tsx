@@ -35,6 +35,9 @@ interface Payout {
   reference?: string | null
   created_at: string
   updated_at?: string | null
+  // Client-generated idempotency key for the pending confirmation — reusing it
+  // on retry means Paystack dedupes on reference and can't double-send.
+  idempotency_key?: string
 }
 
 const STATUS_STYLES: Record<string, { color: string; bg: string; label: string }> = {
@@ -157,7 +160,7 @@ export default function AdminPayoutsPage() {
   const openConfirm = () => {
     const amt = Number(amount)
     if (!selRecipient) { showToast('Select a recipient', 'error'); return }
-    if (!Number.isFinite(amt) || amt < 3) { showToast('Minimum payout is KES 3', 'error'); return }
+    if (!Number.isFinite(amt) || amt < 10) { showToast('Minimum payout is KES 10', 'error'); return }
     const rcp = recipients.find((r) => r.recipient_code === selRecipient)
     if (!rcp) return
     setConfirmTarget({
@@ -170,6 +173,11 @@ export default function AdminPayoutsPage() {
       reason: reason.trim() || null,
       status: '',
       created_at: new Date().toISOString(),
+      // One key per intent: if the request fails and the admin retries from
+      // the same confirmation, the same reference is sent — no double pay.
+      idempotency_key: typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `payout-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     })
   }
 
@@ -181,6 +189,7 @@ export default function AdminPayoutsPage() {
         recipient_code: confirmTarget.recipient_code,
         amount: Math.round(confirmTarget.amount_kes),
         reason: confirmTarget.reason || undefined,
+        idempotency_key: confirmTarget.idempotency_key,
       })
       showToast(`Transfer initiated — ${res.transfer_code}`, 'success')
       setConfirmTarget(null); setAmount(''); setReason(''); setSelRecipient('')
@@ -433,7 +442,7 @@ export default function AdminPayoutsPage() {
               <label className="block text-[11px] mb-1.5" style={{ color: '#666' }}>Amount (KES)</label>
               <input
                 type="number"
-                min={3}
+                min={10}
                 step={1}
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
@@ -441,7 +450,7 @@ export default function AdminPayoutsPage() {
                 className="w-full border px-3 py-2 text-xs outline-none transition-colors focus:border-white/20"
                 style={{ backgroundColor: '#080808', borderColor: '#222', color: '#fff' }}
               />
-              <p className="mt-1.5 text-[11px]" style={{ color: '#444' }}>Minimum KES 3 · sent to Paystack as {amount ? `${Number(amount) * 100} cents` : 'cents'}</p>
+              <p className="mt-1.5 text-[11px]" style={{ color: '#444' }}>Minimum KES 10 · sent to Paystack as {amount ? `${Number(amount) * 100} cents` : 'cents'}</p>
             </div>
             <div>
               <label className="block text-[11px] mb-1.5" style={{ color: '#666' }}>Reason (optional)</label>
