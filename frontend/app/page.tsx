@@ -208,6 +208,11 @@ export default function LandingPage() {
             <a href="/docs" className="text-sm transition-colors hover:text-white" style={{ color: '#444' }}>Docs</a>
           </div>
         </div>
+        <div className="mt-6 flex justify-center">
+          <a href="https://maidensail.com/startup/torrentcdn" rel="dofollow">
+            <img src="https://maidensail.com/badge/torrentcdn.svg" alt="Listed on Maidensail" height="36" />
+          </a>
+        </div>
       </footer>
     </div>
   )
