@@ -209,7 +209,7 @@ export default function LandingPage() {
           </div>
         </div>
         <div className="mt-6 flex justify-center">
-          <a href="https://maidensail.com/startup/torrentcdn" rel="dofollow">
+          <a href="https://maidensail.com/startup/torrentcdn">
             <img src="https://maidensail.com/badge/torrentcdn.svg" alt="Listed on Maidensail" height="36" />
           </a>
         </div>
