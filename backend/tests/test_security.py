@@ -763,15 +763,15 @@ class TestInMemoryRateLimitFallbacks:
             auth_route._forgot_requests.update(saved)
 
     def test_public_file_rate_limit_in_memory_fallback(self, client, monkeypatch):
-        """GET /files/public/{id} is rate limited (30/min) even without Redis."""
+        """GET /files/public/{id} is rate limited (120/min) even without Redis."""
         import app.routes.files as files_route
         self._disable_redis(monkeypatch, files_route)
 
         saved = dict(files_route._public_file_requests)
         files_route._public_file_requests.clear()
         try:
-            # Seed the in-memory store with 30 requests in the window for this IP
-            files_route._public_file_requests["testclient"] = [time.time()] * 30
+            # Seed the in-memory store AT the configured cap for this IP
+            files_route._public_file_requests["testclient"] = [time.time()] * files_route.PUBLIC_FILE_LIMIT
             resp = client.get("/files/public/11111111-1111-4111-8111-111111111111")
             assert resp.status_code == 429
             assert "Rate limit exceeded" in resp.json()["detail"]
@@ -780,14 +780,14 @@ class TestInMemoryRateLimitFallbacks:
             files_route._public_file_requests.update(saved)
 
     def test_analytics_get_rate_limit_in_memory_fallback(self, client, auth_headers, monkeypatch):
-        """GET /analytics/{file_id} is rate limited (30/min) even without Redis."""
+        """GET /analytics/{file_id} is rate limited (120/min) even without Redis."""
         import app.routes.analytics as analytics_route
         self._disable_redis(monkeypatch, analytics_route)
 
         saved = dict(analytics_route._analytics_get_requests)
         analytics_route._analytics_get_requests.clear()
         try:
-            analytics_route._analytics_get_requests["testclient"] = [time.time()] * 30
+            analytics_route._analytics_get_requests["testclient"] = [time.time()] * analytics_route.ANALYTICS_GET_LIMIT
             resp = client.get("/analytics/11111111-1111-4111-8111-111111111111", headers=auth_headers)
             assert resp.status_code == 429
             assert "Rate limit exceeded" in resp.json()["detail"]
@@ -849,6 +849,56 @@ class TestInMemoryRateLimitFallbacks:
             assert [r.status_code for r in responses[:limit]] == [401] * limit
             assert responses[limit].status_code == 429
             assert "Rate limit exceeded" in responses[limit].json()["detail"]
+        finally:
+            mw._memory_store.clear()
+            mw._memory_store.update(saved)
+
+    def test_global_middleware_exempts_public_rate_limited_endpoints(self, client, auth_headers, monkeypatch):
+        """The already-route-limited public endpoints (/analytics/event,
+        /analytics/public/*, /files/public/*) are exempt from the GLOBAL
+        middleware limiter.
+
+        The embed player posts chunk_downloaded analytics up to 1/sec per
+        viewer and the demo page polls public stats every 5s — legitimate high
+        frequency traffic that would otherwise 429 every request on a shared
+        (NAT) IP. Each of these already has its own dedicated per-IP route
+        limiter, so the global burst cap must not double-count them.
+        """
+        import app.database
+        monkeypatch.setattr(app.database, "get_redis", AsyncMock(return_value=None))
+
+        from app.main import RateLimitMiddleware
+        mw = self._find_rate_limit_middleware(client.app)
+        assert mw is not None, "RateLimitMiddleware not found in middleware stack"
+
+        saved = dict(mw._memory_store)
+        mw._memory_store.clear()
+        try:
+            # Saturate the IP's global budget: the full window of requests already recorded.
+            mw._memory_store["testclient"] = [time.time()] * mw._limit
+
+            # A non-exempt endpoint is still blocked.
+            resp = client.get("/files")
+            assert resp.status_code == 429
+
+            # /analytics/event sails through the global limiter — it reaches the
+            # route and is rejected there (invalid event type) instead of being
+            # 429'd by middleware.
+            resp = client.post("/analytics/event", json={
+                "file_id": "22222222-2222-4222-8222-222222222222",
+                "event_type": "not_a_real_event",
+            })
+            assert resp.status_code == 400
+            assert "Invalid event type" in resp.json()["detail"]
+
+            # /analytics/public/{id} passes the middleware (route returns 404
+            # for the unknown file, not a middleware 429).
+            resp = client.get("/analytics/public/22222222-2222-4222-8222-222222222222")
+            assert resp.status_code == 404
+
+            # /files/public/{id} passes the middleware too.
+            resp = client.get("/files/public/22222222-2222-4222-8222-222222222222")
+            assert resp.status_code == 404
         finally:
             mw._memory_store.clear()
             mw._memory_store.update(saved)

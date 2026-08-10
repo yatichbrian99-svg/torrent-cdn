@@ -29,7 +29,16 @@ export default function Navbar() {
   }, [])
 
   useEffect(() => {
-    if (loggedIn && !user) api.getMe().then(setUser).catch(() => removeToken())
+    if (loggedIn && !user) {
+      api.getMe().then(setUser).catch((err: any) => {
+        // ONLY a 401 (expired/revoked session) ends the session. A 429 from
+        // rate limiting, or any transient network/5xx failure, must NOT log
+        // the user out — the page refresh burst of concurrent requests used to
+        // trip the rate limiter, which made getMe fail, which nuked the token
+        // and bounced the user to the landing page.
+        if (err?.response?.status === 401) removeToken()
+      })
+    }
   }, [loggedIn, user])
 
   useEffect(() => {

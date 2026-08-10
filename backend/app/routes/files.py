@@ -18,6 +18,10 @@ router = APIRouter(prefix="/files", tags=["files"])
 # In-memory fallback for public file rate limiting (used when Redis is down)
 _public_file_requests: dict[str, list[float]] = {}
 _PUBLIC_FILE_WINDOW = 60
+# Public file-metadata GET budget per IP per minute. 120/min is generous for
+# embed players (one metadata fetch per page load, Redis-cached for 60s) while
+# still capping scrapers.
+PUBLIC_FILE_LIMIT = 120
 
 # Public metadata cache TTL. The payload (filename/url/magnet/size) is immutable
 # after upload, so every embed for a popular file can be answered from Redis
@@ -151,7 +155,7 @@ async def get_file(file_id: UUID, user_id: UUID = Depends(get_current_user_id)):
 @router.get("/public/{file_id}")
 async def get_public_file(file_id: UUID, request: Request = None):
     """Public endpoint for embed player — no auth required."""
-    # Rate limit: 30 requests per minute per IP for public file access
+    # Rate limit: 120 requests per minute per IP for public file access
     # (Redis primary, in-memory fallback when Redis is unavailable)
     redis = await get_redis()
     if request:
@@ -159,7 +163,7 @@ async def get_public_file(file_id: UUID, request: Request = None):
         rate_key = f"public_file_rate:{ip}"
         if redis is not None:
             count = await redis.get(rate_key)
-            if count and int(count) >= 30:
+            if count and int(count) >= PUBLIC_FILE_LIMIT:
                 raise HTTPException(status_code=429, detail="Rate limit exceeded")
             await redis.incr(rate_key)
             await redis.expire(rate_key, 60)
@@ -167,7 +171,7 @@ async def get_public_file(file_id: UUID, request: Request = None):
             now = time.time()
             _prune_public_file_requests(now)
             recent = [t for t in _public_file_requests.get(ip, []) if now - t < _PUBLIC_FILE_WINDOW]
-            if len(recent) >= 30:
+            if len(recent) >= PUBLIC_FILE_LIMIT:
                 raise HTTPException(status_code=429, detail="Rate limit exceeded")
             recent.append(now)
             _public_file_requests[ip] = recent

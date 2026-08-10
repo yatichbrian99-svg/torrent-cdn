@@ -95,15 +95,23 @@ class Settings(BaseSettings):
     # plan limit, not ours); on a plan/provider without a per-file cap (e.g.
     # Cloudflare R2, Backblaze B2, Supabase Pro) this is the real limit.
     max_upload_size_mb: int = 2048
-    rate_limit_analytics: int = 60  # max events per minute per IP
+    # max events per minute per IP. Generous: the embed player legitimately
+    # posts chunk_downloaded up to 1/sec per active viewer (throttled in
+    # VideoPlayer), and NAT/shared IPs (offices, schools, mobile carriers —
+    # the Kenya market) serve several viewers per public IP.
+    rate_limit_analytics: int = 600  # max events per minute per IP
     # Global per-IP request budget — a BURST CAP, not the primary flood gate.
-    # 30/10s (3 req/s sustained) — the dashboard fires 6 concurrent authed GETs
-    # on mount (me/referral/api-key/verification/bandwidth/files), so a budget
-    # below that self-tripped every page load on the 6th call. The real
-    # anti-abuse weight lives in the per-route limiters (login lockout,
-    # register, uploads/hour, analytics/min, public-file/min); this one only
-    # stops gross bursts (a browser page does ~1-2 bursts of <10).
-    rate_limit_global: int = 30     # max requests per window per IP
+    # 120/10s (12 req/s sustained): the dashboard fires ~6-9 concurrent authed
+    # GETs on mount (me/referral/api-key/verification/bandwidth/mfa/files +
+    # navbar me/notifications), and NAT'd users sharing one IP each add a page
+    # burst — a budget below that self-tripped normal use. The real anti-abuse
+    # weight lives in the per-route limiters (login lockout, register,
+    # uploads/hour, analytics/min, public-file/min); this one only stops gross
+    # bursts (a browser page does ~1-2 bursts of <10, so 120 leaves 10+ users
+    # per shared IP before it matters). The already-route-limited public
+    # endpoints (analytics/event, analytics/public, files/public) are exempt
+    # from this budget entirely — see RateLimitMiddleware.
+    rate_limit_global: int = 120    # max requests per window per IP
     rate_limit_window_seconds: int = 10  # sliding window for global rate limit
     # Per-IP upload throttling (F-05 hardening): max upload requests per IP per
     # window. Protects storage/bandwidth from bulk-automated upload abuse — the

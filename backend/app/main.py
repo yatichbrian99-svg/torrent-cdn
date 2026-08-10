@@ -270,17 +270,18 @@ class CSPMiddleware(BaseHTTPMiddleware):
 app.add_middleware(CSPMiddleware)
 
 
-# Rate limiting middleware (30 requests per 10 seconds per IP)
+# Rate limiting middleware (120 requests per 10 seconds per IP)
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
-    Global rate limiting — 30 requests per 10 seconds per IP (3 req/s sustained).
-    Uses Redis when available, falls back to in-memory.
-    Excludes /health from rate limiting.
+    Global rate limiting — 120 requests per 10 seconds per IP (12 req/s
+    sustained). Uses Redis when available, falls back to in-memory.
+    Excludes /health and the already-route-limited public endpoints from
+    rate limiting.
     """
     def __init__(self, app):
         super().__init__(app)
         self._window = settings.rate_limit_window_seconds  # 10s
-        self._limit = settings.rate_limit_global  # 30 requests
+        self._limit = settings.rate_limit_global  # 120 requests
         # In-memory fallback: {ip: [(timestamp, count), ...]}
         self._memory_store: dict[str, list[float]] = {}
         # Bounded-store hygiene: the client IP feeds this dict (via X-Forwarded-
@@ -307,7 +308,22 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # per-chunk size cap — and the per-IP upload limiter (10/hour) + usage
         # gate still apply at finalize. Session CREATION stays under the global
         # limiter, so an attacker can't mint unbounded sessions either.
-        if path.startswith("/upload/chunk/"):
+        #
+        # The public, already-route-limited endpoints are exempt for the same
+        # reason: /analytics/event (600/min route limiter), /analytics/public/*
+        # and /files/public/* (120/min route limiters) are legitimately fired
+        # at high frequency — the embed player posts chunk_downloaded up to
+        # 1/sec per viewer, and the demo page polls stats every 5s — and each
+        # already carries its own dedicated per-IP limiter in the route. If
+        # they also counted against the global burst budget, a single active
+        # viewer (or a handful of NAT'd viewers behind one office/school/mobile
+        # IP) would 429 unrelated requests for everyone on that IP.
+        if (
+            path.startswith("/upload/chunk/")
+            or path == "/analytics/event"
+            or path.startswith("/analytics/public/")
+            or path.startswith("/files/public/")
+        ):
             return await call_next(request)
 
         import time

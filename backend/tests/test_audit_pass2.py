@@ -94,8 +94,10 @@ class TestAnalyticsEventRateLimitFallback:
         saved = dict(analytics_route._analytics_event_requests)
         analytics_route._analytics_event_requests.clear()
         try:
-            # Seed the in-memory store at the cap for this IP.
-            analytics_route._analytics_event_requests["testclient"] = [time.time()] * 60
+            # Seed the in-memory store AT the configured cap for this IP.
+            from app.config import get_settings
+            cap = get_settings().rate_limit_analytics
+            analytics_route._analytics_event_requests["testclient"] = [time.time()] * cap
             resp = client.post(self.URL, json={
                 "file_id": "22222222-2222-4222-8222-222222222222",
                 "event_type": "peer_joined",

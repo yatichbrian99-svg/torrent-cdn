@@ -17,6 +17,10 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 # In-memory fallback for public analytics rate limiting (used when Redis is down)
 _analytics_get_requests: dict[str, list[float]] = {}
 _ANALYTICS_GET_WINDOW = 60
+# Public/authed analytics GET budget per IP per minute. 120/min (~2/sec) is
+# generous for the demo page's 5s stats polling (12/min) while still stopping
+# scrapers from hammering the aggregate endpoint.
+ANALYTICS_GET_LIMIT = 120
 # In-memory fallback for the public POST /analytics/event limiter (used when
 # Redis is down). This is a WRITE endpoint with no auth, so it MUST be rate
 # limited even without Redis — otherwise an attacker can flood the analytics
@@ -172,13 +176,13 @@ async def get_public_analytics(file_id: UUID, request: Request):
     identity, or storage URLs. Same payload shape as the authed endpoint so
     the frontend reuses one client interface.
     """
-    # Rate limit: 30 requests per minute per IP (Redis primary, in-memory fallback)
+    # Rate limit: 120 requests per minute per IP (Redis primary, in-memory fallback)
     ip = get_client_ip(request)
     redis = await get_redis()
     if redis is not None:
         rate_key = f"analytics_get_rate:{ip}"
         count = await redis.get(rate_key)
-        if count and int(count) >= 30:
+        if count and int(count) >= ANALYTICS_GET_LIMIT:
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
         await redis.incr(rate_key)
         await redis.expire(rate_key, 60)
@@ -186,7 +190,7 @@ async def get_public_analytics(file_id: UUID, request: Request):
         now = time.time()
         _prune_analytics_get_requests(now)
         recent = [t for t in _analytics_get_requests.get(ip, []) if now - t < _ANALYTICS_GET_WINDOW]
-        if len(recent) >= 30:
+        if len(recent) >= ANALYTICS_GET_LIMIT:
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
         recent.append(now)
         _analytics_get_requests[ip] = recent
@@ -213,13 +217,13 @@ async def get_analytics(
     Scoped to the caller's own uploads so the endpoint can't be used as a
     cross-account file-existence oracle or to read another user's stats.
     """
-    # Rate limit: 30 requests per minute per IP (Redis primary, in-memory fallback)
+    # Rate limit: 120 requests per minute per IP (Redis primary, in-memory fallback)
     ip = get_client_ip(request)
     redis = await get_redis()
     if redis is not None:
         rate_key = f"analytics_get_rate:{ip}"
         count = await redis.get(rate_key)
-        if count and int(count) >= 30:
+        if count and int(count) >= ANALYTICS_GET_LIMIT:
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
         await redis.incr(rate_key)
         await redis.expire(rate_key, 60)
@@ -227,7 +231,7 @@ async def get_analytics(
         now = time.time()
         _prune_analytics_get_requests(now)
         recent = [t for t in _analytics_get_requests.get(ip, []) if now - t < _ANALYTICS_GET_WINDOW]
-        if len(recent) >= 30:
+        if len(recent) >= ANALYTICS_GET_LIMIT:
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
         recent.append(now)
         _analytics_get_requests[ip] = recent

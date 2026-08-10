@@ -250,7 +250,7 @@ class TestFilesRouteSecurity:
             assert resp.status_code in (404, 422), f"traversal '{attempt}' reached handler: {resp.status_code}"
 
     def test_public_file_rate_limited_via_redis_429(self, client, mock_redis, monkeypatch):
-        """The Redis-backed public endpoint limiter (30/min) returns 429 at the cap.
+        """The Redis-backed public endpoint limiter (120/min) returns 429 at the cap.
 
         Note: conftest does NOT patch app.routes.files.get_redis (only auth/billing/
         analytics/csp), so this test patches it explicitly to the mock Redis.
@@ -260,7 +260,7 @@ class TestFilesRouteSecurity:
 
         def fake_get(key):
             if key == "public_file_rate:testclient":
-                return "30"
+                return str(app.routes.files.PUBLIC_FILE_LIMIT)
             return None
 
         mock_redis.get.side_effect = fake_get
