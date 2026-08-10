@@ -312,7 +312,16 @@ export default function DemoPage() {
     <div className="mx-auto max-w-5xl px-6 py-10">
       {/* Header */}
       <div className="mb-10">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
+        <h1 className="text-3xl font-bold tracking-[-0.02em] text-white sm:text-4xl">Live P2P Demo</h1>
+        <p className="mt-2 text-sm" style={{ color: '#555' }}>
+          Watch how viewers become peers in real time.
+        </p>
+      </div>
+
+      {/* Video player */}
+      <section className="mb-10">
+        <VideoPlayer fileId={DEMO_FILE_ID} onPeers={setPeers} />
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className="flex items-center gap-1.5 border px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.2em]" style={{ borderColor: '#333', color: '#4ade80' }}>
             <span className="relative flex h-1.5 w-1.5">
               <span className="absolute inline-flex h-full w-full animate-ping opacity-75" style={{ backgroundColor: '#4ade80' }} />
@@ -326,15 +335,6 @@ export default function DemoPage() {
             </span>
           )}
         </div>
-        <h1 className="text-3xl font-bold tracking-[-0.02em] text-white sm:text-4xl">Live P2P Demo</h1>
-        <p className="mt-2 text-sm" style={{ color: '#555' }}>
-          Watch how viewers become peers in real time.
-        </p>
-      </div>
-
-      {/* Video player */}
-      <section className="mb-10">
-        <VideoPlayer fileId={DEMO_FILE_ID} onPeers={setPeers} />
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <p className="flex items-center gap-2 font-mono text-xs" style={{ color: '#888' }}>
             <span className="relative flex h-2 w-2">
