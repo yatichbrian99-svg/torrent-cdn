@@ -91,6 +91,10 @@ export default function DemoPage() {
   // snap (effect below) is skipped — a shared permalink must restore exactly
   // what the sharer set, not clobber it with the current swarm rate.
   const p2pFromUrlRef = useRef(false)
+  // Set once the URL params have been restored into state; the URL-sync effect
+  // stays inert until then, so a shared permalink is never momentarily
+  // rewritten with the default scenario before the restore lands.
+  const paramsRestoredRef = useRef(false)
   const [permalinkCopied, setPermalinkCopied] = useState(false)
   // Time series of p2p_offload_percent, one point per 5s poll, oldest first.
   // Windowed to OFFLOAD_HISTORY_POINTS — used to draw the live offload chart.
@@ -127,12 +131,14 @@ export default function DemoPage() {
       setScenarioP2pPct(snapToStep(p, SCENARIO_P2P_RANGE))
       p2pTouchedRef.current = true
     }
+    paramsRestoredRef.current = true
   }, [])
 
   // Keep the address bar in sync with the current scenario (replaceState, so
   // slider drags don't spam history). This is what makes the permalink
   // meaningful: the URL always describes what's on screen.
   useEffect(() => {
+    if (!paramsRestoredRef.current) return
     const params = new URLSearchParams()
     params.set(PARAM_KEYS.viewers, String(scenarioViewers))
     params.set(PARAM_KEYS.videoMb, String(scenarioVideoMb))
