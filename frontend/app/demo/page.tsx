@@ -39,8 +39,12 @@ const SCENARIO_DEFAULT_P2P_PCT = 25
 // Permalink query params: /demo?v=<viewers>&s=<video MB>&w=<watch %>&p=<p2p %>.
 // Read on load to restore a shared scenario and rewritten live (no history
 // entries) as the sliders move, so the address bar always holds the current
-// scenario and 'copy permalink' shares exactly what's on screen.
+// scenario and 'copy permalink' shares exactly what's on screen. The canonical
+// (short) keys are what the URL sync writes; the long aliases (viewers/size/
+// watch/p2p) are accepted on read so hand-written links like
+// /demo?v=1000&size=100&watch=80 work too.
 const PARAM_KEYS = { viewers: 'v', videoMb: 's', watchPct: 'w', p2pPct: 'p' }
+const PARAM_ALIASES = { viewers: ['v', 'viewers'], videoMb: ['s', 'size'], watchPct: ['w', 'watch'], p2pPct: ['p', 'p2p'] }
 // Offload chart history window: the backend returns a live aggregate, not a
 // series — so this page builds its own time series from the 5s stats poll.
 // 60 points ≈ 5 minutes of the demo running (plenty to show the trend without
@@ -111,22 +115,31 @@ export default function DemoPage() {
   // The stats API needs a real file id — the 'demo' placeholder skips polling.
   const isLive = isUuid(DEMO_FILE_ID)
 
-  // Restore a shared scenario from the URL (?v=&s=&w=&p=) on mount. Values are
-  // clamped to the slider ranges so a hand-edited URL can't break the UI.
+  // Restore a shared scenario from the URL on mount. Accepts both the short
+  // canonical keys (?v=&s=&w=&p=) and the long aliases (?viewers=&size=&watch=
+  // &p2p=). Values are clamped to the slider ranges so a hand-edited URL can't
+  // break the UI.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
+    const getFirst = (keys: string[]) => {
+      for (const k of keys) {
+        const v = params.get(k)
+        if (v !== null) return v
+      }
+      return null
+    }
     const num = (raw: string | null, range: { min: number; max: number }, fallback: number) => {
       const n = Number(raw)
       return raw !== null && Number.isFinite(n) && n > 0 ? Math.min(Math.max(n, range.min), range.max) : fallback
     }
-    const v = num(params.get(PARAM_KEYS.viewers), SCENARIO_VIEWERS_RANGE, SCENARIO_DEFAULT_VIEWERS)
-    const s = num(params.get(PARAM_KEYS.videoMb), SCENARIO_VIDEO_MB_RANGE, SCENARIO_DEFAULT_VIDEO_MB)
-    const w = num(params.get(PARAM_KEYS.watchPct), SCENARIO_WATCH_RANGE, SCENARIO_DEFAULT_WATCH_PCT)
-    const p = num(params.get(PARAM_KEYS.p2pPct), SCENARIO_P2P_RANGE, SCENARIO_DEFAULT_P2P_PCT)
+    const v = num(getFirst(PARAM_ALIASES.viewers), SCENARIO_VIEWERS_RANGE, SCENARIO_DEFAULT_VIEWERS)
+    const s = num(getFirst(PARAM_ALIASES.videoMb), SCENARIO_VIDEO_MB_RANGE, SCENARIO_DEFAULT_VIDEO_MB)
+    const w = num(getFirst(PARAM_ALIASES.watchPct), SCENARIO_WATCH_RANGE, SCENARIO_DEFAULT_WATCH_PCT)
+    const p = num(getFirst(PARAM_ALIASES.p2pPct), SCENARIO_P2P_RANGE, SCENARIO_DEFAULT_P2P_PCT)
     setScenarioViewers(Math.round(v / SCENARIO_VIEWERS_RANGE.step) * SCENARIO_VIEWERS_RANGE.step)
     setScenarioVideoMb(Math.round(s / SCENARIO_VIDEO_MB_RANGE.step) * SCENARIO_VIDEO_MB_RANGE.step)
     setScenarioWatchPct(Math.round(w / SCENARIO_WATCH_RANGE.step) * SCENARIO_WATCH_RANGE.step)
-    if (params.get(PARAM_KEYS.p2pPct) !== null) {
+    if (getFirst(PARAM_ALIASES.p2pPct) !== null) {
       p2pFromUrlRef.current = true
       setScenarioP2pPct(snapToStep(p, SCENARIO_P2P_RANGE))
       p2pTouchedRef.current = true
