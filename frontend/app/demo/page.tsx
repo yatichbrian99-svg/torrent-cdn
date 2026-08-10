@@ -641,7 +641,59 @@ export default function DemoPage() {
               <p className="mt-3 font-mono text-[10px] uppercase tracking-widest" style={{ color: '#4ade80' }}>
                 at {scenarioP2pPct}% P2P offload
               </p>
-              <div className="mt-3 space-y-3 font-mono text-sm">
+
+              {/* Animated bandwidth meter — the split re-renders with CSS
+                  width transitions as the sliders move; the green P2P segment
+                  shows a flowing data sheen, the red origin segment stays put. */}
+              <div className="mt-4">
+                <div
+                  className="flex h-6 w-full overflow-hidden border"
+                  style={{ borderColor: '#333', backgroundColor: '#111' }}
+                  role="img"
+                  aria-label={`Bandwidth split: ${scenarioGbOrigin.toFixed(1)} GB from origin, ${scenarioGbSaved.toFixed(1)} GB from peers`}
+                >
+                  <div
+                    className="flex h-full items-center justify-center overflow-hidden"
+                    style={{
+                      width: `${(scenarioGbOrigin / Math.max(scenarioGbDelivered, 0.0001)) * 100}%`,
+                      backgroundColor: '#7f1d1d',
+                      transition: 'width 500ms cubic-bezier(0.4, 0, 0.2, 1)',
+                    }}
+                  >
+                    {scenarioGbOrigin / scenarioGbDelivered >= 0.12 && (
+                      <span className="truncate px-1 font-mono text-[9px]" style={{ color: '#fca5a5' }}>
+                        {scenarioGbOrigin.toFixed(0)} GB origin
+                      </span>
+                    )}
+                  </div>
+                  <div
+                    className="bandwidth-flow relative flex h-full items-center justify-center overflow-hidden"
+                    style={{
+                      width: `${(scenarioGbSaved / Math.max(scenarioGbDelivered, 0.0001)) * 100}%`,
+                      backgroundColor: '#166534',
+                      transition: 'width 500ms cubic-bezier(0.4, 0, 0.2, 1)',
+                    }}
+                  >
+                    {scenarioGbSaved / scenarioGbDelivered >= 0.12 && (
+                      <span className="truncate px-1 font-mono text-[9px]" style={{ color: '#bbf7d0' }}>
+                        {scenarioGbSaved.toFixed(0)} GB P2P
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-1.5 flex items-center justify-between font-mono text-[10px]">
+                  <span className="flex items-center gap-1.5" style={{ color: '#555' }}>
+                    <span className="inline-block h-2 w-2" style={{ backgroundColor: '#7f1d1d' }} />
+                    origin · {scenarioGbOrigin.toFixed(1)} GB ({scenarioGbDelivered > 0 ? ((scenarioGbOrigin / scenarioGbDelivered) * 100).toFixed(0) : 0}%) — billed
+                  </span>
+                  <span className="flex items-center gap-1.5" style={{ color: '#555' }}>
+                    peers · {scenarioGbSaved.toFixed(1)} GB ({scenarioGbDelivered > 0 ? ((scenarioGbSaved / scenarioGbDelivered) * 100).toFixed(0) : 0}%) — free
+                    <span className="inline-block h-2 w-2" style={{ backgroundColor: '#4ade80' }} />
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3 font-mono text-sm">
                 {costRow('CloudFront would cost', money(scenarioCloudfront))}
                 {costRow('TorrentCDN origin cost', money(scenarioTorrentcdn))}
                 {costRow('Bandwidth saved by P2P', `${scenarioGbSaved.toFixed(1)} GB`, '#4ade80')}
