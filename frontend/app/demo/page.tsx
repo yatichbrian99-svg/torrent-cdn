@@ -64,6 +64,12 @@ export default function DemoPage() {
   const [scenarioViewers, setScenarioViewers] = useState(SCENARIO_DEFAULT_VIEWERS)
   const [scenarioVideoMb, setScenarioVideoMb] = useState(SCENARIO_DEFAULT_VIDEO_MB)
   const [scenarioWatchPct, setScenarioWatchPct] = useState(SCENARIO_DEFAULT_WATCH_PCT)
+  // Raw text held while a number input is focused (so clearing the field to
+  // type doesn't snap it back to a clamped value mid-keystroke); the actual
+  // value only clamps on blur or when the slider moves.
+  const [scenarioViewersDraft, setScenarioViewersDraft] = useState<string | null>(null)
+  const [scenarioVideoMbDraft, setScenarioVideoMbDraft] = useState<string | null>(null)
+  const [scenarioWatchPctDraft, setScenarioWatchPctDraft] = useState<string | null>(null)
   // If the live swarm has a measured offload rate, the scenario uses it (the
   // live rate is more credible than a fixed assumption).
   const liveP2pPct = stats ? stats.p2p_offload_percent : null
@@ -177,6 +183,16 @@ export default function DemoPage() {
     if (n > 0) return `$${n.toFixed(4)}`
     return '$0.00'
   }
+
+  // Number-input helpers: while focused, the field shows the raw draft text;
+  // the committed value only clamps when the user leaves the field or moves
+  // the slider — otherwise clearing the field to type a new number would snap
+  // back to the min immediately.
+  const clampCommit = (raw: string, min: number, max: number, fallback: number, set: (n: number) => void) => {
+    const n = Number(raw)
+    set(Number.isFinite(n) && n > 0 ? Math.min(Math.max(Math.round(n), min), max) : fallback)
+  }
+  const draftOrValue = (draft: string | null, value: number) => (draft !== null ? draft : String(value))
 
   const statCards = [
     { label: 'Active peers', value: stats ? String(stats.active_peers) : '—', icon: Users },
@@ -363,11 +379,12 @@ export default function DemoPage() {
                   <span className="flex items-center gap-1 text-white">
                     <input
                       type="number"
-                      value={scenarioViewers}
+                      value={draftOrValue(scenarioViewersDraft, scenarioViewers)}
                       min={SCENARIO_VIEWERS_RANGE.min}
                       max={SCENARIO_VIEWERS_RANGE.max}
                       step={SCENARIO_VIEWERS_RANGE.step}
-                      onChange={(e) => setScenarioViewers(Math.max(SCENARIO_VIEWERS_RANGE.min, Math.min(SCENARIO_VIEWERS_RANGE.max, Number(e.target.value) || 0)))}
+                      onChange={(e) => setScenarioViewersDraft(e.target.value)}
+                      onBlur={() => { clampCommit(scenarioViewersDraft ?? '', SCENARIO_VIEWERS_RANGE.min, SCENARIO_VIEWERS_RANGE.max, SCENARIO_DEFAULT_VIEWERS, setScenarioViewers); setScenarioViewersDraft(null) }}
                       className="w-24 border bg-transparent px-2 py-1 text-right font-mono text-sm text-white"
                       style={{ borderColor: '#333' }}
                     />
@@ -379,10 +396,13 @@ export default function DemoPage() {
                   max={SCENARIO_VIEWERS_RANGE.max}
                   step={SCENARIO_VIEWERS_RANGE.step}
                   value={scenarioViewers}
-                  onChange={(e) => setScenarioViewers(Number(e.target.value))}
+                  onChange={(e) => { setScenarioViewers(Number(e.target.value)); setScenarioViewersDraft(null) }}
                   className="mt-2 w-full cursor-pointer"
                   style={{ accentColor: '#fff' }}
                 />
+                <p className="mt-1 font-mono text-[10px]" style={{ color: '#444' }}>
+                  {SCENARIO_VIEWERS_RANGE.min.toLocaleString()} – {SCENARIO_VIEWERS_RANGE.max.toLocaleString()}
+                </p>
               </div>
 
               <div>
@@ -391,11 +411,12 @@ export default function DemoPage() {
                   <span className="flex items-center gap-1 text-white">
                     <input
                       type="number"
-                      value={scenarioVideoMb}
+                      value={draftOrValue(scenarioVideoMbDraft, scenarioVideoMb)}
                       min={SCENARIO_VIDEO_MB_RANGE.min}
                       max={SCENARIO_VIDEO_MB_RANGE.max}
                       step={SCENARIO_VIDEO_MB_RANGE.step}
-                      onChange={(e) => setScenarioVideoMb(Math.max(SCENARIO_VIDEO_MB_RANGE.min, Math.min(SCENARIO_VIDEO_MB_RANGE.max, Number(e.target.value) || 0)))}
+                      onChange={(e) => setScenarioVideoMbDraft(e.target.value)}
+                      onBlur={() => { clampCommit(scenarioVideoMbDraft ?? '', SCENARIO_VIDEO_MB_RANGE.min, SCENARIO_VIDEO_MB_RANGE.max, SCENARIO_DEFAULT_VIDEO_MB, setScenarioVideoMb); setScenarioVideoMbDraft(null) }}
                       className="w-24 border bg-transparent px-2 py-1 text-right font-mono text-sm text-white"
                       style={{ borderColor: '#333' }}
                     />
@@ -408,10 +429,13 @@ export default function DemoPage() {
                   max={SCENARIO_VIDEO_MB_RANGE.max}
                   step={SCENARIO_VIDEO_MB_RANGE.step}
                   value={scenarioVideoMb}
-                  onChange={(e) => setScenarioVideoMb(Number(e.target.value))}
+                  onChange={(e) => { setScenarioVideoMb(Number(e.target.value)); setScenarioVideoMbDraft(null) }}
                   className="mt-2 w-full cursor-pointer"
                   style={{ accentColor: '#fff' }}
                 />
+                <p className="mt-1 font-mono text-[10px]" style={{ color: '#444' }}>
+                  {SCENARIO_VIDEO_MB_RANGE.min} – {SCENARIO_VIDEO_MB_RANGE.max.toLocaleString()} MB
+                </p>
               </div>
 
               <div>
@@ -420,11 +444,12 @@ export default function DemoPage() {
                   <span className="flex items-center gap-1 text-white">
                     <input
                       type="number"
-                      value={scenarioWatchPct}
+                      value={draftOrValue(scenarioWatchPctDraft, scenarioWatchPct)}
                       min={SCENARIO_WATCH_RANGE.min}
                       max={SCENARIO_WATCH_RANGE.max}
                       step={SCENARIO_WATCH_RANGE.step}
-                      onChange={(e) => setScenarioWatchPct(Math.max(SCENARIO_WATCH_RANGE.min, Math.min(SCENARIO_WATCH_RANGE.max, Number(e.target.value) || 0)))}
+                      onChange={(e) => setScenarioWatchPctDraft(e.target.value)}
+                      onBlur={() => { clampCommit(scenarioWatchPctDraft ?? '', SCENARIO_WATCH_RANGE.min, SCENARIO_WATCH_RANGE.max, SCENARIO_DEFAULT_WATCH_PCT, setScenarioWatchPct); setScenarioWatchPctDraft(null) }}
                       className="w-24 border bg-transparent px-2 py-1 text-right font-mono text-sm text-white"
                       style={{ borderColor: '#333' }}
                     />
@@ -437,10 +462,13 @@ export default function DemoPage() {
                   max={SCENARIO_WATCH_RANGE.max}
                   step={SCENARIO_WATCH_RANGE.step}
                   value={scenarioWatchPct}
-                  onChange={(e) => setScenarioWatchPct(Number(e.target.value))}
+                  onChange={(e) => { setScenarioWatchPct(Number(e.target.value)); setScenarioWatchPctDraft(null) }}
                   className="mt-2 w-full cursor-pointer"
                   style={{ accentColor: '#fff' }}
                 />
+                <p className="mt-1 font-mono text-[10px]" style={{ color: '#444' }}>
+                  {SCENARIO_WATCH_RANGE.min} – {SCENARIO_WATCH_RANGE.max}%
+                </p>
               </div>
 
               <p className="border-t pt-3 font-mono text-[10px]" style={{ borderColor: '#222', color: '#444' }}>
