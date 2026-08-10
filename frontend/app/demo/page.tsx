@@ -8,8 +8,8 @@ import { isUuid } from '@/lib/security'
 
 // ─── DEMO CONFIG ─────────────────────────────────────────────────────────────
 // The demo video uploaded at /dashboard/upload (swap this after uploading a
-// newer one — the whole page activates off this id).
-const DEMO_FILE_ID = '7e43ce7d-a279-4e32-97be-a77f37b97be0'
+// newer one — the whole page activates off this id). 'demo' = placeholder.
+const DEMO_FILE_ID = 'demo'
 const DEMO_EMBED = `<div data-torrent-cdn="${DEMO_FILE_ID}"></div>`
 
 // Cost basis for the live comparison — matches the landing page's published
