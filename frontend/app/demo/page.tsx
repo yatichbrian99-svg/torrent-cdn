@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Users, Zap, HardDrive, Eye, Copy, Check, ArrowRight } from 'lucide-react'
+import { Users, Zap, HardDrive, Eye, Copy, Check, ArrowRight, TrendingUp } from 'lucide-react'
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from 'recharts'
 import VideoPlayer from '@/components/VideoPlayer'
 import api from '@/lib/api'
 import { isUuid } from '@/lib/security'
@@ -23,6 +24,11 @@ const TORRENTCDN_ORIGIN_RATE_PER_GB = 0.045
 // so alongside them we show what the SAME real per-view bytes would cost at a
 // meaningful scale (1,000 viewers — the landing page's headline figure).
 const PROJECTED_VIEWS = 1000
+// Offload chart history window: the backend returns a live aggregate, not a
+// series — so this page builds its own time series from the 5s stats poll.
+// 60 points ≈ 5 minutes of the demo running (plenty to show the trend without
+// the chart turning into a solid bar over an hour-long session).
+const OFFLOAD_HISTORY_POINTS = 60
 
 interface LiveStats {
   total_views: number
@@ -44,6 +50,9 @@ interface PublicFile {
 export default function DemoPage() {
   const [peers, setPeers] = useState(0)
   const [stats, setStats] = useState<LiveStats | null>(null)
+  // Time series of p2p_offload_percent, one point per 5s poll, oldest first.
+  // Windowed to OFFLOAD_HISTORY_POINTS — used to draw the live offload chart.
+  const [offloadHistory, setOffloadHistory] = useState<{ t: number; p2p: number }[]>([])
   const [copied, setCopied] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   // Self-seed status: this tab fetches the demo file from origin once and seeds
@@ -67,6 +76,12 @@ export default function DemoPage() {
           if (!mounted) return
           setStats(data)
           setLastUpdated(new Date())
+          // Append to the live offload series (windowed). The percentages move
+          // as the swarm changes, so the line visibly trends in real time.
+          setOffloadHistory((prev) => {
+            const next = [...prev, { t: Date.now(), p2p: data.p2p_offload_percent }]
+            return next.length > OFFLOAD_HISTORY_POINTS ? next.slice(next.length - OFFLOAD_HISTORY_POINTS) : next
+          })
         })
         .catch(() => { /* 404 until the demo file exists — keep showing "—" */ })
     }
@@ -234,6 +249,64 @@ export default function DemoPage() {
               <p className="mt-2 font-mono text-2xl font-bold text-white">{s.value}</p>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* P2P offload trend — live line chart built from the 5s poll history */}
+      <section className="mb-10">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>
+            <TrendingUp size={12} /> P2P offload over time
+          </h2>
+          <p className="font-mono text-[10px]" style={{ color: '#444' }}>
+            {isLive
+              ? offloadHistory.length > 1
+                ? `sampled every 5s — last ${offloadHistory.length} points`
+                : 'collecting samples…'
+              : 'waiting for demo file'}
+          </p>
+        </div>
+        <div className="border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+          {isLive && offloadHistory.length > 1 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={offloadHistory}>
+                <CartesianGrid stroke="#111" />
+                <XAxis
+                  dataKey="t"
+                  stroke="#222"
+                  tick={{ fill: '#555', fontSize: 10, fontFamily: 'monospace' }}
+                  tickFormatter={(v: number) => new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  tickMargin={8}
+                />
+                <YAxis
+                  domain={[0, 100]}
+                  stroke="#222"
+                  tick={{ fill: '#555', fontSize: 10, fontFamily: 'monospace' }}
+                  tickFormatter={(v: number) => `${v}%`}
+                  tickMargin={4}
+                />
+                <ReferenceLine y={0} stroke="#222" />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#111', border: '1px solid #222', color: '#fff' }}
+                  labelStyle={{ color: '#555', fontFamily: 'monospace' }}
+                  itemStyle={{ color: '#fff' }}
+                  labelFormatter={(v) => new Date(Number(v)).toLocaleTimeString()}
+                  formatter={(value: unknown) => [`${Number(value ?? 0).toFixed(1)}%`, 'P2P offload']}
+                />
+                <Line type="monotone" dataKey="p2p" stroke="#4ade80" strokeWidth={2} dot={false} isAnimationActive={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex h-[200px] items-center justify-center border" style={{ borderColor: '#222' }}>
+              <p className="text-sm" style={{ color: '#555' }}>
+                {isLive ? 'Watching the swarm — chart fills in as views accumulate…' : 'Upload a demo file to see the P2P trend'}
+              </p>
+            </div>
+          )}
+          <p className="mt-3 flex items-center gap-2 font-mono text-[11px]" style={{ color: '#444' }}>
+            <span className="inline-block h-1 w-4" style={{ backgroundColor: '#4ade80' }} />
+            share of bandwidth delivered peer-to-peer, live from the {isLive ? `${DEMO_FILE_ID.slice(0, 8)}…` : ''}swarm
+          </p>
         </div>
       </section>
 
