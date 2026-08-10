@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Users, Zap, HardDrive, Eye, Copy, Check, ArrowRight, TrendingUp } from 'lucide-react'
+import { Users, Zap, HardDrive, Eye, Copy, Check, ArrowRight, TrendingUp, Link2 } from 'lucide-react'
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from 'recharts'
 import VideoPlayer from '@/components/VideoPlayer'
 import api from '@/lib/api'
@@ -36,6 +36,11 @@ const SCENARIO_WATCH_RANGE = { min: 10, max: 100, step: 5 }
 // default before that), and a 'reset' snaps it back to live.
 const SCENARIO_P2P_RANGE = { min: 10, max: 95, step: 5 }
 const SCENARIO_DEFAULT_P2P_PCT = 25
+// Permalink query params: /demo?v=<viewers>&s=<video MB>&w=<watch %>&p=<p2p %>.
+// Read on load to restore a shared scenario and rewritten live (no history
+// entries) as the sliders move, so the address bar always holds the current
+// scenario and 'copy permalink' shares exactly what's on screen.
+const PARAM_KEYS = { viewers: 'v', videoMb: 's', watchPct: 'w', p2pPct: 'p' }
 // Offload chart history window: the backend returns a live aggregate, not a
 // series — so this page builds its own time series from the 5s stats poll.
 // 60 points ≈ 5 minutes of the demo running (plenty to show the trend without
@@ -82,6 +87,11 @@ export default function DemoPage() {
   const [scenarioVideoMbDraft, setScenarioVideoMbDraft] = useState<string | null>(null)
   const [scenarioWatchPctDraft, setScenarioWatchPctDraft] = useState<string | null>(null)
   const [scenarioP2pDraft, setScenarioP2pDraft] = useState<string | null>(null)
+  // True when the URL carried an explicit p2p param, so the live-swarm default
+  // snap (effect below) is skipped — a shared permalink must restore exactly
+  // what the sharer set, not clobber it with the current swarm rate.
+  const p2pFromUrlRef = useRef(false)
+  const [permalinkCopied, setPermalinkCopied] = useState(false)
   // Time series of p2p_offload_percent, one point per 5s poll, oldest first.
   // Windowed to OFFLOAD_HISTORY_POINTS — used to draw the live offload chart.
   const [offloadHistory, setOffloadHistory] = useState<{ t: number; p2p: number }[]>([])
@@ -96,6 +106,41 @@ export default function DemoPage() {
 
   // The stats API needs a real file id — the 'demo' placeholder skips polling.
   const isLive = isUuid(DEMO_FILE_ID)
+
+  // Restore a shared scenario from the URL (?v=&s=&w=&p=) on mount. Values are
+  // clamped to the slider ranges so a hand-edited URL can't break the UI.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const num = (raw: string | null, range: { min: number; max: number }, fallback: number) => {
+      const n = Number(raw)
+      return raw !== null && Number.isFinite(n) && n > 0 ? Math.min(Math.max(n, range.min), range.max) : fallback
+    }
+    const v = num(params.get(PARAM_KEYS.viewers), SCENARIO_VIEWERS_RANGE, SCENARIO_DEFAULT_VIEWERS)
+    const s = num(params.get(PARAM_KEYS.videoMb), SCENARIO_VIDEO_MB_RANGE, SCENARIO_DEFAULT_VIDEO_MB)
+    const w = num(params.get(PARAM_KEYS.watchPct), SCENARIO_WATCH_RANGE, SCENARIO_DEFAULT_WATCH_PCT)
+    const p = num(params.get(PARAM_KEYS.p2pPct), SCENARIO_P2P_RANGE, SCENARIO_DEFAULT_P2P_PCT)
+    setScenarioViewers(Math.round(v / SCENARIO_VIEWERS_RANGE.step) * SCENARIO_VIEWERS_RANGE.step)
+    setScenarioVideoMb(Math.round(s / SCENARIO_VIDEO_MB_RANGE.step) * SCENARIO_VIDEO_MB_RANGE.step)
+    setScenarioWatchPct(Math.round(w / SCENARIO_WATCH_RANGE.step) * SCENARIO_WATCH_RANGE.step)
+    if (params.get(PARAM_KEYS.p2pPct) !== null) {
+      p2pFromUrlRef.current = true
+      setScenarioP2pPct(snapToStep(p, SCENARIO_P2P_RANGE))
+      p2pTouchedRef.current = true
+    }
+  }, [])
+
+  // Keep the address bar in sync with the current scenario (replaceState, so
+  // slider drags don't spam history). This is what makes the permalink
+  // meaningful: the URL always describes what's on screen.
+  useEffect(() => {
+    const params = new URLSearchParams()
+    params.set(PARAM_KEYS.viewers, String(scenarioViewers))
+    params.set(PARAM_KEYS.videoMb, String(scenarioVideoMb))
+    params.set(PARAM_KEYS.watchPct, String(scenarioWatchPct))
+    params.set(PARAM_KEYS.p2pPct, String(scenarioP2pPct))
+    const qs = params.toString()
+    if (window.location.search !== `?${qs}`) window.history.replaceState(null, '', `${window.location.pathname}?${qs}`)
+  }, [scenarioViewers, scenarioVideoMb, scenarioWatchPct, scenarioP2pPct])
 
   // Live stats — poll the public analytics endpoint every 5 seconds.
   useEffect(() => {
@@ -124,10 +169,11 @@ export default function DemoPage() {
 
   // Once live stats arrive, default the calculator's P2P rate to the swarm's
   // real measured offload. Only on the FIRST arrival, and only if the user
-  // hasn't already dragged the slider — a manual adjustment always wins over
-  // the live snap, and later polls never yank the slider mid-adjustment.
+  // hasn't already dragged the slider or loaded a permalink with an explicit
+  // p2p — a manual adjustment always wins over the live snap, and later polls
+  // never yank the slider mid-adjustment.
   useEffect(() => {
-    if (liveP2pPct !== null && !p2pTouchedRef.current && !liveP2pInitializedRef.current) {
+    if (liveP2pPct !== null && !p2pTouchedRef.current && !p2pFromUrlRef.current && !liveP2pInitializedRef.current) {
       liveP2pInitializedRef.current = true
       setScenarioP2pPct(snapToStep(liveP2pPct, SCENARIO_P2P_RANGE))
     }
@@ -174,6 +220,13 @@ export default function DemoPage() {
     await navigator.clipboard.writeText(DEMO_EMBED)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  // Copy the current scenario permalink (the URL already carries ?v=&s=&w=&p=).
+  const handleCopyPermalink = async () => {
+    await navigator.clipboard.writeText(window.location.href)
+    setPermalinkCopied(true)
+    setTimeout(() => setPermalinkCopied(false), 2000)
   }
 
   // Live cost comparison from ACTUAL bytes served: CloudFront would bill all
@@ -396,7 +449,18 @@ export default function DemoPage() {
       {/* Scenario calculator — clearly-labeled inputs, live math */}
       <section className="mb-10">
         <div className="border p-6" style={{ borderColor: '#222', backgroundColor: '#111' }}>
-          <h2 className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Cost calculator — your scenario</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Cost calculator — your scenario</h2>
+            <button
+              onClick={handleCopyPermalink}
+              className="flex items-center gap-1.5 font-mono text-[11px] transition-colors hover:text-white"
+              style={{ color: '#555' }}
+              title="Copy a link to this exact scenario"
+            >
+              {permalinkCopied ? <Check size={12} style={{ color: '#4ade80' }} /> : <Link2 size={12} />}
+              {permalinkCopied ? 'permalink copied' : 'copy permalink'}
+            </button>
+          </div>
 
           <div className="mt-5 grid gap-8 lg:grid-cols-2">
             {/* Inputs */}
