@@ -20,10 +20,19 @@ const DEMO_EMBED = `<div data-torrent-cdn="${DEMO_FILE_ID}"></div>`
 // free, so the entire saving IS the P2P offload.
 const CLOUDFRONT_RATE_PER_GB = 0.045
 const TORRENTCDN_ORIGIN_RATE_PER_GB = 0.045
-// Projected-cost audience: the live actuals on a tiny demo file round to $0.00,
-// so alongside them we show what the SAME real per-view bytes would cost at a
-// meaningful scale (1,000 viewers — the landing page's headline figure).
-const PROJECTED_VIEWS = 1000
+// Scenario calculator defaults — the clearly-labeled example from the landing
+// page pitch: 1,000 viewers watching a 100 MB video to completion = 100 GB
+// delivered. Every input is adjustable below.
+const SCENARIO_DEFAULT_VIEWERS = 1000
+const SCENARIO_DEFAULT_VIDEO_MB = 100
+const SCENARIO_DEFAULT_WATCH_PCT = 100
+const SCENARIO_VIEWERS_RANGE = { min: 100, max: 100000, step: 100 }
+const SCENARIO_VIDEO_MB_RANGE = { min: 10, max: 5000, step: 10 }
+const SCENARIO_WATCH_RANGE = { min: 10, max: 100, step: 5 }
+// P2P rate fallback before the live swarm has real measurements (the demo has
+// shown ~28% offload on a tiny file; a large audience typically pushes it
+// much higher, which is why the live rate is always preferred).
+const SCENARIO_DEFAULT_P2P_PCT = 25
 // Offload chart history window: the backend returns a live aggregate, not a
 // series — so this page builds its own time series from the 5s stats poll.
 // 60 points ≈ 5 minutes of the demo running (plenty to show the trend without
@@ -50,6 +59,14 @@ interface PublicFile {
 export default function DemoPage() {
   const [peers, setPeers] = useState(0)
   const [stats, setStats] = useState<LiveStats | null>(null)
+  // Scenario calculator inputs — users can change viewers, video size and
+  // average watch percentage to see the delivered-GB + cost math update live.
+  const [scenarioViewers, setScenarioViewers] = useState(SCENARIO_DEFAULT_VIEWERS)
+  const [scenarioVideoMb, setScenarioVideoMb] = useState(SCENARIO_DEFAULT_VIDEO_MB)
+  const [scenarioWatchPct, setScenarioWatchPct] = useState(SCENARIO_DEFAULT_WATCH_PCT)
+  // If the live swarm has a measured offload rate, the scenario uses it (the
+  // live rate is more credible than a fixed assumption).
+  const liveP2pPct = stats ? stats.p2p_offload_percent : null
   // Time series of p2p_offload_percent, one point per 5s poll, oldest first.
   // Windowed to OFFLOAD_HISTORY_POINTS — used to draw the live offload chart.
   const [offloadHistory, setOffloadHistory] = useState<{ t: number; p2p: number }[]>([])
@@ -138,18 +155,19 @@ export default function DemoPage() {
   const totalGb = stats?.total_gb ?? 0
   const savedGb = stats?.bandwidth_saved_gb ?? 0
   const originGb = stats?.origin_gb ?? 0
-  const views = Math.max(stats?.total_views ?? 0, 1) // avoid div-by-zero in projection
   const cloudfrontCost = totalGb * CLOUDFRONT_RATE_PER_GB
   const torrentcdnCost = originGb * TORRENTCDN_ORIGIN_RATE_PER_GB
 
-  // Projected at 1,000 views: reuse the REAL average bytes-per-view recorded
-  // so far, so the projection is grounded in this file's actual traffic.
-  const perViewGb = totalGb / views
-  const perViewOriginGb = originGb / views
-  const projectedGb = perViewGb * PROJECTED_VIEWS
-  const projectedOriginGb = perViewOriginGb * PROJECTED_VIEWS
-  const projectedCloudfront = projectedGb * CLOUDFRONT_RATE_PER_GB
-  const projectedTorrentcdn = projectedOriginGb * TORRENTCDN_ORIGIN_RATE_PER_GB
+  // Scenario calculator — delivered bytes = viewers × video size × how much of
+  // the video the average viewer actually watches. P2P offload happens on the
+  // watched bytes: those come from peers (free) instead of origin (billed).
+  const scenarioP2pPct = liveP2pPct ?? SCENARIO_DEFAULT_P2P_PCT
+  const scenarioGbDelivered = (scenarioViewers * scenarioVideoMb * (scenarioWatchPct / 100)) / 1024
+  const scenarioGbSaved = (scenarioGbDelivered * scenarioP2pPct) / 100
+  const scenarioGbOrigin = Math.max(0, scenarioGbDelivered - scenarioGbSaved)
+  const scenarioCloudfront = scenarioGbDelivered * CLOUDFRONT_RATE_PER_GB
+  const scenarioTorrentcdn = scenarioGbOrigin * TORRENTCDN_ORIGIN_RATE_PER_GB
+  const scenarioMoneySaved = Math.max(0, scenarioCloudfront - scenarioTorrentcdn)
 
   // Money formatting: keep sub-cent actuals visible (they're real — a 1MB demo
   // file genuinely costs fractions of a cent), so nothing silently reads $0.00.
@@ -328,24 +346,127 @@ export default function DemoPage() {
           <p className="mt-3 font-mono text-[11px]" style={{ color: '#444' }}>
             Real bytes served so far{stats ? ` — ${totalGb.toFixed(4)} GB total, ${savedGb.toFixed(4)} GB via peers` : ''}. P2P delivery is free; TorrentCDN only bills what leaves your origin.
           </p>
+        </div>
+      </section>
 
-          {/* Projection at scale — same real per-view bytes, 1,000 viewers */}
-          <div className="mt-5 border-t pt-4" style={{ borderColor: '#222' }}>
-            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#888', fontFamily: 'monospace' }}>
-              At {PROJECTED_VIEWS.toLocaleString()} views — from your real per-view bytes
-            </p>
-            <div className="mt-3 space-y-3 font-mono text-sm">
-              {costRow('If this were CloudFront', stats ? money(projectedCloudfront) : '—')}
-              {costRow('Actual cost on TorrentCDN', stats ? money(projectedTorrentcdn) : '—')}
-              {costRow(
-                'Saved by P2P',
-                stats ? money(Math.max(0, projectedCloudfront - projectedTorrentcdn)) : '—',
-                '#4ade80'
-              )}
+      {/* Scenario calculator — clearly-labeled inputs, live math */}
+      <section className="mb-10">
+        <div className="border p-6" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+          <h2 className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Cost calculator — your scenario</h2>
+
+          <div className="mt-5 grid gap-8 lg:grid-cols-2">
+            {/* Inputs */}
+            <div className="space-y-6">
+              <div>
+                <div className="flex items-center justify-between font-mono text-xs">
+                  <span className="font-bold uppercase tracking-widest" style={{ color: '#888' }}>Viewers</span>
+                  <span className="flex items-center gap-1 text-white">
+                    <input
+                      type="number"
+                      value={scenarioViewers}
+                      min={SCENARIO_VIEWERS_RANGE.min}
+                      max={SCENARIO_VIEWERS_RANGE.max}
+                      step={SCENARIO_VIEWERS_RANGE.step}
+                      onChange={(e) => setScenarioViewers(Math.max(SCENARIO_VIEWERS_RANGE.min, Math.min(SCENARIO_VIEWERS_RANGE.max, Number(e.target.value) || 0)))}
+                      className="w-24 border bg-transparent px-2 py-1 text-right font-mono text-sm text-white"
+                      style={{ borderColor: '#333' }}
+                    />
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={SCENARIO_VIEWERS_RANGE.min}
+                  max={SCENARIO_VIEWERS_RANGE.max}
+                  step={SCENARIO_VIEWERS_RANGE.step}
+                  value={scenarioViewers}
+                  onChange={(e) => setScenarioViewers(Number(e.target.value))}
+                  className="mt-2 w-full cursor-pointer"
+                  style={{ accentColor: '#fff' }}
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between font-mono text-xs">
+                  <span className="font-bold uppercase tracking-widest" style={{ color: '#888' }}>Video size</span>
+                  <span className="flex items-center gap-1 text-white">
+                    <input
+                      type="number"
+                      value={scenarioVideoMb}
+                      min={SCENARIO_VIDEO_MB_RANGE.min}
+                      max={SCENARIO_VIDEO_MB_RANGE.max}
+                      step={SCENARIO_VIDEO_MB_RANGE.step}
+                      onChange={(e) => setScenarioVideoMb(Math.max(SCENARIO_VIDEO_MB_RANGE.min, Math.min(SCENARIO_VIDEO_MB_RANGE.max, Number(e.target.value) || 0)))}
+                      className="w-24 border bg-transparent px-2 py-1 text-right font-mono text-sm text-white"
+                      style={{ borderColor: '#333' }}
+                    />
+                    <span style={{ color: '#555' }}>MB</span>
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={SCENARIO_VIDEO_MB_RANGE.min}
+                  max={SCENARIO_VIDEO_MB_RANGE.max}
+                  step={SCENARIO_VIDEO_MB_RANGE.step}
+                  value={scenarioVideoMb}
+                  onChange={(e) => setScenarioVideoMb(Number(e.target.value))}
+                  className="mt-2 w-full cursor-pointer"
+                  style={{ accentColor: '#fff' }}
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between font-mono text-xs">
+                  <span className="font-bold uppercase tracking-widest" style={{ color: '#888' }}>Average watch</span>
+                  <span className="flex items-center gap-1 text-white">
+                    <input
+                      type="number"
+                      value={scenarioWatchPct}
+                      min={SCENARIO_WATCH_RANGE.min}
+                      max={SCENARIO_WATCH_RANGE.max}
+                      step={SCENARIO_WATCH_RANGE.step}
+                      onChange={(e) => setScenarioWatchPct(Math.max(SCENARIO_WATCH_RANGE.min, Math.min(SCENARIO_WATCH_RANGE.max, Number(e.target.value) || 0)))}
+                      className="w-24 border bg-transparent px-2 py-1 text-right font-mono text-sm text-white"
+                      style={{ borderColor: '#333' }}
+                    />
+                    <span style={{ color: '#555' }}>%</span>
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={SCENARIO_WATCH_RANGE.min}
+                  max={SCENARIO_WATCH_RANGE.max}
+                  step={SCENARIO_WATCH_RANGE.step}
+                  value={scenarioWatchPct}
+                  onChange={(e) => setScenarioWatchPct(Number(e.target.value))}
+                  className="mt-2 w-full cursor-pointer"
+                  style={{ accentColor: '#fff' }}
+                />
+              </div>
+
+              <p className="border-t pt-3 font-mono text-[10px]" style={{ borderColor: '#222', color: '#444' }}>
+                P2P offload rate: <span className="text-white">{scenarioP2pPct.toFixed(1)}%</span>{' '}
+                {liveP2pPct !== null ? '(live from the demo swarm)' : '(default until live stats arrive)'}
+              </p>
             </div>
-            <p className="mt-3 font-mono text-[11px]" style={{ color: '#444' }}>
-              Projection reuses the observed average bytes/view{stats ? ` (${perViewGb.toFixed(4)} GB/view, ${stats.p2p_offload_percent.toFixed(1)}% P2P)` : ''} — the numbers scale linearly with traffic.
-            </p>
+
+            {/* Results */}
+            <div className="border p-5" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
+              {/* The clearly-labeled scenario headline */}
+              <p className="font-mono text-sm text-white">
+                {scenarioViewers.toLocaleString()} viewers × {scenarioVideoMb.toLocaleString()} MB × {scenarioWatchPct}% avg watch ={' '}
+                <span className="font-bold text-white">{scenarioGbDelivered.toFixed(1)} GB delivered</span>
+              </p>
+              <div className="mt-3 space-y-3 font-mono text-sm">
+                {costRow('CloudFront would cost', money(scenarioCloudfront))}
+                {costRow('TorrentCDN origin cost', money(scenarioTorrentcdn))}
+                {costRow('Bandwidth saved by P2P', `${scenarioGbSaved.toFixed(1)} GB`, '#4ade80')}
+                {costRow('Money saved by P2P', money(scenarioMoneySaved), '#4ade80')}
+              </div>
+              <p className="mt-4 border-t pt-3 font-mono text-[11px]" style={{ borderColor: '#222', color: '#444' }}>
+                {scenarioGbOrigin.toFixed(1)} GB still leaves your origin at ${TORRENTCDN_ORIGIN_RATE_PER_GB}/GB — the other {scenarioGbSaved.toFixed(1)} GB
+                comes from viewers' own browsers, free. CloudFront bills all {scenarioGbDelivered.toFixed(1)} GB.
+              </p>
+            </div>
           </div>
         </div>
       </section>
