@@ -123,12 +123,13 @@ export default function DemoPage() {
   }, [isLive])
 
   // Once live stats arrive, default the calculator's P2P rate to the swarm's
-  // real measured offload. Only on the FIRST arrival — after that the user's
-  // slider input wins (a later poll must not yank the slider mid-adjustment).
+  // real measured offload. Only on the FIRST arrival, and only if the user
+  // hasn't already dragged the slider — a manual adjustment always wins over
+  // the live snap, and later polls never yank the slider mid-adjustment.
   useEffect(() => {
-    if (liveP2pPct !== null && !liveP2pInitializedRef.current) {
+    if (liveP2pPct !== null && !p2pTouchedRef.current && !liveP2pInitializedRef.current) {
       liveP2pInitializedRef.current = true
-      setScenarioP2pPct(Math.min(Math.max(Math.round(liveP2pPct), SCENARIO_P2P_RANGE.min), SCENARIO_P2P_RANGE.max))
+      setScenarioP2pPct(snapToStep(liveP2pPct, SCENARIO_P2P_RANGE))
     }
   }, [liveP2pPct])
 
@@ -211,6 +212,13 @@ export default function DemoPage() {
   const clampCommit = (raw: string, min: number, max: number, fallback: number, set: (n: number) => void) => {
     const n = Number(raw)
     set(Number.isFinite(n) && n > 0 ? Math.min(Math.max(Math.round(n), min), max) : fallback)
+  }
+  // Snap a value to the slider's step grid within its range (e.g. 28 -> 30 on
+  // a step-5 slider) so a typed number and the slider thumb never disagree.
+  const snapToStep = (v: number, range: { min: number; max: number; step: number }) => {
+    const clamped = Math.min(Math.max(v, range.min), range.max)
+    const snapped = Math.round(clamped / range.step) * range.step
+    return Math.min(Math.max(snapped, range.min), range.max)
   }
   const draftOrValue = (draft: string | null, value: number) => (draft !== null ? draft : String(value))
 
@@ -502,7 +510,7 @@ export default function DemoPage() {
                       max={SCENARIO_P2P_RANGE.max}
                       step={SCENARIO_P2P_RANGE.step}
                       onChange={(e) => { setScenarioP2pDraft(e.target.value); p2pTouchedRef.current = true }}
-                      onBlur={() => { clampCommit(scenarioP2pDraft ?? '', SCENARIO_P2P_RANGE.min, SCENARIO_P2P_RANGE.max, SCENARIO_DEFAULT_P2P_PCT, setScenarioP2pPct); setScenarioP2pDraft(null) }}
+                      onBlur={() => { clampCommit(scenarioP2pDraft ?? '', SCENARIO_P2P_RANGE.min, SCENARIO_P2P_RANGE.max, SCENARIO_DEFAULT_P2P_PCT, (n) => setScenarioP2pPct(snapToStep(n, SCENARIO_P2P_RANGE))); setScenarioP2pDraft(null) }}
                       className="w-20 border bg-transparent px-2 py-1 text-right font-mono text-sm text-white"
                       style={{ borderColor: '#333' }}
                     />
@@ -510,7 +518,7 @@ export default function DemoPage() {
                     <button
                       onClick={() => {
                         p2pTouchedRef.current = true
-                        if (liveP2pPct !== null) setScenarioP2pPct(Math.min(Math.max(Math.round(liveP2pPct), SCENARIO_P2P_RANGE.min), SCENARIO_P2P_RANGE.max))
+                        if (liveP2pPct !== null) setScenarioP2pPct(snapToStep(liveP2pPct, SCENARIO_P2P_RANGE))
                         else setScenarioP2pPct(SCENARIO_DEFAULT_P2P_PCT)
                         setScenarioP2pDraft(null)
                       }}
@@ -532,6 +540,7 @@ export default function DemoPage() {
                   className="mt-2 w-full cursor-pointer"
                   style={{ accentColor: '#4ade80' }}
                 />
+
                 <p className="mt-1 font-mono text-[10px]" style={{ color: '#444' }}>
                   {SCENARIO_P2P_RANGE.min} – {SCENARIO_P2P_RANGE.max}% ·{' '}
                   {liveP2pPct !== null ? `live swarm is ${liveP2pPct.toFixed(1)}%` : 'live swarm rate arriving…'}
