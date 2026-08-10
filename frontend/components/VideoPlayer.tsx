@@ -48,7 +48,7 @@ async function streamP2pFile(file: any, video: HTMLVideoElement): Promise<void> 
   await video.play().catch(() => {})
 }
 
-export default function VideoPlayer({ fileId }: { fileId: string }) {
+export default function VideoPlayer({ fileId, onPeers }: { fileId: string; onPeers?: (peers: number) => void }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [fileData, setFileData] = useState<FileData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -69,6 +69,11 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
   // closed mid-transfer used to silently lose pending P2P/origin bytes, which
   // distorted p2p_offload_percent).
   const finalFlushRef = useRef<(() => void) | null>(null)
+  // Live peer-count callback for host pages (e.g. the /demo page's real-time
+  // counter). Kept in a ref so the P2P effect's long-lived closures always
+  // call the latest handler without forcing effect re-runs.
+  const onPeersRef = useRef(onPeers)
+  onPeersRef.current = onPeers
 
   useEffect(() => {
     if (fileId === 'demo') { setFileData({ id: 'demo', filename: 'Demo Video.mp4', minio_url: '', magnet_link: '', file_size_mb: 0 }); setLoading(false); return }
@@ -148,6 +153,7 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
         torrent.on('wire', () => {
           if (!mounted) return
           setPeers(torrent.numPeers)
+          onPeersRef.current?.(torrent.numPeers)
           if (statusRef.current === 'connecting') {
             clearTimeout(fallbackTimer.current)
             fallbackTimer.current = setTimeout(() => {
@@ -173,6 +179,7 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
           clearTimeout(fallbackTimer.current)
           setStatus('p2p'); statusRef.current = 'p2p'
           setPeers(torrent.numPeers)
+          onPeersRef.current?.(torrent.numPeers)
           pendingP2pBytes += bytes
           const now = Date.now()
           if (now - lastAnalyticsFlush >= 1000) {
@@ -197,7 +204,12 @@ export default function VideoPlayer({ fileId }: { fileId: string }) {
           activeSourceRef.current = 'p2p'
           streamP2pFile(f, video).catch(() => { if (mounted) fallbackToDirect() })
         })
-        pollTimer.current = setInterval(() => { if (!mounted) return; setPeers(torrent.numPeers || peers) }, 2000)
+        pollTimer.current = setInterval(() => {
+          if (!mounted) return
+          const n = torrent.numPeers || peers
+          setPeers(n)
+          onPeersRef.current?.(n)
+        }, 2000)
       } catch { if (mounted) fallbackToDirect() }
     }
     init()

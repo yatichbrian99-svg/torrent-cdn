@@ -331,6 +331,10 @@ export default {
 
   getAnalytics: (file_id: string) => api.get(`/analytics/${file_id}`).then((r) => r.data),
 
+  // Public aggregate stats (views, offload %, bandwidth saved, active peers)
+  // for the public demo page — the backend endpoint is unauthenticated.
+  getPublicAnalytics: (file_id: string) => api.get(`/analytics/public/${file_id}`).then((r) => r.data),
+
   getBillingStatus: () => api.get('/billing/status').then((r) => r.data),
 
   getApiKey: () => api.get('/auth/api-key').then((r) => r.data),

@@ -91,6 +91,51 @@ class TestAnalyticsAccess:
         assert data["bandwidth_saved_gb"] == 0.5
 
 
+class TestPublicAnalytics:
+    """GET /analytics/public/{file_id} — public aggregate stats for the demo page."""
+
+    FILE_ID = UUID("22222222-2222-4222-8222-222222222222")
+    URL = f"/analytics/public/{FILE_ID}"
+
+    def test_public_no_auth_required(self, client, mock_conn):
+        """No auth header needed — the demo page polls this unauthenticated."""
+        mock_conn.fetchrow.side_effect = [
+            {"id": self.FILE_ID},  # file exists
+            {"total_views": 5, "total_leaves": 2, "total_p2p": 0, "total_origin": 0},
+        ]
+        resp = client.get(self.URL)
+        assert resp.status_code == 200
+        assert resp.json()["total_views"] == 5
+
+    def test_missing_file_404(self, client, mock_conn):
+        """Unknown file id returns 404, same as the authed endpoint."""
+        mock_conn.fetchrow.return_value = None
+        resp = client.get(self.URL)
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "File not found"
+
+    def test_returns_aggregate_payload(self, client, mock_conn):
+        """Same payload shape as the authed endpoint, without an ownership scope."""
+        half_gb = 512 * 1024 * 1024
+        mock_conn.fetchrow.side_effect = [
+            {"id": self.FILE_ID},
+            {"total_views": 4, "total_leaves": 1, "total_p2p": half_gb, "total_origin": half_gb},
+        ]
+        resp = client.get(self.URL)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_views"] == 4
+        assert data["active_peers"] == 3
+        assert data["p2p_offload_percent"] == 50.0
+        assert data["bandwidth_saved_gb"] == 0.5
+        assert data["total_gb"] == 1.0
+        assert data["origin_gb"] == 0.5
+        # The existence lookup (FIRST fetchrow call) must NOT be scoped to a
+        # user id — the public route has no owner concept.
+        sql = mock_conn.fetchrow.call_args_list[0].args[0]
+        assert "user_id" not in sql
+
+
 class TestAnalyticsEventValidation:
     """POST /analytics/event is public (embed SDK) but byte counters are clamped."""
 

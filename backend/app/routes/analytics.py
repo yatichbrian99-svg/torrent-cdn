@@ -32,6 +32,46 @@ def _prune_analytics_get_requests(now: float) -> None:
         del _analytics_get_requests[k]
 
 
+async def _aggregate_file_analytics(conn, file_id: UUID) -> dict:
+    """Aggregate delivery stats for one file into the shared analytics shape.
+
+    Used by both the authed (ownership-scoped) and public endpoints so the two
+    always return an identical payload.
+    """
+    result = await conn.fetchrow(
+        """SELECT
+               COUNT(*) FILTER (WHERE event_type = 'peer_joined') as total_views,
+               COUNT(*) FILTER (WHERE event_type = 'peer_left') as total_leaves,
+               COALESCE(SUM(bytes_p2p), 0) as total_p2p,
+               COALESCE(SUM(bytes_origin), 0) as total_origin
+           FROM analytics WHERE file_id = $1""",
+        file_id,
+    )
+
+    total_bytes = (result["total_p2p"] or 0) + (result["total_origin"] or 0)
+    p2p_offload_percent = 0
+    bandwidth_saved_gb = 0
+    if total_bytes > 0:
+        p2p_offload_percent = (result["total_p2p"] / total_bytes) * 100
+        bandwidth_saved_gb = result["total_p2p"] / (1024 * 1024 * 1024)
+
+    active_peers = (result["total_views"] or 0) - (result["total_leaves"] or 0)
+    if active_peers < 0:
+        active_peers = 0
+
+    return {
+        "total_views": result["total_views"] or 0,
+        "p2p_offload_percent": round(p2p_offload_percent, 1),
+        "bandwidth_saved_gb": round(bandwidth_saved_gb, 3),
+        "active_peers": active_peers,
+        # Absolute byte volumes (GB) so consumers can compute costs directly
+        # even when offload is 0% (origin-only traffic) — the percentage alone
+        # cannot reconstruct the total once P2P shares hit zero.
+        "total_gb": round(total_bytes / (1024 * 1024 * 1024), 3),
+        "origin_gb": round((result["total_origin"] or 0) / (1024 * 1024 * 1024), 3),
+    }
+
+
 def _prune_analytics_event_requests(now: float) -> None:
     """Drop keys whose newest entry has expired (keeps dict bounded)."""
     expired = [k for k, v in _analytics_event_requests.items() if not v or now - v[-1] > _ANALYTICS_EVENT_WINDOW]
@@ -123,6 +163,45 @@ async def get_bandwidth_history(user_id: UUID = Depends(get_current_user_id)):
     ]
 
 
+@router.get("/public/{file_id}")
+async def get_public_analytics(file_id: UUID, request: Request):
+    """Public delivery stats for the demo/embed pages — no auth required.
+
+    Exposes only aggregate, low-sensitivity delivery stats (view count, P2P
+    offload %, bandwidth saved, active sessions) — never filenames, owner
+    identity, or storage URLs. Same payload shape as the authed endpoint so
+    the frontend reuses one client interface.
+    """
+    # Rate limit: 30 requests per minute per IP (Redis primary, in-memory fallback)
+    ip = get_client_ip(request)
+    redis = await get_redis()
+    if redis is not None:
+        rate_key = f"analytics_get_rate:{ip}"
+        count = await redis.get(rate_key)
+        if count and int(count) >= 30:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        await redis.incr(rate_key)
+        await redis.expire(rate_key, 60)
+    else:
+        now = time.time()
+        _prune_analytics_get_requests(now)
+        recent = [t for t in _analytics_get_requests.get(ip, []) if now - t < _ANALYTICS_GET_WINDOW]
+        if len(recent) >= 30:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        recent.append(now)
+        _analytics_get_requests[ip] = recent
+
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        file_exists = await conn.fetchrow(
+            "SELECT id FROM uploads WHERE id = $1", file_id,
+        )
+        if not file_exists:
+            raise HTTPException(status_code=404, detail="File not found")
+
+        return await _aggregate_file_analytics(conn, file_id)
+
+
 @router.get("/{file_id}")
 async def get_analytics(
     file_id: UUID,
@@ -163,30 +242,4 @@ async def get_analytics(
         if not file_exists:
             raise HTTPException(status_code=404, detail="File not found")
 
-        result = await conn.fetchrow(
-            """SELECT
-                   COUNT(*) FILTER (WHERE event_type = 'peer_joined') as total_views,
-                   COUNT(*) FILTER (WHERE event_type = 'peer_left') as total_leaves,
-                   COALESCE(SUM(bytes_p2p), 0) as total_p2p,
-                   COALESCE(SUM(bytes_origin), 0) as total_origin
-               FROM analytics WHERE file_id = $1""",
-            file_id,
-        )
-
-        total_bytes = (result["total_p2p"] or 0) + (result["total_origin"] or 0)
-        p2p_offload_percent = 0
-        bandwidth_saved_gb = 0
-        if total_bytes > 0:
-            p2p_offload_percent = (result["total_p2p"] / total_bytes) * 100
-            bandwidth_saved_gb = result["total_p2p"] / (1024 * 1024 * 1024)
-
-        active_peers = (result["total_views"] or 0) - (result["total_leaves"] or 0)
-        if active_peers < 0:
-            active_peers = 0
-
-        return {
-            "total_views": result["total_views"] or 0,
-            "p2p_offload_percent": round(p2p_offload_percent, 1),
-            "bandwidth_saved_gb": round(bandwidth_saved_gb, 3),
-            "active_peers": active_peers,
-        }
+        return await _aggregate_file_analytics(conn, file_id)
