@@ -29,9 +29,12 @@ const SCENARIO_DEFAULT_WATCH_PCT = 100
 const SCENARIO_VIEWERS_RANGE = { min: 100, max: 100000, step: 100 }
 const SCENARIO_VIDEO_MB_RANGE = { min: 10, max: 5000, step: 10 }
 const SCENARIO_WATCH_RANGE = { min: 10, max: 100, step: 5 }
-// P2P rate fallback before the live swarm has real measurements (the demo has
-// shown ~28% offload on a tiny file; a large audience typically pushes it
-// much higher, which is why the live rate is always preferred).
+// P2P offload-rate control: the user can simulate any offload scenario
+// (50%/75%/90%…) rather than being stuck with the live swarm's rate. Range
+// tops at 95% — 100% would imply zero origin bytes, which no real delivery
+// hits. The slider starts at the LIVE swarm rate when it arrives (or a 25%
+// default before that), and a 'reset' snaps it back to live.
+const SCENARIO_P2P_RANGE = { min: 10, max: 95, step: 5 }
 const SCENARIO_DEFAULT_P2P_PCT = 25
 // Offload chart history window: the backend returns a live aggregate, not a
 // series — so this page builds its own time series from the 5s stats poll.
@@ -64,15 +67,21 @@ export default function DemoPage() {
   const [scenarioViewers, setScenarioViewers] = useState(SCENARIO_DEFAULT_VIEWERS)
   const [scenarioVideoMb, setScenarioVideoMb] = useState(SCENARIO_DEFAULT_VIDEO_MB)
   const [scenarioWatchPct, setScenarioWatchPct] = useState(SCENARIO_DEFAULT_WATCH_PCT)
+  // P2P offload rate used by the scenario math — user-adjustable. Starts at
+  // SCENARIO_DEFAULT_P2P_PCT, then snaps to the LIVE swarm rate on the first
+  // successful stats poll (initializedLiveP2pRef guards that snap so a live
+  // poll doesn't fight a user who already dragged the slider).
+  const [scenarioP2pPct, setScenarioP2pPct] = useState(SCENARIO_DEFAULT_P2P_PCT)
+  const liveP2pPct = stats ? stats.p2p_offload_percent : null
+  const liveP2pInitializedRef = useRef(false)
+  const p2pTouchedRef = useRef(false)
   // Raw text held while a number input is focused (so clearing the field to
   // type doesn't snap it back to a clamped value mid-keystroke); the actual
   // value only clamps on blur or when the slider moves.
   const [scenarioViewersDraft, setScenarioViewersDraft] = useState<string | null>(null)
   const [scenarioVideoMbDraft, setScenarioVideoMbDraft] = useState<string | null>(null)
   const [scenarioWatchPctDraft, setScenarioWatchPctDraft] = useState<string | null>(null)
-  // If the live swarm has a measured offload rate, the scenario uses it (the
-  // live rate is more credible than a fixed assumption).
-  const liveP2pPct = stats ? stats.p2p_offload_percent : null
+  const [scenarioP2pDraft, setScenarioP2pDraft] = useState<string | null>(null)
   // Time series of p2p_offload_percent, one point per 5s poll, oldest first.
   // Windowed to OFFLOAD_HISTORY_POINTS — used to draw the live offload chart.
   const [offloadHistory, setOffloadHistory] = useState<{ t: number; p2p: number }[]>([])
@@ -112,6 +121,16 @@ export default function DemoPage() {
     const timer = setInterval(poll, 5000)
     return () => { mounted = false; clearInterval(timer) }
   }, [isLive])
+
+  // Once live stats arrive, default the calculator's P2P rate to the swarm's
+  // real measured offload. Only on the FIRST arrival — after that the user's
+  // slider input wins (a later poll must not yank the slider mid-adjustment).
+  useEffect(() => {
+    if (liveP2pPct !== null && !liveP2pInitializedRef.current) {
+      liveP2pInitializedRef.current = true
+      setScenarioP2pPct(Math.min(Math.max(Math.round(liveP2pPct), SCENARIO_P2P_RANGE.min), SCENARIO_P2P_RANGE.max))
+    }
+  }, [liveP2pPct])
 
   // Self-seed: fetch the demo file from origin (R2 CORS is open) and seed it
   // back into the swarm via lib/seeder.ts — the SAME recipe the upload
@@ -167,7 +186,8 @@ export default function DemoPage() {
   // Scenario calculator — delivered bytes = viewers × video size × how much of
   // the video the average viewer actually watches. P2P offload happens on the
   // watched bytes: those come from peers (free) instead of origin (billed).
-  const scenarioP2pPct = liveP2pPct ?? SCENARIO_DEFAULT_P2P_PCT
+  // The P2P rate is the user's slider value (defaulting to the live swarm rate
+  // once it arrives via the init effect below).
   const scenarioGbDelivered = (scenarioViewers * scenarioVideoMb * (scenarioWatchPct / 100)) / 1024
   const scenarioGbSaved = (scenarioGbDelivered * scenarioP2pPct) / 100
   const scenarioGbOrigin = Math.max(0, scenarioGbDelivered - scenarioGbSaved)
@@ -471,10 +491,52 @@ export default function DemoPage() {
                 </p>
               </div>
 
-              <p className="border-t pt-3 font-mono text-[10px]" style={{ borderColor: '#222', color: '#444' }}>
-                P2P offload rate: <span className="text-white">{scenarioP2pPct.toFixed(1)}%</span>{' '}
-                {liveP2pPct !== null ? '(live from the demo swarm)' : '(default until live stats arrive)'}
-              </p>
+              <div className="border-t pt-4" style={{ borderColor: '#222' }}>
+                <div className="flex items-center justify-between font-mono text-xs">
+                  <span className="font-bold uppercase tracking-widest" style={{ color: '#4ade80' }}>P2P offload</span>
+                  <span className="flex items-center gap-1 text-white">
+                    <input
+                      type="number"
+                      value={draftOrValue(scenarioP2pDraft, scenarioP2pPct)}
+                      min={SCENARIO_P2P_RANGE.min}
+                      max={SCENARIO_P2P_RANGE.max}
+                      step={SCENARIO_P2P_RANGE.step}
+                      onChange={(e) => { setScenarioP2pDraft(e.target.value); p2pTouchedRef.current = true }}
+                      onBlur={() => { clampCommit(scenarioP2pDraft ?? '', SCENARIO_P2P_RANGE.min, SCENARIO_P2P_RANGE.max, SCENARIO_DEFAULT_P2P_PCT, setScenarioP2pPct); setScenarioP2pDraft(null) }}
+                      className="w-20 border bg-transparent px-2 py-1 text-right font-mono text-sm text-white"
+                      style={{ borderColor: '#333' }}
+                    />
+                    <span style={{ color: '#555' }}>%</span>
+                    <button
+                      onClick={() => {
+                        p2pTouchedRef.current = true
+                        if (liveP2pPct !== null) setScenarioP2pPct(Math.min(Math.max(Math.round(liveP2pPct), SCENARIO_P2P_RANGE.min), SCENARIO_P2P_RANGE.max))
+                        else setScenarioP2pPct(SCENARIO_DEFAULT_P2P_PCT)
+                        setScenarioP2pDraft(null)
+                      }}
+                      className="border px-2 py-1 font-mono text-[10px] uppercase tracking-widest transition-colors hover:text-white"
+                      style={{ borderColor: '#333', color: '#4ade80' }}
+                      title={liveP2pPct !== null ? `Reset to the live swarm rate (${liveP2pPct.toFixed(1)}%)` : 'Reset to the default rate'}
+                    >
+                      use live
+                    </button>
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={SCENARIO_P2P_RANGE.min}
+                  max={SCENARIO_P2P_RANGE.max}
+                  step={SCENARIO_P2P_RANGE.step}
+                  value={scenarioP2pPct}
+                  onChange={(e) => { p2pTouchedRef.current = true; setScenarioP2pPct(Number(e.target.value)); setScenarioP2pDraft(null) }}
+                  className="mt-2 w-full cursor-pointer"
+                  style={{ accentColor: '#4ade80' }}
+                />
+                <p className="mt-1 font-mono text-[10px]" style={{ color: '#444' }}>
+                  {SCENARIO_P2P_RANGE.min} – {SCENARIO_P2P_RANGE.max}% ·{' '}
+                  {liveP2pPct !== null ? `live swarm is ${liveP2pPct.toFixed(1)}%` : 'live swarm rate arriving…'}
+                </p>
+              </div>
             </div>
 
             {/* Results */}
@@ -483,6 +545,9 @@ export default function DemoPage() {
               <p className="font-mono text-sm text-white">
                 {scenarioViewers.toLocaleString()} viewers × {scenarioVideoMb.toLocaleString()} MB × {scenarioWatchPct}% avg watch ={' '}
                 <span className="font-bold text-white">{scenarioGbDelivered.toFixed(1)} GB delivered</span>
+              </p>
+              <p className="mt-3 font-mono text-[10px] uppercase tracking-widest" style={{ color: '#4ade80' }}>
+                at {scenarioP2pPct}% P2P offload
               </p>
               <div className="mt-3 space-y-3 font-mono text-sm">
                 {costRow('CloudFront would cost', money(scenarioCloudfront))}
