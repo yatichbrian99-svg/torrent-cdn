@@ -71,9 +71,15 @@ export function middleware(request: NextRequest) {
     // endpoint (<account-id>.r2.cloudflarestorage.com) — same reason as the
     // Supabase wildcard: CSP would otherwise silently block the direct upload.
     'https://*.r2.cloudflarestorage.com',
+    // R2 PUBLIC bucket URLs (<bucket-id>.r2.dev / pub-*.r2.dev): the demo page
+    // FETCHES the video bytes from origin to seed them back into the WebTorrent
+    // swarm (lib/seeder.ts) — a plain fetch() is governed by connect-src, so
+    // without this wildcard the seed silently never starts (media playback is
+    // media-src and already allowed via https:).
     // Localhost is allowed for local dev (NEXT_PUBLIC_API_URL=http://localhost:8000);
     // never included in production.
     ...(isProduction ? [] : ['http://localhost:*']),
+    'https://*.r2.dev',
   ]
 
   // NEXT_PUBLIC_API_URL is ONLY honored in local dev — lib/api.ts hardcodes the
