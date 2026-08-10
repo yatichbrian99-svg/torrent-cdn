@@ -660,11 +660,12 @@ export default function DemoPage() {
                       transition: 'width 500ms cubic-bezier(0.4, 0, 0.2, 1)',
                     }}
                   >
-                    {scenarioGbOrigin / scenarioGbDelivered >= 0.12 && (
-                      <span className="truncate px-1 font-mono text-[9px]" style={{ color: '#fca5a5' }}>
-                        {scenarioGbOrigin.toFixed(0)} GB origin
-                      </span>
-                    )}
+                    <span
+                      className="bandwidth-label truncate px-1 font-mono text-[9px]"
+                      style={{ color: '#fca5a5', opacity: scenarioGbOrigin / scenarioGbDelivered >= 0.12 ? 1 : 0 }}
+                    >
+                      {scenarioGbOrigin.toFixed(0)} GB origin
+                    </span>
                   </div>
                   <div
                     className="bandwidth-flow relative flex h-full items-center justify-center overflow-hidden"
@@ -674,11 +675,12 @@ export default function DemoPage() {
                       transition: 'width 500ms cubic-bezier(0.4, 0, 0.2, 1)',
                     }}
                   >
-                    {scenarioGbSaved / scenarioGbDelivered >= 0.12 && (
-                      <span className="truncate px-1 font-mono text-[9px]" style={{ color: '#bbf7d0' }}>
-                        {scenarioGbSaved.toFixed(0)} GB P2P
-                      </span>
-                    )}
+                    <span
+                      className="bandwidth-label truncate px-1 font-mono text-[9px]"
+                      style={{ color: '#bbf7d0', opacity: scenarioGbSaved / scenarioGbDelivered >= 0.12 ? 1 : 0 }}
+                    >
+                      {scenarioGbSaved.toFixed(0)} GB P2P
+                    </span>
                   </div>
                 </div>
                 <div className="mt-1.5 flex items-center justify-between font-mono text-[10px]">

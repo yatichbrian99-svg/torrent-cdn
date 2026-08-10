@@ -62,3 +62,17 @@ body {
   );
   animation: bandwidth-flow 1.1s linear infinite;
 }
+
+/* Segment labels crossfade with the width transition so the numbers don't
+   swap abruptly while the bar re-splits. */
+.bandwidth-label {
+  transition: opacity 300ms ease;
+}
+
+/* Respect users who disable motion — the flow sheen is decorative; the split
+   itself (widths/colors) still communicates the offload either way. */
+@media (prefers-reduced-motion: reduce) {
+  .bandwidth-flow {
+    animation: none;
+  }
+}
