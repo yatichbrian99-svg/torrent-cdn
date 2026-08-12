@@ -186,7 +186,7 @@ export default function AdminPage() {
 
   // Loading state
   if (loading) return (
-    <div className="flex min-h-[70vh] items-center justify-center">
+    <div className="flex min-h-[70vh] items-center justify-center select-none">
       <div className="flex flex-col items-center gap-4">
         <Loader2 size={24} className="animate-spin" style={{ color: '#555' }} />
         <p className="text-xs tracking-widest uppercase" style={{ color: '#444' }}>Loading dashboard</p>
@@ -196,7 +196,7 @@ export default function AdminPage() {
 
   // Error state
   if (error) return (
-    <div className="mx-auto max-w-4xl px-6 py-24 text-center">
+    <div className="mx-auto max-w-4xl px-6 py-24 text-center select-none">
       <div className="inline-flex items-center justify-center w-12 h-12 rounded-full mb-4" style={{ backgroundColor: 'rgba(255,107,107,0.1)' }}>
         <ShieldCheck size={20} style={{ color: '#ff6b6b' }} />
       </div>
@@ -206,7 +206,7 @@ export default function AdminPage() {
   )
 
   return (
-    <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8 sm:py-12">
+    <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8 sm:py-12 select-none">
       {/* Toast */}
       {toast && (
         <div
@@ -474,7 +474,7 @@ export default function AdminPage() {
             <thead>
               <tr className="border-b" style={{ borderColor: '#222' }}>
                 <th
-                  className="px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer select-none transition-colors hover:text-white"
+                  className="px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer"
                   style={{ color: '#555' }}
                   onClick={() => toggleSort('email')}
                 >
@@ -483,7 +483,7 @@ export default function AdminPage() {
                   </span>
                 </th>
                 <th
-                  className="px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer select-none transition-colors hover:text-white"
+                  className="px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer"
                   style={{ color: '#555' }}
                   onClick={() => toggleSort('plan')}
                 >
@@ -492,7 +492,7 @@ export default function AdminPage() {
                   </span>
                 </th>
                 <th
-                  className="hidden sm:table-cell px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer select-none transition-colors hover:text-white"
+                  className="hidden sm:table-cell px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer"
                   style={{ color: '#555' }}
                   onClick={() => toggleSort('verified')}
                 >
@@ -501,7 +501,7 @@ export default function AdminPage() {
                   </span>
                 </th>
                 <th
-                  className="hidden md:table-cell px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer select-none transition-colors hover:text-white"
+                  className="hidden md:table-cell px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer"
                   style={{ color: '#555' }}
                   onClick={() => toggleSort('total_files')}
                 >
@@ -510,7 +510,7 @@ export default function AdminPage() {
                   </span>
                 </th>
                 <th
-                  className="hidden md:table-cell px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer select-none transition-colors hover:text-white"
+                  className="hidden md:table-cell px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer"
                   style={{ color: '#555' }}
                   onClick={() => toggleSort('total_gb_used')}
                 >
@@ -519,7 +519,7 @@ export default function AdminPage() {
                   </span>
                 </th>
                 <th
-                  className="hidden lg:table-cell px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer select-none transition-colors hover:text-white"
+                  className="hidden lg:table-cell px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer"
                   style={{ color: '#555' }}
                   onClick={() => toggleSort('created_at')}
                 >

@@ -105,7 +105,7 @@ export default function AdminHealthPage() {
   }, [data, fetchHealth])
 
   if (loading) return (
-    <div className="flex min-h-[70vh] items-center justify-center">
+    <div className="flex min-h-[70vh] items-center justify-center select-none">
       <div className="flex flex-col items-center gap-4">
         <Loader2 size={24} className="animate-spin" style={{ color: '#555' }} />
         <p className="text-xs tracking-widest uppercase" style={{ color: '#444' }}>Checking systems</p>
@@ -114,7 +114,7 @@ export default function AdminHealthPage() {
   )
 
   if (error && !data) return (
-    <div className="mx-auto max-w-4xl px-6 py-24 text-center">
+    <div className="mx-auto max-w-4xl px-6 py-24 text-center select-none">
       <div className="inline-flex items-center justify-center w-12 h-12 rounded-full mb-4" style={{ backgroundColor: 'rgba(255,107,107,0.1)' }}>
         <ShieldAlert size={20} style={{ color: '#ff6b6b' }} />
       </div>
@@ -148,7 +148,7 @@ export default function AdminHealthPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8 sm:py-12">
+    <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8 sm:py-12 select-none">
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-1">
