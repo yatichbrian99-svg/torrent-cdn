@@ -2,96 +2,41 @@
  * E2E: two-factor authentication (TOTP) — enable, password login, code.
  *
  * FULL mode (E2E_EMAIL + E2E_PASSWORD of an email-VERIFIED account) drives the
- * complete user journey against the live UI:
- *   1. password login (no MFA yet) → session token
- *   2. GET /auth/mfa → disabled
- *   3. POST /auth/mfa/setup → base32 secret + otpauth URI + 10 backup codes
- *   4. compute the TOTP from the secret (RFC 6238, node:crypto), anchored to
+ * complete user journey against the live UI. With mandatory MFA (production
+ * default, MFA_REQUIRED) the journey is:
+ *   1. password login on an MFA-free account → mfa_required + needs_setup,
+ *      with a short-lived mfa_token and NO session token
+ *   2. POST /auth/mfa/setup authenticated by the mfa_token → base32 secret +
+ *      otpauth URI + 10 backup codes (no session exists yet)
+ *   3. compute the TOTP from the secret (RFC 6238, node:crypto), anchored to
  *      the SERVER's clock via the HTTP Date header (a runner with a skewed
  *      clock — e.g. a CI box +3h — would otherwise generate codes ~360 steps
- *      off and every enable/confirm would fail) → enable
- *   5. the pre-MFA session is rotated out (401) — enabling must kick sessions
- *   6. real browser: password login → the 6-digit step appears → a WRONG code
+ *      off and every confirm would fail) → POST /auth/mfa/confirm enrolls the
+ *      account AND returns the session token in the same response
+ *   4. real browser: password login → the 6-digit step appears → a WRONG code
  *      surfaces the real 401 detail → the computed code completes the login
- *   7. backup-code login works once; replaying the same code fails (single-use)
- *   8. cleanup: disable MFA with a fresh TOTP, then verify password login
- *      works again without a code (the borrowed account is left MFA-free)
+ *   5. backup-code login works once; replaying the same code fails (single-use)
+ *   6. cleanup: disable MFA with a fresh TOTP, then verify password login
+ *      gates again with needs_setup (the borrowed account is left MFA-free)
  *
  * BOUNDARY mode (no E2E_EMAIL) is the production-safe subset that needs no
- * verified email. It registers a throwaway and exercises the MFA API contract
- * WITHOUT enabling — enabling rotates the session, and production gates
- * password login on email verification, so a throwaway could not get back in
- * and would be stranded:
- *   setup → secret/URI/backup shapes; enable with a WRONG code → 400 and the
- *   flag stays off; the account keeps working normally; deleted in cleanup.
+ * verified email. It registers a throwaway — which, with mandatory MFA, forces
+ * the account to be enrolled in 2FA during signup (register → mfa_token →
+ * setup → TOTP confirm, no session until then) — and asserts the account was
+ * born MFA-enabled and its session works; the throwaway is deleted in cleanup.
+ * The full login second-factor journey (wrong code → real 401 → TOTP completes
+ * login) needs a VERIFIED account, so it lives in FULL mode below.
  *
  * Env:
  *   E2E_EMAIL + E2E_PASSWORD   verified account (full journey; NOT deleted)
  *   E2E_TOKEN                  use this token instead of registering (boundary)
  *   E2E_BASE_URL / E2E_API_URL see helpers.mjs
  */
-import { createHmac } from 'node:crypto'
 import { chromium } from 'playwright'
-import { BASE, api, registerUser, cleanup, report } from './helpers.mjs'
+import { BASE, api, registerUser, cleanup, report, totp } from './helpers.mjs'
 
 const EMAIL = process.env.E2E_EMAIL
 const PASSWORD = process.env.E2E_PASSWORD || 'testpass123'
-
-// --- RFC 6238 TOTP (stdlib only: node:crypto) -----------------------------
-const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
-
-function base32Decode(str) {
-  const s = str.toUpperCase().replace(/=+$/, '')
-  let bits = 0
-  let value = 0
-  const out = []
-  for (const c of s) {
-    const idx = BASE32_ALPHABET.indexOf(c)
-    if (idx === -1) throw new Error(`invalid base32 char: ${c}`)
-    value = (value << 5) | idx
-    bits += 5
-    if (bits >= 8) {
-      out.push((value >>> (bits - 8)) & 0xff)
-      bits -= 8
-    }
-  }
-  return Buffer.from(out)
-}
-
-function totpAt(secret, epochSeconds) {
-  const counter = BigInt(Math.floor(epochSeconds / 30))
-  const buf = Buffer.alloc(8)
-  buf.writeBigUInt64BE(counter)
-  const h = createHmac('sha1', base32Decode(secret)).update(buf).digest()
-  const offset = h[h.length - 1] & 0x0f
-  return ((h.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).toString().padStart(6, '0')
-}
-
-/**
- * Server-clock offset (seconds). TOTP must be computed against the SERVER's
- * clock, not the runner's: the backend verifies with a ±30s drift window, so a
- * CI box with a skewed clock (e.g. +3h) would otherwise produce a code ~360
- * steps off and every enable/confirm would fail with "Invalid code". The
- * offset is derived once from the HTTP `Date` response header.
- */
-let _serverOffsetSeconds = null
-async function getServerOffsetSeconds() {
-  if (_serverOffsetSeconds !== null) return _serverOffsetSeconds
-  const res = await fetch(`${BASE}/`, { method: 'HEAD' })
-  const serverDate = Date.parse(res.headers.get('date'))
-  if (!Number.isFinite(serverDate)) {
-    throw new Error('could not read server Date header to anchor TOTP time')
-  }
-  _serverOffsetSeconds = Math.round((serverDate - Date.now()) / 1000)
-  console.log(`server clock offset: ${_serverOffsetSeconds}s (${_serverOffsetSeconds >= 0 ? '+' : ''}${_serverOffsetSeconds})`)
-  return _serverOffsetSeconds
-}
-
-/** 6-digit TOTP for `secret` at the server's current 30s window. */
-async function totp(secret) {
-  const offset = await getServerOffsetSeconds()
-  return totpAt(secret, Date.now() / 1000 + offset)
-}
 
 const failures = []
 const out = {
@@ -125,69 +70,75 @@ try {
     }
     const authToken = token || user.token
 
-    const status = await api('/auth/mfa', { token: authToken })
-    push('GET /auth/mfa on a fresh account', status.ok && status.data.enabled === false,
-      `expected enabled:false, got ${status.status} ${JSON.stringify(status.data).slice(0, 120)}`)
+    // Mandatory MFA at registration: registerUser above had to walk the
+    // enrollment gate (setup via the register-issued mfa_token → TOTP confirm)
+    // to obtain a session at all. A regression that stops gating registration
+    // would skip enrollment and the enabled:true assertion below would fail.
+    if (!token) {
+      const status = await api('/auth/mfa', { token: authToken })
+      push('registration enrolled the account (MFA enabled from birth)',
+        status.ok && status.data.enabled === true,
+        `expected enabled:true after registration, got ${status.status} ${JSON.stringify(status.data).slice(0, 120)}`)
+    } else {
+      const status = await api('/auth/mfa', { token: authToken })
+      push('GET /auth/mfa returns an enabled boolean (shared E2E_TOKEN account)',
+        status.ok && typeof status.data.enabled === 'boolean',
+        `unexpected mfa status: ${status.status} ${JSON.stringify(status.data).slice(0, 120)}`)
+    }
+    const me = await api('/auth/me', { token: authToken })
+    push('enrolled registration session is valid (GET /auth/me → 200)', me.ok,
+      `session dead: ${me.status} ${JSON.stringify(me.data).slice(0, 120)}`)
 
-    const setup = await api('/auth/mfa/setup', { method: 'POST', token: authToken })
-    const s = setup.data
-    push('POST /auth/mfa/setup returns secret + URI + 10 backup codes',
-      setup.ok &&
-        /^[A-Z2-7]{32}$/.test(s.secret) &&
-        s.otpauth_uri.startsWith('otpauth://totp/TorrentCDN:') &&
-        s.otpauth_uri.includes(`secret=${s.secret}`) &&
-        Array.isArray(s.backup_codes) && s.backup_codes.length === 10 &&
-        s.backup_codes.every((c) => /^[A-Z2-9]{10}$/.test(c)),
-      `setup shape wrong: ${setup.status} ${JSON.stringify(s).slice(0, 200)}`)
-
-    // Wrong code must be rejected (400) and must NOT flip the flag or rotate
-    // the session — this is what lets the suite run safely without enable.
-    const bad = await api('/auth/mfa/enable', { method: 'POST', token: authToken, body: { code: '000000' } })
-    push('enable with a wrong code → 400, flag stays off, session survives',
-      bad.status === 400 &&
-        (await api('/auth/mfa', { token: authToken })).data.enabled === false &&
-        (await api('/auth/me', { token: authToken })).ok,
-      `wrong-code enable did not fail safe: ${bad.status} ${JSON.stringify(bad.data).slice(0, 120)}`)
-
-    // Full journey (enable → password login → TOTP) requires a verified email;
-    // that is exercised in FULL mode with E2E_EMAIL.
-    out.steps.push('(boundary mode: successful enable + TOTP login need a VERIFIED account — run with E2E_EMAIL/E2E_PASSWORD)')
+    // The login second-factor journey (wrong code → real 401 → TOTP completes
+    // login) requires a verified email; that is exercised in FULL mode.
+    out.steps.push('(boundary mode: the login second-factor journey needs a VERIFIED account — run with E2E_EMAIL/E2E_PASSWORD)')
 
     // ======================================================================
     // FULL mode — the complete user journey.
     // ======================================================================
   } else {
-    // 0) Pre-flight: the account must be verified and MFA-free. A verified
-    //    account logs in with the password alone (no MFA yet).
+    // 0) Pre-flight: the account must be verified and MFA-free. Mandatory MFA
+    //    means the first password login canNOT mint a session — it answers
+    //    mfa_required + needs_setup with a short-lived mfa_token.
     const first = await api('/auth/login', { ...API, body: { email: EMAIL, password: PASSWORD } })
     if (first.status === 403 && String(first.data.detail || '').includes('not verified')) {
       throw new Error('E2E_EMAIL account is NOT email-verified — the full MFA journey requires a verified account (verify its email first)')
     }
-    if (first.data?.mfa_required) {
-      throw new Error('E2E_EMAIL account already has MFA enabled — start from an MFA-free account (disable it first)')
+    if (!(first.ok && first.data.mfa_required && first.data.needs_setup === true && first.data.mfa_token)) {
+      // needs_setup=false here means the account already HAS MFA — the login
+      // correctly returned the plain code step, but the suite wants to start
+      // from an MFA-free account.
+      throw new Error('E2E_EMAIL account is not in the MFA-free state the journey starts from (disable MFA first)')
     }
-    push('password login before MFA → session token', first.ok && !!first.data.access_token,
+    push('password login without MFA → mfa_required + needs_setup (no session yet)',
+      first.ok && first.data.needs_setup === true && !first.data.access_token,
       `login failed: ${first.status} ${JSON.stringify(first.data).slice(0, 120)}`)
-    const preToken = first.data.access_token
+    const mfaToken = first.data.mfa_token
 
-    // 1) Enable MFA: setup → computed TOTP → enable.
-    const setup = await api('/auth/mfa/setup', { method: 'POST', token: preToken })
+    // 1) Enroll mid-login: setup is authenticated by the mfa_token — the user
+    //    has no session token yet.
+    const setup = await api('/auth/mfa/setup', { method: 'POST', token: mfaToken })
     const s = setup.data
-    push('setup returns secret + otpauth URI + 10 backup codes',
+    push('setup (via mfa_token) returns secret + otpauth URI + 10 backup codes',
       setup.ok && /^[A-Z2-7]{32}$/.test(s.secret) && s.otpauth_uri.startsWith('otpauth://totp/TorrentCDN:') && s.backup_codes.length === 10,
       `setup failed: ${setup.status} ${JSON.stringify(s).slice(0, 200)}`)
 
+    // 2) Confirm with the computed TOTP: this BOTH enrolls the account and
+    //    mints the real session token (enrollment completes the login).
     const code = await totp(s.secret)
-    const enable = await api('/auth/mfa/enable', { method: 'POST', token: preToken, body: { code } })
-    push('enable with the computed TOTP → 200', enable.ok,
-      `enable failed: ${enable.status} ${JSON.stringify(enable.data).slice(0, 200)}`)
-
-    // 2) Session rotation: the pre-MFA token must now be dead.
-    const oldDead = await api('/auth/me', { token: preToken })
-    push('pre-MFA session rotated out (401)', oldDead.status === 401,
-      `old token still valid after enable: ${oldDead.status}`)
+    const confirm = await api('/auth/mfa/confirm', {
+      method: 'POST', body: { mfa_token: mfaToken, code },
+    })
+    push('confirm with the computed TOTP enrolls + returns a session token',
+      confirm.ok && !!confirm.data.access_token,
+      `confirm failed: ${confirm.status} ${JSON.stringify(confirm.data).slice(0, 200)}`)
+    const preToken = confirm.data.access_token
+    const me = await api('/auth/me', { token: preToken })
+    push('enrolled session token is valid (GET /auth/me → 200)', me.ok,
+      `enrolled session dead: ${me.status}`)
 
     // 3) Real browser: password → 6-digit step → wrong code (real 401) → TOTP.
+    //    The account is now enrolled, so the browser sees the plain code step.
     page = await browser.newPage({ viewport: { width: 1280, height: 900 } })
     page.on('console', (m) => { if (m.type() === 'error') out.consoleErrors.push(m.text().slice(0, 150)) })
     page.on('pageerror', (e) => out.pageErrors.push(String(e).slice(0, 200)))
@@ -222,8 +173,8 @@ try {
 
     // 4) Backup codes: one-time use, replay rejected.
     const bgLogin = await api('/auth/login', { ...API, body: { email: EMAIL, password: PASSWORD } })
-    push('second password login → mfa_required + mfa_token (no session yet)',
-      bgLogin.ok && bgLogin.data.mfa_required && !!bgLogin.data.mfa_token,
+    push('second password login → mfa_required (enrolled, needs_setup false) + mfa_token',
+      bgLogin.ok && bgLogin.data.mfa_required && bgLogin.data.needs_setup === false && !!bgLogin.data.mfa_token,
       `expected mfa_required, got ${bgLogin.status} ${JSON.stringify(bgLogin.data).slice(0, 120)}`)
     const bg = await api('/auth/mfa/confirm', {
       method: 'POST', body: { mfa_token: bgLogin.data.mfa_token, code: s.backup_codes[0] },
@@ -237,14 +188,16 @@ try {
       `backup code was reusable: ${replay.status} ${JSON.stringify(replay.data).slice(0, 120)}`)
 
     // 5) Cleanup: disable MFA with a fresh TOTP (rotates the session again),
-    //    then verify password login works without any code.
+    //    then verify the login gates again with needs_setup — mandatory MFA
+    //    means an MFA-free account can never skip enrollment. The borrowed
+    //    account is left MFA-free, its original state.
     const disable = await api('/auth/mfa/disable', { method: 'POST', token: sessionToken, body: { code: await totp(s.secret) } })
     push('disable MFA with a fresh TOTP', disable.ok, `disable failed: ${disable.status} ${JSON.stringify(disable.data).slice(0, 160)}`)
     const after = await api('/auth/login', { ...API, body: { email: EMAIL, password: PASSWORD } })
-    push('password login works again after disable (no code step)',
-      after.ok && !!after.data.access_token && !after.data.mfa_required,
+    push('password login after disable → MFA gate again (needs_setup, no session)',
+      after.ok && after.data.mfa_required && after.data.needs_setup === true && !after.data.access_token,
       `login after disable: ${after.status} ${JSON.stringify(after.data).slice(0, 160)}`)
-    out.steps.push('MFA disabled — borrowed account restored to its original state (not deleted)')
+    out.steps.push('MFA disabled — borrowed account restored to its original MFA-free state (not deleted)')
   }
 
   if (out.pageErrors.length) failures.push(`JS page errors: ${out.pageErrors.join(' | ')}`)

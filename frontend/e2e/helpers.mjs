@@ -22,6 +22,7 @@
  *   FFMPEG_PATH   ffmpeg binary (default `ffmpeg`)
  */
 import { spawnSync } from 'node:child_process'
+import { createHmac } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -99,10 +100,107 @@ export function jwtSub(token) {
   }
 }
 
+// --- RFC 6238 TOTP (stdlib only: node:crypto) -----------------------------
+// Mandatory MFA (production default) gates REGISTRATION as well as login, so
+// registering a throwaway account means enrolling the authenticator: the
+// register response carries a short-lived mfa_token + needs_setup (no session),
+// and the client must setup → TOTP confirm to mint the session.
+const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+
+export function base32Decode(str) {
+  const s = str.toUpperCase().replace(/=+$/, '')
+  let bits = 0
+  let value = 0
+  const out = []
+  for (const c of s) {
+    const idx = BASE32_ALPHABET.indexOf(c)
+    if (idx === -1) throw new Error(`invalid base32 char: ${c}`)
+    value = (value << 5) | idx
+    bits += 5
+    if (bits >= 8) {
+      out.push((value >>> (bits - 8)) & 0xff)
+      bits -= 8
+    }
+  }
+  return Buffer.from(out)
+}
+
+export function totpAt(secret, epochSeconds) {
+  const counter = BigInt(Math.floor(epochSeconds / 30))
+  const buf = Buffer.alloc(8)
+  buf.writeBigUInt64BE(counter)
+  const h = createHmac('sha1', base32Decode(secret)).update(buf).digest()
+  const offset = h[h.length - 1] & 0x0f
+  return ((h.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).toString().padStart(6, '0')
+}
+
+/**
+ * Server-clock offset (seconds). TOTP must be computed against the SERVER's
+ * clock, not the runner's: the backend verifies with a ±30s drift window, so a
+ * CI box with a skewed clock (e.g. +3h) would otherwise produce a code ~360
+ * steps off and every enrollment/confirm would fail with "Invalid code". The
+ * offset is derived once from the HTTP `Date` response header.
+ */
+let _serverOffsetSeconds = null
+export async function getServerOffsetSeconds() {
+  if (_serverOffsetSeconds !== null) return _serverOffsetSeconds
+  const res = await fetch(`${BASE}/`, { method: 'HEAD' })
+  const serverDate = Date.parse(res.headers.get('date'))
+  if (!Number.isFinite(serverDate)) {
+    throw new Error('could not read server Date header to anchor TOTP time')
+  }
+  _serverOffsetSeconds = Math.round((serverDate - Date.now()) / 1000)
+  console.log(`server clock offset: ${_serverOffsetSeconds}s (${_serverOffsetSeconds >= 0 ? '+' : ''}${_serverOffsetSeconds})`)
+  return _serverOffsetSeconds
+}
+
+/** 6-digit TOTP for `secret` at the server's current 30s window. */
+export async function totp(secret) {
+  const offset = await getServerOffsetSeconds()
+  return totpAt(secret, Date.now() / 1000 + offset)
+}
+
+/**
+ * Complete mandatory MFA enrollment for a freshly registered account: setup via
+ * the register-issued mfa_token, compute the TOTP, and confirm to mint the
+ * session. Retried once on transient failures (Render cold-start blips — the
+ * suite hardens against those everywhere else; both calls are safe to retry:
+ * setup regenerates the pending secret, and a repeated confirm just mints a
+ * fresh session token).
+ */
+async function enrollMfa(mfaToken) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const setup = await api('/auth/mfa/setup', { method: 'POST', token: mfaToken })
+      if (!setup.ok || !/^[A-Z2-7]{32}$/.test(setup.data?.secret || '')) {
+        throw new Error(`post-register MFA setup failed (${setup.status}): ${JSON.stringify(setup.data).slice(0, 300)}`)
+      }
+      const code = await totp(setup.data.secret)
+      const confirm = await api('/auth/mfa/confirm', {
+        method: 'POST',
+        body: { mfa_token: mfaToken, code },
+      })
+      if (!confirm.ok || !confirm.data.access_token) {
+        throw new Error(`post-register MFA confirm failed (${confirm.status}): ${JSON.stringify(confirm.data).slice(0, 300)}`)
+      }
+      return confirm.data.access_token
+    } catch (err) {
+      if (attempt === 2) throw err
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+  }
+}
+
 /**
  * Register a throwaway account; returns { email, token }.
  *
- * Production now restricts a register-issued token for an UNVERIFIED account
+ * Mandatory 2FA (production default) now gates REGISTRATION too: the response
+ * is mfa_required + needs_setup with a short-lived mfa_token and NO session
+ * token. This helper completes the enrollment right here (setup via the
+ * mfa_token → computed TOTP confirm → session token) so every suite gets a
+ * working session, exactly as the signup UI does.
+ *
+ * Production also restricts a register-issued token for an UNVERIFIED account
  * to the verification endpoints (the session gate). So a freshly registered
  * account can't upload until its email is verified. Two paths make the suite
  * work anyway:
@@ -126,24 +224,32 @@ export async function registerUser(prefix = 'e2e') {
       method: 'POST',
       body: { email, password: 'testpass123', terms_accepted: true },
     })
-    if (res.ok && res.data.access_token) {
-      const token = res.data.access_token
-      const adminToken = process.env.E2E_ADMIN_TOKEN
-      const userId = jwtSub(token)
-      if (adminToken && userId) {
-        const v = await api(`/admin/users/${userId}/verify`, { method: 'POST', token: adminToken })
-        if (!v.ok) {
-          throw new Error(`admin-verify failed (${v.status}): ${JSON.stringify(v.data).slice(0, 300)}`)
-        }
-        const detail = v.data?.detail || ''
-        if (!/verified/i.test(detail)) {
-          throw new Error(`admin-verify unexpected response: ${detail.slice(0, 200)}`)
-        }
-      } else if (!adminToken) {
-        // No admin token: warn so a failing suite points at the config, not the gate.
-        console.warn(`[registerUser] no E2E_ADMIN_TOKEN set — if email verification is enforced, ${prefix} suite will 403 on protected calls. Use E2E_TOKEN or E2E_ADMIN_TOKEN.`)
+    if (res.ok) {
+      // Mandatory MFA: registration answers the same gate as login. Enroll the
+      // authenticator before any session exists — setup is authenticated by
+      // the register-issued mfa_token, then TOTP confirm mints the session.
+      let token = res.data.access_token
+      if (!token && res.data.mfa_required && res.data.mfa_token) {
+        token = await enrollMfa(res.data.mfa_token)
       }
-      return { email, token }
+      if (token) {
+        const adminToken = process.env.E2E_ADMIN_TOKEN
+        const userId = jwtSub(token)
+        if (adminToken && userId) {
+          const v = await api(`/admin/users/${userId}/verify`, { method: 'POST', token: adminToken })
+          if (!v.ok) {
+            throw new Error(`admin-verify failed (${v.status}): ${JSON.stringify(v.data).slice(0, 300)}`)
+          }
+          const detail = v.data?.detail || ''
+          if (!/verified/i.test(detail)) {
+            throw new Error(`admin-verify unexpected response: ${detail.slice(0, 200)}`)
+          }
+        } else if (!adminToken) {
+          // No admin token: warn so a failing suite points at the config, not the gate.
+          console.warn(`[registerUser] no E2E_ADMIN_TOKEN set — if email verification is enforced, ${prefix} suite will 403 on protected calls. Use E2E_TOKEN or E2E_ADMIN_TOKEN.`)
+        }
+        return { email, token }
+      }
     }
     last = res
     if (res.status === 429 && attempt < 3) {

@@ -18,10 +18,12 @@ from ..auth import (
     verify_password,
     create_access_token,
     get_current_user_id,
+    get_mfa_setup_user,
     revoke_user_sessions,
 )
 from ..email_service import (
     is_email_service_configured,
+    send_mfa_enabled_email,
     send_verification_email,
     send_password_reset_email,
     decode_password_reset_token,
@@ -205,8 +207,14 @@ async def _check_register_rate_limit(request: Request) -> None:
         _register_requests[ip] = recent
 
 
-@router.post("/register", response_model=TokenResponse)
+@router.post("/register")
 async def register(data: UserRegister, background_tasks: BackgroundTasks, request: Request):
+    """Create a new account.
+
+    No response_model: registration answers EITHER a session token (MFA not
+    required) OR the mfa gate shape {mfa_required, mfa_token, needs_setup}
+    (mandatory MFA) — same dual shape as /auth/login.
+    """
     # Throttle registrations per IP BEFORE doing any work — a registration costs
     # a bcrypt hash + a verification email, both of which an attacker would love
     # to trigger for free in bulk.
@@ -362,8 +370,6 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks, reques
             except Exception as e:
                 logger.warning("Referral processing failed for %s: %s", data.email, e)
 
-        token = create_access_token({"sub": str(user["id"])})
-
         # Send verification email after successful registration
         # Wrap in try/except so registration succeeds even if email delivery fails.
         # If no email service is configured AT ALL (impossible to verify), the
@@ -387,6 +393,21 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks, reques
         # Welcome email runs as a background task so it never slows down registration.
         background_tasks.add_task(send_welcome_email, data.email, data.email.split("@")[0])
 
+        # Mandatory 2FA (production default): registration answers the SAME
+        # second-factor gate as login — mfa_required + needs_setup + a
+        # short-lived mfa_token — and NO session token is minted. The client
+        # must enroll the authenticator (setup → confirm) before any session
+        # exists, so every account is born with 2FA on. When MFA is not
+        # required (dev), registration mints a session immediately as before.
+        if get_settings().mfa_required:
+            logger.info("New user %s must enroll in two-factor authentication", user["id"])
+            return {
+                "mfa_required": True,
+                "mfa_token": create_mfa_token(str(user["id"])),
+                "needs_setup": True,
+                "token_type": "bearer",
+            }
+        token = create_access_token({"sub": str(user["id"])})
         return TokenResponse(access_token=token)
 
 
@@ -477,11 +498,17 @@ async def login(data: UserLogin, request: Request):
     # instead of a session token. The real access token is only minted at
     # /auth/mfa/confirm after a valid TOTP/backup code is presented — a stolen
     # password alone can no longer complete the login.
-    if user.get("mfa_enabled"):
+    #
+    # When MFA is REQUIRED (production default), MFA-less accounts are gated
+    # the same way with needs_setup=true: the login only proves the password
+    # half, and the client must enroll the authenticator (setup → confirm)
+    # before any session token exists. There is no way to log in without 2FA.
+    if user.get("mfa_enabled") or settings.mfa_required:
         logger.info("Login for user %s requires second factor", user["id"])
         return {
             "mfa_required": True,
             "mfa_token": create_mfa_token(str(user["id"])),
+            "needs_setup": not user.get("mfa_enabled"),
             "token_type": "bearer",
         }
 
@@ -904,13 +931,16 @@ async def mfa_status(user_id: UUID = Depends(get_current_user_id)):
 
 
 @router.post("/mfa/setup", response_model=MfaSetupResponse)
-async def mfa_setup(user_id: UUID = Depends(get_current_user_id)):
+async def mfa_setup(user_id: UUID = Depends(get_mfa_setup_user)):
     """Begin MFA enrollment: mint a TOTP secret + single-use backup codes.
 
     The secret and the HASHEd backup codes are persisted immediately so
-    /mfa/enable can verify the caller actually holds the authenticator app
-    (proving possession before the flag flips). The plaintext codes are
-    returned exactly once, here."""
+    /mfa/enable (or the enrollment branch of /mfa/confirm) can verify the
+    caller actually holds the authenticator app (proving possession before the
+    flag flips). The plaintext codes are returned exactly once, here.
+
+    Auth: a normal session token (dashboard) OR a short-lived mfa_token
+    (mandatory mid-login enrollment — the user has no session yet)."""
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -939,13 +969,20 @@ async def mfa_setup(user_id: UUID = Depends(get_current_user_id)):
 
 
 @router.post("/mfa/enable")
-async def mfa_enable(data: MfaCodeRequest, user_id: UUID = Depends(get_current_user_id)):
+async def mfa_enable(
+    data: MfaCodeRequest,
+    background_tasks: BackgroundTasks,
+    user_id: UUID = Depends(get_mfa_setup_user),
+):
     """Flip MFA on, but only after the caller proves they hold the authenticator
-    app by presenting a valid TOTP code for the pending secret."""
+    app by presenting a valid TOTP code for the pending secret.
+
+    Auth: a normal session token (dashboard) OR a short-lived mfa_token
+    (mandatory mid-login enrollment)."""
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT mfa_enabled, mfa_secret FROM users WHERE id = $1", user_id
+            "SELECT email, mfa_enabled, mfa_secret FROM users WHERE id = $1", user_id
         )
         if not row:
             raise HTTPException(status_code=404, detail="User not found")
@@ -967,6 +1004,12 @@ async def mfa_enable(data: MfaCodeRequest, user_id: UUID = Depends(get_current_u
     await _revoke_sessions(user_id)
     logger.info("User %s enabled two-factor authentication", user_id)
     record_event("mfa_enabled", detail=str(user_id))
+    # Security notification: the account owner learns the moment 2FA is on — a
+    # forced enrollment (or one done by an attacker who holds the password)
+    # must never go unnoticed. Background task: email delivery never delays
+    # the enable response (same pattern as the welcome email on register).
+    if row.get("email"):
+        background_tasks.add_task(send_mfa_enabled_email, row["email"])
     return {"detail": "Two-factor authentication enabled. Sign in again with your code."}
 
 
@@ -1002,7 +1045,11 @@ async def mfa_disable(data: MfaCodeRequest, user_id: UUID = Depends(get_current_
 
 
 @router.post("/mfa/confirm")
-async def mfa_confirm(data: MfaConfirmRequest, request: Request):
+async def mfa_confirm(
+    data: MfaConfirmRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
     """Complete a pending MFA login: verify the code and mint the real session
     token. TOTP codes and backup codes both work; a used backup code is
     consumed atomically (a replayed code fails, and two concurrent users of the
@@ -1019,45 +1066,85 @@ async def mfa_confirm(data: MfaConfirmRequest, request: Request):
 
     user_uuid = UUID(user_id_str)
     pool = await get_db_pool()
+    enrolled_now = False
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT mfa_enabled, mfa_secret, mfa_backup_codes FROM users WHERE id = $1",
+            "SELECT email, mfa_enabled, mfa_secret, mfa_backup_codes FROM users WHERE id = $1",
             user_uuid,
         )
-        if not row or not row["mfa_enabled"]:
+        if not row:
             await _record_mfa_failure(ip)
             record_event("mfa_failure", detail="no MFA enabled", ip=ip)
             raise HTTPException(status_code=401, detail="Invalid authentication code")
 
         valid = False
-        secret = row["mfa_secret"]
-        if secret and verify_totp(secret, data.code):
-            valid = True
+        if row["mfa_enabled"]:
+            secret = row["mfa_secret"]
+            if secret and verify_totp(secret, data.code):
+                valid = True
+            else:
+                # Backup code — consume it atomically: the UPDATE only matches
+                # when the stored list is unchanged, so a concurrent use of the
+                # same code loses the race and fails (single-use invariant).
+                stored_raw = row.get("mfa_backup_codes")
+                try:
+                    stored = json.loads(stored_raw) if stored_raw else []
+                except (ValueError, TypeError):
+                    stored = []
+                target = hashlib.sha256(data.code.encode("utf-8")).hexdigest()
+                if target in stored:
+                    remaining = [c for c in stored if c != target]
+                    res = await conn.execute(
+                        "UPDATE users SET mfa_backup_codes = $2 "
+                        "WHERE id = $1 AND mfa_backup_codes = $3",
+                        user_uuid,
+                        json.dumps(remaining),
+                        stored_raw,
+                    )
+                    valid = res == "UPDATE 1"
         else:
-            # Backup code — consume it atomically: the UPDATE only matches when
-            # the stored list is unchanged, so a concurrent use of the same code
-            # loses the race and fails (single-use invariant).
-            stored_raw = row.get("mfa_backup_codes")
-            try:
-                stored = json.loads(stored_raw) if stored_raw else []
-            except (ValueError, TypeError):
-                stored = []
-            target = hashlib.sha256(data.code.encode("utf-8")).hexdigest()
-            if target in stored:
-                remaining = [c for c in stored if c != target]
-                res = await conn.execute(
-                    "UPDATE users SET mfa_backup_codes = $2 "
-                    "WHERE id = $1 AND mfa_backup_codes = $3",
-                    user_uuid,
-                    json.dumps(remaining),
-                    stored_raw,
-                )
-                valid = res == "UPDATE 1"
+            # Mandatory-enrollment path: the login gate only hands MFA-less
+            # users an mfa_token when MFA is required, so a valid TOTP code for
+            # the pending secret (stored by /auth/mfa/setup) both proves
+            # possession AND completes the login — the flag flips and a session
+            # is minted in the same response.
+            secret = row.get("mfa_secret")
+            if get_settings().mfa_required and secret and verify_totp(secret, data.code):
+                valid = True
+                enrolled_now = True
 
         if not valid:
             await _record_mfa_failure(ip)
             record_event("mfa_failure", detail="bad code", ip=ip)
             raise HTTPException(status_code=401, detail="Invalid authentication code")
+
+        if enrolled_now:
+            # Flip the flag ON in the SAME transaction as the verify read, so a
+            # concurrent setup (which regenerates mfa_secret) can't swap the
+            # secret between verification and enable. The backup codes were
+            # already stored by /auth/mfa/setup — keep them for recovery.
+            await conn.execute(
+                "UPDATE users SET mfa_enabled = TRUE WHERE id = $1", user_uuid
+            )
+
+    if enrolled_now:
+        # Rotate any pre-existing session tokens (e.g. the one issued at
+        # registration, or on another device) — nothing minted without the
+        # second factor may outlive enrollment. The new token below is minted
+        # AFTER this stamp bump, so it survives the rotation.
+        await _revoke_sessions(user_uuid)
+        logger.info("User %s enrolled in two-factor authentication via login", user_id_str)
+        record_event("mfa_enabled", detail=str(user_id_str))
+        # Security notification: the user was just force-enrolled as part of
+        # login — email the owner so the change is noticed immediately (and an
+        # attacker's enrollment is caught). Background task, never blocks the
+        # session mint. Tradeoff (deliberate, matches the welcome email): if
+        # the worker dies right after this response, the email is lost — but
+        # the mfa_enabled event above is still in the security feed. Only on
+        # the ENROLLMENT path: an already-enrolled user confirming login
+        # didn't just enable 2FA, so they get no email.
+        if row.get("email"):
+            background_tasks.add_task(send_mfa_enabled_email, row["email"])
 
     # Successful confirm — reset this IP's failed-attempt counter (mirrors the
     # login success path) so a user who mistyped a few codes then succeeded

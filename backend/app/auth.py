@@ -12,6 +12,7 @@ from jwt.exceptions import InvalidTokenError
 import bcrypt
 from .config import get_settings
 from .database import get_db_pool, get_redis
+from .mfa import decode_mfa_token
 
 logger = logging.getLogger(__name__)
 
@@ -329,3 +330,23 @@ async def get_optional_user_id(
     if payload is None or "sub" not in payload:
         return None
     return UUID(payload["sub"])
+
+
+async def get_mfa_setup_user(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> UUID:
+    """Authenticate the MFA enrollment endpoints (/auth/mfa/setup, /enable).
+
+    Accepts EITHER a short-lived MFA-pending login token (a user mid-login who
+    has passed the password half but has no session yet — mandatory enrollment)
+    OR a regular session token (a logged-in user configuring MFA from the
+    dashboard). The two token types are mutually exclusive by construction:
+    decode_access_token rejects mfa_pending claims, and the mfa_token path
+    below only matches those claims — so a token can never authenticate as both
+    a session and an MFA step."""
+    token = credentials.credentials
+    user_id_str = decode_mfa_token(token)
+    if user_id_str:
+        return UUID(user_id_str)
+    return await get_current_user_id(request, credentials)

@@ -233,8 +233,11 @@ const api = axios.create({
 })
 
 api.interceptors.request.use((config) => {
+  // An explicitly-set Authorization header wins (mid-login MFA enrollment
+  // sends the short-lived mfa_token while no session token exists yet);
+  // otherwise attach the stored session token.
   const token = getToken()
-  if (token) config.headers.Authorization = `Bearer ${token}`
+  if (token && !config.headers.Authorization) config.headers.Authorization = `Bearer ${token}`
   return config
 })
 
@@ -247,9 +250,13 @@ api.interceptors.response.use(
     // Everywhere else (auth/me, files, billing, ...) a 401 still means the
     // session died, so clear the token and bounce home.
     const url = error.config?.url || ''
+    // mfa/setup 401s mid-login mean the short-lived mfa_token expired (the
+    // modal restarts enrollment at login) — NOT a dead session, so don't
+    // bounce the page. (mfa/confirm is already listed below.)
     const isCredentialCheck =
       url === '/auth/login' ||
       url === '/auth/register' ||
+      url === '/auth/mfa/setup' ||
       url === '/auth/mfa/confirm'
     if (error.response?.status === 401 && !isCredentialCheck) {
       removeToken()
@@ -353,7 +360,11 @@ export default {
   // Two-factor authentication (TOTP)
   mfaStatus: () => api.get('/auth/mfa').then((r) => r.data),
 
-  mfaSetup: () => api.post('/auth/mfa/setup').then((r) => r.data),
+  // Begin MFA enrollment. Pass an mfa_token (from a pending login) to enroll
+  // mid-login — mandatory setup — before any session token exists; with no
+  // argument the stored session token authenticates (dashboard flow).
+  mfaSetup: (mfaToken?: string) =>
+    api.post('/auth/mfa/setup', null, mfaToken ? { headers: { Authorization: `Bearer ${mfaToken}` } } : undefined).then((r) => r.data),
 
   mfaEnable: (code: string) =>
     api.post('/auth/mfa/enable', { code }).then((r) => r.data),

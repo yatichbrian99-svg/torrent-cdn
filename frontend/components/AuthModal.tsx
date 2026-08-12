@@ -1,9 +1,19 @@
 'use client'
 
-import { useState } from 'react'
-import { Eye, EyeOff, Loader2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Eye, EyeOff, Loader2, ShieldCheck, Copy, Check } from 'lucide-react'
+import QRCode from 'qrcode'
 import { saveToken } from '@/lib/auth'
 import api from '@/lib/api'
+
+// Enrollment payload from /auth/mfa/setup — secret + backup codes are returned
+// exactly once, so they must be held in memory only (never persisted).
+interface MfaSetupData {
+  secret: string
+  otpauth_uri: string
+  backup_codes: string[]
+  qr?: string
+}
 
 export default function AuthModal({ onClose }: { onClose: () => void }) {
   const [isLogin, setIsLogin] = useState(true)
@@ -15,7 +25,30 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
   const [showPassword, setShowPassword] = useState(false)
   // Second-factor step: set when the backend answers mfa_required: true.
   const [mfaToken, setMfaToken] = useState<string | null>(null)
+  // When the account has NO 2FA yet (mandatory enrollment), login answers
+  // needs_setup: true and the modal walks through QR/secret/backup codes
+  // before the code field — the user cannot skip it.
+  const [mfaNeedsSetup, setMfaNeedsSetup] = useState(false)
+  const [mfaSetupData, setMfaSetupData] = useState<MfaSetupData | null>(null)
   const [mfaCode, setMfaCode] = useState('')
+  const [copiedUri, setCopiedUri] = useState(false)
+
+  const resetMfa = (keepError = false) => {
+    setMfaToken(null)
+    setMfaNeedsSetup(false)
+    setMfaSetupData(null)
+    setMfaCode('')
+    if (!keepError) setError('')
+  }
+
+  // Abandon the enrollment step. During SIGNUP the account already exists at
+  // this point, so bounce to the LOGIN view — resubmitting the signup form
+  // would be a confusing "Email already registered" dead end (log in instead,
+  // which re-triggers enrollment with a fresh token).
+  const bailToLogin = (keepError = false) => {
+    if (!isLogin) setIsLogin(true)
+    resetMfa(keepError)
+  }
 
   const showError = (err: any, fallback: string) => {
     // Show the API's real message when present; otherwise explain WHY the
@@ -40,22 +73,51 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
       const data = isLogin
         ? await api.login(email, password)
         : await api.register(email, password, termsAccepted, refCode)
+      // Referral credit is earned the moment the account is created — consume
+      // the code even when the mandatory 2FA step below delays the session.
+      if (!isLogin && refCode) sessionStorage.removeItem('torrent_cdn_ref')
       // MFA gate: the password half succeeded but this account requires a
-      // second factor — switch to the code step (NO token yet).
+      // second factor — switch to the code step (NO token yet). For signup
+      // this IS the enrollment: the account was born MFA-on, and the modal
+      // walks through the authenticator QR before any session exists.
       if (data?.mfa_required) {
         setMfaToken(data.mfa_token)
+        setMfaNeedsSetup(Boolean(data.needs_setup))
+        setMfaSetupData(null)
         setMfaCode('')
         return
       }
       saveToken(data.access_token)
-      // Referral code is consumed after a successful registration.
-      if (!isLogin && refCode) sessionStorage.removeItem('torrent_cdn_ref')
       onClose()
       window.location.reload()
     } catch (err: any) {
       showError(err, `${isLogin ? 'Login' : 'Sign up'} failed. Please try again.`)
     } finally { setLoading(false) }
   }
+
+  // Mandatory enrollment: fetch the TOTP secret + backup codes the moment the
+  // login answers needs_setup (authenticated by the mfa_token — the user has
+  // no session yet). The mfa_token is short-lived (~5 min), so a failure here
+  // falls back to the login form to restart cleanly.
+  useEffect(() => {
+    if (!mfaToken || !mfaNeedsSetup || mfaSetupData) return
+    let cancelled = false
+    api.mfaSetup(mfaToken)
+      .then(async (data: MfaSetupData) => {
+        if (cancelled) return
+        const qr = await QRCode.toDataURL(data.otpauth_uri, { width: 240, margin: 4 })
+        if (!cancelled) setMfaSetupData({ ...data, qr })
+      })
+      .catch((err: any) => {
+        if (cancelled) return
+        showError(err, 'Failed to start two-factor setup. Please try again.')
+        // Expired mfa_token (5 min) or any setup failure: restart the form
+        // (at LOGIN during signup — the account already exists), keeping the
+        // error visible so the user knows why they bounced back.
+        bailToLogin(true)
+      })
+    return () => { cancelled = true }
+  }, [mfaToken, mfaNeedsSetup, mfaSetupData])
 
   const handleMfaSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -69,18 +131,118 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
       window.location.reload()
     } catch (err: any) {
       showError(err, 'Invalid code. Check your authenticator app and try again.')
+      // The mfa_token is short-lived (~5 min): if it expired while the user
+      // was scanning the QR or typing the code, restart cleanly at the login
+      // form (keeping the reason visible) instead of stranding them on the
+      // second-factor screen retrying codes forever.
+      const detail = err?.response?.data?.detail
+      if (typeof detail === 'string' && detail.includes('expired')) bailToLogin(true)
     } finally { setLoading(false) }
+  }
+
+  const copyOtpUri = async () => {
+    if (!mfaSetupData) return
+    await navigator.clipboard.writeText(mfaSetupData.otpauth_uri)
+    setCopiedUri(true)
+    setTimeout(() => setCopiedUri(false), 2000)
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.8)' }}>
       <div className="w-full max-w-sm border p-8" style={{ backgroundColor: '#111', borderColor: '#333' }}>
         <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-white">{isLogin ? 'Login' : 'Create account'}</h2>
+          <h2 className="text-sm font-semibold text-white">
+            {mfaToken && mfaNeedsSetup ? 'Set up two-factor authentication' : mfaToken ? 'Two-factor verification' : (isLogin ? 'Login' : 'Create account')}
+          </h2>
           <button onClick={onClose} className="text-sm" style={{ color: '#555' }}>&times;</button>
         </div>
 
-        {mfaToken ? (
+        {mfaToken && mfaNeedsSetup ? (
+          // --- Mandatory enrollment: scan → save backup codes → verify ---
+          <form onSubmit={handleMfaSubmit} className="flex flex-col gap-4">
+            <p className="text-xs leading-relaxed" style={{ color: '#888' }}>
+              <ShieldCheck size={14} className="mr-1 inline" style={{ color: '#fbbf24' }} />
+              Two-factor authentication is required for all accounts. Scan this QR
+              code with your authenticator app (Google Authenticator, Authy, 1Password…)
+              or copy the otpauth link to add it manually.
+            </p>
+
+            {mfaSetupData ? (
+              <>
+                <div className="flex flex-col items-center gap-3">
+                  {mfaSetupData.qr && (
+                    <img src={mfaSetupData.qr} alt="TOTP QR code" width={180} height={180}
+                      className="border p-1" style={{ backgroundColor: '#fff' }} />
+                  )}
+                  <div className="w-full">
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 border px-2 py-1 font-mono text-[11px] text-white"
+                        style={{ backgroundColor: '#0c0c0c', borderColor: '#333', wordBreak: 'break-all' }}>
+                        {mfaSetupData.secret}
+                      </code>
+                      <button type="button" onClick={copyOtpUri}
+                        className="border px-2 py-1 text-[11px] transition-opacity hover:opacity-80"
+                        style={{ borderColor: '#333', color: '#555' }}>
+                        {copiedUri ? <><Check size={12} className="inline" style={{ color: '#4ade80' }} /> Copied</> : 'Copy link'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-[11px] leading-relaxed" style={{ color: '#fbbf24' }}>
+                    Save these backup codes somewhere safe. Each is single-use and
+                    shown only once — they are your only way in if you lose the app.
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-1">
+                    {mfaSetupData.backup_codes.map((c) => (
+                      <code key={c} className="border px-2 py-1 text-center font-mono text-[11px]"
+                        style={{ borderColor: '#333', color: '#ccc' }}>
+                        {c}
+                      </code>
+                    ))}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="flex h-28 items-center justify-center">
+                <Loader2 size={18} className="animate-spin" style={{ color: '#555' }} />
+              </div>
+            )}
+
+            <div>
+              <label className="mb-1 block text-xs uppercase tracking-widest" style={{ color: '#555' }}>Authenticator code</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={mfaCode}
+                onChange={(e) => setMfaCode(e.target.value)}
+                required
+                maxLength={12}
+                disabled={!mfaSetupData}
+                className="w-full border px-3 py-2 text-sm text-white disabled:opacity-50"
+                style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}
+                placeholder="000000"
+              />
+            </div>
+            {error && <p className="text-xs text-white">{error}</p>}
+            <button type="submit" disabled={loading || !mfaSetupData}
+              className="w-full border py-2 text-sm font-medium disabled:opacity-50"
+              style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000' }}>
+              {loading ? <Loader2 size={14} className="mx-auto animate-spin" /> : 'Verify & continue'}
+            </button>
+            <button
+              type="button"
+              onClick={() => bailToLogin()}
+              className="text-center text-xs transition-colors hover:text-white"
+              style={{ color: '#555' }}
+            >
+              Back to login
+            </button>
+          </form>
+        ) : mfaToken ? (
+          // --- Already enrolled: just the code field ---
           <form onSubmit={handleMfaSubmit} className="flex flex-col gap-5">
             <div>
               <label className="mb-1 block text-xs uppercase tracking-widest" style={{ color: '#555' }}>Two-factor code</label>
@@ -109,7 +271,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
             </button>
             <button
               type="button"
-              onClick={() => { setMfaToken(null); setMfaCode(''); setError('') }}
+              onClick={() => bailToLogin()}
               className="text-center text-xs transition-colors hover:text-white"
               style={{ color: '#555' }}
             >
@@ -192,7 +354,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
 
           <p className="text-center text-xs" style={{ color: '#555' }}>
             {isLogin ? "Don't have an account?" : 'Already have an account?'}{' '}
-            <button type="button" onClick={() => { setIsLogin(!isLogin); setMfaToken(null); setError('') }} className="font-medium text-white hover:underline">
+            <button type="button" onClick={() => { setIsLogin(!isLogin); resetMfa() }} className="font-medium text-white hover:underline">
               {isLogin ? 'Sign up' : 'Login'}
             </button>
           </p>

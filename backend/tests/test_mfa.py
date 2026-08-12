@@ -7,10 +7,12 @@ Tests for two-factor authentication (TOTP):
 4. Enable / disable flows (code required; sessions rotated)
 5. MFA confirm rate limiting (5/15min per IP)
 """
+import asyncio
 import hashlib
 import json
+import pytest
 from uuid import UUID
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from app.mfa import (
     generate_backup_codes,
@@ -296,6 +298,40 @@ class TestMfaLifecycle:
         assert resp.status_code == 200
         assert "enabled" in resp.json()["detail"]
 
+    def test_enable_sends_notification_email(self, client, auth_headers, mock_conn, monkeypatch):
+        """Enabling MFA from the dashboard emails the account owner — a forced
+        (or hijacked) enrollment must never go unnoticed."""
+        import app.routes.auth as auth_route
+        sent = MagicMock(return_value=True)
+        monkeypatch.setattr(auth_route, "send_mfa_enabled_email", sent)
+
+        secret = generate_totp_secret()
+        mock_conn.fetchrow.return_value = {
+            "email": "user@example.com",
+            "mfa_enabled": False,
+            "mfa_secret": secret,
+        }
+        resp = client.post("/auth/mfa/enable", headers=auth_headers, json={"code": totp_code(secret)})
+        assert resp.status_code == 200
+        # Background tasks run synchronously under TestClient — assert the send.
+        sent.assert_called_once_with("user@example.com")
+
+    def test_enable_wrong_code_sends_no_email(self, client, auth_headers, mock_conn, monkeypatch):
+        """A failed enable attempt must not trigger the notification."""
+        import app.routes.auth as auth_route
+        sent = MagicMock(return_value=True)
+        monkeypatch.setattr(auth_route, "send_mfa_enabled_email", sent)
+
+        secret = generate_totp_secret()
+        mock_conn.fetchrow.return_value = {
+            "email": "user@example.com",
+            "mfa_enabled": False,
+            "mfa_secret": secret,
+        }
+        resp = client.post("/auth/mfa/enable", headers=auth_headers, json={"code": "000000"})
+        assert resp.status_code == 400
+        sent.assert_not_called()
+
     def test_disable_requires_code_and_wipes_secret(self, client, auth_headers, mock_conn):
         secret = generate_totp_secret()
         mock_conn.fetchrow.return_value = {
@@ -313,3 +349,341 @@ class TestMfaLifecycle:
         sqls = [str(c.args[0]).lower() for c in mock_conn.execute.call_args_list]
         assert any("mfa_enabled = false" in s and "mfa_secret = null" in s for s in sqls)
         assert any("security_stamp" in s for s in sqls)
+
+
+class TestMandatoryMfa:
+    """MFA required for EVERY account (the production default, MFA_REQUIRED).
+
+    Login never mints a session for an MFA-less user: it answers mfa_required +
+    needs_setup with a short-lived mfa_token, and the client must enroll via
+    /auth/mfa/setup (mfa_token auths the call — no session exists yet) then
+    /auth/mfa/confirm, which verifies the TOTP, flips mfa_enabled, and mints
+    the real session token in the same response.
+    """
+
+    LOGIN_URL = "/auth/login"
+    CONFIRM_URL = "/auth/mfa/confirm"
+    SETUP_URL = "/auth/mfa/setup"
+    USER = "11111111-1111-4111-8111-111111111111"
+
+    @pytest.fixture(autouse=True)
+    def _require_mfa(self, monkeypatch):
+        # Flip the flag on the cached Settings instance — every get_settings()
+        # caller (login gate, confirm enrollment) sees the same object.
+        from app.config import get_settings
+        monkeypatch.setattr(get_settings(), "mfa_required", True)
+
+    def _user_row(self, mfa_enabled=False, password="securePass123"):
+        from app.auth import hash_password
+        return {
+            "id": UUID(self.USER),
+            "email": "user@example.com",
+            "password_hash": hash_password(password),
+            "verified": True,
+            "mfa_enabled": mfa_enabled,
+        }
+
+    def _login(self, client, mock_conn, password="securePass123"):
+        mock_conn.fetchrow.return_value = self._user_row(mfa_enabled=False, password=password)
+        return client.post(self.LOGIN_URL, json={
+            "email": "user@example.com", "password": password,
+        })
+
+    def test_login_gates_mfa_less_user_with_needs_setup(self, client, mock_conn):
+        resp = self._login(client, mock_conn)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data.get("mfa_required") is True
+        assert data.get("needs_setup") is True
+        assert "mfa_token" in data
+        assert "access_token" not in data  # password alone gets NO session
+
+    def test_login_with_mfa_enabled_has_needs_setup_false(self, client, mock_conn):
+        mock_conn.fetchrow.return_value = self._user_row(mfa_enabled=True)
+        resp = client.post(self.LOGIN_URL, json={
+            "email": "user@example.com", "password": "securePass123",
+        })
+        data = resp.json()
+        assert data.get("mfa_required") is True
+        assert data.get("needs_setup") is False
+
+    def test_setup_accepts_mfa_token_no_session(self, client, mock_conn):
+        """Mid-login enrollment: the mfa_token alone (no session) may call setup."""
+        login = self._login(client, mock_conn).json()
+        mock_conn.fetchrow.return_value = {"email": "user@example.com", "mfa_enabled": False}
+        resp = client.post(
+            self.SETUP_URL,
+            headers={"Authorization": f"Bearer {login['mfa_token']}"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["secret"]) == 32
+        assert len(data["backup_codes"]) == 10
+        # Pending secret persisted so confirm can verify possession.
+        sql = mock_conn.execute.call_args.args[0]
+        assert "mfa_secret" in sql and "mfa_backup_codes" in sql
+
+    def test_confirm_enrolls_user_and_mints_session(self, client, mock_conn):
+        """Full required-enrollment flow: login → setup → confirm(TOTP) → session."""
+        login = self._login(client, mock_conn).json()
+        # Setup mints + persists the pending secret; grab it from the UPDATE.
+        mock_conn.fetchrow.return_value = {"email": "user@example.com", "mfa_enabled": False}
+        resp = client.post(
+            self.SETUP_URL,
+            headers={"Authorization": f"Bearer {login['mfa_token']}"},
+        )
+        assert resp.status_code == 200
+        secret = mock_conn.execute.call_args.args[1]
+
+        # Confirm reads the pending row and must enroll + mint the session.
+        mock_conn.fetchrow.return_value = {
+            "mfa_enabled": False,
+            "mfa_secret": secret,
+            "mfa_backup_codes": json.dumps(hash_backup_codes(generate_backup_codes())),
+        }
+        resp = client.post(self.CONFIRM_URL, json={
+            "mfa_token": login["mfa_token"], "code": totp_code(secret),
+        })
+        assert resp.status_code == 200
+        assert resp.json()["access_token"]
+
+        # mfa_enabled flipped TRUE, and pre-MFA sessions rotated (stamp bump).
+        sqls = [str(c.args[0]).lower() for c in mock_conn.execute.call_args_list]
+        assert any("mfa_enabled = true" in s for s in sqls)
+        assert any("security_stamp" in s for s in sqls)
+
+    def test_confirm_enrollment_wrong_code_rejected(self, client, mock_conn):
+        login = self._login(client, mock_conn).json()
+        secret = generate_totp_secret()
+        mock_conn.fetchrow.return_value = {
+            "mfa_enabled": False,
+            "mfa_secret": secret,
+            "mfa_backup_codes": json.dumps(hash_backup_codes(generate_backup_codes())),
+        }
+        resp = client.post(self.CONFIRM_URL, json={
+            "mfa_token": login["mfa_token"], "code": "000000",
+        })
+        assert resp.status_code == 401
+        assert "Invalid authentication code" in resp.json()["detail"]
+        # The flag was never flipped.
+        sqls = [str(c.args[0]).lower() for c in mock_conn.execute.call_args_list]
+        assert not any("mfa_enabled = true" in s for s in sqls)
+
+    def test_confirm_enrollment_without_setup_rejected(self, client, mock_conn):
+        """A user who skipped /auth/mfa/setup has no pending secret — no enroll."""
+        login = self._login(client, mock_conn).json()
+        mock_conn.fetchrow.return_value = {
+            "mfa_enabled": False,
+            "mfa_secret": None,
+            "mfa_backup_codes": None,
+        }
+        resp = client.post(self.CONFIRM_URL, json={
+            "mfa_token": login["mfa_token"], "code": totp_code(generate_totp_secret()),
+        })
+        assert resp.status_code == 401
+
+    def test_login_not_gated_when_mfa_not_required(self, client, mock_conn, monkeypatch):
+        """Dev default (MFA_REQUIRED unset): an MFA-less login is NOT gated."""
+        from app.config import get_settings
+        monkeypatch.setattr(get_settings(), "mfa_required", False)
+        mock_conn.fetchrow.return_value = self._user_row(mfa_enabled=False)
+        resp = client.post(self.LOGIN_URL, json={
+            "email": "user@example.com", "password": "securePass123",
+        })
+        assert resp.status_code == 200
+        assert resp.json().get("access_token")  # plain session, no gate
+
+    def test_token_types_are_not_interchangeable(self, client, mock_conn):
+        """An mfa_token must NOT authenticate as a session on other endpoints,
+        and a session token must still work for dashboard setup."""
+        from app.auth import create_access_token
+        session = create_access_token({"sub": self.USER})
+        # mfa_token on a protected endpoint still 401s (existing invariant).
+        mfa = self._login(client, mock_conn).json()
+        resp = client.get("/auth/me", headers={"Authorization": f"Bearer {mfa['mfa_token']}"})
+        assert resp.status_code == 401
+        # Dashboard-style setup with a real session keeps working.
+        mock_conn.fetchrow.return_value = {"email": "user@example.com", "mfa_enabled": False}
+        resp = client.post(self.SETUP_URL, headers={"Authorization": f"Bearer {session}"})
+        assert resp.status_code == 200
+
+    def test_forced_enrollment_sends_notification_email(self, client, mock_conn, monkeypatch):
+        """The mid-login forced enrollment emails the owner immediately — the
+        exact case this notification exists for."""
+        import app.routes.auth as auth_route
+        sent = MagicMock(return_value=True)
+        monkeypatch.setattr(auth_route, "send_mfa_enabled_email", sent)
+
+        login = self._login(client, mock_conn).json()
+        # Setup mints + persists the pending secret; grab it from the UPDATE.
+        mock_conn.fetchrow.return_value = {"email": "user@example.com", "mfa_enabled": False}
+        resp = client.post(
+            self.SETUP_URL,
+            headers={"Authorization": f"Bearer {login['mfa_token']}"},
+        )
+        assert resp.status_code == 200
+        secret = mock_conn.execute.call_args.args[1]
+
+        mock_conn.fetchrow.return_value = {
+            "email": "user@example.com",
+            "mfa_enabled": False,
+            "mfa_secret": secret,
+            "mfa_backup_codes": json.dumps(hash_backup_codes(generate_backup_codes())),
+        }
+        resp = client.post(self.CONFIRM_URL, json={
+            "mfa_token": login["mfa_token"], "code": totp_code(secret),
+        })
+        assert resp.status_code == 200
+        assert resp.json()["access_token"]
+        sent.assert_called_once_with("user@example.com")
+
+    def test_existing_mfa_confirm_login_sends_no_email(self, client, mock_conn, monkeypatch):
+        """Confirming login on an ALREADY-enrolled account must not email — 2FA
+        wasn't just enabled, so the notification would be noise."""
+        import app.routes.auth as auth_route
+        sent = MagicMock(return_value=True)
+        monkeypatch.setattr(auth_route, "send_mfa_enabled_email", sent)
+
+        mock_conn.fetchrow.return_value = self._user_row(mfa_enabled=True)
+        login = client.post(self.LOGIN_URL, json={
+            "email": "user@example.com", "password": "securePass123",
+        }).json()
+        secret = generate_totp_secret()
+        mock_conn.fetchrow.return_value = {
+            "email": "user@example.com",
+            "mfa_enabled": True,
+            "mfa_secret": secret,
+            "mfa_backup_codes": None,
+        }
+        resp = client.post(self.CONFIRM_URL, json={
+            "mfa_token": login["mfa_token"], "code": totp_code(secret),
+        })
+        assert resp.status_code == 200
+        assert resp.json()["access_token"]
+        sent.assert_not_called()
+
+
+class TestRegistrationEnrollment:
+    """Mandatory 2FA at registration: a brand-new account is born with MFA on.
+
+    register answers the SAME gate as login — mfa_required + needs_setup with
+    a short-lived mfa_token and NO session token — so the client walks the
+    authenticator enrollment (setup → confirm) before any session exists.
+    """
+
+    REGISTER_URL = "/auth/register"
+    SETUP_URL = "/auth/mfa/setup"
+    CONFIRM_URL = "/auth/mfa/confirm"
+    USER = UUID("11111111-1111-4111-8111-111111111111")
+
+    @pytest.fixture(autouse=True)
+    def _require_mfa(self, monkeypatch):
+        from app.config import get_settings
+        monkeypatch.setattr(get_settings(), "mfa_required", True)
+
+    def _register(self, client, mock_conn, email="newuser@example.com"):
+        # fetchrow sequence: (1) existing-user lookup → None, (2) INSERT RETURNING
+        # id → the new user.
+        mock_conn.fetchrow.side_effect = [
+            None,
+            {"id": self.USER},
+        ]
+        return client.post(self.REGISTER_URL, json={
+            "email": email,
+            "password": "SecurePass123",
+            "terms_accepted": True,
+        })
+
+    def test_register_gates_new_account_with_needs_setup(self, client, mock_conn):
+        resp = self._register(client, mock_conn)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data.get("mfa_required") is True
+        assert data.get("needs_setup") is True
+        assert "mfa_token" in data
+        assert "access_token" not in data  # no session before 2FA exists
+
+    def test_register_not_gated_when_mfa_not_required(self, client, mock_conn, monkeypatch):
+        """Dev default (MFA_REQUIRED unset): registration keeps minting a plain
+        session token so local flows behave exactly as before."""
+        from app.config import get_settings
+        monkeypatch.setattr(get_settings(), "mfa_required", False)
+
+        resp = self._register(client, mock_conn)
+        assert resp.status_code == 200
+        assert resp.json().get("access_token")
+
+    def test_full_signup_enrollment_flow(self, client, mock_conn):
+        """register → setup (via mfa_token) → confirm → session + mfa_enabled:
+        the complete signup journey, in one flow."""
+        resp = self._register(client, mock_conn)
+        assert resp.status_code == 200
+        mfa_token = resp.json()["mfa_token"]
+
+        # The register-side side_effect iterator is spent — clear it so the
+        # setup/confirm lookups use the return_value below.
+        mock_conn.fetchrow.side_effect = None
+        # Setup mints + persists the pending secret, authenticated by the
+        # mfa_token (the new user has no session yet).
+        mock_conn.fetchrow.return_value = {"email": "newuser@example.com", "mfa_enabled": False}
+        setup = client.post(
+            self.SETUP_URL,
+            headers={"Authorization": f"Bearer {mfa_token}"},
+        )
+        assert setup.status_code == 200
+        assert len(setup.json()["secret"]) == 32
+        assert len(setup.json()["backup_codes"]) == 10
+        secret = mock_conn.execute.call_args.args[1]
+
+        # Confirm verifies the TOTP, flips the flag, and mints the session.
+        mock_conn.fetchrow.return_value = {
+            "email": "newuser@example.com",
+            "mfa_enabled": False,
+            "mfa_secret": secret,
+            "mfa_backup_codes": json.dumps(hash_backup_codes(generate_backup_codes())),
+        }
+        confirm = client.post(self.CONFIRM_URL, json={
+            "mfa_token": mfa_token, "code": totp_code(secret),
+        })
+        assert confirm.status_code == 200
+        assert confirm.json()["access_token"]
+
+        # The account is born MFA-enabled; pre-MFA sessions rotated (stamp).
+        sqls = [str(c.args[0]).lower() for c in mock_conn.execute.call_args_list]
+        assert any("mfa_enabled = true" in s for s in sqls)
+        assert any("security_stamp" in s for s in sqls)
+
+
+class TestMfaEnabledEmailSender:
+    """Direct tests for send_mfa_enabled_email itself (the route-level tests
+    above monkeypatch it away, so the real sender needs its own coverage)."""
+
+    def test_sends_via_resend_with_correct_params(self, monkeypatch):
+        import app.email_service as es
+        fake_resend = MagicMock()
+        monkeypatch.setattr(es, "_get_resend", lambda: fake_resend)
+        monkeypatch.setattr(es.settings, "app_url", "https://torrentcdn.store")
+
+        result = asyncio.run(es.send_mfa_enabled_email("user@example.com"))
+        assert result is True
+        params = fake_resend.Emails.send.call_args.args[0]
+        assert params["to"] == ["user@example.com"]
+        assert params["from"]
+        assert "Two-factor authentication enabled" in params["subject"]
+        # Body carries the security framing + a real dashboard link.
+        assert "Didn't do this?" in params["html"]
+        assert "https://torrentcdn.store/dashboard" in params["html"]
+        assert "user@example.com" in params["html"]
+
+    def test_returns_false_without_error_when_unconfigured(self, monkeypatch):
+        import app.email_service as es
+        monkeypatch.setattr(es, "_get_resend", lambda: None)
+        # Must never raise — the enable already succeeded upstream.
+        assert asyncio.run(es.send_mfa_enabled_email("user@example.com")) is False
+
+    def test_returns_false_without_error_on_send_failure(self, monkeypatch):
+        import app.email_service as es
+        fake_resend = MagicMock()
+        fake_resend.Emails.send.side_effect = Exception("smtp down")
+        monkeypatch.setattr(es, "_get_resend", lambda: fake_resend)
+        assert asyncio.run(es.send_mfa_enabled_email("user@example.com")) is False

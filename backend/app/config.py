@@ -139,6 +139,14 @@ class Settings(BaseSettings):
     # Lifetime of the password-half MFA step token minted at login. Keep short:
     # the user must present their authenticator code before it expires.
     mfa_expire_minutes: int = 5
+    # Require every account to enroll in 2FA. When True, login hands MFA-less
+    # users a short-lived mfa_token + needs_setup instead of a session token;
+    # they must scan the authenticator QR (via /auth/mfa/setup) and present a
+    # code before any session is minted (/auth/mfa/confirm enrolls them).
+    # Defaults to False in dev so tests/older clients behave as before; forced
+    # True in production unless MFA_REQUIRED=false is set explicitly (same
+    # posture as email_verification_required).
+    mfa_required: bool = False
 
     # Opt-in malware scanning (see app/malware_scan.py). Without a key the
     # feature is OFF and every upload is treated as clean (fail-open). With a
@@ -258,6 +266,13 @@ def get_settings() -> Settings:
         # (unless explicitly disabled via env var EMAIL_VERIFICATION_REQUIRED=false)
         if not os.environ.get("EMAIL_VERIFICATION_REQUIRED"):
             settings.email_verification_required = True
+        # In production, two-factor authentication is required for every account
+        # by default (unless explicitly disabled via env var MFA_REQUIRED=false).
+        # Login then refuses to mint a session until the user enrolls: no MFA on
+        # the account means the login response carries needs_setup and the client
+        # walks through /auth/mfa/setup + /auth/mfa/confirm before getting a token.
+        if not os.environ.get("MFA_REQUIRED"):
+            settings.mfa_required = True
     return settings
 
 

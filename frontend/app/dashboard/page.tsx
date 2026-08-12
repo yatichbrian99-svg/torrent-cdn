@@ -70,7 +70,7 @@ export default function DashboardPage() {
     api.getBandwidthHistory().then((b) => setBandwidth(b || [])).catch(() => {})
   }, [])
 
-  // MFA state (enabled + admin flag for the recommended-for-admins nudge).
+  // MFA state (enabled; is_admin is retained by the API for compatibility).
   useEffect(() => {
     if (!isLoggedIn()) return
     api.mfaStatus().then(setMfa).catch(() => {})
@@ -225,7 +225,7 @@ export default function DashboardPage() {
   const allZero = bandwidth.length > 0 && bandwidth.every((d) => d.gb === 0)
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10">
+    <div className="mx-auto max-w-5xl px-6 py-10 select-none">
       {/* Email verification banner */}
       {verified === false && (
         <div className="mb-6 flex items-center gap-3 border px-4 py-3" style={{ borderColor: '#333', backgroundColor: '#1a1a1a' }}>
@@ -350,7 +350,7 @@ export default function DashboardPage() {
               <p className="mt-1 text-sm" style={{ color: '#555' }}>
                 {mfa?.enabled
                   ? 'Enabled — signing in requires a code from your authenticator app.'
-                  : 'Add a second factor so a stolen password alone cannot access your account.'}
+                  : 'Required for all accounts — signing in prompts you to set up the authenticator.'}
               </p>
             </div>
           </div>
@@ -366,9 +366,10 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {mfa && !mfa.enabled && mfa.is_admin && (
+        {mfa && !mfa.enabled && (
           <p className="mt-3 text-xs" style={{ color: '#fbbf24' }}>
-            Recommended: two-factor authentication is strongly encouraged for administrator accounts.
+            Required: two-factor authentication is mandatory for every account. If you signed
+            in through the registration session, you'll be asked to set it up at your next sign-in.
           </p>
         )}
         {mfa?.enabled && (
@@ -443,24 +444,30 @@ export default function DashboardPage() {
         )}
 
         {mfa?.enabled && (
-          <div className="mt-3 flex items-center gap-2">
-            <input
-              type="text"
-              inputMode="numeric"
-              value={mfaCode}
-              onChange={(e) => setMfaCode(e.target.value)}
-              placeholder="Current code"
-              className="w-40 border px-3 py-2 text-sm text-white"
-              style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}
-            />
-            <button
-              onClick={handleMfaDisable}
-              disabled={mfaBusy}
-              className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
-              style={{ borderColor: '#553333', color: '#ef4444' }}
-            >
-              {mfaBusy ? <Loader2 size={12} className="animate-spin" /> : 'Disable'}
-            </button>
+          <div className="mt-3">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={mfaCode}
+                onChange={(e) => setMfaCode(e.target.value)}
+                placeholder="Current code"
+                className="w-40 border px-3 py-2 text-sm text-white"
+                style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}
+              />
+              <button
+                onClick={handleMfaDisable}
+                disabled={mfaBusy}
+                className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
+                style={{ borderColor: '#553333', color: '#ef4444' }}
+              >
+                {mfaBusy ? <Loader2 size={12} className="animate-spin" /> : 'Disable'}
+              </button>
+            </div>
+            <p className="mt-2 text-[11px]" style={{ color: '#fbbf24' }}>
+              Note: two-factor authentication is required for all accounts — you'll be
+              asked to set it up again at your next sign-in.
+            </p>
           </div>
         )}
 

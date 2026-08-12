@@ -112,7 +112,8 @@ class TokenResponse(BaseModel):
 
 
 class MfaStatusResponse(BaseModel):
-    """MFA state for the dashboard. `is_admin` drives the recommended-for-admins nudge."""
+    """MFA state for the dashboard. `is_admin` is retained for compatibility
+    (MFA is now required for every account, not just admins)."""
     enabled: bool
     is_admin: bool = False
 

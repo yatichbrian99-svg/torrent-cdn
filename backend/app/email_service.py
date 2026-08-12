@@ -139,6 +139,46 @@ def build_reset_email_html(email: str, reset_url: str) -> str:
 </html>"""
 
 
+def build_mfa_enabled_email_html(email: str, dashboard_url: str) -> str:
+    """Build a styled HTML email notifying the account owner that 2FA was just
+    enabled on their account.
+
+    The email address is attacker-influenced (it's the address on the account)
+    and lands verbatim in the HTML body — escape it so a crafted address
+    can't inject markup into the email a user receives.
+    """
+    safe_email = html.escape(email, quote=True)
+    return f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background-color:#000;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#000">
+<tr><td align="center" style="padding:40px 20px">
+<table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background-color:#111;border:1px solid #222;border-radius:0">
+<tr><td style="padding:40px 40px 20px">
+<h1 style="margin:0 0 8px;font-size:18px;font-weight:700;color:#fff;letter-spacing:-0.02em">Two-factor authentication enabled</h1>
+<p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#888">Two-factor authentication (authenticator app) was just enabled on your TorrentCDN account for <strong style="color:#fff">{safe_email}</strong>.</p>
+<p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#888">If this was you — you're all set, no further action is needed.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="background-color:#2a1008;border:1px solid #7a2e12">
+<tr><td style="padding:14px 16px;font-size:13px;line-height:1.5;color:#fca5a5">
+<strong style="color:#fff">Didn't do this?</strong> Someone else may have access to your account. Reset your password immediately, review your sessions, and contact support.
+</td></tr></table>
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:24px">
+<tr><td align="center" style="background-color:#fff;border-radius:0">
+<a href="{dashboard_url}" target="_blank" style="display:inline-block;padding:12px 32px;font-size:14px;font-weight:600;color:#000;text-decoration:none">Review your account &rarr;</a>
+</td></tr></table>
+<p style="margin:24px 0 0;font-size:12px;line-height:1.5;color:#555">This is an automated security notification. If you don't recognize this change, act now.</p>
+</td></tr>
+<tr><td style="padding:0 40px 20px;border-top:1px solid #222">
+<p style="margin:20px 0 0;font-size:11px;color:#444">TorrentCDN &mdash; P2P video delivery</p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>"""
+
+
 def build_verification_email_html(email: str, verify_url: str) -> str:
     """Build a styled HTML email for email verification."""
     safe_email = html.escape(email, quote=True)
@@ -220,6 +260,48 @@ async def send_password_reset_email(email: str, user_id: UUID) -> bool:
         return True
     except Exception as e:
         logger.error("Failed to send password reset email to %s: %s", email, e)
+        return False
+
+
+async def send_mfa_enabled_email(email: str) -> bool:
+    """Notify the account owner that 2FA was just enabled on their account.
+
+    Security notification: a forced enrollment — or one performed by an
+    attacker who holds the password — must never go unnoticed, so this fires
+    on EVERY enable (dashboard and mid-login enrollment alike). Failures are
+    non-fatal: the enable has already succeeded.
+    """
+    resend = _get_resend()
+    if resend is None:
+        if settings.app_env != "production":
+            # Dev convenience — visible without a provider configured.
+            logger.info("Resend not configured — MFA-enabled notification for %s skipped", email)
+        else:
+            # Warning (not info) in production: a missing email provider
+            # silently blinds users to a security-relevant change on their own
+            # account — this must be visible in logs, not lost among noise.
+            logger.warning("Resend not configured — MFA-enabled notification for %s NOT sent", email)
+        return False
+
+    dashboard_url = settings.app_url.rstrip("/") + "/dashboard"
+    html = build_mfa_enabled_email_html(email, dashboard_url)
+
+    from_email = os.getenv(
+        "RESEND_FROM",
+        "TorrentCDN <noreply@torrentcdn.store>",
+    )
+    try:
+        params = {
+            "from": from_email,
+            "to": [email],
+            "subject": "Two-factor authentication enabled on your TorrentCDN account",
+            "html": html,
+        }
+        resend.Emails.send(params)
+        logger.info("MFA-enabled notification email sent to %s", email)
+        return True
+    except Exception as e:
+        logger.error("Failed to send MFA-enabled notification to %s: %s", email, e)
         return False
 
 

@@ -567,6 +567,16 @@ class TestEmailHtmlEscaping:
         assert "&lt;img" in html
         assert "<img src=x" not in html
 
+    def test_mfa_enabled_email_escapes_email(self):
+        from app.email_service import build_mfa_enabled_email_html
+
+        html = build_mfa_enabled_email_html('"><script>alert(1)</script>@evil.com', "https://x/dashboard")
+        assert "&lt;script&gt;" in html
+        assert "<script>alert" not in html
+        # The notification must carry the urgent "didn't do this?" framing.
+        assert "Two-factor authentication enabled" in html
+        assert "Didn't do this?" in html
+
 
     def test_login_falls_back_to_normalized_for_new_accounts(self, client, mock_conn, monkeypatch):
         """A user who registered post-normalization with the NFC form can log
