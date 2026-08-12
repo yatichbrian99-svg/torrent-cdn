@@ -26,6 +26,15 @@ services:
         value: "https://torrent-cdn.vercel.app,https://www.torrentcdn.store"
       - key: TRUSTED_HOSTS
         value: ".onrender.com,.vercel.app,.torrentcdn.store,localhost"
+      # Per-IP rate limits resolve the client from X-Forwarded-For ONLY when
+      # the request arrived from a trusted proxy (below). Unset, the first XFF
+      # entry is trusted from any peer — a client hitting this backend directly
+      # (the public onrender.com URL) can forge the header to rotate past
+      # login/register/upload limits, and a startup warning is logged.
+      # Set it to Vercel's CURRENT edge CIDRs (the frontend proxy that rewrites
+      # to this backend): https://vercel.com/docs/edge-network/regions#ip-ranges
+      # - key: TRUSTED_PROXIES
+      #   value: ""  # e.g. "76.76.21.0/24,76.76.22.0/24,..." (Vercel edge ranges)
       - key: CSP_REPORT_URL
         value: "/api/csp-report"
       - key: MINIO_SECURE

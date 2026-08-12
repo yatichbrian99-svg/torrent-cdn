@@ -115,9 +115,12 @@ class TestAnalyticsEventRateLimitFallback:
         saved = dict(analytics_route._analytics_event_requests)
         analytics_route._analytics_event_requests.clear()
         try:
-            # A registered file passes the file-exists gate.
+            # A registered file passes the file-exists + size-cap gate.
             mock_conn = AsyncMock()
-            mock_conn.fetchval.return_value = UUID("22222222-2222-4222-8222-222222222222")
+            mock_conn.fetchrow.return_value = {
+                "id": UUID("22222222-2222-4222-8222-222222222222"),
+                "file_size_mb": 1.0,
+            }
             pool = AsyncMock()
             pool.acquire = MagicMock(return_value=pool)
             pool.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -259,6 +262,52 @@ class TestSessionRevocationOnPasswordChange:
         resp = client.get("/auth/me", headers={"Authorization": f"Bearer {fresh}"})
         assert resp.status_code == 200
 
+    def test_same_second_fresh_token_survives_fractional_marker(self, client, mock_conn, mock_redis):
+        """Regression: a token minted in the SAME second as the change must NOT
+        be rejected. iat is second-precision but the Redis marker carries
+        fractional seconds — a raw `marker > iat` comparison rejects a token
+        minted milliseconds AFTER the revocation (the mid-login MFA enrollment
+        order: revoke, then mint). The marker must be floored to whole seconds."""
+        from app.auth import create_access_token
+        import jwt as pyjwt
+        from app.config import get_settings
+
+        fresh = create_access_token({"sub": str(USER_ID)})
+        payload = pyjwt.decode(fresh, get_settings().jwt_secret, algorithms=["HS256"])
+        # The change happened ~half a second after this token's second boundary
+        # (i.e. after the token was minted), but in the SAME second.
+        mock_redis.get.side_effect = lambda key: (
+            str(float(payload["iat"]) + 0.5) if key == f"pw_change:{USER_ID}" else None
+        )
+        mock_conn.fetchrow.return_value = {
+            "id": USER_ID,
+            "email": "user@example.com",
+            "plan": "free",
+            "created_at": "2026-01-01T00:00:00Z",
+        }
+
+        resp = client.get("/auth/me", headers={"Authorization": f"Bearer {fresh}"})
+        assert resp.status_code == 200
+
+    def test_earlier_second_token_still_rejected_after_floor(self, client, mock_conn, mock_redis):
+        """Floored comparison must still reject a token from an EARLIER second
+        than the change (the flooring must not weaken real revocations)."""
+        from app.auth import create_access_token
+        import jwt as pyjwt
+        from app.config import get_settings
+
+        old_token = create_access_token({"sub": str(USER_ID)})
+        payload = pyjwt.decode(old_token, get_settings().jwt_secret, algorithms=["HS256"])
+        # A change in a LATER second (even a fractional one) must still revoke
+        # a token minted in an earlier second once the marker is floored.
+        mock_redis.get.side_effect = lambda key: (
+            str(float(payload["iat"]) + 1000) if key == f"pw_change:{USER_ID}" else None
+        )
+
+        resp = client.get("/auth/me", headers={"Authorization": f"Bearer {old_token}"})
+        assert resp.status_code == 401
+        assert "Session invalidated" in resp.json()["detail"]
+
     def test_reset_password_records_marker(self, client, mock_conn, mock_redis):
         """A successful reset records pw_change for the user."""
         from app.email_service import create_password_reset_token
@@ -380,6 +429,31 @@ class TestSessionRevocationWithoutRedis:
         resp = client.get(
             "/auth/me", headers={"Authorization": f"Bearer {self._token()}"}
         )
+        assert resp.status_code == 200
+
+    def test_same_second_fresh_token_survives_fractional_db_stamp(self, client, mock_conn, monkeypatch):
+        """Regression (DB path): the security_stamp is stored with fractional
+        seconds (NOW()) — a raw `stamp.timestamp() > iat` rejects a token
+        minted in the same second, right after the stamp bump (mid-login MFA
+        enrollment without Redis). Floor the stamp to whole seconds."""
+        import app.auth as auth_mod
+        from datetime import datetime, timezone
+        import jwt as pyjwt
+        from app.config import get_settings
+
+        fresh = self._token()
+        payload = pyjwt.decode(fresh, get_settings().jwt_secret, algorithms=["HS256"])
+        monkeypatch.setattr(auth_mod, "get_redis", AsyncMock(return_value=None))
+        self._override_stamp(
+            monkeypatch,
+            datetime.fromtimestamp(float(payload["iat"]) + 0.5, tz=timezone.utc),
+        )
+        mock_conn.fetchrow.return_value = {
+            "id": USER_ID, "email": "user@example.com", "plan": "free",
+            "verified": True, "is_admin": False, "created_at": "2026-01-01T00:00:00Z",
+        }
+
+        resp = client.get("/auth/me", headers={"Authorization": f"Bearer {fresh}"})
         assert resp.status_code == 200
 
     def test_redis_up_but_markerless_newer_stamp_rejected(self, client, mock_redis, monkeypatch):

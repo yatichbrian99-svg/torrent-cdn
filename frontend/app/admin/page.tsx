@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   Loader2, Users, Film, HardDrive, Crown, DollarSign,
   Search, X, ShieldCheck, Trash2, CheckCircle, XCircle,
-  AlertTriangle, BarChart3, UserCog, ArrowUpDown,
+  AlertTriangle, BarChart3, UserCog, ArrowUpDown, Copy, Check,
   RefreshCw, Calendar, FolderOpen, UserCheck, Activity,
   ChevronDown, ChevronUp,
 } from 'lucide-react'
@@ -55,6 +55,9 @@ export default function AdminPage() {
   const [page, setPage] = useState(1)
   const [pages, setPages] = useState(1)
   const [total, setTotal] = useState(0)
+  // Copy-email affordance on the users table — the page is select-none, so
+  // the email needs an explicit copy button to remain usable for admins.
+  const [copiedEmailId, setCopiedEmailId] = useState<string | null>(null)
 
   // Toast auto-dismiss
   useEffect(() => {
@@ -137,6 +140,14 @@ export default function AdminPage() {
     } finally {
       setDeleting(false)
     }
+  }
+
+  const copyEmail = async (userId: string, email: string) => {
+    try {
+      await navigator.clipboard.writeText(email)
+      setCopiedEmailId(userId)
+      setTimeout(() => setCopiedEmailId(null), 2000)
+    } catch { /* clipboard unavailable (non-secure context) — ignore */ }
   }
 
   // Sorting
@@ -567,6 +578,17 @@ export default function AdminPage() {
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="text-sm text-white truncate max-w-[160px] sm:max-w-[220px] block">{user.email}</span>
+                              <button
+                                onClick={() => copyEmail(user.id, user.email)}
+                                className="p-1 rounded transition-all duration-150 opacity-0 group-hover:opacity-100 hover:bg-white/10"
+                                style={{ color: '#555' }}
+                                title="Copy email"
+                                aria-label={`Copy ${user.email}`}
+                              >
+                                {copiedEmailId === user.id
+                                  ? <Check size={12} style={{ color: '#4ade80' }} />
+                                  : <Copy size={12} className="transition-colors hover:text-white" />}
+                              </button>
                               {user.is_admin && (
                                 <span
                                   className="px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider rounded flex-shrink-0"

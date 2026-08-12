@@ -73,6 +73,12 @@ _FORGOT_WINDOW = 60  # 60 seconds
 _REGISTER_WINDOW = 3600  # 1 hour
 _REGISTER_LIMIT = 10
 
+# Referral program economics: +10GB to the referrer per successful referral
+# (lifetime-capped at settings.referral_bonus_cap_gb — see the register route)
+# and +5GB to the new user.
+REFERRER_BONUS_GB = 10
+REFEREE_BONUS_GB = 5
+
 # Failed MFA confirm attempts per IP (brute-force a 6-digit TOTP or a 10-char
 # backup code). Same 5/15-min lockout shape as login. Redis primary,
 # in-memory fallback.
@@ -348,6 +354,11 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks, reques
         # --- Referral handling ---
         # If the request included a referral code, credit the referrer (+10GB) and
         # the new user (+5GB). All failures are non-fatal — registration always succeeds.
+        # The referrer's bonus is LIFETIME-CAPPED at referral_bonus_cap_gb (default
+        # 100GB) via SQL LEAST — without the cap, referral farming (many accounts
+        # against one code) grants unlimited free bandwidth. The atomic LEAST update
+        # is race-free under concurrent referrals, and an already-earned balance is
+        # never reduced (grandfathered), only future growth is clamped.
         if data.ref_code:
             try:
                 ref = data.ref_code.strip().upper()
@@ -356,13 +367,17 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks, reques
                 )
                 if referrer and str(referrer["id"]) != str(user_uuid):
                     await conn.execute(
-                        "UPDATE users SET referral_bonus_gb = referral_bonus_gb + 10 WHERE id = $1",
+                        "UPDATE users SET referral_bonus_gb = "
+                        "LEAST(COALESCE(referral_bonus_gb, 0) + $2, $3) WHERE id = $1",
                         referrer["id"],
+                        REFERRER_BONUS_GB,
+                        float(get_settings().referral_bonus_cap_gb),
                     )
                     await conn.execute(
-                        "UPDATE users SET referred_by = $1, referral_bonus_gb = 5 WHERE id = $2",
+                        "UPDATE users SET referred_by = $1, referral_bonus_gb = $3 WHERE id = $2",
                         referrer["id"],
                         user_uuid,
+                        REFEREE_BONUS_GB,
                     )
                     logger.info(
                         "Referral applied: user %s referred by %s", user_uuid, referrer["id"]
@@ -919,15 +934,28 @@ async def delete_own_account(user_id: UUID = Depends(get_current_user_id)):
 
 @router.get("/mfa", response_model=MfaStatusResponse)
 async def mfa_status(user_id: UUID = Depends(get_current_user_id)):
-    """Current MFA state (enabled + whether the user is an admin)."""
+    """Current MFA state (enabled + whether the user is an admin) plus how many
+    single-use backup codes remain (the dashboard warns as they run out)."""
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT mfa_enabled, is_admin FROM users WHERE id = $1", user_id
+            "SELECT mfa_enabled, mfa_backup_codes, is_admin FROM users WHERE id = $1",
+            user_id,
         )
         if not row:
             raise HTTPException(status_code=404, detail="User not found")
-    return MfaStatusResponse(enabled=bool(row["mfa_enabled"]), is_admin=bool(row["is_admin"]))
+    remaining: int | None = None
+    stored_raw = row.get("mfa_backup_codes")
+    if stored_raw:
+        try:
+            remaining = len(json.loads(stored_raw))
+        except (ValueError, TypeError):
+            remaining = 0
+    return MfaStatusResponse(
+        enabled=bool(row["mfa_enabled"]),
+        is_admin=bool(row["is_admin"]),
+        backup_codes_remaining=remaining,
+    )
 
 
 @router.post("/mfa/setup", response_model=MfaSetupResponse)
@@ -1067,6 +1095,10 @@ async def mfa_confirm(
     user_uuid = UUID(user_id_str)
     pool = await get_db_pool()
     enrolled_now = False
+    # Set only when a backup code was consumed — the count of codes left AFTER
+    # this login. 0 means the LAST code was just used: the UI must warn the
+    # user to mint a fresh set before losing the authenticator app.
+    backup_codes_remaining: int | None = None
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT email, mfa_enabled, mfa_secret, mfa_backup_codes FROM users WHERE id = $1",
@@ -1101,7 +1133,9 @@ async def mfa_confirm(
                         json.dumps(remaining),
                         stored_raw,
                     )
-                    valid = res == "UPDATE 1"
+                    if res == "UPDATE 1":
+                        valid = True
+                        backup_codes_remaining = len(remaining)
         else:
             # Mandatory-enrollment path: the login gate only hands MFA-less
             # users an mfa_token when MFA is required, so a valid TOTP code for
@@ -1160,4 +1194,7 @@ async def mfa_confirm(
 
     logger.info("MFA confirmed for user %s", user_id_str)
     token = create_access_token({"sub": user_id_str})
-    return {"access_token": token, "token_type": "bearer"}
+    resp: dict = {"access_token": token, "token_type": "bearer"}
+    if backup_codes_remaining is not None:
+        resp["backup_codes_remaining"] = backup_codes_remaining
+    return resp

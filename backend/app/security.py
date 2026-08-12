@@ -7,7 +7,10 @@ resolution for per-IP rate limiting behind reverse proxies.
 import ipaddress
 import logging
 import struct
+from functools import lru_cache
 from typing import Optional
+
+from .config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -258,35 +261,110 @@ def _get_file_size(file_stream) -> Optional[int]:
         return None
 
 
-def get_client_ip(request) -> str:
-    """Best-effort real client IP for per-IP rate limiting.
-
-    Behind the Vercel proxy, ``request.client.host`` is the proxy's edge IP,
-    which varies per request — so per-IP limits keyed on it never fire reliably.
-    ``X-Forwarded-For`` carries the original client IP as its first entry, so we
-    prefer that when present.
-
-    Security note: we trust the first XFF entry unconditionally. Vercel sets
-    this header itself for proxied traffic, but a client connecting directly to
-    the backend can forge it to rotate past per-IP limits. That is an accepted
-    tradeoff for this app (the public surface is the Vercel domain); the value
-    is still validated with :func:`ipaddress.ip_address` so forged junk can't
-    poison rate-limit keys or in-memory stores, and IPv4 ports are stripped.
-    Falls back to the direct peer when the header is absent or malformed.
-    """
-    peer = "unknown"
-    if request and request.client and request.client.host:
-        peer = request.client.host
-    xff = (request.headers.get("x-forwarded-for") or "").strip()
-    if not xff:
-        return peer
-    candidate = xff.split(",")[0].strip()
-    # Strip an IPv4 port if present (e.g. "1.2.3.4:5678"). IPv6 has multiple
-    # colons, so the count check keeps IPv6 addresses intact.
+def _normalize_ip(candidate: str) -> Optional[str]:
+    """Validate + normalize one XFF entry: strip an IPv4 port ("1.2.3.4:5678" —
+    IPv6 keeps its colons), reject junk. Returns the canonical IP string, or
+    None when unparseable (so forged garbage can never poison rate-limit keys
+    or in-memory stores)."""
+    candidate = (candidate or "").strip()
+    if not candidate:
+        return None
     if candidate.count(":") == 1:
         candidate = candidate.rsplit(":", 1)[0].strip()
     try:
         ipaddress.ip_address(candidate)
-        return candidate
     except ValueError:
+        return None
+    return candidate
+
+
+@lru_cache(maxsize=16)
+def _parse_trusted_proxy_networks(raw: str) -> tuple:
+    """Parse the TRUSTED_PROXIES setting (comma-separated IPs/CIDRs) into
+    ip_network objects. Invalid entries are skipped — a malformed config value
+    must never crash request handling (and a bare IP means its host mask)."""
+    nets = []
+    for part in (raw or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            if "/" in part:
+                nets.append(ipaddress.ip_network(part, strict=False))
+            else:
+                nets.append(ipaddress.ip_network(part))
+        except ValueError:
+            continue
+    return tuple(nets)
+
+
+def _trusted_proxy_networks() -> tuple:
+    """The configured trusted-proxy networks (parsed, cached by raw string)."""
+    return _parse_trusted_proxy_networks(get_settings().trusted_proxies)
+
+
+def _is_trusted_proxy(ip: str, trusted: tuple) -> bool:
+    """True when `ip` falls inside one of the trusted proxy networks."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(addr in net for net in trusted)
+
+
+def get_client_ip(request) -> str:
+    """Best-effort real client IP for per-IP rate limiting.
+
+    Trusted-proxy-aware X-Forwarded-For parsing. ``X-Forwarded-For`` is only
+    authoritative when the DIRECT peer (``request.client.host``) is a trusted
+    proxy (see ``settings.trusted_proxies``) — otherwise the header is
+    attacker-forgeable and ignored, and the peer IP is used. When the peer IS
+    a trusted proxy, the chain is walked right-to-left (the entry the nearest
+    proxy appended) skipping trusted hops, so a client's forged entries to the
+    left of the trusted boundary are never believed.
+
+    Compatibility: when no trusted proxies are configured (the local/dev
+    default), the legacy behavior is preserved — the first XFF entry wins —
+    and production logs a startup warning to configure TRUSTED_PROXIES (see
+    get_settings). Values are always validated with :func:`ipaddress.ip_address`
+    and IPv4 ports stripped, so forged junk can't poison rate-limit keys or
+    in-memory stores. Falls back to the direct peer (or "unknown") when the
+    header is absent or malformed.
+    """
+    peer = "unknown"
+    if request and request.client and request.client.host:
+        peer = request.client.host
+
+    trusted = _trusted_proxy_networks()
+    xff = (request.headers.get("x-forwarded-for") or "").strip()
+
+    # Legacy mode (nothing configured): first XFF entry wins, validated.
+    if not trusted:
+        if not xff:
+            return peer
+        return _normalize_ip(xff.split(",")[0]) or peer
+
+    # Trusted mode: a request that did NOT arrive from a trusted proxy cannot
+    # be trusted to have set XFF — a direct client can forge the header to
+    # rotate past per-IP limits. Ignore it entirely and use the peer.
+    if not _is_trusted_proxy(peer, trusted):
         return peer
+    if not xff:
+        return peer
+
+    entries = [e for e in (_normalize_ip(part) for part in xff.split(",")) if e]
+    # Right-to-left: the rightmost entry was appended by the hop closest to
+    # this server. Skip trusted proxy hops; the first untrusted entry is the
+    # real client. (Vercel appends the real client, so a forged client-supplied
+    # "X-Forwarded-For" lands left of it and is never reached.)
+    #
+    # ASSUMPTION: this requires APPEND-style proxies (Vercel, nginx, Express
+    # standard). A prepend-style proxy would place the real client to the LEFT
+    # of a forged entry, letting the forged one win — such a proxy must not be
+    # used with this parsing.
+    for entry in reversed(entries):
+        if not _is_trusted_proxy(entry, trusted):
+            return entry
+    # Every entry is a trusted proxy (e.g. a purely internal chain) — fall
+    # back to the leftmost valid entry, else the peer.
+    return entries[0] if entries else peer

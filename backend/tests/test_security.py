@@ -285,6 +285,25 @@ class TestLoginLockout:
         )
         assert resp.status_code == 429  # keyed on the peer (testclient), not the junk
 
+    def test_forged_xff_ignored_when_peer_untrusted(self, client, mock_conn, mock_redis, monkeypatch):
+        """With TRUSTED_PROXIES configured, a request that did NOT arrive from a
+        trusted proxy is rate-limited by its peer IP — a forged X-Forwarded-For
+        can't rotate the lockout key. (The TestClient peer 'testclient' is not
+        a trusted proxy, exactly like a direct connection to the backend.)"""
+        from app.config import get_settings
+
+        monkeypatch.setattr(get_settings(), "trusted_proxies", "198.51.100.0/24")
+        rate_key = "login_attempts:testclient:user@example.com"  # peer, NOT the forged IP
+        mock_redis.get.side_effect = lambda key: "5" if key == rate_key else None
+
+        resp = client.post(
+            self.LOGIN_URL,
+            json={"email": "user@example.com", "password": "wrongPass1"},
+            headers={"X-Forwarded-For": "1.2.3.4"},  # forged — peer is untrusted
+        )
+        assert resp.status_code == 429
+        assert "Too many login attempts" in resp.json()["detail"]
+
 
 class TestGetClientIp:
     """get_client_ip() must prefer the first X-Forwarded-For entry (real client
@@ -335,6 +354,98 @@ class TestGetClientIp:
 
         req = self._make_request(xff=None, peer=None)
         assert get_client_ip(req) == "unknown"
+
+
+class TestTrustedProxyXff:
+    """With TRUSTED_PROXIES configured, X-Forwarded-For is only parsed when the
+    DIRECT peer is a trusted proxy, and the chain is walked right-to-left — a
+    direct client's forged header is ignored entirely (the rate-limit forgery
+    fix), while legitimately proxied traffic still resolves the real client."""
+
+    TRUSTED = "198.51.100.0/24, 10.0.0.0/8"
+
+    @staticmethod
+    def _make_request(xff: str = None, peer: str = "198.51.100.10"):
+        from starlette.requests import Request
+
+        headers = []
+        if xff is not None:
+            headers.append((b"x-forwarded-for", xff.encode()))
+        scope = {"type": "http", "headers": headers, "client": (peer, 12345)}
+        return Request(scope)
+
+    @staticmethod
+    def _enable(monkeypatch):
+        from app.config import get_settings
+
+        monkeypatch.setattr(
+            get_settings(), "trusted_proxies", TestTrustedProxyXff.TRUSTED
+        )
+
+    def test_untrusted_peer_ignores_xff_entirely(self, monkeypatch):
+        """Direct connection (peer NOT a trusted proxy) → peer wins; a forged
+        X-Forwarded-For cannot rotate the rate-limit key."""
+        from app.security import get_client_ip
+
+        self._enable(monkeypatch)
+        req = self._make_request(xff="1.2.3.4, 5.6.7.8", peer="203.0.113.50")
+        assert get_client_ip(req) == "203.0.113.50"
+
+    def test_trusted_peer_uses_rightmost_untrusted_entry(self, monkeypatch):
+        """Behind a trusted proxy, the rightmost non-proxy entry is the client —
+        a client-supplied forged entry left of it is ignored."""
+        from app.security import get_client_ip
+
+        self._enable(monkeypatch)
+        req = self._make_request(xff="1.2.3.4, 203.0.113.9", peer="198.51.100.10")
+        assert get_client_ip(req) == "203.0.113.9"
+
+    def test_trusted_peer_skips_trusted_proxy_hops(self, monkeypatch):
+        """A trusted intermediate hop in the chain is skipped; the first
+        untrusted entry to its left is the real client."""
+        from app.security import get_client_ip
+
+        self._enable(monkeypatch)
+        req = self._make_request(xff="203.0.113.9, 10.1.2.3", peer="198.51.100.10")
+        assert get_client_ip(req) == "203.0.113.9"
+
+    def test_trusted_peer_single_entry_is_the_client(self, monkeypatch):
+        from app.security import get_client_ip
+
+        self._enable(monkeypatch)
+        req = self._make_request(xff="203.0.113.9", peer="198.51.100.10")
+        assert get_client_ip(req) == "203.0.113.9"
+
+    def test_trusted_peer_all_entries_trusted_falls_back_leftmost(self, monkeypatch):
+        """A purely internal (all-trusted) chain falls back to the leftmost entry."""
+        from app.security import get_client_ip
+
+        self._enable(monkeypatch)
+        req = self._make_request(xff="10.1.1.1, 10.2.2.2", peer="198.51.100.10")
+        assert get_client_ip(req) == "10.1.1.1"
+
+    def test_trusted_peer_junk_entries_skipped(self, monkeypatch):
+        """Malformed entries can't poison the parse or the resulting key."""
+        from app.security import get_client_ip
+
+        self._enable(monkeypatch)
+        req = self._make_request(xff="1.2.3.4, not-an-ip, 203.0.113.9", peer="198.51.100.10")
+        assert get_client_ip(req) == "203.0.113.9"
+
+    def test_trusted_peer_no_xff_uses_peer(self, monkeypatch):
+        from app.security import get_client_ip
+
+        self._enable(monkeypatch)
+        req = self._make_request(xff=None, peer="198.51.100.10")
+        assert get_client_ip(req) == "198.51.100.10"
+
+    def test_trusted_peer_ipv6_client(self, monkeypatch):
+        """IPv6 client addresses pass through untouched (colons preserved)."""
+        from app.security import get_client_ip
+
+        self._enable(monkeypatch)
+        req = self._make_request(xff="2001:db8::1", peer="198.51.100.10")
+        assert get_client_ip(req) == "2001:db8::1"
 
 
 class TestFailClosedConfig:
@@ -564,6 +675,48 @@ class TestProductionAppUrlGuard:
         get_settings = self._fresh_prod_settings(monkeypatch, "https://www.torrentcdn.store")
         settings = get_settings()
         assert settings.email_verification_required is True
+        get_settings.cache_clear()
+
+
+class TestTrustedProxiesConfigGuard:
+    """In production, an unset TRUSTED_PROXIES must warn loudly: per-IP rate
+    limits keep trusting the first X-Forwarded-For entry from ANY peer, so a
+    direct connection to the backend can forge the header to rotate past
+    login/register/upload limits until the proxy CIDRs are configured."""
+
+    GOOD_SECRET = "this-is-a-32-char-secret-for-testing-only!!"
+
+    @staticmethod
+    def _fresh_prod_settings(monkeypatch):
+        from app.config import get_settings
+
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("JWT_SECRET", TestTrustedProxiesConfigGuard.GOOD_SECRET)
+        monkeypatch.setenv("APP_URL", "https://www.torrentcdn.store")
+        monkeypatch.delenv("JWT_VERIFY_SECRET", raising=False)
+        monkeypatch.delenv("JWT_RESET_SECRET", raising=False)
+        monkeypatch.delenv("EMAIL_VERIFICATION_REQUIRED", raising=False)
+        monkeypatch.delenv("TRUSTED_PROXIES", raising=False)
+        get_settings.cache_clear()
+        return get_settings
+
+    def test_unset_trusted_proxies_logs_warning(self, monkeypatch, caplog):
+        import logging
+
+        get_settings = self._fresh_prod_settings(monkeypatch)
+        with caplog.at_level(logging.WARNING, logger="app.config"):
+            get_settings()
+        assert any("TRUSTED_PROXIES is unset" in r.message for r in caplog.records)
+        get_settings.cache_clear()
+
+    def test_configured_trusted_proxies_no_warning(self, monkeypatch, caplog):
+        import logging
+
+        get_settings = self._fresh_prod_settings(monkeypatch)
+        monkeypatch.setenv("TRUSTED_PROXIES", "198.51.100.0/24, 203.0.113.0/24")
+        with caplog.at_level(logging.WARNING, logger="app.config"):
+            get_settings()
+        assert not any("TRUSTED_PROXIES is unset" in r.message for r in caplog.records)
         get_settings.cache_clear()
 
 

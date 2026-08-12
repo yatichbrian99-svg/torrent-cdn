@@ -11,6 +11,16 @@ from ..security import get_client_ip
 
 VALID_EVENTS = {"peer_joined", "peer_left", "chunk_downloaded"}
 
+# A viewer can never download more bytes than the file contains, so a per-event
+# byte counter beyond a small multiple of the FILE's size is analytics
+# tampering. The pydantic model's absolute 2GB cap is the outer bound; this
+# RELATIVE bound is what actually stops a public unauthenticated poster from
+# inflating a file's stats with near-2GB events at 600/min/IP. The floor keeps
+# tiny files (small test clips, short audios) from ever tripping a legit
+# bursty client that reports a whole file in one event.
+ANALYTICS_EVENT_BYTES_MULTIPLIER = 10
+ANALYTICS_EVENT_BYTES_FLOOR = 1024 * 1024  # 1 MiB
+
 settings = get_settings()
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -115,11 +125,29 @@ async def track_event(
 
     pool = await get_db_pool()
     async with pool.acquire() as conn:
-        file_exists = await conn.fetchval(
-            "SELECT id FROM uploads WHERE id = $1", event.file_id
+        row = await conn.fetchrow(
+            "SELECT id, file_size_mb FROM uploads WHERE id = $1", event.file_id
         )
-        if not file_exists:
+        if not row:
             raise HTTPException(status_code=404, detail="File not found")
+
+        # File-size-relative sanity bound on the byte counters (see the module
+        # constants): the aggregate queries SUM the two columns, so the bound
+        # is on the SUM — an event reporting more than 10x the file's size
+        # total is a forged/tampered counter, not a real delivery report
+        # (legit clients report P2P OR origin bytes per event, never both at
+        # scale). Rejected rather than clamped so the attempt is visible (400)
+        # instead of silently contributing its maximum.
+        file_bytes = float(row["file_size_mb"] or 0) * 1024 * 1024
+        max_event_bytes = max(
+            file_bytes * ANALYTICS_EVENT_BYTES_MULTIPLIER,
+            ANALYTICS_EVENT_BYTES_FLOOR,
+        )
+        if event.bytes_p2p + event.bytes_origin > max_event_bytes:
+            raise HTTPException(
+                status_code=400,
+                detail="Byte counters exceed the file's size (possible analytics tampering)",
+            )
 
         await conn.execute(
             """INSERT INTO analytics (file_id, event_type, bytes_p2p, bytes_origin)

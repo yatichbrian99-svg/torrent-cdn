@@ -127,6 +127,49 @@ describe('AuthModal', () => {
     expect(mocks.saveToken).toHaveBeenCalledWith('real-token')
   })
 
+  it('warns when the last backup code was consumed before closing the modal', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    mocks.login.mockResolvedValue({ mfa_required: true, mfa_token: 'mfa-jwt', token_type: 'bearer' })
+    // The confirm consumed the FINAL backup code: the response reports 0 left.
+    mocks.mfaConfirm.mockResolvedValue({ access_token: 'real-token', token_type: 'bearer', backup_codes_remaining: 0 })
+    render(<AuthModal onClose={onClose} />)
+
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'user@example.com')
+    await user.type(screen.getByPlaceholderText('password'), 'securePass123')
+    await user.click(screen.getByRole('button', { name: 'Login' }))
+    await user.type(await screen.findByPlaceholderText('000000'), 'ABC1234567')
+    await user.click(screen.getByRole('button', { name: 'Verify code' }))
+
+    // Login succeeded (token saved) but the modal holds open with the warning
+    // instead of closing immediately.
+    await waitFor(() => expect(mocks.saveToken).toHaveBeenCalledWith('real-token'))
+    expect(await screen.findByText("You've used your last backup code")).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+
+    // Acknowledging completes the login (close + reload, as usual).
+    await user.click(screen.getByRole('button', { name: 'Continue to dashboard' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes immediately when backup codes remain (no last-code warning)', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    mocks.login.mockResolvedValue({ mfa_required: true, mfa_token: 'mfa-jwt', token_type: 'bearer' })
+    mocks.mfaConfirm.mockResolvedValue({ access_token: 'real-token', token_type: 'bearer', backup_codes_remaining: 9 })
+    render(<AuthModal onClose={onClose} />)
+
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'user@example.com')
+    await user.type(screen.getByPlaceholderText('password'), 'securePass123')
+    await user.click(screen.getByRole('button', { name: 'Login' }))
+    await user.type(await screen.findByPlaceholderText('000000'), 'ABC1234567')
+    await user.click(screen.getByRole('button', { name: 'Verify code' }))
+
+    await waitFor(() => expect(mocks.saveToken).toHaveBeenCalledWith('real-token'))
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText("You've used your last backup code")).not.toBeInTheDocument()
+  })
+
   it('shows the API detail on an invalid MFA code', async () => {
     const user = userEvent.setup()
     mocks.login.mockResolvedValue({ mfa_required: true, mfa_token: 'mfa-jwt', token_type: 'bearer' })

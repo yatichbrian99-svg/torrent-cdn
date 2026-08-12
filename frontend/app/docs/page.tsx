@@ -85,7 +85,7 @@ function SectionTitle({ children }: { children: ReactNode }) {
 
 export default function DocsPage() {
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10 select-none">
+    <div className="mx-auto max-w-3xl px-6 py-10">
       <h1 className="text-xl font-bold tracking-[-0.02em] text-white">API Reference</h1>
       <p className="mt-2 text-sm" style={{ color: '#555' }}>
         Programmatic access to upload, manage, and analyze your media.
@@ -244,6 +244,19 @@ curl -X POST ${BASE_URL}/auth/mfa/confirm \\
             (you will be asked to re-enroll at your next sign-in). Losing your authenticator is what the backup codes are for
             — each is single-use and can never be shown again.
           </p>
+          <div className="border p-5" style={{ borderColor: '#553333', backgroundColor: '#1a0d0d' }}>
+            <h4 className="mb-2 text-[10px] font-bold uppercase tracking-widest" style={{ color: '#f87171' }}>
+              Lost your authenticator?
+            </h4>
+            <p className="text-xs leading-relaxed" style={{ color: '#fca5a5' }}>
+              The single-use backup codes shown at enrollment are your recovery path — each can be
+              entered at login exactly once. If you lose both the app and every backup code, the
+              account cannot sign in: two-factor authentication is enforced for every account and
+              cannot be removed with a password alone (by design, so a stolen password can never
+              strip 2FA). Contact support with proof of account ownership to have two-factor
+              authentication reset.
+            </p>
+          </div>
         </div>
       </section>
 

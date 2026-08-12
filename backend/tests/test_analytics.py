@@ -153,7 +153,7 @@ class TestAnalyticsEventValidation:
         assert resp.status_code == 422
 
     def test_oversized_bytes_rejected(self, client):
-        """Absurd byte counters (>2GB per event) are rejected (422)."""
+        """Absurd byte counters (>2GB per event) are rejected at the model (422)."""
         resp = client.post(self.URL, json={
             "file_id": self.FILE_ID,
             "event_type": "chunk_downloaded",
@@ -164,7 +164,10 @@ class TestAnalyticsEventValidation:
 
     def test_valid_event_accepted(self, client, mock_conn):
         """A well-formed event with in-range counters is accepted."""
-        mock_conn.fetchval.return_value = UUID(self.FILE_ID)  # file exists
+        mock_conn.fetchrow.return_value = {
+            "id": UUID(self.FILE_ID),  # file exists
+            "file_size_mb": 1.0,       # 1 MiB
+        }
         resp = client.post(self.URL, json={
             "file_id": self.FILE_ID,
             "event_type": "chunk_downloaded",
@@ -173,3 +176,120 @@ class TestAnalyticsEventValidation:
         })
         assert resp.status_code == 200
         assert resp.json()["detail"] == "Event tracked"
+
+    def test_bytes_exceeding_file_size_rejected(self, client, mock_conn):
+        """An event reporting more than 10x the file's size is analytics
+        tampering — rejected even though it's under the model's 2GB cap."""
+        mock_conn.fetchrow.return_value = {
+            "id": UUID(self.FILE_ID),
+            "file_size_mb": 1.0,  # 1 MiB file → cap = 10 MiB
+        }
+        resp = client.post(self.URL, json={
+            "file_id": self.FILE_ID,
+            "event_type": "chunk_downloaded",
+            "bytes_p2p": 10 * 1024 * 1024 + 1,  # one byte over 10x
+            "bytes_origin": 0,
+        })
+        assert resp.status_code == 400
+        assert "analytics tampering" in resp.json()["detail"]
+
+    def test_origin_bytes_over_cap_rejected_too(self, client, mock_conn):
+        """The same relative bound applies to bytes_origin."""
+        mock_conn.fetchrow.return_value = {
+            "id": UUID(self.FILE_ID),
+            "file_size_mb": 1.0,
+        }
+        resp = client.post(self.URL, json={
+            "file_id": self.FILE_ID,
+            "event_type": "chunk_downloaded",
+            "bytes_p2p": 0,
+            "bytes_origin": 50 * 1024 * 1024,  # 50x the file
+        })
+        assert resp.status_code == 400
+
+    def test_combined_counters_over_cap_rejected(self, client, mock_conn):
+        """The bound is on the SUM of both counters (the aggregates add the two
+        columns) — each counter under the cap but 9.9x+9.9x total is rejected."""
+        mock_conn.fetchrow.return_value = {
+            "id": UUID(self.FILE_ID),
+            "file_size_mb": 1.0,  # 1 MiB file → cap = 10 MiB
+        }
+        resp = client.post(self.URL, json={
+            "file_id": self.FILE_ID,
+            "event_type": "chunk_downloaded",
+            "bytes_p2p": 6 * 1024 * 1024,   # 6 MiB — individually under
+            "bytes_origin": 6 * 1024 * 1024,  # 6 MiB — individually under; sum 12 MiB > 10 MiB
+        })
+        assert resp.status_code == 400
+
+    def test_combined_counters_within_cap_accepted(self, client, mock_conn):
+        """P2P + origin split that stays within the cap total is fine."""
+        mock_conn.fetchrow.return_value = {
+            "id": UUID(self.FILE_ID),
+            "file_size_mb": 1.0,
+        }
+        resp = client.post(self.URL, json={
+            "file_id": self.FILE_ID,
+            "event_type": "chunk_downloaded",
+            "bytes_p2p": 3 * 1024 * 1024,
+            "bytes_origin": 3 * 1024 * 1024,  # sum 6 MiB < 10 MiB
+        })
+        assert resp.status_code == 200
+
+    def test_exactly_at_cap_accepted(self, client, mock_conn):
+        """Boundary: a counter exactly at 10x the file size passes."""
+        mock_conn.fetchrow.return_value = {
+            "id": UUID(self.FILE_ID),
+            "file_size_mb": 1.0,  # 1 MiB file → cap = 10 MiB
+        }
+        resp = client.post(self.URL, json={
+            "file_id": self.FILE_ID,
+            "event_type": "chunk_downloaded",
+            "bytes_p2p": 10 * 1024 * 1024,
+            "bytes_origin": 0,
+        })
+        assert resp.status_code == 200
+
+    def test_full_file_report_accepted(self, client, mock_conn):
+        """A legit bursty client reporting a whole file in one event passes
+        (well under the 10x multiplier)."""
+        mock_conn.fetchrow.return_value = {
+            "id": UUID(self.FILE_ID),
+            "file_size_mb": 100.0,  # 100 MiB file
+        }
+        resp = client.post(self.URL, json={
+            "file_id": self.FILE_ID,
+            "event_type": "chunk_downloaded",
+            "bytes_p2p": 100 * 1024 * 1024,
+            "bytes_origin": 0,
+        })
+        assert resp.status_code == 200
+
+    def test_tiny_file_floor_applies(self, client, mock_conn):
+        """A tiny file gets the 1 MiB floor — a small report is never falsely
+        rejected by the 10x math."""
+        mock_conn.fetchrow.return_value = {
+            "id": UUID(self.FILE_ID),
+            "file_size_mb": 0.01,  # ~10 KB file → 10x = 100 KB, floored to 1 MiB
+        }
+        resp = client.post(self.URL, json={
+            "file_id": self.FILE_ID,
+            "event_type": "chunk_downloaded",
+            "bytes_p2p": 512 * 1024,  # 512 KiB — under the 1 MiB floor
+            "bytes_origin": 0,
+        })
+        assert resp.status_code == 200
+
+    def test_zero_size_file_still_has_floor(self, client, mock_conn):
+        """A NULL/zero file_size_mb row still enforces the floor cap."""
+        mock_conn.fetchrow.return_value = {
+            "id": UUID(self.FILE_ID),
+            "file_size_mb": None,
+        }
+        resp = client.post(self.URL, json={
+            "file_id": self.FILE_ID,
+            "event_type": "chunk_downloaded",
+            "bytes_p2p": 2 * 1024 * 1024,  # 2 MiB > 1 MiB floor
+            "bytes_origin": 0,
+        })
+        assert resp.status_code == 400

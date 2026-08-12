@@ -160,6 +160,32 @@ A built-in endpoint that receives CSP violation reports from browsers.
 
 ---
 
+## Account Recovery — MFA Reset (admin procedure)
+
+Mandatory 2FA means a user who loses their authenticator app **and** every
+single-use backup code can never pass the second-factor gate again — there is
+no self-service escape hatch (by design: a password alone must never be able to
+strip 2FA). Recovery is a **manual, admin-gated database operation**:
+
+```sql
+-- Only run after verifying account ownership (e.g. email control + payment
+-- history / a support ticket). Wipes the TOTP secret + backup codes so the
+-- user re-enrolls at their next sign-in (login answers needs_setup=true).
+UPDATE users
+SET mfa_enabled = FALSE, mfa_secret = NULL, mfa_backup_codes = NULL
+WHERE id = '<user-uuid>';
+```
+
+- The user's next login goes through the mandatory-enrollment flow and mints a
+  fresh secret + new backup codes.
+- Pre-existing session tokens are untouched by this SQL (sessions are only
+  rotated by the MFA enable/disable endpoints themselves); the account simply
+  signs in again.
+- Prefer resetting over deleting the account — the account keeps its files,
+  plan, and referral history.
+
+---
+
 ## Pre-merge CI Gates
 
 Every push/PR to `main` runs `.github/workflows/security.yml` + `.github/workflows/dependency-audit.yml` — **all jobs must be green before merging** (the scheduled jobs also run on their daily crons; `p2p-e2e` is push/manual-dispatch only and `api-key-live` + `upload-live` are schedule/manual-dispatch only because they write to production). PRs get inline gitleaks comments pointing at the offending line when a secret is introduced; the build fails on anything below:

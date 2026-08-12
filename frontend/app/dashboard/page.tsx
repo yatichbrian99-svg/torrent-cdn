@@ -30,7 +30,7 @@ export default function DashboardPage() {
   const [deleteAccountConfirm, setDeleteAccountConfirm] = useState(false)
   const [deletingAccount, setDeletingAccount] = useState(false)
   // Two-factor authentication state
-  const [mfa, setMfa] = useState<{ enabled: boolean; is_admin: boolean } | null>(null)
+  const [mfa, setMfa] = useState<{ enabled: boolean; is_admin: boolean; backup_codes_remaining?: number | null } | null>(null)
   const [mfaSetup, setMfaSetup] = useState<{ secret: string; otpauth_uri: string; backup_codes: string[]; qr?: string } | null>(null)
   const [mfaCode, setMfaCode] = useState('')
   const [mfaBusy, setMfaBusy] = useState(false)
@@ -375,6 +375,18 @@ export default function DashboardPage() {
         {mfa?.enabled && (
           <p className="mt-2 flex items-center gap-2 text-xs" style={{ color: '#4ade80' }}>
             <ShieldCheck size={14} /> Enabled
+          </p>
+        )}
+        {/* Persistent warning: the status endpoint reports no unused backup
+            codes (0 left, or NULL for pre-backup-code accounts) — losing the
+            authenticator app now means losing the account, so the panel keeps
+            reminding until the user mints a fresh set. */}
+        {mfa?.enabled && !mfa.backup_codes_remaining && (
+          <p className="mt-2 flex items-start gap-2 border px-3 py-2 text-xs leading-relaxed"
+            style={{ borderColor: '#7c2d12', backgroundColor: '#1c0f06', color: '#fbbf24' }}>
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            You've used all your backup codes. If you lose your authenticator app, you won't be
+            able to sign in. Disable and re-enable two-factor authentication to generate a fresh set.
           </p>
         )}
 

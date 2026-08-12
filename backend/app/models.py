@@ -113,9 +113,16 @@ class TokenResponse(BaseModel):
 
 class MfaStatusResponse(BaseModel):
     """MFA state for the dashboard. `is_admin` is retained for compatibility
-    (MFA is now required for every account, not just admins)."""
+    (MFA is now required for every account, not just admins).
+
+    `backup_codes_remaining` is the count of UNUSED single-use backup codes
+    (None when MFA is off or no codes are stored). The UI warns the user as
+    the count hits zero — the last code is the last chance to get back in
+    without the authenticator app.
+    """
     enabled: bool
     is_admin: bool = False
+    backup_codes_remaining: Optional[int] = None
 
 
 class MfaSetupResponse(BaseModel):

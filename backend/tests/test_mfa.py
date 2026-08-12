@@ -200,6 +200,66 @@ class TestLoginSecondFactor:
         })
         assert resp2.status_code == 401
 
+    def test_confirm_reports_codes_remaining_after_backup_use(self, client, mock_conn):
+        """The confirm response carries how many codes are left after a backup
+        login, so the UI can warn the user as they run out."""
+        _, codes = self._mfa_user(mock_conn)
+        login = client.post(self.LOGIN_URL, json={
+            "email": "user@example.com", "password": "securePass123",
+        }).json()
+        mock_conn.fetchrow.return_value = {
+            "mfa_enabled": True,
+            "mfa_secret": generate_totp_secret(),
+            "mfa_backup_codes": json.dumps(hash_backup_codes(codes)),
+        }
+        mock_conn.execute.return_value = "UPDATE 1"
+
+        resp = client.post(self.CONFIRM_URL, json={
+            "mfa_token": login["mfa_token"], "code": codes[0],
+        })
+        assert resp.status_code == 200
+        assert resp.json()["backup_codes_remaining"] == len(codes) - 1
+
+    def test_confirm_with_last_backup_code_reports_zero(self, client, mock_conn):
+        """Consuming the FINAL code reports 0 — the trigger for the UI hint:
+        the user is out of recovery codes and must mint a fresh set."""
+        self._mfa_user(mock_conn)
+        code = generate_backup_codes(1)[0]
+        login = client.post(self.LOGIN_URL, json={
+            "email": "user@example.com", "password": "securePass123",
+        }).json()
+        mock_conn.fetchrow.return_value = {
+            "mfa_enabled": True,
+            "mfa_secret": generate_totp_secret(),
+            "mfa_backup_codes": json.dumps(hash_backup_codes([code])),
+        }
+        mock_conn.execute.return_value = "UPDATE 1"
+
+        resp = client.post(self.CONFIRM_URL, json={
+            "mfa_token": login["mfa_token"], "code": code,
+        })
+        assert resp.status_code == 200
+        assert resp.json()["backup_codes_remaining"] == 0
+
+    def test_totp_confirm_omits_backup_codes_remaining(self, client, mock_conn):
+        """TOTP logins consume nothing — the field must be absent (not 0) so
+        the UI never shows the last-code warning for an authenticator login."""
+        secret, _ = self._mfa_user(mock_conn)
+        login = client.post(self.LOGIN_URL, json={
+            "email": "user@example.com", "password": "securePass123",
+        }).json()
+        mock_conn.fetchrow.return_value = {
+            "mfa_enabled": True,
+            "mfa_secret": secret,
+            "mfa_backup_codes": json.dumps(hash_backup_codes(generate_backup_codes())),
+        }
+        resp = client.post(self.CONFIRM_URL, json={
+            "mfa_token": login["mfa_token"], "code": totp_code(secret),
+        })
+        assert resp.status_code == 200
+        assert resp.json()["access_token"]
+        assert "backup_codes_remaining" not in resp.json()
+
     def test_confirm_with_expired_or_bogus_token(self, client, mock_conn):
         resp = client.post(self.CONFIRM_URL, json={
             "mfa_token": "bogus", "code": "123456",
@@ -259,10 +319,26 @@ class TestMfaLifecycle:
     """Setup → enable (code proves possession) → disable (code required)."""
 
     def test_status(self, client, auth_headers, mock_conn):
-        mock_conn.fetchrow.return_value = {"mfa_enabled": False, "is_admin": True}
+        mock_conn.fetchrow.return_value = {
+            "mfa_enabled": False,
+            "is_admin": True,
+            "mfa_backup_codes": None,
+        }
         resp = client.get("/auth/mfa", headers=auth_headers)
         assert resp.status_code == 200
-        assert resp.json() == {"enabled": False, "is_admin": True}
+        assert resp.json() == {"enabled": False, "is_admin": True, "backup_codes_remaining": None}
+
+    def test_status_reports_remaining_backup_codes(self, client, auth_headers, mock_conn):
+        """The dashboard needs the live count of unused codes (the persistent
+        warning fires when it hits zero)."""
+        mock_conn.fetchrow.return_value = {
+            "mfa_enabled": True,
+            "is_admin": False,
+            "mfa_backup_codes": json.dumps(hash_backup_codes(generate_backup_codes(3))),
+        }
+        resp = client.get("/auth/mfa", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["backup_codes_remaining"] == 3
 
     def test_setup_returns_secret_uri_and_codes_once(self, client, auth_headers, mock_conn):
         mock_conn.fetchrow.return_value = {
@@ -446,6 +522,8 @@ class TestMandatoryMfa:
         })
         assert resp.status_code == 200
         assert resp.json()["access_token"]
+        # Enrollment consumes nothing — the last-code field must be absent.
+        assert "backup_codes_remaining" not in resp.json()
 
         # mfa_enabled flipped TRUE, and pre-MFA sessions rotated (stamp bump).
         sqls = [str(c.args[0]).lower() for c in mock_conn.execute.call_args_list]

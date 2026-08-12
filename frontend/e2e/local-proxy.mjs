@@ -14,6 +14,13 @@ const BACKEND = process.env.E2E_API_URL || 'https://torrent-cdn.onrender.com'
 const FRONTEND = process.env.E2E_FRONTEND_PORT || 3001
 const PORT = process.env.E2E_PROXY_PORT || 3000
 const backendUrl = new URL(BACKEND)
+// Honor the backend URL's protocol/port instead of assuming https:443 — that
+// assumption 502'd every browser API call when the proxy was pointed at a
+// local http backend (E2E_API_URL=http://localhost:8000), which is exactly
+// the local-build-vs-prod-backend and full-local flows the proxy exists for.
+const backendHttps = backendUrl.protocol === 'https:'
+const backendMod = backendHttps ? https : http
+const backendPort = backendUrl.port || (backendHttps ? 443 : 80)
 
 const server = http.createServer((req, res) => {
   // Mirror vercel.json's rewrite list exactly (same-origin proxy contract):
@@ -21,9 +28,9 @@ const server = http.createServer((req, res) => {
   // /admin, /notifications — everything else is the frontend.
   const isApi = /^\/(api|auth|upload|files|analytics|billing|admin|notifications)(\/|$)/.test(req.url)
   if (isApi) {
-    const upstream = https.request({
+    const upstream = backendMod.request({
       hostname: backendUrl.hostname,
-      port: 443,
+      port: backendPort,
       path: req.url,
       method: req.method,
       headers: { ...req.headers, host: backendUrl.host },

@@ -158,7 +158,10 @@ async def revoke_user_sessions(user_id) -> None:
     try:
         redis = await get_redis()
         if redis is not None:
-            await redis.set(f"pw_change:{uid}", str(time.time()))
+            # Whole-second value to match the token iat granularity used by
+            # _token_revoked_by_password_change (a fractional marker written
+            # in the same second as a freshly minted token would reject it).
+            await redis.set(f"pw_change:{uid}", str(int(time.time())))
     except Exception as e:
         logger.warning("pw_change marker failed for %s: %s", uid, e)
 
@@ -247,13 +250,23 @@ async def _token_revoked_by_password_change(payload: dict) -> bool:
     if not iat:
         return False
     sub = payload.get("sub")
+    # Token iat is SECOND-precision (PyJWT serializes datetimes as int Unix
+    # seconds), but the revocation markers carry fractional seconds (Redis
+    # time.time(), DB NOW()). Comparing them directly rejects a token minted
+    # in the SAME second as the change — e.g. mid-login MFA enrollment, which
+    # revokes then immediately mints the session token. Floor the markers to
+    # whole seconds so a same-second token (minted AFTER the change) survives;
+    # a token from an EARLIER second is still rejected. A sub-second staleness
+    # window for tokens issued just before a change is inherent to
+    # second-precision iat.
+    iat_secs = int(float(iat))
     # Fast path: Redis marker (written alongside the DB stamp on every change).
     try:
         redis = await get_redis()
         if redis is not None:
             changed = await redis.get(f"pw_change:{sub}")
             if changed is not None:
-                return float(changed) > float(iat)
+                return int(float(changed)) > iat_secs
     except Exception:
         # Redis error mid-check — fall through to the authoritative DB stamp.
         pass
@@ -262,7 +275,7 @@ async def _token_revoked_by_password_change(payload: dict) -> bool:
     try:
         stamp = await get_user_security_stamp(sub)
         if stamp is not None:
-            return stamp.timestamp() > float(iat)
+            return int(stamp.timestamp()) > iat_secs
     except Exception as e:
         logger.warning("security_stamp check failed for %s: %s", sub, e)
     return False

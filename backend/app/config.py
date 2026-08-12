@@ -88,6 +88,15 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = "http://localhost:3000,http://frontend:3000"
     trusted_hosts: str = "localhost,127.0.0.1,frontend,*.onrender.com,*.vercel.app"
+    # Trusted reverse proxies that set X-Forwarded-For for proxied traffic
+    # (Vercel edge, a CDN, Caddy, the e2e local proxy...) — comma-separated
+    # IPs and/or CIDRs. get_client_ip() only parses XFF when the DIRECT peer is
+    # one of these; a request arriving from any other source is rate-limited by
+    # its peer IP, because a client connecting straight to this backend can
+    # forge XFF to rotate past per-IP limits. When empty, the legacy behavior
+    # is kept (first XFF entry trusted from any peer) with a production startup
+    # warning — see get_settings().
+    trusted_proxies: str = ""
 
     # Limits
     # 2GB — the app's own ceiling for a single file. Supabase Storage free tier
@@ -118,6 +127,14 @@ class Settings(BaseSettings):
     # global limiter only paces request rate, not cumulative uploads.
     rate_limit_uploads: int = 10           # max uploads per IP per window
     rate_limit_uploads_window: int = 3600  # window in seconds (1 hour)
+
+    # Referral program: LIFETIME cap on the bonus GB a single referrer can earn
+    # (they get +10GB per successful referral; LEAST clamps the running total at
+    # this value). Without a cap, referral farming — many accounts registered
+    # against one code — grants unlimited free bandwidth; the cap bounds the
+    # abuse to the per-IP registration throttle alone. Existing balances are
+    # grandfathered (never reduced), only future growth is capped.
+    referral_bonus_cap_gb: int = 100
 
     # Orphaned-object sweep cadence (production background task that deletes
     # storage objects PUT but never finalized). Env: ORPHAN_SWEEP_INTERVAL_SECONDS.
@@ -203,6 +220,20 @@ def get_settings() -> Settings:
                 "idempotency, presign sessions) will fall back to in-memory/DB. "
                 "Set REDIS_URL to your managed Redis connection string in production.",
                 redis_url or "unset",
+            )
+        # Per-IP rate limits resolve the client from X-Forwarded-For only when
+        # the request arrived from a TRUSTED proxy (TRUSTED_PROXIES). Unset,
+        # the first XFF entry is trusted from ANY peer — a client hitting this
+        # backend directly (Render exposes the onrender.com URL publicly) can
+        # forge the header to rotate past login/register/upload limits. Fail
+        # loudly so an operator who forgot it sees the warning before an
+        # attacker does; Vercel's current edge CIDRs are published at
+        # https://vercel.com/docs/edge-network/regions#ip-ranges.
+        if not settings.trusted_proxies:
+            logger.warning(
+                "TRUSTED_PROXIES is unset — X-Forwarded-For is trusted from any peer "
+                "(spoofable by direct connections to this backend). Set it to your "
+                "proxy's CIDRs to make per-IP rate limits forgery-resistant."
             )
         # Admin bootstrap without a token is an open admin-promotion door: any
         # authenticated user can promote themselves (or anyone) while the flag

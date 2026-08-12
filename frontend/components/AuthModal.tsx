@@ -32,12 +32,16 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
   const [mfaSetupData, setMfaSetupData] = useState<MfaSetupData | null>(null)
   const [mfaCode, setMfaCode] = useState('')
   const [copiedUri, setCopiedUri] = useState(false)
+  // Set when the confirm response reports the LAST backup code was consumed —
+  // the modal holds open to warn the user before they land in the dashboard.
+  const [lastBackupCodeUsed, setLastBackupCodeUsed] = useState(false)
 
   const resetMfa = (keepError = false) => {
     setMfaToken(null)
     setMfaNeedsSetup(false)
     setMfaSetupData(null)
     setMfaCode('')
+    setLastBackupCodeUsed(false)
     if (!keepError) setError('')
   }
 
@@ -127,6 +131,14 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
     try {
       const data = await api.mfaConfirm(mfaToken, mfaCode)
       saveToken(data.access_token)
+      // The LAST backup code was just consumed. The login succeeded (token is
+      // saved) but the modal stays open to warn the user before they land in
+      // the dashboard — zero codes left means losing the authenticator app is
+      // losing the account.
+      if (data.backup_codes_remaining === 0) {
+        setLastBackupCodeUsed(true)
+        return
+      }
       onClose()
       window.location.reload()
     } catch (err: any) {
@@ -147,6 +159,14 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
     setTimeout(() => setCopiedUri(false), 2000)
   }
 
+  // Dismiss the last-backup-code warning: the login already succeeded (the
+  // token is saved), so this completes the same close + reload as a normal
+  // successful MFA login.
+  const finishLogin = () => {
+    onClose()
+    window.location.reload()
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.8)' }}>
       <div className="w-full max-w-sm border p-8" style={{ backgroundColor: '#111', borderColor: '#333' }}>
@@ -154,7 +174,36 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
           <h2 className="text-sm font-semibold text-white">
             {mfaToken && mfaNeedsSetup ? 'Set up two-factor authentication' : mfaToken ? 'Two-factor verification' : (isLogin ? 'Login' : 'Create account')}
           </h2>
-          <button onClick={onClose} className="text-sm" style={{ color: '#555' }}>&times;</button>
+          <button
+            onClick={() => {
+              // On the last-backup-code warning the login already succeeded
+              // (token saved) — the × must complete it the same way as
+              // "Continue to dashboard" (close + reload), or the page would
+              // stay visually logged out despite a valid session.
+              if (lastBackupCodeUsed) {
+                finishLogin()
+                return
+              }
+              // During a SIGNUP-triggered mandatory-enrollment step the account
+              // already exists but has no session yet — closing the modal would
+              // strand the user (retrying signup then hits "Email already
+              // registered", a dead end that looks like a bug). Bounce to the
+              // login view instead, where signing in re-triggers enrollment
+              // with a fresh mfa_token.
+              if (mfaToken && mfaNeedsSetup && !isLogin) {
+                setIsLogin(true)
+                resetMfa()
+                setError('Your account was created — verify your email, then log in to set up two-factor authentication.')
+              } else {
+                onClose()
+              }
+            }}
+            className="text-sm"
+            style={{ color: '#555' }}
+            aria-label="Close"
+          >
+            &times;
+          </button>
         </div>
 
         {mfaToken && mfaNeedsSetup ? (
@@ -243,6 +292,32 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
           </form>
         ) : mfaToken ? (
           // --- Already enrolled: just the code field ---
+          lastBackupCodeUsed ? (
+            // The login succeeded (token saved) but the LAST backup code was
+            // just consumed — hold the modal open and warn before the user
+            // lands in the dashboard: zero codes left means a lost
+            // authenticator app is a locked-out account.
+            <div className="flex flex-col gap-4">
+              <div className="border p-4" style={{ borderColor: '#7c2d12', backgroundColor: '#1c0f06' }}>
+                <p className="text-sm font-medium" style={{ color: '#fbbf24' }}>
+                  You've used your last backup code
+                </p>
+                <p className="mt-2 text-xs leading-relaxed" style={{ color: '#ccc' }}>
+                  Backup codes are single-use and there are none left. If you ever lose your
+                  authenticator app, you won't be able to sign in again. Generate a fresh set
+                  by disabling and re-enabling two-factor authentication from your dashboard.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={finishLogin}
+                className="w-full border py-2 text-sm font-medium transition-opacity hover:opacity-80"
+                style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000' }}
+              >
+                Continue to dashboard
+              </button>
+            </div>
+          ) : (
           <form onSubmit={handleMfaSubmit} className="flex flex-col gap-5">
             <div>
               <label className="mb-1 block text-xs uppercase tracking-widest" style={{ color: '#555' }}>Two-factor code</label>
@@ -278,6 +353,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
               Back to login
             </button>
           </form>
+          )
         ) : (
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">
           <div>

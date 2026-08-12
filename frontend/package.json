@@ -22,6 +22,7 @@
     "test:e2e:mfa-full": "node e2e/mfa-flow.mjs",
     "test:e2e:visual": "node e2e/visual-pass.mjs",
     "test:e2e:noselect": "node e2e/admin-noselect.mjs",
+    "test:e2e:last-code": "node e2e/last-backup-code.mjs",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"
   },
