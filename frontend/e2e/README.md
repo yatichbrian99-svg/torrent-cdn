@@ -20,6 +20,7 @@ development, now saved as a repeatable suite.
 | Login form | `npm run test:e2e:login` | Drives the REAL auth form (every other suite seeds sessionStorage): wrong password → the actual "Invalid email or password" detail (401); correct credentials → either the logged-in navbar (verified account via `E2E_EMAIL`) or the actual "Email not verified…" gate detail (403) — production gates password login on email verification by design |
 | Two-factor auth (TOTP) | `npm run test:e2e:mfa` | MFA lifecycle: `E2E_EMAIL`/`E2E_PASSWORD` of a **verified** account → the complete journey — password login → `/auth/mfa/setup` → the 6-digit code is **computed from the setup secret in the test** (RFC 6238, node:crypto) → enable → the pre-MFA session is rotated out (401) → the real browser shows the 6-digit step, a wrong code surfaces the real 401, and the computed code reaches the logged-in navbar → a backup code logs in once and **replay fails** → MFA disabled and the account restored. Without `E2E_EMAIL` it runs the production-safe boundary subset (setup shape, wrong-code 400, no session rotation) on a throwaway and deletes it |
 | Visual smoke | `npm run test:e2e:visual` | Loads the landing page, docs, and the logged-in dashboard (+ a 375px mobile landing shot); saves full-page screenshots under `e2e/.artifacts/visual-*.png`; fails on any JS page error or non-resource console error |
+| No text selection (admin) | `npm run test:e2e:noselect` | All three admin pages (`/admin`, `/admin/health`, `/admin/payouts`) render with the panel's `select-none` treatment: the content root resolves to `user-select: none`, and a **real mouse drag across page text leaves `window.getSelection()` empty** — the highlight a user would see never happens. Requires `E2E_ADMIN_TOKEN` (admin pages redirect non-admins to `/`); without it the suite skips cleanly (exit 0, reported as `skipped`) |
 
 All suites:
 - create a **throwaway account + test file** and delete the file in cleanup; the
@@ -43,7 +44,7 @@ npx playwright install chromium   # one-time: installs the headless browser
 ## Running
 
 ```bash
-npm run test:e2e                       # all eleven suites
+npm run test:e2e                       # all twelve suites
 npm run test:e2e:upload                # direct upload only
 npm run test:e2e:fallback              # chunked fallback only
 npm run test:e2e:embed                 # embed playback only
@@ -55,6 +56,7 @@ npm run test:e2e:finalize-retry-lost   # ... + lost-response (server completed, 
 npm run test:e2e:embed-speed           # success screen within EMBED_BUDGET_SECONDS (default 10s)
 npm run test:e2e:login                 # real login form (401/403 message surfacing)
 npm run test:e2e:visual                # page renders + screenshots + console-error check
+npm run test:e2e:noselect               # admin pages: text is not selectable/highlightable
 ```
 
 `node e2e/run-all.mjs <prefix>` also runs a single suite (e.g. `node e2e/run-all.mjs embed`).
@@ -69,6 +71,7 @@ The full batch additionally runs on every push and on manual dispatch via the
 | `E2E_TOKEN` | Existing account token — skips registration **and** user cleanup |
 | `E2E_FILE` | Path to a pre-made file — skips ffmpeg synthesis |
 | `E2E_STORAGE_HOSTS` | Extra storage-host substrings (comma-separated) to add to the storage matcher. Needed when `cdn.torrentcdn.store` becomes the media host (see `helpers.mjs` `STORAGE_HOST_RE`) — without it the P2P suites would stop blocking the origin and silently pass without proving WebRTC |
+| `E2E_ADMIN_TOKEN` | Session token of an ADMIN account — required by the no-select suite (admin pages redirect non-admins); without it that suite skips |
 | `E2E_FILE_ID` | (embed suite) Existing file id — skips the API upload |
 | `E2E_FILE` | (p2p suite) The seeder reproduces the backend infohash, so a pre-made file must have been uploaded with the same bytes — prefer the default synthesis |
 | `FFMPEG_PATH` | ffmpeg binary path (default `ffmpeg`) |
@@ -80,9 +83,11 @@ job `p2p-e2e`, runs on every push to `main` + manual `workflow_dispatch`, NOT
 pull requests — the suites write to production). Because Vercel deploys lag the
 push, the job does NOT hit the deployed site — it **builds the pushed code**,
 serves it locally (`next start` behind `e2e/local-proxy.mjs`, which mirrors
-vercel.json's rewrites), and runs `node e2e/run-all.mjs` (all eleven suites)
-against that build with the **production Render backend** underneath. So every
-push validates:
+vercel.json's rewrites), and runs `node e2e/run-all.mjs` (all twelve suites)
+against that build with the **production Render backend** underneath. The
+no-select suite self-skips there (CI has no admin token — admin pages redirect
+non-admins), so it's a local/post-deploy check; the other eleven assert
+fully. Every push validates:
 - the pushed player's P2P path against production's magnet/tracker/analytics
   contract (2-peer swarm + auto-seed with origin streaming blocked),
 - direct + fallback uploads, embed playback, API-key UI, the finalize

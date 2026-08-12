@@ -14,7 +14,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
-const suites = ['upload-direct.mjs', 'upload-fallback.mjs', 'embed-playback.mjs', 'auto-seed.mjs', 'p2p-two-peer.mjs', 'api-key-ui.mjs', 'finalize-retry.mjs', 'embed-speed.mjs', 'login-flow.mjs', 'mfa-flow.mjs', 'visual-pass.mjs']
+const suites = ['upload-direct.mjs', 'upload-fallback.mjs', 'embed-playback.mjs', 'auto-seed.mjs', 'p2p-two-peer.mjs', 'api-key-ui.mjs', 'finalize-retry.mjs', 'embed-speed.mjs', 'login-flow.mjs', 'mfa-flow.mjs', 'visual-pass.mjs', 'admin-noselect.mjs']
 const requested = process.argv.slice(2)
 const toRun = requested.length
   ? suites.filter((s) => requested.some((r) => s.startsWith(r)))
