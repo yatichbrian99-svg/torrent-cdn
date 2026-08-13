@@ -128,6 +128,18 @@ class Settings(BaseSettings):
     rate_limit_uploads: int = 10           # max uploads per IP per window
     rate_limit_uploads_window: int = 3600  # window in seconds (1 hour)
 
+    # Scaling (see render.yaml / Dockerfile): asyncpg pool size PER gunicorn
+    # worker. Keep workers × db_pool_max_size under the Supabase pooler's
+    # connection cap (free tier ~60) or PgBouncer rejects connections.
+    # db_pool_acquire_timeout bounds how long a request waits for a pool slot
+    # when the pool is exhausted — past it the request returns a retryable 503
+    # (asyncio.TimeoutError → 503 handler in main.py) instead of hanging until
+    # the client or gunicorn gives up. Env: DB_POOL_MIN_SIZE / DB_POOL_MAX_SIZE
+    # / DB_POOL_ACQUIRE_TIMEOUT.
+    db_pool_min_size: int = 2
+    db_pool_max_size: int = 10
+    db_pool_acquire_timeout: float = 10.0
+
     # Referral program: LIFETIME cap on the bonus GB a single referrer can earn
     # (they get +10GB per successful referral; LEAST clamps the running total at
     # this value). Without a cap, referral farming — many accounts registered

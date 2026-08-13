@@ -301,3 +301,85 @@ class TestChunkedUpload:
         )
         assert resp.status_code == 404
         assert resp.json()["detail"] == "Upload session not found"
+
+
+class TestChunkSessionRedisSurvival:
+    """Chunk sessions are Redis-backed so MULTIPLE gunicorn workers (or an
+    instance recycle) never split a session: created on worker A, the session
+    must be continuable on worker B whose in-memory dict is cold."""
+
+    SESSION_URL = "/upload/session"
+    TEST_USER = {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"}
+    VALID_MP4 = b"\x00\x00\x00\x20ftypmp42"
+
+    def test_chunk_session_survives_worker_handoff_via_redis(
+        self, client, auth_headers, mock_conn, mock_redis
+    ):
+        # Session create fetchrow order: dedup -> user -> usage.
+        mock_conn.fetchrow.side_effect = [None, self.TEST_USER, None]
+        resp = client.post(
+            self.SESSION_URL,
+            headers=auth_headers,
+            json={
+                "filename": "test-video.mp4",
+                "file_size": 26,
+                "total_chunks": 1,
+                "content_type": "video/mp4",
+                "idempotency_key": "worker-handoff",
+            },
+        )
+        assert resp.status_code == 200
+        upload_id = resp.json()["upload_id"]
+
+        # Capture the session JSON written to Redis, then simulate worker B:
+        # its in-memory dict is cold (never saw the create call).
+        redis_store = {}
+        for call in mock_redis.setex.call_args_list:
+            key, _ttl, value = call.args
+            redis_store[key] = value
+        assert f"chunk_session:{upload_id}" in redis_store
+        import json as _json
+        persisted = _json.loads(redis_store[f"chunk_session:{upload_id}"])
+        # JSON round-trip shape: received is a LIST, user_id a STRING.
+        assert persisted["received"] == []
+        assert isinstance(persisted["user_id"], str)
+        upload_route._chunk_sessions.clear()
+
+        # Worker B: chunk arrives, session is loaded from Redis (memory cold),
+        # the assembly temp file is created on this worker's shared /tmp, and
+        # the updated received set is written back to Redis.
+        mock_redis.get.side_effect = lambda key: redis_store.get(key)
+        chunk = client.post(
+            f"/upload/chunk/{upload_id}/0",
+            headers=auth_headers,
+            files={"chunk": ("chunk-0", BytesIO(self.VALID_MP4), "application/octet-stream")},
+        )
+        assert chunk.status_code == 200
+        assert chunk.json() == {"received": 1, "total": 1}
+
+        # The updated session (received=[0], path set) was written back to Redis.
+        redis_store = {}
+        for call in mock_redis.setex.call_args_list:
+            key, _ttl, value = call.args
+            redis_store[key] = value
+        last = _json.loads(redis_store[f"chunk_session:{upload_id}"])
+        assert last["received"] == [0]
+        assert last["path"]
+
+        # finalize on worker B reads the assembled file via the Redis session.
+        mock_conn.fetchrow.side_effect = [
+            None,  # dedup
+            self.TEST_USER,
+            None,  # usage
+            None,  # content-dedup miss
+            {"id": UUID("22222222-2222-4222-8222-222222222222")},
+        ]
+        final = client.post(f"/upload/finalize/{upload_id}", headers=auth_headers)
+        assert final.status_code == 200
+
+        # Cleanup: the session + its temp file (both stores).
+        session = upload_route._chunk_sessions.pop(upload_id, None)
+        if session:
+            path = session.get("path")
+            if path and os.path.exists(path):
+                os.remove(path)

@@ -131,11 +131,25 @@ async def get_db_pool() -> asyncpg.Pool:
     if pg_pool is None:
         pg_pool = await asyncpg.create_pool(
             settings.database_url,
-            min_size=2,
-            max_size=10,
+            min_size=settings.db_pool_min_size,
+            max_size=settings.db_pool_max_size,
             # Required for Supabase/PgBouncer which doesn't support prepared statements
             statement_cache_size=0,
         )
+        # Bound the pool-acquire wait. asyncpg's default acquire() blocks
+        # INDEFINITELY when every connection is busy (the failure mode seen at
+        # ~300 concurrent users: requests hang until the client or gunicorn
+        # gives up). With a timeout, saturation instead raises
+        # asyncio.TimeoutError → the 503 handler in main.py → a fast retryable
+        # response. The wrapper applies the default to all 68 `pool.acquire()`
+        # call sites without touching them; explicit timeouts still win.
+        _orig_acquire = pg_pool.acquire
+
+        def _acquire_with_timeout(*args, **kwargs):
+            kwargs.setdefault("timeout", settings.db_pool_acquire_timeout)
+            return _orig_acquire(*args, **kwargs)
+
+        pg_pool.acquire = _acquire_with_timeout
     return pg_pool
 
 
