@@ -224,3 +224,29 @@ class TestDeleteFile:
         """Should reject deletion without auth token (401)."""
         resp = client.delete(f"/files/{FILE_ID}")
         assert resp.status_code == 401
+
+
+class TestPoolSaturation:
+    """Saturation behavior: when the asyncpg pool is exhausted past
+    DB_POOL_ACQUIRE_TIMEOUT, the request gets a retryable 503 (via the
+    asyncio.TimeoutError handler in main.py) — NOT a hang or a 500."""
+
+    def test_db_acquire_timeout_returns_503(self, client, auth_headers, monkeypatch):
+        import asyncio
+
+        class _ExhaustedPool:
+            """Mimics a bounded pool.acquire() wait that expires: the wrapper in
+            database.get_db_pool applies db_pool_acquire_timeout, and asyncpg
+            raises asyncio.TimeoutError past it."""
+
+            def acquire(self, *args, **kwargs):
+                raise asyncio.TimeoutError()
+
+        monkeypatch.setattr(
+            files_route, "get_db_pool", AsyncMock(return_value=_ExhaustedPool())
+        )
+
+        resp = client.get("/files", headers=auth_headers)
+        assert resp.status_code == 503
+        assert resp.headers.get("retry-after") == "5"
+        assert "busy" in resp.json()["detail"].lower()

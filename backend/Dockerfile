@@ -28,12 +28,13 @@ USER appuser
 
 EXPOSE 8000
 
-# Production: single gunicorn worker with the async uvicorn worker class.
-# uvicorn is fully async, so ONE worker already handles concurrent requests —
-# and the app keeps chunked-upload sessions / rate-limit / analytics state in
-# PROCESS-LOCAL dicts, so multiple workers would split sessions across
-# processes and 404 chunk uploads (session created on worker A, chunk served
-# by worker B). Single instance (Render free) = single process = consistent
-# in-memory state; Redis backs the presign sessions for instance-recycle
-# durability. Render sets the PORT env var automatically.
-CMD ["sh", "-c", "gunicorn app.main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000} --timeout 120 --keep-alive 5"]
+# Production: gunicorn with the async uvicorn worker class. uvicorn is fully
+# async, so ONE worker already handles many concurrent requests — the default
+# (and the right count on Render's free tier, where 0.1 CPU is the hard
+# ceiling). On a BIGGER plan (more CPU/RAM), raise WEB_CONCURRENCY to add
+# workers: chunked-upload AND presign sessions are Redis-backed, so a session
+# created on one worker is continued on another (the in-memory dicts are only
+# a Redis-down fallback). Keep workers × DB_POOL_MAX_SIZE under the Supabase
+# pooler's connection cap (free tier ~60). Render sets the PORT env var
+# automatically.
+CMD ["sh", "-c", "gunicorn app.main:app --workers ${WEB_CONCURRENCY:-1} --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000} --timeout 120 --keep-alive 5"]

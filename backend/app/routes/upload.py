@@ -120,12 +120,21 @@ USAGE_THRESHOLDS = [
 # In-memory fallback for the per-IP upload rate limit (used when Redis is down)
 _upload_requests: dict[str, list[float]] = {}
 
-# Chunked-upload sessions (client-side chunking fallback). Kept in memory — fine
-# on Render's single-instance free tier. Sessions expire via _prune_chunk_sessions
-# (which also deletes the assembly temp file); finalize never deletes the session
-# so a lost-response retry of finalize can re-run safely (idempotency dedup
-# returns the stored upload instead of duplicating it).
+# Chunked-upload sessions (client-side chunking fallback). Redis-backed with an
+# in-memory fallback, mirroring the presign sessions: the session dict (metadata,
+# received-chunk set, assembly temp-file path) is written to Redis with TTL so
+# MULTIPLE gunicorn workers / an instance recycle never split a session (created
+# on worker A, chunked on worker B). The in-memory dict is the Redis-down
+# fallback (single worker then, same as before). Sessions expire via
+# _prune_chunk_sessions (Redis TTL is the backstop; the prune deletes the
+# assembly temp file); finalize never deletes the session so a lost-response
+# retry of finalize can re-run safely (idempotency dedup returns the stored
+# upload instead of duplicating it).
 _chunk_sessions: dict[str, dict] = {}
+
+
+def _chunk_session_key(upload_id: str) -> str:
+    return f"chunk_session:{upload_id}"
 
 # Presigned-upload sessions (primary direct-to-storage path). Holds the object
 # key + declared size so finalize can verify the browser's PUT without trusting
@@ -238,18 +247,111 @@ async def _find_presign_session_by_key(user_id: UUID, idempotency_key: str):
     return None
 
 
-def _prune_chunk_sessions(now: Optional[float] = None) -> None:
-    """Drop expired chunked-upload sessions and their assembly temp files."""
+def _remove_chunk_temp_file(path) -> None:
+    if path and os.path.exists(path):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+async def _prune_chunk_sessions(now: Optional[float] = None) -> None:
+    """Drop expired chunked-upload sessions and their assembly temp files.
+
+    Prunes the in-memory copies AND Redis sessions (Redis TTL is only a
+    backstop — a key that expires via TTL would otherwise leak its assembly
+    temp file until the next prune). Redis hiccups are ignored: the TTL
+    backstop still expires the keys. Runs lazily on upload activity, matching
+    the previous behavior."""
     now = now or time.time()
     expired = [k for k, s in _chunk_sessions.items() if now - s["created_at"] > CHUNK_SESSION_TTL]
     for k in expired:
         s = _chunk_sessions.pop(k)
-        path = s.get("path")
-        if path and os.path.exists(path):
-            try:
-                os.remove(path)
-            except OSError:
-                pass
+        _remove_chunk_temp_file(s.get("path"))
+    try:
+        redis = await get_redis()
+        if redis is not None:
+            async for key in redis.scan_iter("chunk_session:*", count=100):
+                raw = await redis.get(key)
+                if not raw:
+                    continue
+                try:
+                    s = json.loads(raw)
+                except (ValueError, TypeError):
+                    continue
+                if now - s.get("created_at", 0) > CHUNK_SESSION_TTL:
+                    _remove_chunk_temp_file(s.get("path"))
+                    await redis.delete(key)
+    except Exception:
+        pass  # Redis hiccup — the TTL backstop still expires the keys
+
+
+async def _load_chunk_session(upload_id: str) -> Optional[dict]:
+    """Load a chunk session: the Redis copy first (authoritative across
+    workers — the session may have been created on another worker), then the
+    in-memory fallback. A Redis error is treated as a miss."""
+    try:
+        redis = await get_redis()
+        if redis is not None:
+            raw = await redis.get(_chunk_session_key(upload_id))
+            if raw:
+                session = json.loads(raw)
+                # JSON round-trip: received is a list, user_id a string.
+                session["received"] = set(session.get("received") or [])
+                if isinstance(session.get("user_id"), str):
+                    try:
+                        session["user_id"] = UUID(session["user_id"])
+                    except ValueError:
+                        pass
+                return session
+    except Exception:
+        pass
+    return _chunk_sessions.get(upload_id)
+
+
+async def _save_chunk_session(upload_id: str, session: dict) -> None:
+    """Persist a chunk session: ALWAYS to the in-memory dict (fast path +
+    Redis-down fallback) AND to Redis with TTL when available (so a session
+    created on one worker can be continued on another). received is a set in
+    memory but a sorted JSON list in Redis."""
+    _chunk_sessions[upload_id] = session
+    try:
+        redis = await get_redis()
+        if redis is not None:
+            payload = dict(session)
+            payload["received"] = sorted(session.get("received") or [])
+            await redis.setex(
+                _chunk_session_key(upload_id),
+                CHUNK_SESSION_TTL,
+                json.dumps(payload, default=str),
+            )
+    except Exception:
+        pass  # Redis down — the in-memory copy still holds the session
+
+
+async def _active_chunk_sessions(user_id) -> list:
+    """Growable (received < total_chunks) chunk sessions for the user — Redis
+    first (covers sessions started on other workers), in-memory fallback."""
+    sessions: list = []
+    seen: set = set()
+    try:
+        redis = await get_redis()
+        if redis is not None:
+            async for key in redis.scan_iter("chunk_session:*", count=100):
+                upload_id = key.split(":", 1)[1] if ":" in key else key
+                s = await _load_chunk_session(upload_id)
+                if s and str(s.get("user_id")) == str(user_id):
+                    sessions.append(s)
+                    seen.add(upload_id)
+    except Exception:
+        pass
+    for uid, s in _chunk_sessions.items():
+        if uid not in seen and str(s.get("user_id")) == str(user_id):
+            sessions.append(s)
+    return [
+        s for s in sessions
+        if len(s.get("received") or set()) < s.get("total_chunks", 0)
+    ]
 
 
 def _prune_upload_requests(now: float) -> None:
@@ -1251,7 +1353,7 @@ async def create_upload_session(
     returns an upload_id the client ships ≤4MB chunks to. If the idempotency key
     already has a completed upload (e.g. the direct attempt stored the file but
     the response was lost), returns it directly so the client skips chunks."""
-    _prune_chunk_sessions()
+    await _prune_chunk_sessions()
 
     safe_filename = re.sub(r'[^a-zA-Z0-9._-]', '_', os.path.basename(body.filename))
     ext = os.path.splitext(safe_filename)[1].lower()
@@ -1302,12 +1404,8 @@ async def create_upload_session(
     # Cap concurrent GROWABLE chunk sessions per user (bounds temp-disk usage).
     # See the constant's docstring: fully-received sessions can't grow, so they
     # don't count toward the cap (avoiding false 429s for legit power users).
-    _prune_chunk_sessions()
-    active = [
-        s for s in _chunk_sessions.values()
-        if str(s.get("user_id")) == str(user_id)
-        and len(s.get("received", set())) < s.get("total_chunks", 0)
-    ]
+    await _prune_chunk_sessions()
+    active = await _active_chunk_sessions(user_id)
     if len(active) >= MAX_ACTIVE_CHUNK_SESSIONS_PER_USER:
         raise HTTPException(
             status_code=429,
@@ -1315,7 +1413,7 @@ async def create_upload_session(
         )
 
     upload_id = str(uuid.uuid4())
-    _chunk_sessions[upload_id] = {
+    await _save_chunk_session(upload_id, {
         "user_id": user_id,
         "filename": safe_filename,
         "total_chunks": body.total_chunks,
@@ -1324,7 +1422,7 @@ async def create_upload_session(
         "received": set(),
         "path": None,
         "created_at": time.time(),
-    }
+    })
     return UploadSessionResponse(upload_id=upload_id, result=None)
 
 
@@ -1339,8 +1437,8 @@ async def upload_chunk(
     out of order and be re-sent safely (offset writes are idempotent) — the
     frontend retries chunks through the same-origin Vercel proxy on transient
     failures."""
-    _prune_chunk_sessions()
-    session = _chunk_sessions.get(upload_id)
+    await _prune_chunk_sessions()
+    session = await _load_chunk_session(upload_id)
     if session is None or session["user_id"] != user_id:
         raise HTTPException(status_code=404, detail="Upload session not found")
     if index < 0 or index >= session["total_chunks"]:
@@ -1371,6 +1469,7 @@ async def upload_chunk(
         f.write(data)
 
     session["received"].add(index)
+    await _save_chunk_session(upload_id, session)
     return ChunkUploadResponse(received=len(session["received"]), total=session["total_chunks"])
 
 
@@ -1385,8 +1484,8 @@ async def finalize_upload(
     the TTL prune, and _store_and_finalize dedupes on the session's idempotency
     key — so a retry of finalize after a lost response returns the stored upload
     instead of duplicating it."""
-    _prune_chunk_sessions()
-    session = _chunk_sessions.get(upload_id)
+    await _prune_chunk_sessions()
+    session = await _load_chunk_session(upload_id)
     if session is None or session["user_id"] != user_id:
         raise HTTPException(status_code=404, detail="Upload session not found")
 

@@ -406,6 +406,24 @@ class MaxBodySizeMiddleware(BaseHTTPMiddleware):
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(MaxBodySizeMiddleware)
 
+
+@app.exception_handler(asyncio.TimeoutError)
+async def _timeout_handler(request: Request, exc):
+    # Graceful degradation under saturation. The only asyncio.TimeoutError that
+    # can reach this handler is the bounded DB-pool acquire wait in
+    # database.get_db_pool (every other timeout in the app is an httpx/
+    # Paystack/import timeout — separate exception types — or is caught where
+    # it is raised). When the pool is exhausted past db_pool_acquire_timeout
+    # seconds, return a retryable 503 (the frontend treats 502/503/504 as
+    # transient and retries) instead of hanging the request until the client
+    # or gunicorn's --timeout 120 gives up.
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Service is busy — please retry in a moment."},
+        headers={"Retry-After": "5"},
+    )
+
+
 # Routes
 app.include_router(auth.router)
 app.include_router(upload.router)
