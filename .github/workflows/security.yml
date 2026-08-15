@@ -1,0 +1,522 @@
+name: "CI: Tests & Security Audits"
+
+# NO paths filter on the SECRET GATES: secret-scan + static-audit (gitleaks,
+# header audit, SQL-injection audit) run on every push/PR to main — a secret
+# committed anywhere (frontend/, Caddyfile, docker-compose.yml, root files)
+# must never escape the scan. The two HEAVY non-gate jobs (frontend-checks,
+# tests) are gated on their own inputs via the `changes` job below, so a push
+# that doesn't touch the frontend doesn't pay for npm ci + vitest + next build
+# (~5-10 min) and a push that doesn't touch the backend doesn't pay for the
+# pytest suite (~3-4 min). The other two heavy jobs live path-scoped in their
+# own workflow files to moderate Actions usage: the E2E batch (ci-e2e.yml —
+# runs when frontend/** or .github/** change, plus a nightly sweep) and the
+# full-stack Docker audit (ci-fullstack.yml — runs when backend/** or the
+# IaC/Docker files change).
+#
+# Daily cron + manual dispatch re-scan the FULL history: push-time gitleaks
+# only scans the pushed range, so a secret that slipped through an old commit
+# (e.g. before gitleaks was added) is only caught by a full-history scan.
+# Gitleaks on schedule/dispatch scans the whole repo (no commit range).
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 4 * * *"  # daily 04:00 UTC full-history re-scan
+  workflow_dispatch:      # manual "re-scan everything now" button
+
+# Least privilege: contents read is all most jobs need. The static-audit job
+# scopes exactly two extras to itself (job-level permissions): security-events:
+# write for its SARIF upload (posts gitleaks findings to Code Scanning) and
+# pull-requests: write for gitleaks' inline PR comments.
+permissions:
+  contents: read
+
+# Schedule + manual dispatch runs get their own concurrency group ('cron'):
+# on schedule events github.ref is the default branch, so without this a
+# coincidental push would share the group and cancel-in-progress would kill
+# the daily scan. workflow_dispatch gets the same group so a manual re-scan
+# can't cancel an in-flight push (which would skip the daily full-history
+# re-scan). The heavy jobs moved out to ci-e2e.yml / ci-fullstack.yml.
+concurrency:
+  group: ${{ github.workflow }}-${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cron' || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Change detection (fast, no infra, no third-party action) ──
+  # Computes which areas the changeset touches so frontend-checks and tests can
+  # gate themselves (the secret gates below stay ALWAYS-ON — a secret can land
+  # in any directory). Pure git diff + case patterns; no dorny/paths-filter or
+  # other third-party action (the repo only uses official actions, for supply-
+  # chain reasons). On schedule/workflow_dispatch (no diff base) and on the
+  # first push to a branch (all-zero before), reports both areas changed so the
+  # full re-verify semantics are preserved. The paths mirror ci-fullstack.yml's
+  # scope for backend + .github/**, and frontend/** + .github/** for the
+  # frontend (workflow edits can break either job, so .github/** triggers both).
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      frontend: ${{ steps.diff.outputs.frontend }}
+      backend: ${{ steps.diff.outputs.backend }}
+    steps:
+      - name: Checkout (full history for an accurate diff base)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Compute changed areas
+        id: diff
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            # schedule / workflow_dispatch / first push: no meaningful diff — run everything
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Fail-closed: if the diff itself errors (shouldn't with a full-history
+          # checkout, but guard anyway), run EVERYTHING rather than silently
+          # skipping the heavy jobs on a bogus empty diff.
+          CHANGED=$(git diff --name-only "$BASE" "$GITHUB_SHA" 2>/dev/null) || {
+            echo "warning: git diff failed — running all jobs (fail-closed)" >&2
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          echo "changed files: $(echo "$CHANGED" | sed '/^$/d' | wc -l)"
+          FRONTEND=false
+          BACKEND=false
+          while IFS= read -r f; do
+            # Order matters: shell case takes the FIRST matching arm only, so
+            # .github/* must be its own arm (workflow edits can break EITHER
+            # job — they trigger both). frontend/* then backend/* fall through
+            # cleanly. (A prior ordering lumped .github/* into both arms and
+            # the first match won, silently skipping `tests` on .github-only
+            # pushes.)
+            case "$f" in
+              .github/*) FRONTEND=true; BACKEND=true ;;
+              frontend/*) FRONTEND=true ;;
+              backend/*|Caddyfile|docker-compose.yml|render.yaml) BACKEND=true ;;
+            esac
+          done <<< "$CHANGED"
+          echo "frontend=$FRONTEND" >> "$GITHUB_OUTPUT"
+          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
+
+  # ── Diff-scoped secret gate (fast, no infra) ──
+  # Fails the build the moment a high-signal secret (GitHub PAT, AWS/Stripe/
+  # SendGrid/Resend key, private key, …) lands in the changeset — with a
+  # readable message. Gitleaks (in static-audit) remains the full-history
+  # backstop; this gate catches new secrets in seconds.
+  secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout (full history for an accurate diff base)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Diff-scoped scan only makes sense for push/PR events (on schedule /
+      # dispatch there is no "before" commit — gitleaks covers full history
+      # there, and the --full step below covers the whole tree).
+      - name: Scan the changeset for committed secrets
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BASE=""
+          fi
+          bash backend/scripts/secret_scan.sh "$BASE"
+
+      # Belt-and-braces: also scan the whole working tree as committed. On
+      # schedule/dispatch runs this (with gitleaks' full-history scan) is the
+      # entire daily re-check.
+      - name: Scan the full tree for committed secrets
+        run: bash backend/scripts/secret_scan.sh --full
+  # ── Frontend checks (no infra) ──
+  # Builds the Next.js app and guards link-preview cards. The backend gets
+  # tests + 3 audit layers, but the frontend was the only CI-blind spot: type
+  # errors, build breaks, and broken imports could merge silently. Node 20
+  # matches the production image (frontend/Dockerfile: node:20-alpine).
+  # Gated on frontend/** + .github/** changes (see `changes` job): the heaviest
+  # job in this workflow (npm ci + tsc + vitest coverage + next build) must not
+  # run on a backend-only push. The nightly cron + workflow_dispatch report
+  # both areas changed, so the full daily re-verify is preserved.
+  frontend-checks:
+    needs: [changes]
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Explicit typecheck before build: next build type-checks too, but this
+      # isolates type errors (faster, cleaner output) and stays effective even
+      # if ignoreBuildErrors is ever enabled in next.config.
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # Unit tests (vitest + Testing Library): auth token store, API client
+      # interceptors (Bearer attachment + 401 logout), and component logic
+      # (UsageBar math, EmbedCode snippet, PricingTable checkout, FileCard
+      # delete-confirm/copy). test:coverage = vitest run --coverage — the v8
+      # coverage gate (all: true over lib/ + components/) fails the build if
+      # totals drop below the configured thresholds (e.g. a removed test or a
+      # new untested file), like the backend suite would.
+      - name: Test
+        run: npm run test:coverage
+
+      # Next.js persistent build cache (.next/cache — webpack + swc). Next's
+      # docs recommend caching .next/cache, NOT the whole .next: full .next can
+      # serve stale prerendered pages/route manifests, while .next/cache is
+      # content-addressed and skips recompiling unchanged modules on warm runs
+      # (npm deps are already cached via setup-node's cache: npm above).
+      # Keyed on the lockfile + frontend sources; restore-keys reuse the
+      # previous cache when only some inputs changed.
+      - name: Cache Next.js build cache
+        uses: actions/cache@v6
+        with:
+          path: frontend/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('frontend/package-lock.json') }}-${{ hashFiles('frontend/**/*.ts', 'frontend/**/*.tsx', 'frontend/**/*.css', 'frontend/next.config.js', 'frontend/tailwind.config.*', 'frontend/postcss.config.*') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('frontend/package-lock.json') }}-
+            ${{ runner.os }}-nextjs-
+
+      - name: Build
+        run: npm run build
+
+      # Fails if link-preview cards would render broken: og:image / twitter:image
+      # in layout.tsx must resolve to a real, non-empty PNG under public/ (a prior
+      # regression shipped a 0-byte dynamic route + a 404 twitter image, blanking
+      # every preview card on Twitter/X, LinkedIn, Slack, Discord, WhatsApp).
+      - name: OG image guard
+        run: bash scripts/check_og_image.sh
+
+      # Fails if the shipped bundle would call a cross-origin API that the page
+      # CSP blocks (or that dies at the network layer). A build-time
+      # NEXT_PUBLIC_API_URL override once baked baseURL=https://torrent-cdn.onrender.com
+      # into the axios instance — the browser silently blocked every fetch via
+      # connect-src, surfacing to users as 'Could not reach the server' with a
+      # healthy backend. Production must resolve same-origin ('' — vercel.json
+      # rewrites /api/*, /auth/*, /upload, /files/*, /analytics/*, /billing/*,
+      # /admin/*, /notifications/* to Render). Checks the COMPILED bundle, so it
+      # is the ground truth of what ships.
+      - name: API baseURL guard
+        run: bash scripts/check_api_baseurl.sh
+
+      # Fails if the frontend SOURCE references the dead api.torrentcdn.store
+      # host (no DNS record — the docs BASE_URL once pointed there and every
+      # curl example was broken) or apex-only torrentcdn.store URLs (the apex
+      # 308-redirects to www, adding a redirect hop and breaking the embed
+      # SDK's origin resolution). The canonical origin is
+      # https://www.torrentcdn.store. Source-level grep, so it catches a broken
+      # base URL / pasted URL before the build even runs.
+      - name: Domain guard (dead host + apex URLs)
+        run: bash scripts/check_domains.sh
+
+  # ── Storage bucket publicity gate (credential-free live check) ──
+  # The app serves every file through the bucket's public object URL; a private
+  # bucket 404s ALL playback. This read-only GET on the public URL runs on
+  # push/PR and on the daily cron re-check. (The E2E delivery batch that used
+  # to live here moved to ci-e2e.yml, path-scoped to frontend changes.)
+  storage-publicity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF || 'bqbfrgeimurtuyjlfagc' }}
+      STORAGE_BUCKET: ${{ secrets.STORAGE_BUCKET || 'torrent-cdn-files' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Check the storage bucket is public
+        run: bash backend/scripts/check_storage_public.sh
+
+  # ── API-key flow live probe (scheduled production check) ──
+  # Exercises the full /auth/api-key lifecycle against the LIVE deployment
+  # exactly as the dashboard drives it: register throwaway account → generate
+  # tcdn_ key (plaintext once) → key-authed GETs (/files, /auth/me, metadata
+  # with api_key:null) → no-auth 401 → revoke → revoked-key 401 (fail-closed)
+  # → DELETE /auth/me cleanup. Catches production regressions the mocked unit
+  # suite can't: a broken rotate, hash-only storage, or fail-closed revocation
+  # on the deployed backend.
+  #
+  # Schedule + manual dispatch ONLY (NOT push/PR): unlike the read-only
+  # storage-publicity GET, this probe WRITES to production (throwaway account
+  # + key). On every push it would burn the 10/hr/IP registration budget from
+  # GitHub's shared runner IPs (p2p-e2e in ci-e2e.yml also writes per-push on
+  # frontend/.github pushes plus its nightly sweep), and on a public repo a
+  # fork PR could trigger unlimited production writes from untrusted code —
+  # same reasoning that gates p2p-e2e off PRs. The daily 04:00 UTC cron +
+  # manual dispatch is the alert surface: a red run means the API-key flow is
+  # broken on the live backend. The script always cleans up its throwaway
+  # account (including on abort paths), so scheduled runs never accumulate
+  # test users.
+  #
+  # needs upload-live + if: always(): BOTH probes register a throwaway account
+  # against the LIVE 10/hr-per-IP register limiter, and GitHub runners egress
+  # from a shared Azure IP pool — two simultaneous registers from the same IP
+  # (plus push-triggered p2p-e2e registers in the same hour) can exhaust the
+  # budget and 429 the registration (exit 2 → red, a false alarm). Chaining
+  # serializes the probes (upload-live registers first, then this one).
+  # always() so a failed upload-live does NOT cancel this probe — each reports
+  # its own verdict. The scripts' post_proxy additionally retries 429 with
+  # backoff (rejected attempts don't consume budget, so the retry succeeds once
+  # competing registrations finish); a red run may still be IP-limited if the
+  # hourly budget is genuinely spent by many same-hour pushes.
+  api-key-live:
+    needs: [upload-live]
+    if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Admin token for the probes' email-verification step (they register
+      # throwaway accounts, which production restricts until verified — see
+      # verify_account() in each script). Get one from an admin account's
+      # login; store as a repo secret named E2E_ADMIN_TOKEN.
+      E2E_ADMIN_TOKEN: ${{ secrets.E2E_ADMIN_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Run the API-key flow probe against production
+        run: bash backend/scripts/api_key_audit_prod.sh
+
+  # ── Content-dedup + refcount live probe (scheduled production check) ──
+  # Verifies the storage dedup and refcount-aware deletions against the LIVE
+  # deployment: two throwaway accounts upload IDENTICAL bytes (unique per run),
+  # B's row must point at A's stored object, deleting A must NOT remove the
+  # shared bytes (B still references them and B's embed must resolve), and
+  # deleting B — the last reference — MUST remove the object from storage.
+  # Catches regressions the mocked unit suite can't: a broken dedup lookup, a
+  # refcount delete that drops bytes still in use, or the orphan sweep deleting
+  # dedup-referenced objects.
+  #
+  # Schedule + manual dispatch ONLY (NOT push/PR) — same reasoning as the
+  # other live probes: it WRITES to production (two throwaway uploads + two
+  # accounts), and per-push runs would burn the shared per-IP register/upload
+  # budgets. Chained after api-key-live (which chains after upload-live) so
+  # the three probes serialize instead of bursting the 10/hr-per-IP register
+  # and upload budgets from GitHub's shared runner IP pool.
+  dedup-live:
+    needs: [api-key-live]
+    if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      E2E_ADMIN_TOKEN: ${{ secrets.E2E_ADMIN_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Run the content-dedup + refcount probe against production
+        run: bash backend/scripts/dedup_audit_prod.sh
+
+  # ── Import-by-URL + cross-path dedup live probe (scheduled production check) ──
+  # Exercises the import endpoint end-to-end against the LIVE deployment: one
+  # throwaway account uploads a unique WebM, then IMPORTS that file's own
+  # public URL — the server must fetch it through the DNS-pinned SSRF-safe
+  # transport (real TLS against the original hostname) and content-dedup it
+  # against the already-stored copy (imported minio_url == source, rows
+  # distinct). Then: imported file's public metadata resolves; the SSRF guard
+  # blocks a cloud-metadata URL, a localhost hostname, and a malformed URL (all
+  # 400); cleanup. Catches production regressions the mocked unit suite can't:
+  # a broken pinned transport, SSRF-guard drift, or dedup not firing across
+  # upload paths.
+  #
+  # Schedule + manual dispatch ONLY (NOT push/PR) — same reasoning as the
+  # other live probes: it WRITES to production (throwaway upload + import +
+  # account), and per-push runs would burn the shared per-IP register/upload
+  # budgets. Chained after dedup-live so the four probes serialize instead of
+  # bursting the 10/hr-per-IP register and upload budgets from GitHub's shared
+  # runner IP pool.
+  import-live:
+    needs: [dedup-live]
+    if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      E2E_ADMIN_TOKEN: ${{ secrets.E2E_ADMIN_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Run the import-by-URL + cross-path dedup probe against production
+        run: bash backend/scripts/import_audit_prod.sh
+
+  # ── Upload (presigned) flow live probe (scheduled production check) ──
+  # Exercises the PRIMARY upload path end-to-end against the LIVE deployment,
+  # exactly as the browser drives it: register throwaway account → POST
+  # /upload/presign → PUT the bytes DIRECT to the presigned Supabase URL (they
+  # never touch Render/Vercel) → finalize → real 40-hex btih magnet → file is
+  # listed under /files → DELETE file + account. The synthetic test WebM is
+  # generated inline with python3 (no ffmpeg), so the job is a single
+  # checkout+run step. Catches production regressions the mocked unit suite
+  # can't: a broken presign signature, dead bucket CORS for the direct PUT,
+  # finalize validation drift, or torrent/magnet generation failure.
+  #
+  # Schedule + manual dispatch ONLY (NOT push/PR) — same reasoning as
+  # api-key-live: the probe WRITES to production (throwaway upload + account),
+  # per-push runs would burn the 10/hr/IP upload budget from shared runner
+  # IPs, fork PRs could trigger unlimited production writes, and on push the
+  # probe would validate the PREVIOUS deploy anyway (Render/Vercel lag). The
+  # daily 04:00 UTC cron + manual dispatch is the alert surface: a red run
+  # means the upload flow is broken on the live backend. The script always
+  # cleans up its test file + account (including abort paths).
+  upload-live:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      E2E_ADMIN_TOKEN: ${{ secrets.E2E_ADMIN_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Run the upload (presign) flow probe against production
+        run: bash backend/scripts/upload_audit_prod.sh
+
+  # ── Backend unit test suite (fully mocked — no infra required) ──
+  # Gated on backend/** + IaC + .github/** changes (see `changes` job): the
+  # suite cannot be affected by a frontend-only push (its tests are fully
+  # mocked; the frontend has its own gate). The SQL-injection gate this suite
+  # also carries (tests/test_sql_injection.py) is independently enforced by
+  # the ALWAYS-ON static-audit job (scripts/sql_injection_audit.py), so a
+  # skipped `tests` run never weakens that gate. Schedule/dispatch report
+  # backend=true, so the daily cron still re-runs the full suite.
+  tests:
+    needs: [changes]
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Fails if the backend SOURCE or IaC references the dead
+      # api.torrentcdn.store host (no DNS record — the docs BASE_URL once
+      # pointed there and every curl example was broken) or apex-only
+      # torrentcdn.store URLs (the apex 308-redirects to www; a stale apex
+      # entry in the CORS allow-list is dead weight since its Origin never
+      # occurs). The canonical origin is https://www.torrentcdn.store. Mirrors
+      # the frontend domain guard (frontend-checks) across backend/app,
+      # Caddyfile, and render.yaml.
+      - name: Domain guard (dead host + apex URLs)
+        run: bash scripts/check_domains.sh
+
+      - name: Run test suite
+        run: python -m pytest -q
+        env:
+          JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
+          APP_ENV: "development"
+
+  # ── Static audit (no infra required) ──
+  static-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Job-scoped least privilege: security-events: write for the SARIF upload
+    # (Code Scanning); pull-requests: write so gitleaks can post inline review
+    # comments on PRs where a leak is introduced (GITLEAKS_ENABLE_COMMENTS).
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: write
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      # Full history required: gitleaks-action computes a BASE^..HEAD range on
+      # push events, which fails with 'fatal: ambiguous argument' against the
+      # default shallow (fetch-depth: 1) checkout whenever a push contains
+      # more than one commit (seen on the dashboard + chore(ops) runs).
+      - name: Checkout (full history for gitleaks range resolution)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # v3 (not v2): v2 runs on Node 20, which GitHub removes from hosted
+      # runners on 2026-09-16 — v2 would stop working entirely.
+      # GITLEAKS_ENABLE_COMMENTS: gitleaks-action posts inline review comments
+      # on PRs when it finds a leak (needs the pull-requests: write permission
+      # above). Default is true, but set explicitly so it's documented. Only
+      # pull_request runs have a PR to comment on — push/schedule/dispatch runs
+      # simply have no PR context and skip commenting.
+      - name: Gitleaks — scan for hardcoded secrets
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "true"
+
+      # Posts gitleaks results.sarif to Code Scanning (Security tab). Runs even
+      # when gitleaks finds a leak, so the alert lands in the Security tab.
+      # (gitleaks itself still fails the build via its exit code on findings.)
+      # continue-on-error: code scanning needs Advanced Security on private
+      # personal-account repos; if the upload is unsupported there, the gitleaks
+      # scan (the actual gate) still runs and fails the build — the upload just
+      # can't break CI. Check the Security tab after the first run to confirm
+      # findings are landing.
+      - name: Upload SARIF to Code Scanning
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results.sarif
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run static security header audit
+        run: python scripts/security_audit.py
+        env:
+          JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
+          APP_ENV: "production"
+
+      # AST-based SQL-injection gate: every asyncpg call must pass a plain
+      # string literal with $1/$2 placeholders and values as separate args
+      # (parameterized — the driver binds, it never re-parses values as SQL).
+      # Fails on f-string/format/%/concatenation/variable SQL with file:line.
+      # Also enforced as a pytest regression test (tests/test_sql_injection.py)
+      # so a new non-parameterized query reds the `tests` job too.
+      - name: Run SQL injection static audit
+        run: python scripts/sql_injection_audit.py
+
+

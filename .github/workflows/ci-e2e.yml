@@ -1,0 +1,182 @@
+name: "CI: E2E delivery gate (pushed frontend → production backend)"
+
+# Path-filtered to moderate Actions usage: the Playwright batch (npm ci +
+# Playwright Chromium + build + suites) is the most expensive job in CI, so
+# on push it runs ONLY when the frontend or the workflow itself changed — a
+# backend-only push cannot change what this batch tests (the backend has its
+# own unit suite + the fullstack Docker audit). Push runs the DELIVERY-
+# CRITICAL subset (upload paths + WebTorrent playback/P2P + auth + rendering:
+# upload-direct, upload-fallback, embed-playback, auto-seed, p2p-two-peer,
+# login-flow, visual-pass); the full 11-suite sweep runs on the nightly cron
+# (covers api-key-ui, finalize-retry, mfa-flow, embed-speed) and via
+# workflow_dispatch (the manual "run E2E now" button). NEVER on pull_request:
+# the batch WRITES to production (throwaway account + test uploads) and fork
+# PRs must not be able to trigger unlimited production writes.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/**"
+  schedule:
+    - cron: "0 3 * * *"  # nightly 03:00 UTC full sweep (04:00 is the live probes)
+  workflow_dispatch:
+
+# Least privilege: contents read is all this job needs.
+permissions:
+  contents: read
+
+# Scheduled + manual runs share a group so they can't cancel each other; push
+# runs are keyed on the branch (cancel-in-progress drops stale pushes).
+concurrency:
+  group: ci-e2e-${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cron' || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── E2E delivery + interaction gate (full Playwright batch) ──
+  # Every frontend push must still deliver video over WebTorrent AND keep every
+  # user interaction green. Vercel deploys LAG the push (production often serves
+  # the previous build for a while), so hitting www.torrentcdn.store here would
+  # validate the LAST deploy, not this push. Instead this job BUILDS the pushed
+  # frontend, serves it locally (next start) behind the same-origin proxy
+  # (e2e/local-proxy.mjs — a vercel.json rewrite mirror), and runs the FULL E2E
+  # batch (e2e/run-all.mjs) against that build with the PRODUCTION Render
+  # backend underneath:
+  #   - upload-direct / upload-fallback (presign direct + chunked resilience)
+  #   - embed-playback + auto-seed + p2p-two-peer (WebTorrent delivery: seeder
+  #     reproduces the backend infohash, leecher plays with the storage origin
+  #     BLOCKED so only WebRTC can deliver bytes → peers connect, video plays,
+  #     backend records bytes_p2p > 0)
+  #   - api-key-ui + finalize-retry (dashboard key lifecycle; cold-start
+  #     finalize 502 → client re-sends → success)
+  #   - login-flow + mfa-flow + visual-pass (auth surfacing, page rendering)
+  # Each suite deletes its own test file in cleanup; the batch logs in a
+  # SHARED VERIFIED account (E2E_EMAIL/E2E_PASSWORD secrets — see the step
+  # below) because production restricts unverified register tokens to the
+  # verification endpoints.
+  # NOTE: production rate limits are per-IP (10 uploads/hr, 5 req/10s); GitHub
+  # runners egress from a shared Azure IP pool, so rare concurrent runs could
+  # 429 — the batch paces its calls well under the limits per run.
+  p2p-e2e:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    # npm ci + build + the full suite batch: the batch alone runs ~5-25 min
+    # (run-all.mjs caps each suite at 10 min), so 60 minutes keeps the E2E gate
+    # without letting a hung suite run forever.
+    timeout-minutes: 60
+    env:
+      # Repo secrets are NOT auto-injected — each job must map the ones it
+      # needs. The login step below reads these two shell vars; without this
+      # mapping the ${E2E_EMAIL:?...} fail-closed check aborts the job.
+      E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
+      E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Playwright ships without a postinstall, so `npm ci` never downloads
+      # browsers — install Chromium explicitly (--with-deps pulls the system
+      # libraries headless Chromium needs on ubuntu-latest).
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Install ffmpeg (test media synthesis)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Build
+        run: npm run build
+
+      # Login the SHARED VERIFIED E2E account used by the whole batch. Email
+      # verification is enforced in production (a register-issued token for an
+      # unverified account is restricted to the verification endpoints), so the
+      # batch needs a real verified account: E2E_EMAIL + E2E_PASSWORD are repo
+      # secrets for an account whose email was verified ONCE (click the link in
+      # the inbox; do NOT enable MFA on it — login must return a plain token).
+      # run-all registers per suite when no token is given; a shared token keeps
+      # the batch to a single login and avoids the live 10/hr/IP register
+      # budget entirely.
+      - name: Login shared verified E2E account
+        run: |
+          set -euo pipefail
+          : "${E2E_EMAIL:?set E2E_EMAIL secret - a VERIFIED account email}"
+          : "${E2E_PASSWORD:?set E2E_PASSWORD secret}"
+          TOKEN=""
+          for i in 1 2 3; do
+            TOKEN=$(curl -sf --max-time 60 -X POST https://www.torrentcdn.store/auth/login \
+              -H 'Content-Type: application/json' \
+              -d "{\"email\":\"$E2E_EMAIL\",\"password\":\"$E2E_PASSWORD\"}" \
+              | python3 -c 'import sys,json; print(json.load(sys.stdin).get("access_token",""))' \
+              || true)
+            [ -n "$TOKEN" ] && break
+            sleep 5
+          done
+          [ -n "$TOKEN" ] || { echo "shared account login failed — is E2E_EMAIL verified (no MFA)?" >&2; exit 1; }
+          echo "E2E_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+      # Everything in ONE step so the local stack lives for the batch: next
+      # start on :3001, the same-origin proxy on :3000 (vercel.json rewrite
+      # mirror → production Render), wait for readiness, then run the E2E
+      # suites (run-all.mjs, prefix-matched args) with E2E_BASE_URL pointed at
+      # the local build. Push runs the delivery-critical subset (~7 suites,
+      # the gate this workflow exists for); nightly cron + workflow_dispatch
+      # run ALL suites (empty SUITES → run-all.mjs defaults to the full list),
+      # covering api-key-ui, finalize-retry, mfa-flow and embed-speed. The trap
+      # guarantees the background processes die even when a suite fails.
+      # Invoke the next binary directly (not via npx) so $NEXT_PID IS the
+      # server process — npx would wrap it and killing the wrapper could orphan
+      # next-server.
+      - name: Run E2E suite batch (pushed build → production backend)
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/next start -p 3001 > /tmp/next.log 2>&1 &
+          NEXT_PID=$!
+          node e2e/local-proxy.mjs > /tmp/proxy.log 2>&1 &
+          PROXY_PID=$!
+          trap 'kill $NEXT_PID $PROXY_PID 2>/dev/null || true; pkill -f "next-server" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:3000/; then
+              echo "local stack ready (:3000)"
+              break
+            fi
+            sleep 2
+          done
+          curl -sf -o /dev/null http://localhost:3000/ || {
+            echo "local stack never became ready" >&2
+            tail -20 /tmp/next.log /tmp/proxy.log 2>&1
+            exit 1
+          }
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # Delivery gate: the flows this job exists to guard. Nightly + dispatch
+            # get the FULL sweep below (empty SUITES).
+            SUITES="upload-direct upload-fallback embed-playback auto-seed p2p-two-peer login-flow visual-pass"
+          else
+            SUITES=""
+          fi
+          # shellcheck disable=SC2086 (intentional word-splitting into suite args)
+          E2E_BASE_URL=http://localhost:3000 node e2e/run-all.mjs $SUITES
+
+      # Surface the local stack logs whenever a suite fails (the readiness
+      # branch above only dumps them when the stack itself never came up).
+      - name: Dump stack logs
+        if: failure()
+        run: |
+          echo "===== /tmp/next.log ====="
+          tail -40 /tmp/next.log 2>/dev/null || true
+          echo "===== /tmp/proxy.log ====="
+          tail -40 /tmp/proxy.log 2>/dev/null || true
