@@ -1,0 +1,38 @@
+name: backend-lint
+
+# Keep the FastAPI backend lint-clean on every push/PR to main. Uses the same
+# ruff version pinned for local development (backend/.venv) and the same
+# Python version as backend/Dockerfile (3.11) so CI and local runs agree.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ruff:
+    name: ruff check (backend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install ruff
+        run: pip install ruff==0.16.3
+
+      - name: Lint backend (app, tests, scripts)
+        working-directory: backend
+        run: ruff check app tests scripts
