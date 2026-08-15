@@ -7,6 +7,11 @@
 #   - When the backend runs with APP_ENV=production, email verification is
 #     required, so a fresh user's LOGIN is blocked with 403 (the gate working)
 #     rather than returning a token. In dev mode login still returns 200.
+#   - Mandatory 2FA (production default) gates REGISTRATION too: the register
+#     response is mfa_required + a short-lived mfa_token and NO session token.
+#     The script completes the authenticator enrollment (POST /auth/mfa/setup
+#     with the mfa_token, a computed TOTP, POST /auth/mfa/confirm) to mint the
+#     session — mirroring the e2e helpers' enrollMfa().
 #   - Cleans up the throwaway test user via DELETE /auth/me.
 # Requires: API_URL env var pointing to a running instance.
 # Exit code 0 = all pass, non-zero = failure(s).
@@ -78,8 +83,66 @@ REG=$(curl -s -X POST "$API/auth/register" \
   -d "{\"email\":\"$EMAIL\",\"password\":\"testpass123\",\"terms_accepted\":true}" 2>/dev/null || echo "")
 
 TOKEN=$(echo "$REG" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+MFA_ERR=""
+
+# Mandatory 2FA (production default) gates REGISTRATION: no session token is
+# minted — the client must enroll the authenticator (setup → TOTP confirm).
+if [ -z "$TOKEN" ] && echo "$REG" | grep -q '"mfa_required":true'; then
+  MFA_TOKEN=$(echo "$REG" | grep -o '"mfa_token":"[^"]*"' | cut -d'"' -f4)
+  sleep 2.2
+  SETUP=$(curl -s -X POST "$API/auth/mfa/setup" \
+    -H "Authorization: Bearer $MFA_TOKEN" 2>/dev/null || echo "")
+  SECRET=$(echo "$SETUP" | grep -o '"secret":"[^\"]*"' | cut -d'"' -f4)
+  if [ -z "$SECRET" ]; then
+    MFA_ERR="MFA setup failed: $(echo "$SETUP" | head -c 120)"
+  else
+    # TOTP must be computed against the SERVER clock: the backend verifies
+    # within a ±30s drift window, so a CI box with a skewed clock would produce
+    # codes ~steps off. Anchor via the /health Date response header (health is
+    # rate-limit exempt, so this request can't trip the limiter).
+    sleep 2.2
+    SERVER_DATE=$(curl -sI "$API/health" -D - -o /dev/null 2>/dev/null | tr -d '\r' | awk -F': ' 'tolower($1)=="date" {print $2}')
+    CODE=$(SERVER_DATE="$SERVER_DATE" python3 - "$SECRET" <<'PY'
+import hashlib, hmac, os, struct, sys, time
+from email.utils import parsedate_to_datetime
+
+secret = sys.argv[1]
+b32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+key = bytearray()
+bits = value = 0
+for ch in secret.upper():
+    if ch == "=":
+        break
+    bits += 5
+    value = (value << 5) | b32.index(ch)
+    if bits >= 8:
+        key.append((value >> (bits - 8)) & 0xFF)
+        bits -= 8
+try:
+    offset = round(parsedate_to_datetime(os.environ["SERVER_DATE"]).timestamp() - time.time())
+except Exception:
+    offset = 0
+msg = struct.pack(">Q", int(time.time() + offset) // 30)
+h = hmac.new(bytes(key), msg, hashlib.sha1).digest()
+o = h[-1] & 0x0F
+print(f"{(struct.unpack('>I', h[o:o + 4])[0] & 0x7FFFFFFF) % 1_000_000:06d}")
+PY
+)
+    sleep 2.2
+    CONFIRM=$(curl -s -X POST "$API/auth/mfa/confirm" \
+      -H "Content-Type: application/json" \
+      -d "{\"mfa_token\":\"$MFA_TOKEN\",\"code\":\"$CODE\"}" 2>/dev/null || echo "")
+    TOKEN=$(echo "$CONFIRM" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+    [ -z "$TOKEN" ] && MFA_ERR="MFA confirm failed: $(echo "$CONFIRM" | head -c 120)"
+  fi
+fi
+
 if [ -n "$TOKEN" ]; then
-  check 0 "Registration → token received"
+  if [ -n "$MFA_ERR" ]; then
+    check 1 "Registration — $MFA_ERR"
+  else
+    check 0 "Registration → token received"
+  fi
 
   sleep 2.2
   ME=$(curl -s "$API/auth/me" -H "Authorization: Bearer $TOKEN" 2>/dev/null || echo "")
@@ -118,7 +181,7 @@ if [ -n "$TOKEN" ]; then
     -H "Authorization: Bearer $TOKEN" 2>/dev/null || echo "000")
   [ "$DEL_CODE" = "200" ] && check 0 "Test user cleaned up (DELETE /auth/me) → $DEL_CODE" || check 1 "Cleanup DELETE /auth/me → $DEL_CODE"
 else
-  check 1 "Registration — failed: $(echo "$REG" | head -c 100)"
+  check 1 "Registration — failed: ${MFA_ERR:-$(echo "$REG" | head -c 100)}"
 fi
 
 # ── 6. SQL INJECTION ──

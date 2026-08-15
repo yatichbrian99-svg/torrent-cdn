@@ -2,7 +2,8 @@
 # Content-dedup + refcount-delete audit — runs against the LIVE production
 # deployment. Verifies the storage dedup and refcount-aware deletions exactly
 # as users drive them:
-#   register A → upload a unique file → register B → upload IDENTICAL bytes →
+#   register A (completing mandatory-2FA enrollment when required) → upload a
+#   unique file → register B → upload IDENTICAL bytes →
 #   B's minio_url must equal A's (ONE copy stored, B's duplicate deleted) →
 #   DELETE A's file → the shared object must SURVIVE (B still references it,
 #   and B's public embed must still resolve) → DELETE B's file (the LAST
@@ -197,14 +198,92 @@ verify_account() {
   return 1
 }
 
+# totp_for <base32_secret> — current TOTP code for the secret, anchored to the
+# SERVER clock: the backend verifies within a ±30s drift window, so a CI box
+# with a skewed clock would produce codes ~steps off. The anchor comes from the
+# /health Date response header (health is rate-limit exempt, so this request
+# can't trip the global limiter).
+totp_for() {
+  local secret="$1" server_date
+  server_date=$(curl -sI "$API/health" -D - -o /dev/null 2>/dev/null | tr -d '\r' | awk -F': ' 'tolower($1)=="date" {print $2}')
+  SERVER_DATE="$server_date" python3 - "$secret" <<'PY'
+import hashlib, hmac, os, struct, sys, time
+from email.utils import parsedate_to_datetime
+
+secret = sys.argv[1]
+b32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+key = bytearray()
+bits = value = 0
+for ch in secret.upper():
+    if ch == "=":
+        break
+    bits += 5
+    value = (value << 5) | b32.index(ch)
+    if bits >= 8:
+        key.append((value >> (bits - 8)) & 0xFF)
+        bits -= 8
+try:
+    offset = round(parsedate_to_datetime(os.environ["SERVER_DATE"]).timestamp() - time.time())
+except Exception:
+    offset = 0
+msg = struct.pack(">Q", int(time.time() + offset) // 30)
+h = hmac.new(bytes(key), msg, hashlib.sha1).digest()
+o = h[-1] & 0x0F
+print(f"{(struct.unpack('>I', h[o:o + 4])[0] & 0x7FFFFFFF) % 1_000_000:06d}")
+PY
+}
+
+# register_and_enroll <email> <password> — POST /auth/register and return a
+# working session token. Production runs with MANDATORY 2FA, which gates
+# REGISTRATION too: the response is mfa_required + a short-lived mfa_token and
+# NO session token, so the probe completes the authenticator enrollment here —
+# POST /auth/mfa/setup with the mfa_token, a computed TOTP, POST
+# /auth/mfa/confirm — mirroring enrollMfa() in the e2e helpers. When MFA is
+# disabled (dev) the register response carries the token directly and nothing
+# extra happens. Echoes the token on stdout (empty on failure); diagnostics go
+# to stderr.
+register_and_enroll() {
+  local email="$1" password="$2"
+  local reg token mfa_token setup secret code confirm
+  reg=$(post_proxy "/auth/register" "{\"email\":\"$email\",\"password\":\"$password\",\"terms_accepted\":true}" "")
+  token=$(echo "$reg" | python3 -c "import json,sys;print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null)
+  if [ -n "$token" ]; then
+    echo "$token"
+    return 0
+  fi
+  if ! echo "$reg" | grep -q '"mfa_required":true'; then
+    echo "  register_and_enroll: no access_token and no mfa_required — body: $(echo "$reg" | head -c 300)" >&2
+    return 1
+  fi
+  mfa_token=$(echo "$reg" | python3 -c "import json,sys;print(json.load(sys.stdin).get('mfa_token',''))" 2>/dev/null)
+  if [ -z "$mfa_token" ]; then
+    echo "  register_and_enroll: mfa_required but no mfa_token — body: $(echo "$reg" | head -c 300)" >&2
+    return 1
+  fi
+  setup=$(post_proxy "/auth/mfa/setup" "" "$mfa_token")
+  secret=$(echo "$setup" | python3 -c "import json,sys;print(json.load(sys.stdin).get('secret',''))" 2>/dev/null)
+  if [ -z "$secret" ]; then
+    echo "  register_and_enroll: MFA setup failed — body: $(echo "$setup" | head -c 300)" >&2
+    return 1
+  fi
+  code=$(totp_for "$secret")
+  confirm=$(post_proxy "/auth/mfa/confirm" "{\"mfa_token\":\"$mfa_token\",\"code\":\"$code\"}" "")
+  token=$(echo "$confirm" | python3 -c "import json,sys;print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null)
+  if [ -z "$token" ]; then
+    echo "  register_and_enroll: MFA confirm failed — body: $(echo "$confirm" | head -c 300)" >&2
+    return 1
+  fi
+  echo "$token"
+  return 0
+}
+
 # ── 1. REGISTER USER A ──
 echo ""
 echo "── 1. REGISTER USER A ──"
 TS=$(date +%s)
 EMAIL_A="dedup-audit-a-${TS}@resend.dev"
 PASSW="ProbePass123!"
-REG=$(post_proxy "/auth/register" "{\"email\":\"$EMAIL_A\",\"password\":\"$PASSW\",\"terms_accepted\":true}" "")
-JWT_A=$(echo "$REG" | python3 -c "import json,sys;print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null)
+JWT_A=$(register_and_enroll "$EMAIL_A" "$PASSW")
 if [ -n "$JWT_A" ]; then
   check 0 "Register A → JWT received"
 else
@@ -307,8 +386,7 @@ esac
 echo ""
 echo "── 4. REGISTER USER B ──"
 EMAIL_B="dedup-audit-b-${TS}@resend.dev"
-REG=$(post_proxy "/auth/register" "{\"email\":\"$EMAIL_B\",\"password\":\"$PASSW\",\"terms_accepted\":true}" "")
-JWT_B=$(echo "$REG" | python3 -c "import json,sys;print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null)
+JWT_B=$(register_and_enroll "$EMAIL_B" "$PASSW")
 if [ -n "$JWT_B" ]; then
   check 0 "Register B → JWT received"
 else
