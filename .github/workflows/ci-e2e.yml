@@ -102,32 +102,14 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Login the SHARED VERIFIED E2E account used by the whole batch. Email
-      # verification is enforced in production (a register-issued token for an
-      # unverified account is restricted to the verification endpoints), so the
-      # batch needs a real verified account: E2E_EMAIL + E2E_PASSWORD are repo
-      # secrets for an account whose email was verified ONCE (click the link in
-      # the inbox; do NOT enable MFA on it — login must return a plain token).
-      # run-all registers per suite when no token is given; a shared token keeps
-      # the batch to a single login and avoids the live 10/hr/IP register
-      # budget entirely.
-      - name: Login shared verified E2E account
-        run: |
-          set -euo pipefail
-          : "${E2E_EMAIL:?set E2E_EMAIL secret - a VERIFIED account email}"
-          : "${E2E_PASSWORD:?set E2E_PASSWORD secret}"
-          TOKEN=""
-          for i in 1 2 3; do
-            TOKEN=$(curl -sf --max-time 60 -X POST https://www.torrentcdn.store/auth/login \
-              -H 'Content-Type: application/json' \
-              -d "{\"email\":\"$E2E_EMAIL\",\"password\":\"$E2E_PASSWORD\"}" \
-              | python3 -c 'import sys,json; print(json.load(sys.stdin).get("access_token",""))' \
-              || true)
-            [ -n "$TOKEN" ] && break
-            sleep 5
-          done
-          [ -n "$TOKEN" ] || { echo "shared account login failed — is E2E_EMAIL verified (no MFA)?" >&2; exit 1; }
-          echo "E2E_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+      # The shared-account login now happens INSIDE the batch step below (not
+      # as its own step): mandatory 2FA (production default) gates LOGIN as well
+      # as registration, so minting the token requires completing the
+      # authenticator enrollment (login → mfa_token → setup → TOTP → confirm),
+      # which ENABLES MFA on the account. That ordering only works if mfa-flow
+      # (which needs an MFA-FREE account to drive its enrollment journey) runs
+      # BEFORE the login enrolls, and if a final cleanup disables MFA again so
+      # the account is reusable next run — see the batch step.
 
       # Everything in ONE step so the local stack lives for the batch: next
       # start on :3001, the same-origin proxy on :3000 (vercel.json rewrite
@@ -144,11 +126,67 @@ jobs:
       - name: Run E2E suite batch (pushed build → production backend)
         run: |
           set -euo pipefail
+          : "${E2E_EMAIL:?set E2E_EMAIL secret - a VERIFIED account email}"
+          : "${E2E_PASSWORD:?set E2E_PASSWORD secret}"
+          # Current 6-digit TOTP for a base32 secret, anchored to the SERVER
+          # clock via the /health Date header (health is rate-limit exempt). The
+          # proxy only rewrites /api /auth /upload /files /admin etc. — NOT
+          # /health — so hit the Render origin directly, exactly as the live
+          # probe scripts do.
+          TOTP() {
+            local secret="$1" server_date
+            server_date=$(curl -sI https://torrent-cdn.onrender.com/health -D - -o /dev/null 2>/dev/null | tr -d '\r' | awk -F': ' 'tolower($1)=="date" {print $2}')
+            SERVER_DATE="$server_date" python3 - "$secret" <<'PY'
+          import hashlib, hmac, os, struct, sys, time
+          from email.utils import parsedate_to_datetime
+          secret = sys.argv[1]
+          b32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+          key = bytearray(); bits = value = 0
+          for ch in secret.upper():
+              if ch == "=": break
+              bits += 5; value = (value << 5) | b32.index(ch)
+              if bits >= 8:
+                  key.append((value >> (bits - 8)) & 0xFF); bits -= 8
+          try:
+              offset = round(parsedate_to_datetime(os.environ["SERVER_DATE"]).timestamp() - time.time())
+          except Exception:
+              offset = 0
+          msg = struct.pack(">Q", int(time.time() + offset) // 30)
+          h = hmac.new(bytes(key), msg, hashlib.sha1).digest()
+          o = h[-1] & 0x0F
+          print(f"{(struct.unpack('>I', h[o:o + 4])[0] & 0x7FFFFFFF) % 1_000_000:06d}")
+          PY
+          }
+          # restore_mfa — disable MFA on the shared account (the enrollment
+          # below ENABLED it) so the next run starts MFA-free. Called from the
+          # EXIT trap (even on early failures) AND after the batch; the flag
+          # makes it idempotent so the trap doesn't re-run it after the explicit
+          # call (a second disable would 400 and spam a WARN).
+          restore_mfa() {
+            [ -n "${MFA_SECRET:-}" ] || return 0
+            [ -n "${TOKEN:-}" ] || return 0
+            [ "${MFA_RESTORED:-0}" = "1" ] && return 0
+            local code
+            code=$(TOTP "$MFA_SECRET")
+            if curl -sf --max-time 60 -X POST http://localhost:3000/auth/mfa/disable \
+              -H 'Content-Type: application/json' \
+              -H "Authorization: Bearer $TOKEN" \
+              -d "{\"code\":\"$code\"}" >/dev/null 2>&1; then
+              echo "shared account MFA disabled (restored to MFA-free for the next run)"
+              MFA_RESTORED=1
+            else
+              echo "WARN: could not disable MFA on the shared account — next run may need it re-enabled manually" >&2
+            fi
+          }
           ./node_modules/.bin/next start -p 3001 > /tmp/next.log 2>&1 &
           NEXT_PID=$!
           node e2e/local-proxy.mjs > /tmp/proxy.log 2>&1 &
           PROXY_PID=$!
-          trap 'kill $NEXT_PID $PROXY_PID 2>/dev/null || true; pkill -f "next-server" 2>/dev/null || true' EXIT
+          # Restore the shared account on ANY exit (including mid-batch
+          # failures): a job that dies after enrollment would leave the account
+          # MFA-enabled, and mfa-flow's full mode (which needs MFA-free) would
+          # fail on the next run.
+          trap 'kill $NEXT_PID $PROXY_PID 2>/dev/null || true; pkill -f "next-server" 2>/dev/null || true; restore_mfa' EXIT
           for i in $(seq 1 60); do
             if curl -sf -o /dev/null http://localhost:3000/; then
               echo "local stack ready (:3000)"
@@ -163,13 +201,76 @@ jobs:
           }
           if [ "${{ github.event_name }}" = "push" ]; then
             # Delivery gate: the flows this job exists to guard. Nightly + dispatch
-            # get the FULL sweep below (empty SUITES).
+            # get the FULL sweep below (all suites — mfa-flow first, see below).
             SUITES="upload-direct upload-fallback embed-playback auto-seed p2p-two-peer login-flow visual-pass"
           else
             SUITES=""
           fi
+
+          # mfa-flow's full mode REQUIRES the shared E2E account to be MFA-free
+          # at the start (it drives the password → setup → TOTP enrollment
+          # journey). Mandatory 2FA gates login, so the shared-account login
+          # below must ENROLL the account (which ENABLES MFA on it) — on cron /
+          # dispatch, run mfa-flow FIRST while the account is still MFA-free,
+          # then exclude it from the batch below. Push already skips mfa-flow.
+          if [ -z "$SUITES" ]; then
+            E2E_BASE_URL=http://localhost:3000 node e2e/mfa-flow.mjs
+            SUITES="upload-direct upload-fallback embed-playback auto-seed p2p-two-peer api-key-ui finalize-retry embed-speed login-flow visual-pass admin-noselect"
+          fi
+
+          # Shared verified account: mint the session token. Mandatory 2FA gates
+          # login — the response is mfa_required + a short-lived mfa_token (no
+          # session token), so complete the enrollment: setup (authenticated by
+          # the mfa_token) → computed TOTP (anchored to the server clock) →
+          # confirm → access_token. This ENABLES MFA on the shared account; the
+          # final cleanup below disables it again so the account stays reusable.
+          TOKEN="" MFA_SECRET=""
+          for i in 1 2 3; do
+            LOGIN=$(curl -sf --max-time 60 -X POST http://localhost:3000/auth/login \
+              -H 'Content-Type: application/json' \
+              -d "{\"email\":\"$E2E_EMAIL\",\"password\":\"$E2E_PASSWORD\"}" 2>/dev/null || echo "")
+            TOKEN=$(echo "$LOGIN" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("access_token",""))' 2>/dev/null || true)
+            MFA_TOKEN=$(echo "$LOGIN" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("mfa_token",""))' 2>/dev/null || true)
+            if [ -n "$TOKEN" ] || [ -n "$MFA_TOKEN" ]; then break; fi
+            sleep 5
+          done
+          if [ -n "$TOKEN" ]; then
+            echo "shared login: direct access_token (MFA disabled)"
+          elif [ -n "$MFA_TOKEN" ]; then
+            SETUP=$(curl -sf --max-time 60 -X POST http://localhost:3000/auth/mfa/setup \
+              -H "Authorization: Bearer $MFA_TOKEN" 2>/dev/null || echo "")
+            MFA_SECRET=$(echo "$SETUP" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("secret",""))' 2>/dev/null || true)
+            if [ -z "$MFA_SECRET" ]; then
+              echo "shared login: MFA setup failed: $(echo "$SETUP" | head -c 200)" >&2
+              exit 1
+            fi
+            CODE=$(TOTP "$MFA_SECRET")
+            CONFIRM=$(curl -sf --max-time 60 -X POST http://localhost:3000/auth/mfa/confirm \
+              -H 'Content-Type: application/json' \
+              -d "{\"mfa_token\":\"$MFA_TOKEN\",\"code\":\"$CODE\"}" 2>/dev/null || echo "")
+            TOKEN=$(echo "$CONFIRM" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("access_token",""))' 2>/dev/null || true)
+            [ -n "$TOKEN" ] || { echo "shared login: MFA confirm failed: $(echo "$CONFIRM" | head -c 200)" >&2; exit 1; }
+            echo "shared login: enrolled authenticator + minted session (mandatory 2FA)"
+          else
+            echo "shared account login failed — is E2E_EMAIL verified?" >&2
+            exit 1
+          fi
+          export E2E_TOKEN="$TOKEN" E2E_MFA_SECRET="$MFA_SECRET"
+
+          # Run the suite batch. Capture the exit code WITHOUT tripping `set -e`
+          # so the MFA restore below ALWAYS runs (a failed suite must not leave
+          # the shared account MFA-enabled for every future run).
+          set +e
           # shellcheck disable=SC2086 (intentional word-splitting into suite args)
           E2E_BASE_URL=http://localhost:3000 node e2e/run-all.mjs $SUITES
+          BATCH_STATUS=$?
+          set -e
+
+          # Restore the shared account (the EXIT trap also calls restore_mfa,
+          # but this explicit call keeps the summary message in the normal path
+          # before the explicit exit below).
+          restore_mfa
+          exit $BATCH_STATUS
 
       # Surface the local stack logs whenever a suite fails (the readiness
       # branch above only dumps them when the stack itself never came up).

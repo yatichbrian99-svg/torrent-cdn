@@ -281,7 +281,7 @@ JWT=$(register_and_enroll "$EMAIL" "$PASSW")
 if [ -n "$JWT" ]; then
   check 0 "Register → JWT received"
 else
-  check 1 "Register failed (no access_token): $(echo "$REG" | head -c 200)"
+  check 1 "Register failed (no access_token)"
   cleanup_all >/dev/null
   echo "[FAIL] Aborting — the remaining steps need a registered account." >&2
   [ -n "$SUMMARY_FILE" ] && sum "**[FAIL] ABORTED** — registration failed; remaining steps skipped."

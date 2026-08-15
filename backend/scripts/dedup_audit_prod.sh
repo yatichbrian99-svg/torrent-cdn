@@ -287,7 +287,7 @@ JWT_A=$(register_and_enroll "$EMAIL_A" "$PASSW")
 if [ -n "$JWT_A" ]; then
   check 0 "Register A → JWT received"
 else
-  check 1 "Register A failed (no access_token): $(echo "$REG" | head -c 200)"
+  check 1 "Register A failed (no access_token)"
   cleanup_all >/dev/null
   echo "[FAIL] Aborting — the remaining steps need a registered account." >&2
   [ -n "$SUMMARY_FILE" ] && sum "**[FAIL] ABORTED** — user A registration failed; remaining steps skipped."
@@ -390,7 +390,7 @@ JWT_B=$(register_and_enroll "$EMAIL_B" "$PASSW")
 if [ -n "$JWT_B" ]; then
   check 0 "Register B → JWT received"
 else
-  check 1 "Register B failed (no access_token): $(echo "$REG" | head -c 200)"
+  check 1 "Register B failed (no access_token)"
   cleanup_all >/dev/null
   echo "[FAIL] Aborting — user B is needed for the dedup half of the audit." >&2
   [ -n "$SUMMARY_FILE" ] && sum "**[FAIL] ABORTED** — user B registration failed; remaining steps skipped."

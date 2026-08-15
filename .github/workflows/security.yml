@@ -234,15 +234,14 @@ jobs:
 
   # ── Storage bucket publicity gate (credential-free live check) ──
   # The app serves every file through the bucket's public object URL; a private
-  # bucket 404s ALL playback. This read-only GET on the public URL runs on
-  # push/PR and on the daily cron re-check. (The E2E delivery batch that used
-  # to live here moved to ci-e2e.yml, path-scoped to frontend changes.)
+  # bucket breaks ALL playback (403 on R2). This read-only GET on the public URL
+  # runs on push/PR and on the daily cron re-check. (The E2E delivery batch that
+  # used to live here moved to ci-e2e.yml, path-scoped to frontend changes.)
   storage-publicity:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF || 'bqbfrgeimurtuyjlfagc' }}
-      STORAGE_BUCKET: ${{ secrets.STORAGE_BUCKET || 'torrent-cdn-files' }}
+      R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL || 'https://pub-db587f977d274a458f30d14fa2ddfb9e.r2.dev' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
