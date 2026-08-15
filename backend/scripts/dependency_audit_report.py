@@ -201,7 +201,7 @@ def render_report(
     counts = {"critical": 0, "high": 0, "moderate": 0, "low": 0, "info": 0, "pip": 0, "npm": 0}
 
     lines = [
-        "## 🔒 Dependency Audit Report",
+        "## Dependency Audit Report",
         "",
         f"_Generated: {now} — {repo_root.name} @ `main`_",
         "",
@@ -210,7 +210,7 @@ def render_report(
     # ── Backend (pip-audit) ──
     lines.append("### Backend — `pip-audit`")
     if pip_data is None:
-        lines.append("\n⚠️ pip-audit could not run (missing tool or broken output).")
+        lines.append("\n[WARN] pip-audit could not run (missing tool or broken output).")
     else:
         rows = _pip_findings(pip_data)
         counts["pip"] = len(rows)
@@ -218,9 +218,9 @@ def render_report(
             sev = f["severity"] if f["severity"] in counts else "low"
             counts[sev] += 1
         if not rows:
-            lines.append("\n✅ **No known vulnerabilities** in the pinned backend dependencies.")
+            lines.append("\n[OK] **No known vulnerabilities** in the pinned backend dependencies.")
         else:
-            lines.append(f"\n⚠️ {len(rows)} vulnerable package(s) found:\n")
+            lines.append(f"\n[WARN] {len(rows)} vulnerable package(s) found:\n")
             lines.append("| Package | Severity | Advisory |")
             lines.append("|---|---|---|")
             for f in sorted(rows, key=lambda r: (SEVERITY_ORDER.get(r["severity"], 9), r["package"])):
@@ -230,7 +230,7 @@ def render_report(
     # ── Frontend (npm audit) ──
     lines.append("### Frontend — `npm audit`")
     if npm_data is None:
-        lines.append("\n⚠️ npm audit could not run (missing tool or broken output).")
+        lines.append("\n[WARN] npm audit could not run (missing tool or broken output).")
     else:
         meta = (npm_data.get("metadata") or {}).get("vulnerabilities") or {}
         counts["npm"] = int(meta.get("total", 0))
@@ -239,9 +239,9 @@ def render_report(
             sev = f["severity"] if f["severity"] in counts else "low"
             counts[sev] += 1
         if not rows:
-            lines.append("\n✅ **No known vulnerabilities** in the frontend dependency tree.")
+            lines.append("\n[OK] **No known vulnerabilities** in the frontend dependency tree.")
         else:
-            lines.append(f"\n⚠️ {len(rows)} vulnerable package(s) found:\n")
+            lines.append(f"\n[WARN] {len(rows)} vulnerable package(s) found:\n")
             lines.append("| Package | Severity | Direct? | Via / advisory | Fix |")
             lines.append("|---|---|---|---|---|")
             for f in sorted(rows, key=lambda r: (SEVERITY_ORDER.get(r["severity"], 9), r["package"])):
@@ -261,7 +261,7 @@ def render_report(
         lines.append("### New since last baseline")
         if new_findings:
             lines.append(
-                f"\n🚨 **{new_count} NEW finding(s)** not present in the committed baseline "
+                f"\n[ALERT] **{new_count} NEW finding(s)** not present in the committed baseline "
                 "(`backend/scripts/dependency-audit-baseline.json`):\n"
             )
             lines.append("| Ecosystem | Package | Severity | Advisory |")
@@ -275,19 +275,19 @@ def render_report(
                 "`python backend/scripts/dependency_audit_report.py --write-baseline backend/scripts/dependency-audit-baseline.json`"
             )
         else:
-            lines.append("\n✅ No new findings — the current advisory set matches the accepted baseline.")
+            lines.append("\n[OK] No new findings — the current advisory set matches the accepted baseline.")
         lines.append("")
 
     # ── Bottom line ──
     total = sum(counts[k] for k in ("critical", "high", "moderate", "low"))
     if new_count:
-        lines.append(f"🚨 **{new_count} new advisory(ies) vs baseline.** This run is RED — investigate before merge.")
+        lines.append(f"[ALERT] **{new_count} new advisory(ies) vs baseline.** This run is RED — investigate before merge.")
     elif counts["critical"]:
-        lines.append(f"🚨 **{counts['critical']} CRITICAL advisory(ies).** This run is RED by design — investigate immediately.")
+        lines.append(f"[ALERT] **{counts['critical']} CRITICAL advisory(ies).** This run is RED by design — investigate immediately.")
     elif total:
-        lines.append(f"⚠️ {total} non-critical finding(s) — all within the accepted baseline (see SECURITY.md → Hardening Log).")
+        lines.append(f"[WARN] {total} non-critical finding(s) — all within the accepted baseline (see SECURITY.md → Hardening Log).")
     else:
-        lines.append("✅ All clear — no known advisories in either tree.")
+        lines.append("[OK] All clear — no known advisories in either tree.")
 
     return "\n".join(lines) + "\n", counts, new_count
 

@@ -55,12 +55,12 @@ EXPECTED_S3_ENDPOINT="${EXPECTED_S3_ENDPOINT:-https://a942dd172ffb3faa3dd24d9b92
 
 check() {
   if [ "$1" = "0" ]; then
-    echo "  ✅  $2"
-    sum "- ✅ **$2**"
+    echo "  [OK]  $2"
+    sum "- [OK] **$2**"
     PASS=$((PASS+1))
   else
-    echo "  ❌  $2"
-    sum "- ❌ **$2**"
+    echo "  [FAIL]  $2"
+    sum "- [FAIL] **$2**"
     FAIL=$((FAIL+1))
   fi
 }
@@ -76,7 +76,7 @@ SUMMARY_FILE="${GITHUB_STEP_SUMMARY:-}"
 sum() { [ -n "$SUMMARY_FILE" ] && printf '%s\n' "$1" >> "$SUMMARY_FILE"; }
 
 if [ -n "$SUMMARY_FILE" ]; then
-  sum "## 🔁 Production Import-by-URL + Cross-Path Dedup Audit — $FE"
+  sum "## Production Import-by-URL + Cross-Path Dedup Audit — $FE"
   sum ""
   if [ -n "${GITHUB_SHA:-}" ]; then
     sum "**Commit**: \`${GITHUB_SHA:0:7}\` · **Run**: [#$GITHUB_RUN_ID](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
@@ -87,8 +87,8 @@ fi
 # ── 0. Health (fail fast if prod is unreachable) ──
 CODE=$(curl -so /dev/null -w '%{http_code}' --max-time 30 "$API/health" 2>/dev/null || echo "000")
 if [ "$CODE" != "200" ]; then
-  echo "❌ Health check failed → HTTP $CODE; is production up?" >&2
-  [ -n "$SUMMARY_FILE" ] && sum "**🔴 ABORTED** — health check → HTTP $CODE (production unreachable)."
+  echo "[FAIL] Health check failed → HTTP $CODE; is production up?" >&2
+  [ -n "$SUMMARY_FILE" ] && sum "**[FAIL] ABORTED** — health check → HTTP $CODE (production unreachable)."
   exit 2
 fi
 check 0 "Health → 200"
@@ -204,8 +204,8 @@ if [ -n "$JWT" ]; then
 else
   check 1 "Register failed (no access_token): $(echo "$REG" | head -c 200)"
   cleanup_all >/dev/null
-  echo "❌ Aborting — the remaining steps need a registered account." >&2
-  [ -n "$SUMMARY_FILE" ] && sum "**🔴 ABORTED** — registration failed; remaining steps skipped."
+  echo "[FAIL] Aborting — the remaining steps need a registered account." >&2
+  [ -n "$SUMMARY_FILE" ] && sum "**[FAIL] ABORTED** — registration failed; remaining steps skipped."
   exit 2
 fi
 
@@ -213,8 +213,8 @@ fi
 # failure — the remaining steps are all verification-gated.
 if ! verify_account "$JWT"; then
   cleanup_all >/dev/null
-  echo "❌ Aborting — the remaining steps need a verified account." >&2
-  [ -n "$SUMMARY_FILE" ] && sum "**🔴 ABORTED** — verification failed; remaining steps skipped."
+  echo "[FAIL] Aborting — the remaining steps need a verified account." >&2
+  [ -n "$SUMMARY_FILE" ] && sum "**[FAIL] ABORTED** — verification failed; remaining steps skipped."
   exit 2
 fi
 
@@ -241,7 +241,7 @@ echo "  synthesized $TEST_FILE (${FILE_SIZE} bytes, EBML header + varied body + 
 echo ""
 echo "── 3. SOURCE UPLOAD (presign → direct PUT → finalize) ──"
 if [ ! -f "$TEST_FILE" ]; then
-  echo "❌ Test file missing — aborting." >&2
+  echo "[FAIL] Test file missing — aborting." >&2
   cleanup_all >/dev/null
   exit 2
 fi
@@ -256,8 +256,8 @@ if [ "$(status)" = "200" ] && [ -n "$UPLOAD_ID_SRC" ] && [ -n "$PRESIGNED_URL_SR
 else
   check 1 "Source presign → $(status) (no upload_id/presigned_url)"
   cleanup_all >/dev/null
-  echo "❌ Aborting — no presigned URL to PUT to." >&2
-  [ -n "$SUMMARY_FILE" ] && sum "**🔴 ABORTED** — source presign failed; remaining steps skipped."
+  echo "[FAIL] Aborting — no presigned URL to PUT to." >&2
+  [ -n "$SUMMARY_FILE" ] && sum "**[FAIL] ABORTED** — source presign failed; remaining steps skipped."
   exit 2
 fi
 
@@ -275,8 +275,8 @@ if [ -n "$FILE_ID_SRC" ] && [ -n "$URL_SRC" ]; then
 else
   check 1 "Source finalize failed: $(echo "$FIN_SRC" | head -c 200)"
   cleanup_all >/dev/null
-  echo "❌ Aborting — no finalized source upload to import from." >&2
-  [ -n "$SUMMARY_FILE" ] && sum "**🔴 ABORTED** — source finalize failed; remaining steps skipped."
+  echo "[FAIL] Aborting — no finalized source upload to import from." >&2
+  [ -n "$SUMMARY_FILE" ] && sum "**[FAIL] ABORTED** — source finalize failed; remaining steps skipped."
   exit 2
 fi
 
@@ -315,8 +315,8 @@ if [ -n "$FILE_ID_IMP" ] && [ -n "$URL_IMP" ]; then
 else
   check 1 "Import failed: $(echo "$IMP" | head -c 300)"
   cleanup_all >/dev/null
-  echo "❌ Aborting — no finalized import to assert dedup on." >&2
-  [ -n "$SUMMARY_FILE" ] && sum "**🔴 ABORTED** — import-by-URL failed; remaining steps skipped."
+  echo "[FAIL] Aborting — no finalized import to assert dedup on." >&2
+  [ -n "$SUMMARY_FILE" ] && sum "**[FAIL] ABORTED** — import-by-URL failed; remaining steps skipped."
   exit 2
 fi
 
@@ -371,15 +371,15 @@ CLEAN_ACCT=$(echo "$CLEAN_CODES" | awk '{print $3}')
 # ── SUMMARY ──
 echo ""
 echo "============================================================"
-echo "  RESULTS: $PASS ✅  $FAIL ❌"
+echo "  RESULTS: $PASS [OK]  $FAIL [FAIL]"
 echo "============================================================"
 if [ -n "$SUMMARY_FILE" ]; then
   sum ""
   if [ "$FAIL" -eq 0 ]; then
-    sum "**Result: $PASS ✅ / $FAIL ❌ — 🟢 PASS**"
+    sum "**Result: $PASS [OK] / $FAIL [FAIL] — [PASS] PASS**"
     sum "Import-by-URL, cross-path dedup, and the SSRF guard are healthy on production."
   else
-    sum "**Result: $PASS ✅ / $FAIL ❌ — 🔴 FAIL**"
+    sum "**Result: $PASS [OK] / $FAIL [FAIL] — [FAIL] FAIL**"
     sum "See the job log for the failing checks."
   fi
   sum ""

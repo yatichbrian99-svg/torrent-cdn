@@ -308,7 +308,7 @@ def main(argv: list[str]) -> int:
     print(f"  scanning: {root}")
     print("=" * 60)
     if findings:
-        print(f"\n  ❌  {len(findings)} finding(s):\n")
+        print(f"\n  [FAIL]  {len(findings)} finding(s):\n")
         for f in findings:
             print(f"       • {f}")
         print(
@@ -318,7 +318,7 @@ def main(argv: list[str]) -> int:
         )
         print("=" * 60)
         return 1
-    print("\n  ✅  ALL DB CALLS PARAMETERIZED — no SQL injection vectors found")
+    print("\n  [OK]  ALL DB CALLS PARAMETERIZED — no SQL injection vectors found")
     print("=" * 60)
     return 0
 

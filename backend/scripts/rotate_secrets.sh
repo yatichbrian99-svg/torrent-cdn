@@ -57,7 +57,7 @@ cat <<EOF
   TORRENTCDN SECRET ROTATION  (generated $(date -u +%Y-%m-%dT%H:%MZ))
 ============================================================
 
-  ⚠️  SENSITIVE: The values below are live secrets. Copy them DIRECTLY into
+  [WARN]  SENSITIVE: The values below are live secrets. Copy them DIRECTLY into
      the Render dashboard. Do NOT paste this output into chats, tickets, or
      shared logs — that is how secrets leak (and how the originals leaked).
 

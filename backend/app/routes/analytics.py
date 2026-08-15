@@ -1,5 +1,5 @@
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
 from uuid import UUID
 
@@ -185,7 +185,7 @@ async def get_bandwidth_history(user_id: UUID = Depends(get_current_user_id)):
         )
 
     by_date = {r["date"]: r["gb_used"] for r in rows}
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).date()
     return [
         {
             "date": (today - timedelta(days=i)).isoformat(),

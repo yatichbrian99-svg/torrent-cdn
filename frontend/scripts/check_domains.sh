@@ -26,9 +26,9 @@ FRONTEND_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FAIL=0
 check() {  # check <pass:0|1> <message>
   if [ "$1" = "0" ]; then
-    echo "  ✅  $2"
+    echo "  [OK]  $2"
   else
-    echo "  ❌  $2"
+    echo "  [FAIL]  $2"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -89,7 +89,7 @@ fi
 
 echo
 if [ "$FAIL" -ne 0 ]; then
-  echo "Domain guard FAILED — see ❌ above." >&2
+  echo "Domain guard FAILED — see [FAIL] above." >&2
   exit 1
 fi
 echo "Domain guard PASSED — only www.torrentcdn.store references remain."

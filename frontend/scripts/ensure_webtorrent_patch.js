@@ -23,7 +23,7 @@ const root = path.join(__dirname, '..')
 const cacheDir = path.join(root, '.next', 'cache')
 if (fs.existsSync(cacheDir)) {
   fs.rmSync(cacheDir, { recursive: true, force: true })
-  console.log('✓ cleared stale Next.js build cache (.next/cache)')
+  console.log('[OK] cleared stale Next.js build cache (.next/cache)')
 }
 
 const targets = [
@@ -44,7 +44,7 @@ const missing = targets.filter(
 )
 
 if (missing.length === 0) {
-  console.log('✓ webtorrent patches already applied')
+  console.log('[OK] webtorrent patches already applied')
   process.exit(0)
 }
 
@@ -59,12 +59,12 @@ const bin = process.platform === 'win32'
   : path.join(root, 'node_modules', '.bin', 'patch-package')
 const r = spawnSync(bin, [], { cwd: root, stdio: 'inherit' })
 if (r.error && r.error.code === 'ENOENT') {
-  console.error('✗ patch-package not found — install devDependencies (npm ci) before building')
+  console.error('[FAIL] patch-package not found — install devDependencies (npm ci) before building')
   process.exit(1)
 }
 if (r.status !== 0) {
   console.error(
-    '✗ patch-package failed to apply patches/ — ' +
+    '[FAIL] patch-package failed to apply patches/ — ' +
       'reset node_modules (npm ci) and retry',
   )
   process.exit(r.status ?? 1)
@@ -75,9 +75,9 @@ const stillMissing = targets.filter(
 )
 if (stillMissing.length > 0) {
   console.error(
-    `✗ patch reported success but ${stillMissing.map((t) => t.name).join(', ')} marker(s) ` +
+    `[FAIL] patch reported success but ${stillMissing.map((t) => t.name).join(', ')} marker(s) ` +
       'are still missing — aborting',
   )
   process.exit(1)
 }
-console.log('✓ webtorrent patches applied during build')
+console.log('[OK] webtorrent patches applied during build')

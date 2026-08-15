@@ -57,12 +57,12 @@ EXPECTED_S3_ENDPOINT="${EXPECTED_S3_ENDPOINT:-https://a942dd172ffb3faa3dd24d9b92
 
 check() {
   if [ "$1" = "0" ]; then
-    echo "  ✅  $2"
-    sum "- ✅ **$2**"
+    echo "  [OK]  $2"
+    sum "- [OK] **$2**"
     PASS=$((PASS+1))
   else
-    echo "  ❌  $2"
-    sum "- ❌ **$2**"
+    echo "  [FAIL]  $2"
+    sum "- [FAIL] **$2**"
     FAIL=$((FAIL+1))
   fi
 }
@@ -78,7 +78,7 @@ SUMMARY_FILE="${GITHUB_STEP_SUMMARY:-}"
 sum() { [ -n "$SUMMARY_FILE" ] && printf '%s\n' "$1" >> "$SUMMARY_FILE"; }
 
 if [ -n "$SUMMARY_FILE" ]; then
-  sum "## 🔁 Production Content-Dedup + Refcount Audit — $FE"
+  sum "## Production Content-Dedup + Refcount Audit — $FE"
   sum ""
   if [ -n "${GITHUB_SHA:-}" ]; then
     sum "**Commit**: \`${GITHUB_SHA:0:7}\` · **Run**: [#$GITHUB_RUN_ID](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
@@ -89,8 +89,8 @@ fi
 # ── 0. Health (fail fast if prod is unreachable) ──
 CODE=$(curl -so /dev/null -w '%{http_code}' --max-time 30 "$API/health" 2>/dev/null || echo "000")
 if [ "$CODE" != "200" ]; then
-  echo "❌ Health check failed → HTTP $CODE; is production up?" >&2
-  [ -n "$SUMMARY_FILE" ] && sum "**🔴 ABORTED** — health check → HTTP $CODE (production unreachable)."
+  echo "[FAIL] Health check failed → HTTP $CODE; is production up?" >&2
+  [ -n "$SUMMARY_FILE" ] && sum "**[FAIL] ABORTED** — health check → HTTP $CODE (production unreachable)."
   exit 2
 fi
 check 0 "Health → 200"
@@ -210,8 +210,8 @@ if [ -n "$JWT_A" ]; then
 else
   check 1 "Register A failed (no access_token): $(echo "$REG" | head -c 200)"
   cleanup_all >/dev/null
-  echo "❌ Aborting — the remaining steps need a registered account." >&2
-  [ -n "$SUMMARY_FILE" ] && sum "**🔴 ABORTED** — user A registration failed; remaining steps skipped."
+  echo "[FAIL] Aborting — the remaining steps need a registered account." >&2
+  [ -n "$SUMMARY_FILE" ] && sum "**[FAIL] ABORTED** — user A registration failed; remaining steps skipped."
   exit 2
 fi
 
@@ -219,8 +219,8 @@ fi
 # remaining steps are all verification-gated.
 if ! verify_account "$JWT_A"; then
   cleanup_all >/dev/null
-  echo "❌ Aborting — the remaining steps need a verified account." >&2
-  [ -n "$SUMMARY_FILE" ] && sum "**🔴 ABORTED** — user A verification failed; remaining steps skipped."
+  echo "[FAIL] Aborting — the remaining steps need a verified account." >&2
+  [ -n "$SUMMARY_FILE" ] && sum "**[FAIL] ABORTED** — user A verification failed; remaining steps skipped."
   exit 2
 fi
 
@@ -246,7 +246,7 @@ echo "  synthesized $TEST_FILE (${FILE_SIZE} bytes, EBML header + varied body + 
 echo ""
 echo "── 3. USER A UPLOAD (first copy) ──"
 if [ ! -f "$TEST_FILE" ]; then
-  echo "❌ Test file missing — aborting." >&2
+  echo "[FAIL] Test file missing — aborting." >&2
   cleanup_all >/dev/null
   exit 2
 fi
@@ -261,8 +261,8 @@ if [ "$(status)" = "200" ] && [ -n "$UPLOAD_ID_A" ] && [ -n "$PRESIGNED_URL_A" ]
 else
   check 1 "A presign → $(status) (no upload_id/presigned_url)"
   cleanup_all >/dev/null
-  echo "❌ Aborting — no presigned URL to PUT to." >&2
-  [ -n "$SUMMARY_FILE" ] && sum "**🔴 ABORTED** — user A presign failed; remaining steps skipped."
+  echo "[FAIL] Aborting — no presigned URL to PUT to." >&2
+  [ -n "$SUMMARY_FILE" ] && sum "**[FAIL] ABORTED** — user A presign failed; remaining steps skipped."
   exit 2
 fi
 
@@ -280,8 +280,8 @@ if [ -n "$FILE_ID_A" ] && [ -n "$URL_A" ]; then
 else
   check 1 "A finalize failed: $(echo "$FIN_A" | head -c 200)"
   cleanup_all >/dev/null
-  echo "❌ Aborting — no finalized upload A to dedup against." >&2
-  [ -n "$SUMMARY_FILE" ] && sum "**🔴 ABORTED** — user A finalize failed; remaining steps skipped."
+  echo "[FAIL] Aborting — no finalized upload A to dedup against." >&2
+  [ -n "$SUMMARY_FILE" ] && sum "**[FAIL] ABORTED** — user A finalize failed; remaining steps skipped."
   exit 2
 fi
 
@@ -314,16 +314,16 @@ if [ -n "$JWT_B" ]; then
 else
   check 1 "Register B failed (no access_token): $(echo "$REG" | head -c 200)"
   cleanup_all >/dev/null
-  echo "❌ Aborting — user B is needed for the dedup half of the audit." >&2
-  [ -n "$SUMMARY_FILE" ] && sum "**🔴 ABORTED** — user B registration failed; remaining steps skipped."
+  echo "[FAIL] Aborting — user B is needed for the dedup half of the audit." >&2
+  [ -n "$SUMMARY_FILE" ] && sum "**[FAIL] ABORTED** — user B registration failed; remaining steps skipped."
   exit 2
 fi
 
 # Email-verify user B (see verify_account above). Abort on failure.
 if ! verify_account "$JWT_B"; then
   cleanup_all >/dev/null
-  echo "❌ Aborting — the remaining steps need a verified account." >&2
-  [ -n "$SUMMARY_FILE" ] && sum "**🔴 ABORTED** — user B verification failed; remaining steps skipped."
+  echo "[FAIL] Aborting — the remaining steps need a verified account." >&2
+  [ -n "$SUMMARY_FILE" ] && sum "**[FAIL] ABORTED** — user B verification failed; remaining steps skipped."
   exit 2
 fi
 
@@ -341,7 +341,7 @@ if [ "$(status)" = "200" ] && [ -n "$UPLOAD_ID_B" ] && [ -n "$PRESIGNED_URL_B" ]
 else
   check 1 "B presign → $(status) (no upload_id/presigned_url)"
   cleanup_all >/dev/null
-  echo "❌ Aborting — no presigned URL for B to PUT to." >&2
+  echo "[FAIL] Aborting — no presigned URL for B to PUT to." >&2
   exit 2
 fi
 
@@ -359,7 +359,7 @@ if [ -n "$FILE_ID_B" ] && [ -n "$URL_B" ]; then
 else
   check 1 "B finalize failed: $(echo "$FIN_B" | head -c 200)"
   cleanup_all >/dev/null
-  echo "❌ Aborting — no finalized upload B to verify dedup on." >&2
+  echo "[FAIL] Aborting — no finalized upload B to verify dedup on." >&2
   exit 2
 fi
 
@@ -430,15 +430,15 @@ CLEAN_ACCTB=$(echo "$CLEAN_CODES" | awk '{print $4}')
 # ── SUMMARY ──
 echo ""
 echo "============================================================"
-echo "  RESULTS: $PASS ✅  $FAIL ❌"
+echo "  RESULTS: $PASS [OK]  $FAIL [FAIL]"
 echo "============================================================"
 if [ -n "$SUMMARY_FILE" ]; then
   sum ""
   if [ "$FAIL" -eq 0 ]; then
-    sum "**Result: $PASS ✅ / $FAIL ❌ — 🟢 PASS**"
+    sum "**Result: $PASS [OK] / $FAIL [FAIL] — [PASS] PASS**"
     sum "Content dedup and refcount deletions are healthy on production."
   else
-    sum "**Result: $PASS ✅ / $FAIL ❌ — 🔴 FAIL**"
+    sum "**Result: $PASS [OK] / $FAIL [FAIL] — [FAIL] FAIL**"
     sum "See the job log for the failing checks."
   fi
   sum ""

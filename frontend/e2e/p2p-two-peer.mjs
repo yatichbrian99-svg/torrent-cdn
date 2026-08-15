@@ -174,7 +174,7 @@ try {
           `(name "${magnet.name}", pieceLength ${seederInfo.pieceLength})`,
       )
     } else {
-      out.steps.push(`✓ seeder reproduced the backend infohash: ${seederInfo.infoHash}`)
+      out.steps.push(`[OK] seeder reproduced the backend infohash: ${seederInfo.infoHash}`)
     }
 
     // ---- leecher: real embed page with origin streaming blocked ----
@@ -249,7 +249,7 @@ try {
       out.leechCtx = leechCtx
       out.seedPage = seedPage
       out.seederCtx = seederCtx
-      out.steps.push(`✓ peers connected (leecher UI) + seeder sees ${seederPeers} peer(s) + video playing via P2P`)
+      out.steps.push(`[OK] peers connected (leecher UI) + seeder sees ${seederPeers} peer(s) + video playing via P2P`)
     } else {
       out.steps.push(`attempt ${attempt} did not connect (leecher peers=${peerConnected} playing=${playing} seederPeers=${seederPeers}) — retrying`)
       await page2.close()

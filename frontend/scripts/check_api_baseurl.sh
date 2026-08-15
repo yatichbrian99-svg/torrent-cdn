@@ -32,9 +32,9 @@ MIDDLEWARE="$FRONTEND_ROOT/middleware.ts"
 FAIL=0
 check() {  # check <pass:0|1> <message>
   if [ "$1" = "0" ]; then
-    echo "  ✅  $2"
+    echo "  [OK]  $2"
   else
-    echo "  ❌  $2"
+    echo "  [FAIL]  $2"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -58,7 +58,7 @@ readarray -t BASE_URLS < <(
 )
 
 if [ "${#BASE_URLS[@]}" -eq 0 ]; then
-  echo "  ❌  No literal baseURL:\"...\" found in the compiled chunks — the guard "
+  echo "  [FAIL]  No literal baseURL:\"...\" found in the compiled chunks — the guard "
   echo "      cannot verify what the app calls. Did the axios bundle change shape?"
   exit 1
 fi
@@ -125,14 +125,14 @@ for b in "${BASE_URLS[@]}"; do
 
   if printf '%s\n' "${CSP_ORIGINS[@]}" | grep -qxF "$b"; then
     check 0 "$b is allow-listed in middleware.ts connect-src"
-    echo "      ⚠️  allow-listed cross-origin baseURL — CSP allows it, but the network"
+    echo "      [WARN]  allow-listed cross-origin baseURL — CSP allows it, but the network"
     echo "          layer still bypasses the Vercel proxy. Prefer '' (same-origin)."
     continue
   fi
 
   if [ -n "$ENV_API_ORIGIN" ] && [ "$b" = "$ENV_API_ORIGIN" ]; then
     check 0 "$b matches NEXT_PUBLIC_API_URL — middleware.ts derives connect-src from the same var"
-    echo "      ⚠️  env-derived cross-origin baseURL — CSP will allow it, but the network"
+    echo "      [WARN]  env-derived cross-origin baseURL — CSP will allow it, but the network"
     echo "          layer still bypasses the Vercel proxy. Prefer '' (same-origin)."
     continue
   fi
@@ -142,7 +142,7 @@ done
 
 echo
 if [ "$FAIL" -ne 0 ]; then
-  echo "API baseURL guard FAILED — see ❌ above." >&2
+  echo "API baseURL guard FAILED — see [FAIL] above." >&2
   exit 1
 fi
 echo "API baseURL guard PASSED — production resolves same-origin (or is explicitly allow-listed)."

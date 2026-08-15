@@ -34,10 +34,10 @@ FAIL=0
 
 check() {
   if [ "$1" = "0" ]; then
-    echo "  ✅  $2"
+    echo "  [OK]  $2"
     PASS=$((PASS+1))
   else
-    echo "  ❌  $2"
+    echo "  [FAIL]  $2"
     FAIL=$((FAIL+1))
   fi
 }
@@ -49,7 +49,7 @@ echo "============================================================"
 # ── 0. Health (fail fast) ──
 CODE=$(curl -so /dev/null -w '%{http_code}' --max-time 30 "$API/health" 2>/dev/null || echo "000")
 if [ "$CODE" != "200" ]; then
-  echo "❌ Health check failed → HTTP $CODE; is production up?" >&2
+  echo "[FAIL] Health check failed → HTTP $CODE; is production up?" >&2
   exit 2
 fi
 check 0 "Health → 200"
@@ -101,7 +101,7 @@ if [ -n "$JWT_A" ]; then
   check 0 "Register A → JWT received"
 else
   check 1 "Register A failed: $(echo "$REG" | head -c 200)"
-  echo "❌ Aborting — no account A." >&2
+  echo "[FAIL] Aborting — no account A." >&2
   exit 2
 fi
 
@@ -285,6 +285,6 @@ rm -f "$TEST_FILE" /tmp/r2m_resp.json
 
 echo ""
 echo "============================================================"
-echo "  RESULTS: $PASS ✅  $FAIL ❌"
+echo "  RESULTS: $PASS [OK]  $FAIL [FAIL]"
 echo "============================================================"
 [ "$FAIL" -eq 0 ] && exit 0 || exit 1

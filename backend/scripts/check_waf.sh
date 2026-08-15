@@ -6,10 +6,10 @@
 # no-DNS-change WAF. Cloudflare proxying is the alternative.
 #
 # Pass/fail logic:
-#   ✅ Cloudflare ray detected                    → Cloudflare WAF layer active
-#   ✅ x-vercel-firewall header OR the sqlmap-UA probe returns 403/429/451
+#   [OK] Cloudflare ray detected                    → Cloudflare WAF layer active
+#   [OK] x-vercel-firewall header OR the sqlmap-UA probe returns 403/429/451
 #                                               → Vercel Firewall active (blocking)
-#   ❌ otherwise                                 → no WAF detected (exit 1)
+#   [FAIL] otherwise                                 → no WAF detected (exit 1)
 #
 # Read-only (curl HEAD/GET probes only).
 #
@@ -33,14 +33,14 @@ echo "x-vercel-firewall: ${VXFIREWALL:-<none>}"
 echo
 
 if [ -n "$CF_RAY" ]; then
-  echo "✅ Cloudflare proxy detected — its managed WAF rulesets are active for this host."
+  echo "[OK] Cloudflare proxy detected — its managed WAF rulesets are active for this host."
   echo "   Tune them at Cloudflare dashboard → Security → WAF → Managed rules."
   exit 0
 fi
 
 # Firewall rule headers in the normal response = WAF is evaluating requests.
 if [ -n "$VXFIREWALL" ]; then
-  echo "✅ Vercel Firewall ACTIVE — rule header present: $VXFIREWALL"
+  echo "[OK] Vercel Firewall ACTIVE — rule header present: $VXFIREWALL"
   exit 0
 fi
 
@@ -50,14 +50,14 @@ if [ -n "$SERVER" ] && echo "$SERVER" | grep -qi vercel; then
   echo "probe (UA 'sqlmap'): HTTP $CODE"
   if [ "$CODE" = "403" ] || [ "$CODE" = "429" ] || [ "$CODE" = "451" ]; then
     echo
-    echo "✅ Attack probe blocked at the edge (HTTP $CODE) — scanner traffic is stopped"
+    echo "[OK] Attack probe blocked at the edge (HTTP $CODE) — scanner traffic is stopped"
     echo "   before it reaches the app. (Source: app edge middleware scanner-UA block,"
     echo "   or a CDN/WAF ruleset if one is configured.)"
     exit 0
   fi
 
   echo
-  echo "❌ WAF NOT DETECTED — probes pass through (HTTP $CODE) and no firewall"
+  echo "[FAIL] WAF NOT DETECTED — probes pass through (HTTP $CODE) and no firewall"
   echo "   header is present, so no managed WAF ruleset is blocking."
   echo
   echo "   NOTE: on Vercel's Hobby (free) plan, the OWASP managed ruleset is NOT"
@@ -78,6 +78,6 @@ if [ -n "$SERVER" ] && echo "$SERVER" | grep -qi vercel; then
   exit 1
 fi
 
-echo "⚠️  No Cloudflare ray, no Vercel server header — unexpected edge topology."
+echo "[WARN]  No Cloudflare ray, no Vercel server header — unexpected edge topology."
 echo "   Verify DNS/proxy configuration before relying on WAF protection."
 exit 1

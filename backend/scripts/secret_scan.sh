@@ -106,7 +106,7 @@ while IFS= read -r f; do
         [ -n "$m" ] || break
         content="${content//"$m"/***REDACTED***}"
       done
-      echo "  ❌ ${name} → ${f}:${lineno}: ${content}"
+      echo "  [FAIL] ${name} → ${f}:${lineno}: ${content}"
       FOUND=$((FOUND + 1))
     done < <(grep "${GREP_ARGS[@]}" -- "$re" "$FULL" || true)
   done
@@ -115,14 +115,14 @@ done <<< "$FILES"
 # --- Report -------------------------------------------------------------------
 if [ "$FOUND" -gt 0 ]; then
   echo ""
-  echo "✋  $FOUND potential secret(s) across $SCANNED scanned file(s)."
+  echo "  $FOUND potential secret(s) across $SCANNED scanned file(s)."
   echo "     Remove or rotate them before merging — treat any leaked token as compromised."
   exit 1
 fi
 
 if [ "$MODE" = "full" ]; then
-  echo "✅  Secret scan clean — no high-signal secrets in the working tree ($SCANNED files)."
+  echo "[OK]  Secret scan clean — no high-signal secrets in the working tree ($SCANNED files)."
 else
-  echo "✅  Secret scan clean — no high-signal secrets in diff ${BASE}...HEAD ($SCANNED files)."
+  echo "[OK]  Secret scan clean — no high-signal secrets in diff ${BASE}...HEAD ($SCANNED files)."
 fi
 exit 0

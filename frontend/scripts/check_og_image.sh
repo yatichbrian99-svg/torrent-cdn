@@ -28,9 +28,9 @@ PUBLIC_DIR="$FRONTEND_ROOT/public"
 FAIL=0
 check() {  # check <pass:0|1> <message>
   if [ "$1" = "0" ]; then
-    echo "  ✅  $2"
+    echo "  [OK]  $2"
   else
-    echo "  ❌  $2"
+    echo "  [FAIL]  $2"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -101,8 +101,8 @@ fi
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then
-  echo "✋  $FAIL problem(s) — link preview cards would render broken. Fix before merging."
+  echo "  $FAIL problem(s) — link preview cards would render broken. Fix before merging."
   exit 1
 fi
-echo "✅  OG image guard passed — preview cards will render."
+echo "[OK]  OG image guard passed — preview cards will render."
 exit 0

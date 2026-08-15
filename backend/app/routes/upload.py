@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import urlparse, unquote
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, status
 from uuid import UUID
@@ -837,7 +837,7 @@ async def upload_file(
         )
 
     file_size_mb = total_size / (1024 * 1024)
-    month = datetime.utcnow().strftime("%Y-%m")
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
 
     pool = await get_db_pool()
     return await _store_and_finalize(
@@ -1320,7 +1320,7 @@ async def import_from_url(
                 )
 
         file_size_mb = total / (1024 * 1024)
-        month = datetime.utcnow().strftime("%Y-%m")
+        month = datetime.now(timezone.utc).strftime("%Y-%m")
         pool = await get_db_pool()
         with open(temp_path, "rb") as f:
             return await _store_and_finalize(
@@ -1397,7 +1397,7 @@ async def create_upload_session(
     # pipeline (the client shouldn't stream hundreds of chunks for a file that
     # can't be stored).
     pool = await get_db_pool()
-    month = datetime.utcnow().strftime("%Y-%m")
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
     file_size_mb = body.file_size / (1024 * 1024)
     await _check_usage_limit(pool, user_id, month, file_size_mb)
 
@@ -1528,7 +1528,7 @@ async def finalize_upload(
                 total_size = session["file_size"]
 
             file_size_mb = total_size / (1024 * 1024)
-            month = datetime.utcnow().strftime("%Y-%m")
+            month = datetime.now(timezone.utc).strftime("%Y-%m")
 
             pool = await get_db_pool()
             return await _store_and_finalize(
@@ -1623,7 +1623,7 @@ async def presign_upload(
 
     # Fail-fast usage check — finalize re-checks authoritatively; the client
     # shouldn't PUT a multi-GB body for a file that can't be stored.
-    month = datetime.utcnow().strftime("%Y-%m")
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
     file_size_mb = body.file_size / (1024 * 1024)
     await _check_usage_limit(pool, user_id, month, file_size_mb)
 
@@ -1727,7 +1727,7 @@ async def presign_finalize(
     # direct path): the head_object size check below guarantees the stored
     # object equals the declared size, so checking against session["file_size"]
     # here is exact — a plan-limit 402 never burns the hourly upload budget.
-    month = datetime.utcnow().strftime("%Y-%m")
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
     file_size_mb = session["file_size"] / (1024 * 1024)
     limit_gb, used_gb = await _check_usage_limit(pool, user_id, month, file_size_mb)
 

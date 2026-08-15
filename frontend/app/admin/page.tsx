@@ -256,7 +256,7 @@ export default function AdminPage() {
             </p>
             {deleteTarget.is_admin && (
               <p className="text-xs mb-4 px-3 py-2 border" style={{ color: '#fbbf24', borderColor: 'rgba(251,191,36,0.2)', backgroundColor: 'rgba(251,191,36,0.05)' }}>
-                ⚠️ Admin accounts cannot be deleted. Demote the user first.
+                Admin accounts cannot be deleted. Demote the user first.
               </p>
             )}
             <div className="flex items-center gap-3 justify-end">

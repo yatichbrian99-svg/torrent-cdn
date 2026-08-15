@@ -75,13 +75,13 @@ Enables the browser's built-in reflected XSS filter and blocks the page if an at
 **Header:** `Permissions-Policy: accelerometer=(), ambient-light-sensor=(), autoplay=(), camera=(), display-capture=(), document-domain=(), encrypted-media=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), interest-cohort=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), speaker-selection=(), usb=(), web-share=()`
 
 Blocks all browser APIs. All 22 features are set to `()` (disallowed), including:
-- 🎤 `camera`, `microphone` — no recording
-- 📍 `geolocation` — no location tracking
-- 💳 `payment` — no browser payment API
-- 🔌 `usb`, `midi`, `serial` — no device access
-- 🧭 `accelerometer`, `gyroscope`, `magnetometer` — no sensor data
-- 🔐 `interest-cohort` — blocks Google's FLoC
-- 🖥️ `display-capture` — no screen sharing
+-  `camera`, `microphone` — no recording
+-  `geolocation` — no location tracking
+-  `payment` — no browser payment API
+-  `usb`, `midi`, `serial` — no device access
+-  `accelerometer`, `gyroscope`, `magnetometer` — no sensor data
+-  `interest-cohort` — blocks Google's FLoC
+-  `display-capture` — no screen sharing
 
 The frontend can set its own `Permissions-Policy` if these features are needed for video playback.
 
@@ -520,7 +520,7 @@ git push --force --all origin
 git push --force --tags origin
 ```
 
-> ⚠️ **Secrets in history must still be rotated** — the purge removes the strings, but anyone who ever had repo access may have copied them. Rewriting history also invalidates all existing clones/forks; every collaborator must re-clone.
+> [WARN] **Secrets in history must still be rotated** — the purge removes the strings, but anyone who ever had repo access may have copied them. Rewriting history also invalidates all existing clones/forks; every collaborator must re-clone.
 
 ### 2. Rotate exposed secrets (treat as compromised)
 
@@ -593,7 +593,7 @@ bash backend/scripts/post_deploy_check.sh
 - `post_deploy_check.sh` fast-fails (exit 1) if the hardened build isn't live yet (so you never audit a stale build), otherwise runs the **frontend unit-test gate** (`frontend/` — `npm run test:coverage`, the same vitest suite + coverage thresholds that gate PRs; `npm ci` auto-runs only when `node_modules` is missing — if tests behave oddly against stale deps, `rm -rf node_modules` first) and then the full ~3-minute audit, exiting `0` only when **every** check passes — security headers, CSP content, host-header protection, auth enforcement, email-verification gate, **API-docs gating (`/api/openapi.json` → 404)**, SQLi/input validation, CORS, HTTP methods, the frontend nonce/SRI/proxy, **and frontend unit tests/coverage**.
 - Frontend health is therefore verified **after** deploy too, not just before merge: the unit-test gate runs against the deployed commit's checkout, so a broken build that slipped past pre-merge CI (or a stale/partial deploy) is caught here. `--preflight-only` skips both the frontend tests and the full audit (it just confirms the hardened build is live).
 - **Key creation (one-time):** Render dashboard → Account Settings → API Keys → Create API Key. A plain (read-only) key is sufficient — both scripts use only GET endpoints. Store it in the deployer's env / secrets manager; never commit it.
-- Expected result after a healthy deploy: `✅ LIVE commit matches expected` from step 1 and a `0` exit with zero `❌` lines from step 2.
+- Expected result after a healthy deploy: `[OK] LIVE commit matches expected` from step 1 and a `0` exit with zero `[FAIL]` lines from step 2.
 
 ---
 

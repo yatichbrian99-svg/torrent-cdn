@@ -34,7 +34,7 @@ let failed = false
 for (const t of targets) {
   if (!fs.existsSync(t.file) || !fs.readFileSync(t.file, 'utf8').includes(t.marker)) {
     console.error(
-      `✗ ${path.basename(t.file)} patch is NOT applied — the patch-package postinstall likely did not run. ` +
+      `[FAIL] ${path.basename(t.file)} patch is NOT applied — the patch-package postinstall likely did not run. ` +
         `Run 'npm ci'/'npm install' without --ignore-scripts, or check ${t.hint}.`,
     )
     failed = true
@@ -49,7 +49,7 @@ if (fs.existsSync(chunksDir)) {
     const content = fs.readFileSync(path.join(chunksDir, file), 'utf8')
     if (broken.test(content)) {
       console.error(
-        `✗ shipped chunk ${file} still contains .toHex(/ .fromHex(/ global.WEBTORRENT_ANNOUNCE — browser-incompatible. ` +
+        `[FAIL] shipped chunk ${file} still contains .toHex(/ .fromHex(/ global.WEBTORRENT_ANNOUNCE — browser-incompatible. ` +
           'Check that the patches are applied and the build used the patched source.',
       )
       failed = true
@@ -59,5 +59,5 @@ if (fs.existsSync(chunksDir)) {
 
 if (failed) process.exit(1)
 console.log(
-  '✓ webtorrent patch guard: OK (patches applied, no .toHex(/.fromHex(/global.WEBTORRENT_ANNOUNCE in the bundle)',
+  '[OK] webtorrent patch guard: OK (patches applied, no .toHex(/.fromHex(/global.WEBTORRENT_ANNOUNCE in the bundle)',
 )

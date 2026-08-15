@@ -33,10 +33,10 @@ for (const suite of toRun) {
     timeout: 10 * 60 * 1000,
   })
   if (r.status === 0) {
-    console.log(`✓ e2e/${suite}`)
+    console.log(`[OK] e2e/${suite}`)
   } else {
     failed++
-    console.log(`✗ e2e/${suite} (exit ${r.status ?? 'timeout/signal'})`)
+    console.log(`[FAIL] e2e/${suite} (exit ${r.status ?? 'timeout/signal'})`)
   }
 }
 

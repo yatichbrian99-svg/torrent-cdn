@@ -19,16 +19,16 @@ fi
 echo "=== Restore drill pre-flight ==="
 
 if [ -z "${DATABASE_URL:-}" ]; then
-  echo "❌ DATABASE_URL is not set (export it or add it to backend/.env)."
+  echo "[FAIL] DATABASE_URL is not set (export it or add it to backend/.env)."
   exit 1
 fi
 
 # 1. Tooling
 for tool in psql pg_dump pg_restore; do
   if command -v "$tool" >/dev/null 2>&1; then
-    echo "✅ $tool available: $(command -v $tool)"
+    echo "[OK] $tool available: $(command -v $tool)"
   else
-    echo "❌ $tool missing — install postgresql-client (v14+)."
+    echo "[FAIL] $tool missing — install postgresql-client (v14+)."
     HAS_TOOLS=0
   fi
 done
@@ -37,9 +37,9 @@ if [ "${HAS_TOOLS:-1}" = "0" ]; then exit 1; fi
 # 2. Connectivity + sanity (SELECT-only)
 echo "--- connectivity ---"
 if psql "$DATABASE_URL" -tAc "SELECT 1" >/dev/null 2>&1; then
-  echo "✅ Database reachable (SELECT 1 OK)."
+  echo "[OK] Database reachable (SELECT 1 OK)."
 else
-  echo "❌ Cannot connect to the database (check DATABASE_URL / network)."
+  echo "[FAIL] Cannot connect to the database (check DATABASE_URL / network)."
   exit 1
 fi
 

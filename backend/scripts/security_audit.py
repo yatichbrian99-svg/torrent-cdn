@@ -19,9 +19,9 @@ errors = []
 
 def check(name, condition, detail=""):
     if condition:
-        print(f"  ✅  {name}")
+        print(f"  [OK]  {name}")
     else:
-        print(f"  ❌  {name}" + (f" — {detail}" if detail else ""))
+        print(f"  [FAIL]  {name}" + (f" — {detail}" if detail else ""))
         errors.append(name)
 
 
@@ -157,12 +157,12 @@ check("security.txt has Contact", "Contact:" in r.text, f"Got: {r.text[:80]}")
 # ============================================================
 print(f"\n{'='*60}")
 if errors:
-    print(f"  ❌  FAILED — {len(errors)} check(s) failed:")
+    print(f"  [FAIL]  FAILED — {len(errors)} check(s) failed:")
     for e in errors:
         print(f"       • {e}")
     print(f"{'='*60}")
     sys.exit(1)
 else:
-    print(f"  ✅  ALL CHECKS PASSED")
+    print(f"  [OK]  ALL CHECKS PASSED")
     print(f"{'='*60}")
     sys.exit(0)

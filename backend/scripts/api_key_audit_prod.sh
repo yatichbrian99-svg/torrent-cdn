@@ -30,12 +30,12 @@ FAIL=0
 
 check() {
   if [ "$1" = "0" ]; then
-    echo "  ✅  $2"
-    sum "- ✅ **$2**"
+    echo "  [OK]  $2"
+    sum "- [OK] **$2**"
     PASS=$((PASS+1))
   else
-    echo "  ❌  $2"
-    sum "- ❌ **$2**"
+    echo "  [FAIL]  $2"
+    sum "- [FAIL] **$2**"
     FAIL=$((FAIL+1))
   fi
 }
@@ -52,7 +52,7 @@ SUMMARY_FILE="${GITHUB_STEP_SUMMARY:-}"
 sum() { [ -n "$SUMMARY_FILE" ] && printf '%s\n' "$1" >> "$SUMMARY_FILE"; }
 
 if [ -n "$SUMMARY_FILE" ]; then
-  sum "## 🔑 Production API-Key Flow Audit — $FE"
+  sum "## Production API-Key Flow Audit — $FE"
   sum ""
   if [ -n "${GITHUB_SHA:-}" ]; then
     sum "**Commit**: \`${GITHUB_SHA:0:7}\` · **Run**: [#$GITHUB_RUN_ID](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
@@ -63,10 +63,10 @@ fi
 # ── 0. Health (fail fast if prod is unreachable) ──
 CODE=$(curl -so /dev/null -w '%{http_code}' --max-time 30 "$API/health" 2>/dev/null || echo "000")
 if [ "$CODE" != "200" ]; then
-  echo "❌ Health check failed → HTTP $CODE; is production up?" >&2
-  sum "## 🔑 Production API-Key Flow Audit — $FE"
+  echo "[FAIL] Health check failed → HTTP $CODE; is production up?" >&2
+  sum "## Production API-Key Flow Audit — $FE"
   sum ""
-  sum "**🔴 ABORTED** — health check → HTTP $CODE (production unreachable)."
+  sum "**[FAIL] ABORTED** — health check → HTTP $CODE (production unreachable)."
   exit 2
 fi
 check 0 "Health → 200"
@@ -192,8 +192,8 @@ if [ -n "$JWT" ]; then
 else
   check 1 "Registration failed (no access_token)"
   cleanup_account
-  echo "❌ Aborting — the remaining steps need a registered account." >&2
-  sum "**🔴 ABORTED** — registration failed; remaining steps skipped."
+  echo "[FAIL] Aborting — the remaining steps need a registered account." >&2
+  sum "**[FAIL] ABORTED** — registration failed; remaining steps skipped."
   exit 2
 fi
 
@@ -201,8 +201,8 @@ fi
 # failure — the remaining steps are all verification-gated.
 if ! verify_account "$JWT"; then
   cleanup_account
-  echo "❌ Aborting — the remaining steps need a verified account." >&2
-  sum "**🔴 ABORTED** — verification failed; remaining steps skipped."
+  echo "[FAIL] Aborting — the remaining steps need a verified account." >&2
+  sum "**[FAIL] ABORTED** — verification failed; remaining steps skipped."
   exit 2
 fi
 
@@ -217,8 +217,8 @@ if [ "$(status)" = "200" ] && [ -n "$KEY" ]; then
 else
   check 1 "Key generation → $(status) (no api_key in response)"
   cleanup_account
-  echo "❌ Aborting — no key to test with." >&2
-  sum "**🔴 ABORTED** — key generation failed; remaining steps skipped."
+  echo "[FAIL] Aborting — no key to test with." >&2
+  sum "**[FAIL] ABORTED** — key generation failed; remaining steps skipped."
   exit 2
 fi
 
@@ -288,15 +288,15 @@ req 9-cleanup DELETE /auth/me "Bearer $JWT"
 # ── SUMMARY ──
 echo ""
 echo "============================================================"
-echo "  RESULTS: $PASS ✅  $FAIL ❌"
+echo "  RESULTS: $PASS [OK]  $FAIL [FAIL]"
 echo "============================================================"
 if [ -n "$SUMMARY_FILE" ]; then
   sum ""
   if [ "$FAIL" -eq 0 ]; then
-    sum "**Result: $PASS ✅ / $FAIL ❌ — 🟢 PASS**"
+    sum "**Result: $PASS [OK] / $FAIL [FAIL] — [PASS] PASS**"
     sum "The API-key flow is healthy on production."
   else
-    sum "**Result: $PASS ✅ / $FAIL ❌ — 🔴 FAIL**"
+    sum "**Result: $PASS [OK] / $FAIL [FAIL] — [FAIL] FAIL**"
     sum "See the job log for the failing checks."
   fi
   sum ""

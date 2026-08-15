@@ -34,7 +34,7 @@ export default function Error({
             fontSize: 20,
           }}
         >
-          ⚠️
+          !
         </div>
         <h1 style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.02em', margin: '0 0 8px' }}>
           Something went wrong

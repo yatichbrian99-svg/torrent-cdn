@@ -1,6 +1,6 @@
 # R2 Migration Runbook
 
-**Status: ✅ COMPLETE — migration live and verified 2026-08-07.**
+**Status: [OK] COMPLETE — migration live and verified 2026-08-07.**
 The Supabase → Cloudflare R2 storage switch is done: env vars set via the Render API,
 service redeployed, and a 60MB upload (hard 413 on Supabase's 50MB cap) proven live
 against production along with dedup, refcount deletes, public serving, and import-by-URL.

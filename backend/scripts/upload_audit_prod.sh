@@ -48,10 +48,10 @@ EXPECTED_S3_ENDPOINT="${EXPECTED_S3_ENDPOINT:-https://a942dd172ffb3faa3dd24d9b92
 
 check() {
   if [ "$1" = "0" ]; then
-    echo "  ✅  $2"
+    echo "  [OK]  $2"
     PASS=$((PASS+1))
   else
-    echo "  ❌  $2"
+    echo "  [FAIL]  $2"
     FAIL=$((FAIL+1))
   fi
 }
@@ -63,7 +63,7 @@ echo "============================================================"
 # ── 0. Health (fail fast if prod is unreachable) ──
 CODE=$(curl -so /dev/null -w '%{http_code}' --max-time 30 "$API/health" 2>/dev/null || echo "000")
 if [ "$CODE" != "200" ]; then
-  echo "❌ Health check failed → HTTP $CODE; is production up?" >&2
+  echo "[FAIL] Health check failed → HTTP $CODE; is production up?" >&2
   exit 2
 fi
 check 0 "Health → 200"
@@ -186,7 +186,7 @@ if [ -n "$JWT" ]; then
 else
   check 1 "Registration failed (no access_token)"
   cleanup_all
-  echo "❌ Aborting — the remaining steps need a registered account." >&2
+  echo "[FAIL] Aborting — the remaining steps need a registered account." >&2
   exit 2
 fi
 
@@ -194,7 +194,7 @@ fi
 # failure — the remaining steps are all verification-gated.
 if ! verify_account "$JWT"; then
   cleanup_all
-  echo "❌ Aborting — the remaining steps need a verified account." >&2
+  echo "[FAIL] Aborting — the remaining steps need a verified account." >&2
   exit 2
 fi
 
@@ -222,7 +222,7 @@ echo "  synthesized $TEST_FILE (${FILE_SIZE} bytes, EBML header + varied body)"
 echo ""
 echo "── 3. PRESIGN ──"
 if [ ! -f "$TEST_FILE" ]; then
-  echo "❌ Test file missing — aborting." >&2
+  echo "[FAIL] Test file missing — aborting." >&2
   cleanup_all >/dev/null
   exit 2
 fi
@@ -237,7 +237,7 @@ if [ "$(status)" = "200" ] && [ -n "$UPLOAD_ID" ] && [ -n "$PRESIGNED_URL" ]; th
 else
   check 1 "Presign → $(status) (no upload_id/presigned_url)"
   cleanup_all
-  echo "❌ Aborting — no presigned URL to PUT to." >&2
+  echo "[FAIL] Aborting — no presigned URL to PUT to." >&2
   exit 2
 fi
 echo "$PRESIGNED_URL" | grep -q '^https://' && check 0 "Presigned URL is https" || check 1 "Presigned URL not https"
@@ -286,7 +286,7 @@ if [ -n "$FILE_ID" ]; then
 else
   check 1 "Finalize failed: $(echo "$FIN" | head -c 200)"
   cleanup_all
-  echo "❌ Aborting — no finalized upload to verify." >&2
+  echo "[FAIL] Aborting — no finalized upload to verify." >&2
   exit 2
 fi
 
@@ -312,6 +312,6 @@ CLEAN_ACCT=$(echo "$CLEAN_CODES" | awk '{print $2}')
 # ── SUMMARY ──
 echo ""
 echo "============================================================"
-echo "  RESULTS: $PASS ✅  $FAIL ❌"
+echo "  RESULTS: $PASS [OK]  $FAIL [FAIL]"
 echo "============================================================"
 [ "$FAIL" -eq 0 ] && exit 0 || exit 1

@@ -32,16 +32,16 @@ URL="https://${REF}.supabase.co/storage/v1/object/public/${BUCKET}/__ci_bucket_p
 BODY="$(curl -sS --max-time 20 "$URL" 2>/dev/null || true)"
 
 if echo "$BODY" | grep -q 'NoSuchBucket'; then
-  echo "❌  Storage bucket '$BUCKET' is PRIVATE — every file's minio_url 404s and" >&2
+  echo "[FAIL]  Storage bucket '$BUCKET' is PRIVATE — every file's minio_url 404s and" >&2
   echo "    playback is broken. Fix: Supabase → Storage → $BUCKET → Settings →" >&2
   echo "    toggle 'Public bucket' ON." >&2
   exit 1
 fi
 
 if echo "$BODY" | grep -q 'NoSuchKey'; then
-  echo "✅  Storage bucket '$BUCKET' is PUBLIC (sentinel key missing, as expected)."
+  echo "[OK]  Storage bucket '$BUCKET' is PUBLIC (sentinel key missing, as expected)."
   exit 0
 fi
 
-echo "❌  Unexpected response from $URL: ${BODY:-<empty — network error?>}" >&2
+echo "[FAIL]  Unexpected response from $URL: ${BODY:-<empty — network error?>}" >&2
 exit 1

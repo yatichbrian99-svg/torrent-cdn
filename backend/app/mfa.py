@@ -17,7 +17,7 @@ import secrets
 import struct
 import time
 import urllib.parse
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import jwt
@@ -107,7 +107,7 @@ def create_mfa_token(user_id: str) -> str:
     before it expires, otherwise they restart with the password.
     """
     settings = get_settings()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     payload = {
         "sub": user_id,
         "mfa_pending": True,

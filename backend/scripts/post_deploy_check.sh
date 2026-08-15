@@ -52,10 +52,10 @@ PF_PASS=0
 PF_FAIL=0
 pf() {  # pf 0 "msg" | pf 1 "msg"
   if [ "$1" = "0" ]; then
-    echo "  ✅  $2"
+    echo "  [OK]  $2"
     PF_PASS=$((PF_PASS+1))
   else
-    echo "  ❌  $2"
+    echo "  [FAIL]  $2"
     PF_FAIL=$((PF_FAIL+1))
   fi
 }
@@ -115,11 +115,11 @@ API_DOCS=$(curl -so /dev/null -w '%{http_code}' "$API/openapi.json" 2>/dev/null 
 [ "$API_DOCS" = "404" ] && pf 0 "Backend /openapi.json disabled → $API_DOCS" || pf 1 "Backend /openapi.json → $API_DOCS (expected 404 — docs gating not live)"
 
 echo ""
-echo "── PRE-FLIGHT RESULT: $PF_PASS ✅  $PF_FAIL ❌ ──"
+echo "── PRE-FLIGHT RESULT: $PF_PASS [OK]  $PF_FAIL [FAIL] ──"
 
 if [ "$PF_FAIL" -ne 0 ]; then
   echo ""
-  echo "⚠️  The hardened build does NOT appear to be fully live yet."
+  echo "[WARN]  The hardened build does NOT appear to be fully live yet."
   echo "    Check Render (torrent-cdn) and Vercel (www.torrentcdn.store)"
   echo "    deploy status for commit $EXPECTED_COMMIT, then re-run this script."
   echo "    (Skipping the full ~3-minute audit — nothing to audit yet.)"
@@ -128,7 +128,7 @@ fi
 
 if [ "$RUN_AUDIT" = "0" ]; then
   echo ""
-  echo "✅  Pre-flight passed. (--preflight-only: full audit + frontend tests skipped.)"
+  echo "[OK]  Pre-flight passed. (--preflight-only: full audit + frontend tests skipped.)"
   exit 0
 fi
 
@@ -144,23 +144,23 @@ if [ -d "$FRONTEND_DIR" ]; then
   FE_OUT=$(cd "$FRONTEND_DIR" && { [ -d node_modules ] || npm ci --no-audit --no-fund >/dev/null 2>&1; } && npm run test:coverage 2>&1)
   FE_RC=$?
   if [ "$FE_RC" = "0" ]; then
-    echo "  ✅  Frontend unit tests passed (vitest + coverage gate)"
+    echo "  [OK]  Frontend unit tests passed (vitest + coverage gate)"
     echo "$FE_OUT" | grep -E 'Test Files|Tests  ' | head -2 | sed 's/^/      /'
     echo "$FE_OUT" | grep -E 'Statements|Branches|Functions|Lines' | head -4 | sed 's/^/      /'
   else
-    echo "  ❌  Frontend unit tests FAILED (exit $FE_RC) — frontend is NOT healthy at this commit"
+    echo "  [FAIL]  Frontend unit tests FAILED (exit $FE_RC) — frontend is NOT healthy at this commit"
     echo "$FE_OUT" | tail -15 | sed 's/^/      /'
     echo ""
-    echo "⚠️  Fix the failing tests before calling this deploy healthy — a green"
+    echo "[WARN]  Fix the failing tests before calling this deploy healthy — a green"
     echo "    preflight alone is not enough. (Full network audit skipped.)"
     exit 1
   fi
 else
-  echo "  ⚠️  frontend/ not found at $FRONTEND_DIR — skipping frontend unit tests (run from a full checkout)"
+  echo "  [WARN]  frontend/ not found at $FRONTEND_DIR — skipping frontend unit tests (run from a full checkout)"
 fi
 
 echo ""
-echo "✅  Pre-flight passed and frontend tests green — hardened build is live. Running full audit..."
+echo "[OK]  Pre-flight passed and frontend tests green — hardened build is live. Running full audit..."
 echo ""
 bash "$SCRIPT_DIR/curl_audit_prod.sh"
 exit $?

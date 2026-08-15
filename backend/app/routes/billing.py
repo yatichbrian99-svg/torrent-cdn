@@ -19,7 +19,7 @@ import hashlib
 import hmac
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 import httpx
@@ -78,7 +78,7 @@ async def get_billing_status(user_id: UUID = Depends(get_current_user_id)):
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        month = datetime.utcnow().strftime("%Y-%m")
+        month = datetime.now(timezone.utc).strftime("%Y-%m")
         usage = await conn.fetchrow(
             "SELECT total_gb_used FROM usage_records WHERE user_id = $1 AND month = $2",
             user_id, month,

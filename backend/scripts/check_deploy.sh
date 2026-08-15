@@ -24,13 +24,13 @@ SERVICE_NAME="${SERVICE_NAME:-torrent-cdn}"
 EXPECTED="${1:-$(git rev-parse --short HEAD 2>/dev/null || echo '')}"
 
 if [ -z "$KEY" ]; then
-  echo "❌ RENDER_API_KEY is not set." >&2
+  echo "[FAIL] RENDER_API_KEY is not set." >&2
   echo "   Create one: Render dashboard → Account Settings → API Keys → Create API Key" >&2
   echo "   Then: RENDER_API_KEY=rnd_... bash $0 [expected_commit]" >&2
   exit 2
 fi
 if [ -z "$EXPECTED" ]; then
-  echo "❌ No expected commit given and local git HEAD unavailable." >&2
+  echo "[FAIL] No expected commit given and local git HEAD unavailable." >&2
   exit 2
 fi
 
@@ -43,7 +43,7 @@ echo "============================================================"
 SERVICES=$(curl -s --max-time 20 -H "Authorization: Bearer $KEY" "$API/services")
 # Fail fast on auth/API errors (e.g. 401 bad key) instead of reporting "not found"
 if echo "$SERVICES" | grep -qi '"message"' ; then
-  echo "❌ Render API error — check RENDER_API_KEY (is it valid / read-only?):" >&2
+  echo "[FAIL] Render API error — check RENDER_API_KEY (is it valid / read-only?):" >&2
   echo "$SERVICES" | head -c 300 >&2
   echo "" >&2
   exit 2
@@ -66,7 +66,7 @@ for item in data:
 ')
 
 if [ -z "$SVC_ID" ]; then
-  echo "❌ Service '$SERVICE_NAME' not found (or empty API response). Raw response:" >&2
+  echo "[FAIL] Service '$SERVICE_NAME' not found (or empty API response). Raw response:" >&2
   echo "$SERVICES" | head -c 500 >&2
   echo "" >&2
   exit 2
@@ -95,7 +95,7 @@ print("NO_LIVE")
 ')
 
 if [ "$LIVE_INFO" = "NO_LIVE" ] || [ -z "$LIVE_INFO" ]; then
-  echo "❌ No deploy with status 'live' found for $SERVICE_NAME." >&2
+  echo "[FAIL] No deploy with status 'live' found for $SERVICE_NAME." >&2
   echo "   Recent deploys (id / status / commit):" >&2
   echo "$DEPLOYS" | python3 -c '
 import json, sys
@@ -124,12 +124,12 @@ echo "  live since:     $LIVE_AT"
 case "$LIVE_SHA" in
   "$EXPECTED"*|"$EXPECTED")
     echo ""
-    echo "✅ LIVE commit matches expected: $EXPECTED"
+    echo "[OK] LIVE commit matches expected: $EXPECTED"
     exit 0
     ;;
   *)
     echo ""
-    echo "❌ LIVE commit ($LIVE_SHA) does NOT match expected ($EXPECTED)." >&2
+    echo "[FAIL] LIVE commit ($LIVE_SHA) does NOT match expected ($EXPECTED)." >&2
     exit 1
     ;;
 esac

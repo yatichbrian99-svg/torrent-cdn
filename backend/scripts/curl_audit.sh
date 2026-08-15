@@ -18,10 +18,10 @@ FAIL=0
 
 check() {
   if [ "$1" = "0" ]; then
-    echo "  ✅  $2"
+    echo "  [OK]  $2"
     PASS=$((PASS+1))
   else
-    echo "  ❌  $2"
+    echo "  [FAIL]  $2"
     FAIL=$((FAIL+1))
   fi
 }
@@ -173,6 +173,6 @@ done
 # ── SUMMARY ──
 echo ""
 echo "============================================================"
-echo "  RESULTS: $PASS ✅  $FAIL ❌"
+echo "  RESULTS: $PASS [OK]  $FAIL [FAIL]"
 echo "============================================================"
 [ "$FAIL" -eq 0 ] && exit 0 || exit 1

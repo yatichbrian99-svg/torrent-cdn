@@ -1,7 +1,7 @@
 import html
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from uuid import UUID
 
@@ -45,7 +45,7 @@ def create_verification_token(user_id: UUID) -> str:
     Uses a separate secret from auth tokens to prevent cross-use attacks.
     """
     secret = settings.jwt_verify_secret or settings.jwt_secret
-    expire = datetime.utcnow() + timedelta(hours=24)
+    expire = datetime.now(timezone.utc) + timedelta(hours=24)
     # PyJWT 2.x returns a str token.
     return jwt.encode(
         {"sub": str(user_id), "purpose": "email_verify", "exp": expire},
@@ -79,7 +79,7 @@ def create_password_reset_token(user_id: UUID) -> str:
     Uses a separate secret from auth tokens to prevent cross-use attacks.
     """
     secret = settings.jwt_reset_secret or settings.jwt_secret
-    expire = datetime.utcnow() + timedelta(hours=1)
+    expire = datetime.now(timezone.utc) + timedelta(hours=1)
     return jwt.encode(
         {"sub": str(user_id), "purpose": "reset_password", "exp": expire},
         secret,
@@ -326,7 +326,7 @@ async def send_verification_email(email: str, user_id: UUID) -> bool:
             email, user_id,
         )
         if settings.app_env != "production":
-            print(f"\n\n🔐 VERIFICATION LINK: {verify_url}\n\n")
+            print(f"\n\n VERIFICATION LINK: {verify_url}\n\n")
         return False
 
     html = build_verification_email_html(email, verify_url)
@@ -349,5 +349,5 @@ async def send_verification_email(email: str, user_id: UUID) -> bool:
     except Exception as e:
         logger.error("Failed to send verification email to %s: %s", email, e)
         if settings.app_env != "production":
-            print(f"\n\n🔐 VERIFICATION LINK (email delivery failed): {verify_url}\n\n")
+            print(f"\n\n VERIFICATION LINK (email delivery failed): {verify_url}\n\n")
         return False

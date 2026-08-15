@@ -90,7 +90,7 @@ Record in SECURITY.md's Hardening Log (or a `docs/` drill log):
 | Date | YYYY-MM-DD |
 | Backup id / date | … |
 | Restore target | scratch db `torrentcdn_drill` |
-| Result | ✅ restored + row counts verified / ❌ (what failed) |
+| Result | [OK] restored + row counts verified / [FAIL] (what failed) |
 | RTO observed | time from backup download → usable data |
 | RPO observed | backup age at drill start |
 

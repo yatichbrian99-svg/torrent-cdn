@@ -38,7 +38,7 @@ export default function GlobalError({
                 fontSize: 22,
               }}
             >
-              ⚠️
+              !
             </div>
             <h1 style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', margin: '0 0 8px' }}>
               Something went wrong
