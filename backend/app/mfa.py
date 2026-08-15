@@ -17,8 +17,7 @@ import secrets
 import struct
 import time
 import urllib.parse
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from jwt.exceptions import InvalidTokenError
@@ -37,7 +36,7 @@ def generate_totp_secret() -> str:
     return base64.b32encode(secrets.token_bytes(20)).decode("ascii")
 
 
-def totp_code(secret: str, at_epoch: Optional[float] = None) -> str:
+def totp_code(secret: str, at_epoch: float | None = None) -> str:
     """RFC 6238 TOTP code (6 digits) for `secret` at `at_epoch` (default: now)."""
     key = base64.b32decode(secret, casefold=True)
     counter = struct.pack(
@@ -107,7 +106,7 @@ def create_mfa_token(user_id: str) -> str:
     before it expires, otherwise they restart with the password.
     """
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "sub": user_id,
         "mfa_pending": True,
@@ -117,7 +116,7 @@ def create_mfa_token(user_id: str) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
-def decode_mfa_token(token: str) -> Optional[str]:
+def decode_mfa_token(token: str) -> str | None:
     """Return the user_id if `token` is a valid, unexpired MFA-pending JWT."""
     settings = get_settings()
     try:

@@ -2,15 +2,16 @@ import asyncio
 import logging
 import os
 import time
-from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import UTC, datetime
 from uuid import UUID
-import httpx
 
+import httpx
+from fastapi import APIRouter, Depends, HTTPException
+
+from ..auth import get_current_user_id, revoke_user_sessions
 from ..config import get_settings
 from ..database import get_db_pool
-from ..auth import get_current_user_id, revoke_user_sessions
-from ..models import UserAdminResponse, UpdateUserPlanRequest, AdminAnalyticsResponse
+from ..models import AdminAnalyticsResponse, UpdateUserPlanRequest, UserAdminResponse
 from ..security_events import record as record_event
 
 settings = get_settings()
@@ -102,7 +103,7 @@ async def admin_list_users(
                 AND ur.month = $1
             ORDER BY u.created_at DESC
             LIMIT $2 OFFSET $3
-        """, datetime.now(timezone.utc).strftime("%Y-%m"), limit, offset)
+        """, datetime.now(UTC).strftime("%Y-%m"), limit, offset)
 
     pages = max(1, (total + limit - 1) // limit) if total else 1
     return {
@@ -139,7 +140,7 @@ async def admin_get_user(user_id: UUID, _: UUID = Depends(require_admin)):
             LEFT JOIN usage_records ur ON ur.user_id = u.id
                 AND ur.month = $1
             WHERE u.id = $2
-        """, datetime.now(timezone.utc).strftime("%Y-%m"), user_id)
+        """, datetime.now(UTC).strftime("%Y-%m"), user_id)
 
         if not row:
             raise HTTPException(status_code=404, detail="User not found")

@@ -1,11 +1,12 @@
 import time
-from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, HTTPException, Request
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+from ..auth import get_current_user_id
 from ..config import get_settings
 from ..database import get_db_pool, get_redis
-from ..auth import get_current_user_id
 from ..models import AnalyticsEventCreate
 from ..security import get_client_ip
 
@@ -70,8 +71,7 @@ async def _aggregate_file_analytics(conn, file_id: UUID) -> dict:
         bandwidth_saved_gb = result["total_p2p"] / (1024 * 1024 * 1024)
 
     active_peers = (result["total_views"] or 0) - (result["total_leaves"] or 0)
-    if active_peers < 0:
-        active_peers = 0
+    active_peers = max(active_peers, 0)
 
     return {
         "total_views": result["total_views"] or 0,
@@ -185,7 +185,7 @@ async def get_bandwidth_history(user_id: UUID = Depends(get_current_user_id)):
         )
 
     by_date = {r["date"]: r["gb_used"] for r in rows}
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     return [
         {
             "date": (today - timedelta(days=i)).isoformat(),

@@ -3,7 +3,7 @@ Unit tests for analytics routes: bandwidth-history (auth, 7-day zero-fill,
 per-day GB aggregation), GET /analytics/{file_id} (auth + ownership), and
 POST /analytics/event byte-counter validation.
 """
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 
@@ -26,15 +26,15 @@ class TestBandwidthHistory:
         data = resp.json()
         assert len(data) == 7
         # Dates are consecutive, oldest first (endpoint keys off UTC date)
-        expected_first = (datetime.now(timezone.utc).date() - timedelta(days=6)).isoformat()
+        expected_first = (datetime.now(UTC).date() - timedelta(days=6)).isoformat()
         assert data[0]["date"] == expected_first
-        assert data[-1]["date"] == datetime.now(timezone.utc).date().isoformat()
+        assert data[-1]["date"] == datetime.now(UTC).date().isoformat()
         for day in data:
             assert day["gb"] == 0
 
     def test_merges_query_results_with_zero_fill(self, client, auth_headers, mock_conn):
         """Should overlay real usage on the zero-filled window."""
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
         two_days_ago = today - timedelta(days=2)
         mock_conn.fetch.return_value = [
             {"date": two_days_ago, "gb_used": 1.5},

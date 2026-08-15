@@ -82,7 +82,7 @@ except urllib.error.HTTPError as e:
     print(f"FATAL: Render rejected the env-var update — HTTP {e.code}")
     print((e.read().decode("utf-8", "replace") or "")[:500])
     sys.exit(1)
-except Exception as e:  # noqa: BLE001
+except Exception as e:
     print(f"FATAL: env-var update failed: {e}")
     sys.exit(1)
 

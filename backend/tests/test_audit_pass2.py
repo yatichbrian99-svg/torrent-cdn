@@ -18,11 +18,10 @@ Covers:
 9. Emails are NFC-normalized at the API boundary (confusable-account vector).
 """
 import time
+from datetime import UTC
 from io import BytesIO
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
-
-import pytest
 
 USER_ID = UUID("11111111-1111-4111-8111-111111111111")
 
@@ -229,8 +228,8 @@ class TestSessionRevocationOnPasswordChange:
         old_token = create_access_token({"sub": str(USER_ID)})
 
         # The pw_change marker is newer than the token's iat.
-        iat = old_token  # placeholder; we decode below
         import jwt as pyjwt
+
         from app.config import get_settings
         payload = pyjwt.decode(old_token, get_settings().jwt_secret, algorithms=["HS256"])
         mock_redis.get.side_effect = lambda key: (
@@ -243,8 +242,9 @@ class TestSessionRevocationOnPasswordChange:
 
     def test_fresh_token_after_change_accepted(self, client, mock_conn, mock_redis):
         """A token minted AFTER the change passes the revocation check."""
-        from app.auth import create_access_token
         import jwt as pyjwt
+
+        from app.auth import create_access_token
         from app.config import get_settings
 
         fresh = create_access_token({"sub": str(USER_ID)})
@@ -268,8 +268,9 @@ class TestSessionRevocationOnPasswordChange:
         fractional seconds — a raw `marker > iat` comparison rejects a token
         minted milliseconds AFTER the revocation (the mid-login MFA enrollment
         order: revoke, then mint). The marker must be floored to whole seconds."""
-        from app.auth import create_access_token
         import jwt as pyjwt
+
+        from app.auth import create_access_token
         from app.config import get_settings
 
         fresh = create_access_token({"sub": str(USER_ID)})
@@ -292,8 +293,9 @@ class TestSessionRevocationOnPasswordChange:
     def test_earlier_second_token_still_rejected_after_floor(self, client, mock_conn, mock_redis):
         """Floored comparison must still reject a token from an EARLIER second
         than the change (the flooring must not weaken real revocations)."""
-        from app.auth import create_access_token
         import jwt as pyjwt
+
+        from app.auth import create_access_token
         from app.config import get_settings
 
         old_token = create_access_token({"sub": str(USER_ID)})
@@ -359,25 +361,30 @@ class TestSessionRevocationWithoutRedis:
         return create_access_token({"sub": str(USER_ID)})
 
     def _stamp(self, offset_seconds):
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         import jwt as pyjwt
+
         from app.config import get_settings
         payload = pyjwt.decode(self._token(), get_settings().jwt_secret, algorithms=["HS256"])
         return datetime.fromtimestamp(
-            float(payload["iat"]) + offset_seconds, tz=timezone.utc
+            float(payload["iat"]) + offset_seconds, tz=UTC
         )
 
     def _override_stamp(self, monkeypatch, stamp):
         """Point get_user_security_stamp at a scripted stamp."""
         from unittest.mock import AsyncMock
+
         import app.auth as auth_mod
         monkeypatch.setattr(auth_mod, "get_user_security_stamp", AsyncMock(return_value=stamp))
 
     def test_redis_down_token_issued_before_stamp_rejected(self, client, monkeypatch):
         """Redis absent + DB stamp newer than iat → 401."""
-        import app.auth as auth_mod
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         import jwt as pyjwt
+
+        import app.auth as auth_mod
         from app.config import get_settings
 
         old_token = self._token()
@@ -385,7 +392,7 @@ class TestSessionRevocationWithoutRedis:
         monkeypatch.setattr(auth_mod, "get_redis", AsyncMock(return_value=None))
         self._override_stamp(
             monkeypatch,
-            datetime.fromtimestamp(float(payload["iat"]) + 1000, tz=timezone.utc),
+            datetime.fromtimestamp(float(payload["iat"]) + 1000, tz=UTC),
         )
 
         resp = client.get("/auth/me", headers={"Authorization": f"Bearer {old_token}"})
@@ -394,9 +401,11 @@ class TestSessionRevocationWithoutRedis:
 
     def test_redis_down_fresh_token_accepted(self, client, mock_conn, monkeypatch):
         """Redis absent + stamp OLDER than iat → token still valid."""
-        import app.auth as auth_mod
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         import jwt as pyjwt
+
+        import app.auth as auth_mod
         from app.config import get_settings
 
         fresh = self._token()
@@ -404,7 +413,7 @@ class TestSessionRevocationWithoutRedis:
         monkeypatch.setattr(auth_mod, "get_redis", AsyncMock(return_value=None))
         self._override_stamp(
             monkeypatch,
-            datetime.fromtimestamp(float(payload["iat"]) - 1000, tz=timezone.utc),
+            datetime.fromtimestamp(float(payload["iat"]) - 1000, tz=UTC),
         )
         # /auth/me's own user lookup must succeed.
         mock_conn.fetchrow.return_value = {
@@ -436,9 +445,11 @@ class TestSessionRevocationWithoutRedis:
         seconds (NOW()) — a raw `stamp.timestamp() > iat` rejects a token
         minted in the same second, right after the stamp bump (mid-login MFA
         enrollment without Redis). Floor the stamp to whole seconds."""
-        import app.auth as auth_mod
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         import jwt as pyjwt
+
+        import app.auth as auth_mod
         from app.config import get_settings
 
         fresh = self._token()
@@ -446,7 +457,7 @@ class TestSessionRevocationWithoutRedis:
         monkeypatch.setattr(auth_mod, "get_redis", AsyncMock(return_value=None))
         self._override_stamp(
             monkeypatch,
-            datetime.fromtimestamp(float(payload["iat"]) + 0.5, tz=timezone.utc),
+            datetime.fromtimestamp(float(payload["iat"]) + 0.5, tz=UTC),
         )
         mock_conn.fetchrow.return_value = {
             "id": USER_ID, "email": "user@example.com", "plan": "free",
@@ -460,8 +471,10 @@ class TestSessionRevocationWithoutRedis:
         """Redis UP but with no pw_change marker (restart/eviction window) must
         STILL fall through to the DB stamp — otherwise the authoritative check
         is bypassed exactly when Redis is flaky."""
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         import jwt as pyjwt
+
         from app.config import get_settings
 
         token = self._token()
@@ -470,7 +483,7 @@ class TestSessionRevocationWithoutRedis:
         mock_redis.get.return_value = None
         self._override_stamp(
             monkeypatch,
-            datetime.fromtimestamp(float(payload["iat"]) + 1000, tz=timezone.utc),
+            datetime.fromtimestamp(float(payload["iat"]) + 1000, tz=UTC),
         )
 
         resp = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})

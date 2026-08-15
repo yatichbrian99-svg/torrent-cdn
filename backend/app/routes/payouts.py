@@ -27,7 +27,6 @@ same convention as the payment side (KES 4,000 plan = amount 400000). The UI
 works in whole KES; this module converts (and stores cents).
 """
 import logging
-from datetime import datetime
 from uuid import UUID
 
 import httpx
@@ -45,9 +44,10 @@ from ..models import (
 )
 from ..security_events import record as record_event
 from .admin import require_admin
+
 # Same secret key + API base as the payment side (billing.py) — one source of
 # truth; billing does not import this module, so there is no import cycle.
-from .billing import PAYSTACK_API_BASE, _PAYSTACK_HEADERS
+from .billing import _PAYSTACK_HEADERS, PAYSTACK_API_BASE
 
 settings = get_settings()
 logger = logging.getLogger(__name__)

@@ -1,14 +1,14 @@
-from pydantic_settings import BaseSettings
-from functools import lru_cache
-from urllib.parse import urlparse
 import json
 import logging
 import os
 import time
 import urllib.request
-from datetime import timezone
+from datetime import UTC
 from email.utils import parsedate_to_datetime
-from typing import Optional
+from functools import lru_cache
+from urllib.parse import urlparse
+
+from pydantic_settings import BaseSettings
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +189,7 @@ class Settings(BaseSettings):
         case_sensitive = False
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     settings = Settings()
     # Fail closed: never allow the default/placeholder JWT secret, in ANY environment.
@@ -319,7 +319,7 @@ def get_settings() -> Settings:
     return settings
 
 
-def _fetch_reference_epoch(timeout: float = 5.0) -> Optional[float]:
+def _fetch_reference_epoch(timeout: float = 5.0) -> float | None:
     """Best-effort fetch of an authoritative UTC epoch from a public NTP-over-HTTP source.
 
     Tries several reliable endpoints in order; returns the first usable epoch or
@@ -350,7 +350,7 @@ def _fetch_reference_epoch(timeout: float = 5.0) -> Optional[float]:
             if date_hdr:
                 dt = parsedate_to_datetime(date_hdr)
                 if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
+                    dt = dt.replace(tzinfo=UTC)
                 return dt.timestamp()
     except Exception:
         pass
@@ -370,7 +370,7 @@ def _fetch_reference_epoch(timeout: float = 5.0) -> Optional[float]:
     return None
 
 
-def check_clock_skew(settings: Optional[Settings] = None) -> None:
+def check_clock_skew(settings: Settings | None = None) -> None:
     """Startup clock-skew guard (production only, fail-open).
 
     Compares the local clock against a public NTP-over-HTTP reference and logs

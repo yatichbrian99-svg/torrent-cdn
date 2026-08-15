@@ -20,7 +20,7 @@ Security gates under test:
 import hashlib
 import hmac
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 from uuid import UUID
 
@@ -30,7 +30,7 @@ import httpx
 UniqueViolationError = asyncpg.exceptions.UniqueViolationError
 
 ADMIN_ID = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
-NOW = datetime.now(timezone.utc)
+NOW = datetime.now(UTC)
 
 RECIPIENT_ROW = {
     "recipient_code": "RCP_abc",

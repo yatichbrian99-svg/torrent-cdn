@@ -5,8 +5,6 @@ import json
 from unittest.mock import AsyncMock
 from uuid import UUID
 
-import pytest
-
 from app.routes import files as files_route
 
 FILE_ID = UUID("22222222-2222-4222-8222-222222222222")
@@ -179,7 +177,7 @@ class TestDeleteFile:
     def test_delete_file_success(self, client, auth_headers, mock_conn, mock_s3_client):
         """Should delete a file and return success."""
         mock_conn.fetchrow.return_value = {
-            "minio_url": f"http://minio:9000/torrent-cdn-files/user123/file123/test.mp4",
+            "minio_url": "http://minio:9000/torrent-cdn-files/user123/file123/test.mp4",
         }
 
         resp = client.delete(f"/files/{FILE_ID}", headers=auth_headers)
@@ -232,7 +230,6 @@ class TestPoolSaturation:
     asyncio.TimeoutError handler in main.py) — NOT a hang or a 500."""
 
     def test_db_acquire_timeout_returns_503(self, client, auth_headers, monkeypatch):
-        import asyncio
 
         class _ExhaustedPool:
             """Mimics a bounded pool.acquire() wait that expires: the wrapper in
@@ -240,7 +237,7 @@ class TestPoolSaturation:
             raises asyncio.TimeoutError past it."""
 
             def acquire(self, *args, **kwargs):
-                raise asyncio.TimeoutError()
+                raise TimeoutError()
 
         monkeypatch.setattr(
             files_route, "get_db_pool", AsyncMock(return_value=_ExhaustedPool())

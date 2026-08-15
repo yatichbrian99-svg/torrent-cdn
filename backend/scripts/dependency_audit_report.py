@@ -41,7 +41,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -174,7 +174,7 @@ def load_baseline(path: Path) -> tuple[set, dict[str, int]]:
 def save_baseline(path: Path, findings: list[dict], counts: dict[str, int]) -> None:
     """Write the current finding set as a baseline file."""
     payload = {
-        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "critical": counts["critical"],
         "high": counts["high"],
         "moderate": counts["moderate"],
@@ -197,7 +197,7 @@ def render_report(
 ) -> tuple[str, dict[str, int], int]:
     """Build the markdown report, the severity-count summary, and the count of
     NEW findings vs the baseline (0 when no baseline is given)."""
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     counts = {"critical": 0, "high": 0, "moderate": 0, "low": 0, "info": 0, "pip": 0, "npm": 0}
 
     lines = [

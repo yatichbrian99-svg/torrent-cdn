@@ -2,7 +2,6 @@
 Unit tests for admin dashboard endpoints: user management, plan updates, analytics, and access control.
 """
 from uuid import UUID
-from unittest.mock import AsyncMock
 
 
 class TestAdminAccess:

@@ -49,11 +49,10 @@ class TestStartupMigrations:
     def test_users_ddl_covers_register_insert_columns(self):
         """Regression: every column the register INSERT references must exist in
         USERS_TABLE_DDL, or a fresh DB returns 500 on registration."""
-        from app.database import USERS_TABLE_DDL
-
         # Extract the INSERT's column list from the route source so this assertion
         # tracks the actual INSERT instead of a copied list.
         import app.routes.auth
+        from app.database import USERS_TABLE_DDL
 
         src = inspect.getsource(app.routes.auth)
         insert_match = re.search(

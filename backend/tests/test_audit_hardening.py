@@ -13,7 +13,6 @@ Covers:
 7. CSP-report logging sanitized against log injection
 """
 import time
-from io import BytesIO
 from unittest.mock import AsyncMock
 from uuid import UUID
 
@@ -58,8 +57,9 @@ class TestBcryptPasswordHashing:
     def test_legacy_passlib_hash_still_verifies(self):
         """Hashes written by the old passlib backend ($2b$bcrypt) must verify
         with the direct-bcrypt implementation — no password reset required."""
-        from app.auth import verify_password
         import bcrypt
+
+        from app.auth import verify_password
 
         legacy = bcrypt.hashpw(b"SecurePass123", bcrypt.gensalt(rounds=12)).decode()
         assert legacy.startswith("$2b$")
@@ -209,8 +209,8 @@ class TestLoginTimingOracle:
     response timing cannot distinguish registered from unregistered emails."""
 
     def test_unknown_user_returns_401_after_dummy_verify(self, client, mock_conn, monkeypatch):
-        from app.auth import verify_password
         import app.routes.auth as auth_route
+        from app.auth import verify_password
 
         mock_conn.fetchrow.return_value = None
 
@@ -234,9 +234,8 @@ class TestLoginTimingOracle:
 
     def test_known_user_wrong_password_same_verify_shape(self, client, mock_conn, monkeypatch):
         """Existing-user wrong-password path also does exactly one verify."""
-        from app.auth import verify_password
         import app.routes.auth as auth_route
-        from app.auth import hash_password
+        from app.auth import hash_password, verify_password
 
         mock_conn.fetchrow.return_value = {
             "id": UUID("11111111-1111-4111-8111-111111111111"),
@@ -273,7 +272,6 @@ class TestBoundedRateLimitStores:
         import app.database
         monkeypatch.setattr(app.database, "get_redis", AsyncMock(return_value=None))
 
-        from app.main import RateLimitMiddleware
         mw = self._find_rate_limit_middleware(client.app)
         assert mw is not None
 
@@ -361,7 +359,7 @@ class TestCspReportLogSanitization:
                 "sourceFile": "line1\nline2",
             },
         }
-        with pytest.MonkeyPatch.context() as mp:
+        with pytest.MonkeyPatch.context():
             captured = []
             import logging
             logger = logging.getLogger("app.routes.csp")

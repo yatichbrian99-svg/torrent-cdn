@@ -1,32 +1,42 @@
 import hashlib
 import hmac
 import json
+import logging
 import re
 import secrets
 import time
-import logging
 import unicodedata
 import uuid
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, status
 from uuid import UUID
 
-from ..database import get_db_pool, get_redis, USERS_TABLE_DDL, API_KEYS_TABLE_DDL
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    Header,
+    HTTPException,
+    Request,
+    status,
+)
+
 from ..auth import (
     API_KEY_PREFIX,
-    hash_api_key,
-    hash_password,
-    verify_password,
     create_access_token,
     get_current_user_id,
     get_mfa_setup_user,
+    hash_api_key,
+    hash_password,
     revoke_user_sessions,
+    verify_password,
 )
+from ..config import get_settings
+from ..database import API_KEYS_TABLE_DDL, USERS_TABLE_DDL, get_db_pool, get_redis
 from ..email_service import (
+    decode_password_reset_token,
     is_email_service_configured,
     send_mfa_enabled_email,
-    send_verification_email,
     send_password_reset_email,
-    decode_password_reset_token,
+    send_verification_email,
 )
 from ..mfa import (
     backup_code_matches,
@@ -40,20 +50,19 @@ from ..mfa import (
 )
 from ..models import (
     ApiKeyResponse,
-    UserRegister,
-    UserLogin,
-    TokenResponse,
     ForgotPasswordRequest,
-    ResetPasswordRequest,
-    MfaStatusResponse,
-    MfaSetupResponse,
     MfaCodeRequest,
     MfaConfirmRequest,
+    MfaSetupResponse,
+    MfaStatusResponse,
+    ResetPasswordRequest,
+    TokenResponse,
+    UserLogin,
+    UserRegister,
 )
-from ..config import get_settings
 from ..security import get_client_ip
-from ..services.email import send_welcome_email
 from ..security_events import record as record_event
+from ..services.email import send_welcome_email
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -674,7 +683,7 @@ async def reset_password(data: ResetPasswordRequest):
 
 @router.post("/setup")
 async def setup_first_admin(
-    email: str = None,
+    email: str | None = None,
     presented_token: str | None = Header(default=None, alias="X-Admin-Setup-Token"),
     requester_id: UUID = Depends(get_current_user_id),
 ):
@@ -700,12 +709,13 @@ async def setup_first_admin(
     # must match. Constant-time (hmac.compare_digest) so a wrong token can't be
     # distinguished by timing; missing/empty short-circuit to the same 403.
     setup_token = getattr(_settings, "admin_setup_token", "") or ""
-    if setup_token:
-        if not presented_token or not hmac.compare_digest(presented_token, setup_token):
-            raise HTTPException(
-                status_code=403,
-                detail="Admin setup requires the ADMIN_SETUP_TOKEN.",
-            )
+    if setup_token and (
+        not presented_token or not hmac.compare_digest(presented_token, setup_token)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Admin setup requires the ADMIN_SETUP_TOKEN.",
+        )
 
     pool = await get_db_pool()
     async with pool.acquire() as conn:

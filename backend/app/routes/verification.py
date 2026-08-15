@@ -1,15 +1,16 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException
 from uuid import UUID
 
-from ..database import get_db_pool
+from fastapi import APIRouter, Depends, HTTPException
+
 from ..auth import get_current_user_id
-from ..models import EmailVerifyRequest
+from ..database import get_db_pool
 from ..email_service import (
     decode_verification_token,
     is_email_service_configured,
     send_verification_email,
 )
+from ..models import EmailVerifyRequest
 
 # Simple in-memory rate limiting for resend (Redis not required)
 # Bounded: entries older than the 60s cooldown window are dropped on every

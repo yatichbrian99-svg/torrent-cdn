@@ -17,7 +17,7 @@ import app.routes.upload as upload_route
 class TestChunkedUpload:
     SESSION_URL = "/upload/session"
 
-    TEST_USER = {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"}
+    TEST_USER = {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"}  # noqa: RUF012 — read-only test fixture
     VALID_MP4 = b"\x00\x00\x00\x20ftypmp42"  # 16 bytes, matches .mp4 magic
 
     def _cleanup_session(self, upload_id):
@@ -309,7 +309,7 @@ class TestChunkSessionRedisSurvival:
     must be continuable on worker B whose in-memory dict is cold."""
 
     SESSION_URL = "/upload/session"
-    TEST_USER = {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"}
+    TEST_USER = {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"}  # noqa: RUF012 — read-only test fixture
     VALID_MP4 = b"\x00\x00\x00\x20ftypmp42"
 
     def test_chunk_session_survives_worker_handoff_via_redis(

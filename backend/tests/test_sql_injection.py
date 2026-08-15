@@ -30,6 +30,7 @@ def _run_audit(target: str) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
         timeout=60,
+        check=False,  # the audit exits non-zero on findings; tests assert returncode
     )
 
 

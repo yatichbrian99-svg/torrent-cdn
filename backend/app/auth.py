@@ -1,15 +1,15 @@
 import hashlib
 import logging
 import time
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import jwt
-from jwt.exceptions import InvalidTokenError
 import bcrypt
+import jwt
+from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jwt.exceptions import InvalidTokenError
+
 from .config import get_settings
 from .database import get_db_pool, get_redis
 from .mfa import decode_mfa_token
@@ -32,7 +32,7 @@ def hash_api_key(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-async def _resolve_api_key_user(token: str) -> Optional[UUID]:
+async def _resolve_api_key_user(token: str) -> UUID | None:
     """Resolve a tcdn_ API key to its owner, or None if unknown/revoked.
 
     Not constant-time-sensitive in a useful way: the DB equality lookup runs on
@@ -97,7 +97,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expire = now + timedelta(minutes=settings.jwt_expire_minutes)
     # iat anchors this token's issue time so the session-revocation check in
     # get_current_user_id can reject tokens issued BEFORE a password change or
@@ -109,7 +109,7 @@ def create_access_token(data: dict) -> str:
     )
 
 
-def decode_access_token(token: str) -> Optional[dict]:
+def decode_access_token(token: str) -> dict | None:
     try:
         # PyJWT verifies exp + signature; the explicit algorithms list is
         # required by PyJWT and prevents algorithm-confusion attacks.
@@ -166,7 +166,7 @@ async def revoke_user_sessions(user_id) -> None:
         logger.warning("pw_change marker failed for %s: %s", uid, e)
 
 
-async def get_user_security_stamp(user_id) -> Optional[datetime]:
+async def get_user_security_stamp(user_id) -> datetime | None:
     """Return the user's session-revocation stamp (None if never changed).
 
     A separate helper so unit tests can mock exactly this DB read (the auth
@@ -326,10 +326,10 @@ async def get_current_user_id(
 
 
 async def get_optional_user_id(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(
+    credentials: HTTPAuthorizationCredentials | None = Depends(
         HTTPBearer(auto_error=False)
     ),
-) -> Optional[UUID]:
+) -> UUID | None:
     """Optional auth dependency — returns None if no token provided.
 
     API keys work here too: a valid tcdn_ key resolves to its owner, an invalid

@@ -6,20 +6,23 @@ backend only issues the URL (/upload/presign) and later verifies + finalizes
 (/upload/presign/finalize/{upload_id}), streaming the object back server-side
 to run the same validation/torrent/thumbnail pipeline as every other path.
 """
-import os
 import re
 from io import BytesIO
 from unittest.mock import AsyncMock
 from uuid import UUID
 
 import app.routes.upload as upload_route
+from app.security import (
+    estimate_compression_ratio as _real_estimate_compression_ratio,
+)
+from app.security import (
+    validate_content_type as _real_validate_content_type,
+)
 
 # Capture the REAL validator functions at module import time (before any
 # conftest autouse fixture patches them to always-pass lambdas).
 from app.security import (
     validate_file_magic as _real_validate_file_magic,
-    validate_content_type as _real_validate_content_type,
-    estimate_compression_ratio as _real_estimate_compression_ratio,
 )
 
 PRESIGN_URL = "/upload/presign"
@@ -183,8 +186,10 @@ class TestPresign:
 
 
 class TestPresignFinalize:
-    def _presign(self, client, auth_headers, mock_conn, mock_s3_client, size=len(VALID_MP4), key="presign-e2e"):
+    def _presign(self, client, auth_headers, mock_conn, mock_s3_client, size=None, key="presign-e2e"):
         """Presign and return the upload_id (consumes the first 3 fetchrow calls)."""
+        if size is None:
+            size = len(VALID_MP4)
         mock_s3_client.generate_presigned_url.return_value = "https://storage.example/put"
         resp = client.post(
             PRESIGN_URL,
@@ -402,7 +407,7 @@ class TestTorrentGeneration:
         user_id = UUID("11111111-1111-4111-8111-111111111111")
         file_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
-        magnet, thumbnail, content_hash = upload_route._torrent_and_thumbnail(
+        magnet, _, content_hash = upload_route._torrent_and_thumbnail(
             file_stream, safe_filename, user_id, file_id, mock_s3_client
         )
         assert len(content_hash) == 64  # SHA-256 hex drives storage dedup

@@ -19,8 +19,6 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "dependency_audit_report.py"
 
 

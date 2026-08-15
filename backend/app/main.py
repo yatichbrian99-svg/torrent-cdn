@@ -2,6 +2,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -10,14 +11,32 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 logger = logging.getLogger(__name__)
 
-from .config import check_clock_skew, get_settings
-from .database import close_db, close_redis, get_db_pool
-from .security import get_client_ip
 import os
 import threading
 
-from .routes import auth, upload, files, analytics, billing, csp, admin, verification, notifications, payouts
-from .database import API_KEYS_TABLE_DDL, NOTIFICATIONS_TABLE_DDL, PAYOUTS_TABLE_DDL, USERS_TABLE_DDL
+from .config import check_clock_skew, get_settings
+from .database import (
+    API_KEYS_TABLE_DDL,
+    NOTIFICATIONS_TABLE_DDL,
+    PAYOUTS_TABLE_DDL,
+    USERS_TABLE_DDL,
+    close_db,
+    close_redis,
+    get_db_pool,
+)
+from .routes import (
+    admin,
+    analytics,
+    auth,
+    billing,
+    csp,
+    files,
+    notifications,
+    payouts,
+    upload,
+    verification,
+)
+from .security import get_client_ip
 
 settings = get_settings()
 
@@ -319,10 +338,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # viewer (or a handful of NAT'd viewers behind one office/school/mobile
         # IP) would 429 unrelated requests for everyone on that IP.
         if (
-            path.startswith("/upload/chunk/")
+            path.startswith(("/upload/chunk/", "/analytics/public/", "/files/public/"))
             or path == "/analytics/event"
-            or path.startswith("/analytics/public/")
-            or path.startswith("/files/public/")
         ):
             return await call_next(request)
 

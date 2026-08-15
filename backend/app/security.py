@@ -8,7 +8,6 @@ import ipaddress
 import logging
 import struct
 from functools import lru_cache
-from typing import Optional
 
 from .config import get_settings
 
@@ -95,7 +94,7 @@ EXTENSION_MIME_MAP: dict[str, set[str]] = {
 MAX_COMPRESSION_RATIO = 50
 
 
-def read_magic_bytes(file_stream, num_bytes: int = 16) -> Optional[bytes]:
+def read_magic_bytes(file_stream, num_bytes: int = 16) -> bytes | None:
     """Read magic bytes from a file stream without advancing position."""
     try:
         pos = file_stream.tell()
@@ -138,14 +137,13 @@ def validate_file_magic(file_stream, filename: str) -> tuple[bool, str]:
         return True, ""
 
     for offset, signature, _ in ext_signatures:
-        if offset < len(magic):
-            if magic[offset:offset + len(signature)] == signature:
-                return True, ""
+        if offset < len(magic) and magic[offset:offset + len(signature)] == signature:
+            return True, ""
 
     return False, f"File header does not match expected format for {ext} files"
 
 
-def validate_content_type(content_type: Optional[str], filename: str) -> tuple[bool, str]:
+def validate_content_type(content_type: str | None, filename: str) -> tuple[bool, str]:
     """
     Validate that the declared Content-Type matches the file extension.
     Returns (is_valid, message).
@@ -173,7 +171,7 @@ def validate_content_type(content_type: Optional[str], filename: str) -> tuple[b
     return False, f"Content-Type '{content_type}' doesn't match expected type for {ext} files"
 
 
-def estimate_compression_ratio(file_stream) -> Optional[float]:
+def estimate_compression_ratio(file_stream) -> float | None:
     """
     Estimate compression ratio for potential zip bomb detection.
     Returns ratio or None if not applicable.
@@ -207,7 +205,7 @@ def estimate_compression_ratio(file_stream) -> Optional[float]:
         return None
 
 
-def _check_gzip_ratio(file_stream) -> Optional[float]:
+def _check_gzip_ratio(file_stream) -> float | None:
     """For gzip files, check uncompressed vs compressed size."""
     try:
         pos = file_stream.tell()
@@ -230,14 +228,14 @@ def _check_gzip_ratio(file_stream) -> Optional[float]:
         return None
 
 
-def _get_ext(filename: str) -> Optional[str]:
+def _get_ext(filename: str) -> str | None:
     """Extract the lowercase extension from a filename."""
     import os
     _, ext = os.path.splitext(filename)
     return ext.lower() if ext else None
 
 
-def _read_range(file_stream, start: int, end: int) -> Optional[bytes]:
+def _read_range(file_stream, start: int, end: int) -> bytes | None:
     """Read a byte range from the file and reset position."""
     try:
         pos = file_stream.tell()
@@ -249,7 +247,7 @@ def _read_range(file_stream, start: int, end: int) -> Optional[bytes]:
         return None
 
 
-def _get_file_size(file_stream) -> Optional[int]:
+def _get_file_size(file_stream) -> int | None:
     """Get total file size."""
     try:
         pos = file_stream.tell()
@@ -261,7 +259,7 @@ def _get_file_size(file_stream) -> Optional[int]:
         return None
 
 
-def _normalize_ip(candidate: str) -> Optional[str]:
+def _normalize_ip(candidate: str) -> str | None:
     """Validate + normalize one XFF entry: strip an IPv4 port ("1.2.3.4:5678" —
     IPv6 keeps its colons), reject junk. Returns the canonical IP string, or
     None when unparseable (so forged garbage can never poison rate-limit keys

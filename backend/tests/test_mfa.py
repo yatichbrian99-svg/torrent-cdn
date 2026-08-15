@@ -10,17 +10,18 @@ Tests for two-factor authentication (TOTP):
 import asyncio
 import hashlib
 import json
-import pytest
+from unittest.mock import MagicMock
 from uuid import UUID
-from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from app.mfa import (
-    generate_backup_codes,
-    generate_totp_secret,
-    hash_backup_codes,
     backup_code_matches,
     create_mfa_token,
     decode_mfa_token,
+    generate_backup_codes,
+    generate_totp_secret,
+    hash_backup_codes,
     totp_code,
     verify_totp,
 )

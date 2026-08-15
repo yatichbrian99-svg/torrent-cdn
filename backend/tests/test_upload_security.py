@@ -11,12 +11,17 @@ from io import BytesIO
 from unittest.mock import AsyncMock
 from uuid import UUID
 
+from app.security import (
+    estimate_compression_ratio as _real_estimate_compression_ratio,
+)
+from app.security import (
+    validate_content_type as _real_validate_content_type,
+)
+
 # Capture the REAL validator functions at module import time (before any conftest
 # autouse fixture patches them to always-pass lambdas).
 from app.security import (
     validate_file_magic as _real_validate_file_magic,
-    validate_content_type as _real_validate_content_type,
-    estimate_compression_ratio as _real_estimate_compression_ratio,
 )
 
 FILE_ID = UUID("22222222-2222-4222-8222-222222222222")

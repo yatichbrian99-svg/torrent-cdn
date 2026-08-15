@@ -153,6 +153,7 @@ class TestAutoVerifyFallback:
         Uses a DISTINCT user id: the resend cooldown dict is process-global, so
         sharing test_user_id with the earlier allowlist test would 429 here."""
         from uuid import UUID
+
         from app.auth import create_access_token
 
         _enable_verification(monkeypatch)
@@ -171,8 +172,9 @@ class TestAutoVerifyFallback:
         """Configured-but-failing provider: resend says the email could not be
         sent and does NOT verify — the gate stays engaged. (Distinct user id,
         same cooldown-dict reason as the auto-verify sibling.)"""
-        import app.routes.verification as verification_route
         from uuid import UUID
+
+        import app.routes.verification as verification_route
         from app.auth import create_access_token
 
         _enable_verification(monkeypatch)
@@ -198,8 +200,9 @@ class TestResendCooldownAndAlreadyVerified:
         """First resend sends the email; an immediate second one is rate-limited
         with a 429 and a 'Please wait Ns' message. The cooldown check runs
         BEFORE the DB lookup, so it fires regardless of user state."""
-        import app.routes.verification as verification_route
         from uuid import UUID
+
+        import app.routes.verification as verification_route
         from app.auth import create_access_token
 
         _enable_verification(monkeypatch)
@@ -225,8 +228,9 @@ class TestResendCooldownAndAlreadyVerified:
         NEVER records a cooldown (the verified check short-circuits before the
         cooldown write) — so even an immediate second call is not rate-limited
         and no email is sent."""
-        import app.routes.verification as verification_route
         from uuid import UUID
+
+        import app.routes.verification as verification_route
         from app.auth import create_access_token
 
         _enable_verification(monkeypatch)

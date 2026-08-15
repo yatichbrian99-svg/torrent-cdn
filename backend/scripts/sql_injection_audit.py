@@ -149,11 +149,14 @@ def _collect_module_info(tree: ast.Module, dotted: str) -> tuple[dict, dict]:
     """
     local: dict[str, bool] = {}
     for node in tree.body:
-        if isinstance(node, ast.Assign):
-            if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
-                name = node.targets[0].id
-                # AND-accumulate: one dynamic assignment poisons the name.
-                local[name] = local.get(name, True) and _is_plain_sql_literal(node.value)
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+        ):
+            name = node.targets[0].id
+            # AND-accumulate: one dynamic assignment poisons the name.
+            local[name] = local.get(name, True) and _is_plain_sql_literal(node.value)
     imports: dict[str, str] = {}
     for node in tree.body:
         if isinstance(node, ast.ImportFrom):
@@ -237,61 +240,70 @@ def audit_tree(root: str) -> list[str]:
 
     # Pass 2: walk every module's AST for DB calls + dynamic SQL strings.
     for path, tree in trees.items():
-        mod = dotted_of[path]
-
-        class _Finder(ast.NodeVisitor):
-            def visit_Call(self, node: ast.Call) -> None:
-                self.generic_visit(node)
-                if not isinstance(node.func, ast.Attribute):
-                    return
-                attr = node.func.attr
-                if attr in DB_SQL_METHODS:
-                    if node.args and not _sql_arg_is_safe(node.args[0], mod):
-                        findings.append(
-                            f"{path}:{node.lineno}: .{attr}() called with "
-                            f"{_dynamic_string_kind(node.args[0])} SQL — {_EXPECTED}"
-                        )
-                elif attr == "format":
-                    base = node.func.value
-                    if _is_plain_sql_literal(base) and _contains_sql_marker(base.value):
-                        findings.append(
-                            f"{path}:{node.lineno}: .format() applied to SQL text — {_EXPECTED}"
-                        )
-
-            def visit_JoinedStr(self, node: ast.JoinedStr) -> None:
-                self.generic_visit(node)
-                # Gate B: an f-string whose (constant) value contains SQL.
-                # Non-literal interpolations are substituted with a space so the
-                # marker scan is conservative (never a false positive).
-                try:
-                    value = "".join(
-                        v.value if isinstance(v, ast.Constant) else " "
-                        for v in node.values
-                    )
-                except Exception:
-                    value = ""
-                if _contains_sql_marker(value):
-                    findings.append(
-                        f"{path}:{node.lineno}: f-string contains SQL — {_EXPECTED}"
-                    )
-
-            def visit_BinOp(self, node: ast.BinOp) -> None:
-                self.generic_visit(node)
-                # Gate B: %-formatting or + concatenation applied to a
-                # SQL-literal operand. ("text" % x on non-SQL text is fine.)
-                if not isinstance(node.op, (ast.Mod, ast.Add)):
-                    return
-                for operand in (node.left, node.right):
-                    if _is_plain_sql_literal(operand) and _contains_sql_marker(operand.value):
-                        kind = "%-formatting" if isinstance(node.op, ast.Mod) else "string concatenation"
-                        findings.append(
-                            f"{path}:{node.lineno}: {kind} applied to SQL text — {_EXPECTED}"
-                        )
-                        return
-
-        _Finder().visit(tree)
+        _Finder(path, dotted_of[path], findings, _sql_arg_is_safe).visit(tree)
 
     return findings
+
+
+class _Finder(ast.NodeVisitor):
+    """Visitor bound to one module (its ``path`` and dotted name) so loop
+    variables are never captured by closure — each instance is constructed
+    and used within a single loop iteration."""
+
+    def __init__(self, path: str, mod: str, findings: list[str], sql_arg_is_safe) -> None:
+        self.path = path
+        self.mod = mod
+        self.findings = findings
+        self._sql_arg_is_safe = sql_arg_is_safe
+
+    def visit_Call(self, node: ast.Call) -> None:
+        self.generic_visit(node)
+        if not isinstance(node.func, ast.Attribute):
+            return
+        attr = node.func.attr
+        if attr in DB_SQL_METHODS:
+            if node.args and not self._sql_arg_is_safe(node.args[0], self.mod):
+                self.findings.append(
+                    f"{self.path}:{node.lineno}: .{attr}() called with "
+                    f"{_dynamic_string_kind(node.args[0])} SQL — {_EXPECTED}"
+                )
+        elif attr == "format":
+            base = node.func.value
+            if _is_plain_sql_literal(base) and _contains_sql_marker(base.value):
+                self.findings.append(
+                    f"{self.path}:{node.lineno}: .format() applied to SQL text — {_EXPECTED}"
+                )
+
+    def visit_JoinedStr(self, node: ast.JoinedStr) -> None:
+        self.generic_visit(node)
+        # Gate B: an f-string whose (constant) value contains SQL.
+        # Non-literal interpolations are substituted with a space so the
+        # marker scan is conservative (never a false positive).
+        try:
+            value = "".join(
+                v.value if isinstance(v, ast.Constant) else " "
+                for v in node.values
+            )
+        except Exception:
+            value = ""
+        if _contains_sql_marker(value):
+            self.findings.append(
+                f"{self.path}:{node.lineno}: f-string contains SQL — {_EXPECTED}"
+            )
+
+    def visit_BinOp(self, node: ast.BinOp) -> None:
+        self.generic_visit(node)
+        # Gate B: %-formatting or + concatenation applied to a
+        # SQL-literal operand. ("text" % x on non-SQL text is fine.)
+        if not isinstance(node.op, (ast.Mod, ast.Add)):
+            return
+        for operand in (node.left, node.right):
+            if _is_plain_sql_literal(operand) and _contains_sql_marker(operand.value):
+                kind = "%-formatting" if isinstance(node.op, ast.Mod) else "string concatenation"
+                self.findings.append(
+                    f"{self.path}:{node.lineno}: {kind} applied to SQL text — {_EXPECTED}"
+                )
+                return
 
 
 def main(argv: list[str]) -> int:

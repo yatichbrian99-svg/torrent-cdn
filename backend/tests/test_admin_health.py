@@ -4,7 +4,7 @@ bounded in-memory security-events recorder (app/security_events.py).
 """
 from unittest.mock import AsyncMock
 
-from app.security_events import record, recent, clear
+from app.security_events import clear, recent, record
 
 ADMIN_URL = "/admin/health"
 # /admin/health/status is the same handler registered under a second path — the

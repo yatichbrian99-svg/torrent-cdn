@@ -4,8 +4,6 @@ Unit tests for auth routes: register, login, and get current user.
 from unittest.mock import AsyncMock
 from uuid import UUID
 
-import pytest
-
 
 class TestRegister:
     """Tests for POST /auth/register."""

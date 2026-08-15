@@ -45,7 +45,7 @@ def _measure_skew(timeout: float = 5.0) -> int:
             for line in resp.read().decode("utf-8", "replace").splitlines():
                 if line.startswith("ts="):
                     server = float(line.split("=", 1)[1])
-                    return int(_dtd.datetime.now(_dtd.timezone.utc).timestamp() - server)
+                    return int(_dtd.datetime.now(_dtd.UTC).timestamp() - server)
     except Exception:
         pass
     try:
@@ -56,8 +56,8 @@ def _measure_skew(timeout: float = 5.0) -> int:
             if date_hdr:
                 dt = parsedate_to_datetime(date_hdr)
                 if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=_dtd.timezone.utc)
-                return int(_dtd.datetime.now(_dtd.timezone.utc).timestamp() - dt.timestamp())
+                    dt = dt.replace(tzinfo=_dtd.UTC)
+                return int(_dtd.datetime.now(_dtd.UTC).timestamp() - dt.timestamp())
     except Exception:
         pass
     return 0
@@ -69,7 +69,7 @@ if SKEW:
     class _Corr:
         @staticmethod
         def utcnow():
-            return _dtd.datetime.now(_dtd.timezone.utc) - _dtd.timedelta(seconds=SKEW)
+            return _dtd.datetime.now(_dtd.UTC) - _dtd.timedelta(seconds=SKEW)
 
     botocore.auth.datetime = type("M", (), {"datetime": _Corr})()
     print(f"(clock skew correction applied: {SKEW}s)")
@@ -95,7 +95,7 @@ def check(label, fn):
     try:
         fn()
         print(f"  PASS  {label}")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"  FAIL  {label}: {str(e)[:220]}")
         failures.append(label)
 

@@ -4,7 +4,7 @@ Mocks all external dependencies (DB, Redis, MinIO, torrent) for unit testing.
 """
 import os
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
 import pytest
@@ -100,14 +100,14 @@ def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
     Uses monkeypatch to ensure patches apply regardless of import style.
     """
     # Import route modules so they exist in sys.modules before we patch their local refs
-    import app.routes.auth
-    import app.routes.upload
-    import app.routes.files
-    import app.routes.billing
-    import app.routes.analytics
-    import app.routes.csp
     import app.routes.admin
+    import app.routes.analytics
+    import app.routes.auth
+    import app.routes.billing
+    import app.routes.csp
+    import app.routes.files
     import app.routes.payouts
+    import app.routes.upload
 
     # Patch each route module's local reference imported via `from ..database import ...`
     monkeypatch.setattr(app.routes.auth, "get_db_pool", AsyncMock(return_value=mock_pool))
@@ -121,8 +121,8 @@ def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
     # (app.main import) keeps the FIRST test's patched binding forever, so any
     # test exercising /auth/resend-verification or /notifications would read
     # the stale first-test mock_conn. Patch them like the rest.
-    import app.routes.verification
     import app.routes.notifications
+    import app.routes.verification
     monkeypatch.setattr(app.routes.verification, "get_db_pool", AsyncMock(return_value=mock_pool))
     monkeypatch.setattr(app.routes.notifications, "get_db_pool", AsyncMock(return_value=mock_pool))
 
@@ -150,8 +150,8 @@ def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
 
     # Patch security validation functions so tests don't need real magic bytes
     # Must patch both the module AND the importing module's local reference
-    import app.security
     import app.routes.upload
+    import app.security
     for mod in (app.security, app.routes.upload):
         monkeypatch.setattr(mod, "validate_file_magic", lambda fs, fn: (True, ""))
         monkeypatch.setattr(mod, "validate_content_type", lambda ct, fn: (True, ""))

@@ -13,7 +13,7 @@ presign sessions.
   (finalize reads it back from Redis after the in-memory copy is gone).
 """
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from unittest.mock import MagicMock
 from uuid import UUID
@@ -21,14 +21,18 @@ from uuid import UUID
 import pytest
 
 import app.routes.upload as upload_route
+from app.security import (
+    estimate_compression_ratio as _real_estimate_compression_ratio,
+)
+from app.security import (
+    validate_content_type as _real_validate_content_type,
+)
 
 # Capture the REAL validator functions at module import time (before any conftest
 # autouse fixture patches them to always-pass lambdas — importing them inside a
 # test body would capture the patched lambda and silently skip validation).
 from app.security import (
     validate_file_magic as _real_validate_file_magic,
-    validate_content_type as _real_validate_content_type,
-    estimate_compression_ratio as _real_estimate_compression_ratio,
 )
 
 TEST_USER = {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"}
@@ -40,7 +44,7 @@ def _obj(key, age_hours=2.0):
     """A fake ListObjectsV2 Contents entry, old enough to be past the grace window."""
     return {
         "Key": key,
-        "LastModified": datetime.now(timezone.utc) - timedelta(hours=age_hours),
+        "LastModified": datetime.now(UTC) - timedelta(hours=age_hours),
     }
 
 

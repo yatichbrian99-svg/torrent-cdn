@@ -1,19 +1,20 @@
 import html
 import logging
 import os
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 import jwt
 from jwt.exceptions import InvalidTokenError
+
 from .config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
-def _get_resend() -> Optional[any]:
+def _get_resend() -> Any | None:
     """Lazy-import and configure Resend client. Returns None if no API key."""
     api_key = os.getenv("RESEND_API_KEY", settings.resend_api_key or "")
     if not api_key or api_key == "re_xxx" or api_key.startswith("sk_test"):
@@ -45,7 +46,7 @@ def create_verification_token(user_id: UUID) -> str:
     Uses a separate secret from auth tokens to prevent cross-use attacks.
     """
     secret = settings.jwt_verify_secret or settings.jwt_secret
-    expire = datetime.now(timezone.utc) + timedelta(hours=24)
+    expire = datetime.now(UTC) + timedelta(hours=24)
     # PyJWT 2.x returns a str token.
     return jwt.encode(
         {"sub": str(user_id), "purpose": "email_verify", "exp": expire},
@@ -54,7 +55,7 @@ def create_verification_token(user_id: UUID) -> str:
     )
 
 
-def decode_verification_token(token: str) -> Optional[str]:
+def decode_verification_token(token: str) -> str | None:
     """Decode a verification token and return the user ID if valid."""
     secret = settings.jwt_verify_secret or settings.jwt_secret
     try:
@@ -79,7 +80,7 @@ def create_password_reset_token(user_id: UUID) -> str:
     Uses a separate secret from auth tokens to prevent cross-use attacks.
     """
     secret = settings.jwt_reset_secret or settings.jwt_secret
-    expire = datetime.now(timezone.utc) + timedelta(hours=1)
+    expire = datetime.now(UTC) + timedelta(hours=1)
     return jwt.encode(
         {"sub": str(user_id), "purpose": "reset_password", "exp": expire},
         secret,
@@ -87,7 +88,7 @@ def create_password_reset_token(user_id: UUID) -> str:
     )
 
 
-def decode_password_reset_token(token: str) -> Optional[str]:
+def decode_password_reset_token(token: str) -> str | None:
     """Decode a password reset token and return the user ID if valid."""
     secret = settings.jwt_reset_secret or settings.jwt_secret
     try:

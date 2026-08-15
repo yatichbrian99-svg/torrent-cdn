@@ -310,7 +310,7 @@ class TestGetClientIp:
     behind Vercel), strip ports, reject forged junk, and fall back to the peer."""
 
     @staticmethod
-    def _make_request(xff: str = None, peer: str = "198.51.100.10"):
+    def _make_request(xff: str | None = None, peer: str = "198.51.100.10"):
         from starlette.requests import Request
 
         headers = []
@@ -365,7 +365,7 @@ class TestTrustedProxyXff:
     TRUSTED = "198.51.100.0/24, 10.0.0.0/8"
 
     @staticmethod
-    def _make_request(xff: str = None, peer: str = "198.51.100.10"):
+    def _make_request(xff: str | None = None, peer: str = "198.51.100.10"):
         from starlette.requests import Request
 
         headers = []
@@ -733,6 +733,7 @@ class TestClockSkewGuard:
     def test_skipped_outside_production(self, caplog):
         """In development the guard is a no-op — no fetch, no logs."""
         import logging
+
         from app.config import Settings, check_clock_skew
 
         s = Settings(app_env="development")
@@ -743,6 +744,7 @@ class TestClockSkewGuard:
     def test_logs_error_when_clock_ahead(self, caplog, monkeypatch):
         """Clock 2h AHEAD of real time → ERROR."""
         import logging
+
         from app.config import check_clock_skew
 
         monkeypatch.setattr("app.config._fetch_reference_epoch", lambda: time.time() + 7200)
@@ -753,6 +755,7 @@ class TestClockSkewGuard:
     def test_logs_error_when_clock_behind(self, caplog, monkeypatch):
         """Clock 2h BEHIND real time → ERROR (direction doesn't matter)."""
         import logging
+
         from app.config import check_clock_skew
 
         monkeypatch.setattr("app.config._fetch_reference_epoch", lambda: time.time() - 7200)
@@ -763,6 +766,7 @@ class TestClockSkewGuard:
     def test_no_error_within_threshold(self, caplog, monkeypatch):
         """Skew under the threshold → no ERROR (info-level only)."""
         import logging
+
         from app.config import check_clock_skew
 
         monkeypatch.setattr("app.config._fetch_reference_epoch", lambda: time.time() + 30)
@@ -773,6 +777,7 @@ class TestClockSkewGuard:
     def test_fail_open_when_reference_unreachable(self, caplog, monkeypatch):
         """No NTP reference → warning, no raise, no ERROR."""
         import logging
+
         from app.config import check_clock_skew
 
         monkeypatch.setattr("app.config._fetch_reference_epoch", lambda: None)
@@ -783,6 +788,7 @@ class TestClockSkewGuard:
     def test_fail_open_when_fetch_raises(self, caplog, monkeypatch):
         """A raising reference fetch → warning, no crash."""
         import logging
+
         from app.config import check_clock_skew
 
         def boom():
@@ -986,7 +992,6 @@ class TestInMemoryRateLimitFallbacks:
         import app.database
         monkeypatch.setattr(app.database, "get_redis", AsyncMock(return_value=None))
 
-        from app.main import RateLimitMiddleware
         mw = self._find_rate_limit_middleware(client.app)
         assert mw is not None, "RateLimitMiddleware not found in middleware stack"
 
@@ -1020,7 +1025,6 @@ class TestInMemoryRateLimitFallbacks:
         import app.database
         monkeypatch.setattr(app.database, "get_redis", AsyncMock(return_value=None))
 
-        from app.main import RateLimitMiddleware
         mw = self._find_rate_limit_middleware(client.app)
         assert mw is not None, "RateLimitMiddleware not found in middleware stack"
 
@@ -1068,7 +1072,6 @@ class TestInMemoryRateLimitFallbacks:
         import app.database
         monkeypatch.setattr(app.database, "get_redis", AsyncMock(return_value=None))
 
-        from app.main import RateLimitMiddleware
         mw = self._find_rate_limit_middleware(client.app)
         assert mw is not None, "RateLimitMiddleware not found in middleware stack"
 

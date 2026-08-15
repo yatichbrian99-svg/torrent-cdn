@@ -2,24 +2,36 @@ import asyncio
 import hashlib
 import ipaddress
 import json
-import socket
-import uuid
+import logging
+import mimetypes
 import os
 import re
 import shutil
-import mimetypes
+import socket
 import subprocess
 import tempfile
-import logging
 import time
-from datetime import datetime, timezone
-from urllib.parse import urlparse, unquote
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, status
+import uuid
+from datetime import UTC, datetime
+from urllib.parse import unquote, urlparse
 from uuid import UUID
-from typing import Optional
+
 import boto3
-import httpx
 import httpcore
+import httpx
+from asyncpg.exceptions import UniqueViolationError
+from botocore.config import Config as BotoConfig
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
+
 # httpcore's network-backend hook is what lets us pin the import fetch's TCP
 # connect to a pre-validated IP (closing the DNS-rebinding window). The
 # AnyIOBackend subclass below is imported from httpcore's private module and
@@ -27,32 +39,29 @@ import httpcore
 # (httpcore 1.0.9 / httpx 0.28.1), so a version bump must re-verify this.
 from httpcore._backends.anyio import AnyIOBackend
 from httpx._config import create_ssl_context
-from botocore.config import Config as BotoConfig
-from asyncpg.exceptions import UniqueViolationError
 
-from ..config import get_settings
-from ..torrent_builder import build_magnet, hash_pieces_from_stream
-from ..database import get_db_pool, get_redis
 from ..auth import get_current_user_id
+from ..config import get_settings
+from ..database import get_db_pool, get_redis
+from ..malware_scan import scan_file
 from ..models import (
+    ChunkUploadResponse,
+    UploadImportRequest,
+    UploadPresignRequest,
+    UploadPresignResponse,
     UploadResponse,
     UploadSessionRequest,
     UploadSessionResponse,
-    ChunkUploadResponse,
-    UploadPresignRequest,
-    UploadPresignResponse,
-    UploadImportRequest,
 )
 from ..security import (
-    validate_file_magic,
-    validate_content_type,
-    estimate_compression_ratio,
-    MAX_COMPRESSION_RATIO,
-    read_magic_bytes,
-    get_client_ip,
     EXTENSION_MIME_MAP,
+    MAX_COMPRESSION_RATIO,
+    estimate_compression_ratio,
+    get_client_ip,
+    validate_content_type,
+    validate_file_magic,
 )
-from ..malware_scan import scan_file
+from ..torrent_builder import build_magnet, hash_pieces_from_stream
 
 # Per-user caps on concurrent in-flight upload sessions (chunked + presign).
 # An authenticated attacker who can't be rate-limited per-IP (XFF spoofing,
@@ -143,7 +152,7 @@ def _chunk_session_key(upload_id: str) -> str:
 _presign_sessions: dict[str, dict] = {}
 
 
-def _prune_presign_sessions(now: Optional[float] = None) -> None:
+def _prune_presign_sessions(now: float | None = None) -> None:
     """Drop expired in-memory presign session copies (Redis copies self-expire
     via TTL). DELIBERATELY does NOT delete the session's object from storage:
     a previous version did, and because finalize never removed the session, ~30
@@ -164,7 +173,7 @@ def _presign_session_idx_key(user_id, idempotency_key: str) -> str:
     return f"presign_idx:{user_id}:{idempotency_key}"
 
 
-async def _load_presign_session(upload_id: str, raise_on_error: bool = False) -> Optional[dict]:
+async def _load_presign_session(upload_id: str, raise_on_error: bool = False) -> dict | None:
     """Load a presign session: the in-memory copy first (fast, always current),
     then Redis (survives instance recycling — the JSON round-trip stores
     user_id as str).
@@ -185,7 +194,7 @@ async def _load_presign_session(upload_id: str, raise_on_error: bool = False) ->
     except Exception:
         if raise_on_error:
             raise
-        pass  # Redis hiccup — treat as a miss; the memory copy was already checked
+        # Redis hiccup — treat as a miss; the memory copy was already checked
     return None
 
 
@@ -255,7 +264,7 @@ def _remove_chunk_temp_file(path) -> None:
             pass
 
 
-async def _prune_chunk_sessions(now: Optional[float] = None) -> None:
+async def _prune_chunk_sessions(now: float | None = None) -> None:
     """Drop expired chunked-upload sessions and their assembly temp files.
 
     Prunes the in-memory copies AND Redis sessions (Redis TTL is only a
@@ -286,7 +295,7 @@ async def _prune_chunk_sessions(now: Optional[float] = None) -> None:
         pass  # Redis hiccup — the TTL backstop still expires the keys
 
 
-async def _load_chunk_session(upload_id: str) -> Optional[dict]:
+async def _load_chunk_session(upload_id: str) -> dict | None:
     """Load a chunk session: the Redis copy first (authoritative across
     workers — the session may have been created on another worker), then the
     in-memory fallback. A Redis error is treated as a miss."""
@@ -577,7 +586,7 @@ async def _check_upload_rate_limit_peek(request: Request) -> None:
             raise HTTPException(status_code=429, detail=_upload_limit_detail())
 
 
-def _generate_thumbnail(s3, temp_path: str, ext: str, user_id: UUID, file_id: str) -> Optional[str]:
+def _generate_thumbnail(s3, temp_path: str, ext: str, user_id: UUID, file_id: str) -> str | None:
     """Best-effort ffmpeg thumbnail for a video file (never fails the upload).
     Returns the public URL, or None on any failure. FAST SEEK: `-ss` BEFORE
     `-i` jumps to ~2s via the container's keyframes instead of decoding every
@@ -591,6 +600,7 @@ def _generate_thumbnail(s3, temp_path: str, ext: str, user_id: UUID, file_id: st
             ["ffmpeg", "-y", "-ss", "00:00:02", "-i", temp_path, "-frames:v", "1", "-vf", "scale=640:360", thumb_path],
             capture_output=True,
             timeout=60,
+            check=False,  # ffmpeg failure is handled via returncode below
         )
         if proc.returncode == 0 and os.path.exists(thumb_path):
             thumb_key = f"{user_id}/{file_id}/thumbnail.jpg"
@@ -678,11 +688,11 @@ async def _insert_upload_record(
     magnet_link: str,
     file_size_mb: float,
     thumbnail_url,
-    idempotency_key: Optional[str],
+    idempotency_key: str | None,
     month: str,
     limit_gb: float,
     used_gb: float,
-    content_hash: Optional[str] = None,
+    content_hash: str | None = None,
 ) -> UploadResponse:
     """Persist the completed upload + usage accounting, resolving same-key
     insert races via the partial unique index on (user_id, idempotency_key),
@@ -789,7 +799,7 @@ async def upload_file(
     file: UploadFile = File(...),
     request: Request = None,
     user_id: UUID = Depends(get_current_user_id),
-    idempotency_key: Optional[str] = Form(None),
+    idempotency_key: str | None = Form(None),
 ):
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
@@ -837,7 +847,7 @@ async def upload_file(
         )
 
     file_size_mb = total_size / (1024 * 1024)
-    month = datetime.now(timezone.utc).strftime("%Y-%m")
+    month = datetime.now(UTC).strftime("%Y-%m")
 
     pool = await get_db_pool()
     return await _store_and_finalize(
@@ -859,7 +869,7 @@ async def _store_and_finalize(
     file_size_mb: float,
     month: str,
     file_stream,
-    idempotency_key: Optional[str],
+    idempotency_key: str | None,
     request: Request,
 ) -> UploadResponse:
     """Shared post-validation pipeline for the direct upload route and the
@@ -1042,6 +1052,12 @@ class _PinnedNetworkBackend(AnyIOBackend):
         )
 
 
+# Shared default for _PinnedHTTPTransport: httpx.Limits is a plain config
+# object (no per-instance state), so one instance is safe to reuse across
+# transports. Module-level instead of a call in the signature default.
+_DEFAULT_HTTPX_LIMITS = httpx.Limits()
+
+
 class _PinnedHTTPTransport(httpx.AsyncHTTPTransport):
     """httpx async transport whose connection pool connects ONLY to a pinned
     address (via _PinnedNetworkBackend). The request URL is never rewritten, so
@@ -1065,7 +1081,7 @@ class _PinnedHTTPTransport(httpx.AsyncHTTPTransport):
         trust_env: bool = True,
         http1: bool = True,
         http2: bool = False,
-        limits: "httpx.Limits" = httpx.Limits(),
+        limits: "httpx.Limits" = _DEFAULT_HTTPX_LIMITS,
         retries: int = 0,
     ) -> None:
         super().__init__(
@@ -1091,7 +1107,7 @@ class _PinnedHTTPTransport(httpx.AsyncHTTPTransport):
         # pool only implements __aenter__/__aexit__, not the sync protocol).
 
 
-def _import_pinned_address(url: str) -> Optional[tuple]:
+def _import_pinned_address(url: str) -> tuple | None:
     """Resolve + validate the URL's host EXACTLY ONCE and return
     (hostname, pinned_ip) where `pinned_ip` is a PUBLIC address the caller must
     connect to — or None when the URL is unsafe (non-http(s), private/loopback/
@@ -1228,7 +1244,7 @@ async def _download_import_url(url: str, dest_path: str, max_bytes: int) -> tupl
             raise HTTPException(
                 status_code=400, detail="Import URL redirected too many times"
             )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         raise HTTPException(status_code=504, detail="Import URL timed out")
     except HTTPException:
         raise
@@ -1320,7 +1336,7 @@ async def import_from_url(
                 )
 
         file_size_mb = total / (1024 * 1024)
-        month = datetime.now(timezone.utc).strftime("%Y-%m")
+        month = datetime.now(UTC).strftime("%Y-%m")
         pool = await get_db_pool()
         with open(temp_path, "rb") as f:
             return await _store_and_finalize(
@@ -1397,7 +1413,7 @@ async def create_upload_session(
     # pipeline (the client shouldn't stream hundreds of chunks for a file that
     # can't be stored).
     pool = await get_db_pool()
-    month = datetime.now(timezone.utc).strftime("%Y-%m")
+    month = datetime.now(UTC).strftime("%Y-%m")
     file_size_mb = body.file_size / (1024 * 1024)
     await _check_usage_limit(pool, user_id, month, file_size_mb)
 
@@ -1528,7 +1544,7 @@ async def finalize_upload(
                 total_size = session["file_size"]
 
             file_size_mb = total_size / (1024 * 1024)
-            month = datetime.now(timezone.utc).strftime("%Y-%m")
+            month = datetime.now(UTC).strftime("%Y-%m")
 
             pool = await get_db_pool()
             return await _store_and_finalize(
@@ -1623,7 +1639,7 @@ async def presign_upload(
 
     # Fail-fast usage check — finalize re-checks authoritatively; the client
     # shouldn't PUT a multi-GB body for a file that can't be stored.
-    month = datetime.now(timezone.utc).strftime("%Y-%m")
+    month = datetime.now(UTC).strftime("%Y-%m")
     file_size_mb = body.file_size / (1024 * 1024)
     await _check_usage_limit(pool, user_id, month, file_size_mb)
 
@@ -1727,7 +1743,7 @@ async def presign_finalize(
     # direct path): the head_object size check below guarantees the stored
     # object equals the declared size, so checking against session["file_size"]
     # here is exact — a plan-limit 402 never burns the hourly upload budget.
-    month = datetime.now(timezone.utc).strftime("%Y-%m")
+    month = datetime.now(UTC).strftime("%Y-%m")
     file_size_mb = session["file_size"] / (1024 * 1024)
     limit_gb, used_gb = await _check_usage_limit(pool, user_id, month, file_size_mb)
 
@@ -1877,7 +1893,7 @@ async def presign_finalize(
             shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def _extract_upload_id_from_key(key: str) -> Optional[UUID]:
+def _extract_upload_id_from_key(key: str) -> UUID | None:
     """Object keys are {user_id}/{upload_id}/{filename} (and thumbnails
     {user_id}/{file_id}/thumbnail.jpg) — the 2nd path segment IS the
     uploads.id, for every upload path. Returns None for non-upload keys."""

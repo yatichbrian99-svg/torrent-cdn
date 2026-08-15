@@ -1,7 +1,8 @@
-from pydantic import BaseModel, Field
-from typing import Literal, Optional
-from uuid import UUID
 from datetime import datetime
+from typing import Literal
+from uuid import UUID
+
+from pydantic import BaseModel, Field
 
 # Auth input caps. These bound attacker-controlled strings BEFORE they reach
 # rate-limit keys (huge emails poison Redis), bcrypt (passwords beyond bcrypt's
@@ -23,7 +24,7 @@ class UserInDB(BaseModel):
     email: str
     password_hash: str
     plan: str = "free"
-    stripe_customer_id: Optional[str] = None
+    stripe_customer_id: str | None = None
     created_at: datetime
 
 
@@ -61,7 +62,7 @@ class UserRegister(BaseModel):
     email: str = Field(max_length=MAX_EMAIL_LEN)
     password: str = Field(max_length=MAX_PASSWORD_LEN)
     terms_accepted: bool = False
-    ref_code: Optional[str] = Field(default=None, max_length=MAX_REF_CODE_LEN)
+    ref_code: str | None = Field(default=None, max_length=MAX_REF_CODE_LEN)
 
 
 class UserLogin(BaseModel):
@@ -122,7 +123,7 @@ class MfaStatusResponse(BaseModel):
     """
     enabled: bool
     is_admin: bool = False
-    backup_codes_remaining: Optional[int] = None
+    backup_codes_remaining: int | None = None
 
 
 class MfaSetupResponse(BaseModel):
@@ -147,10 +148,10 @@ class MfaConfirmRequest(BaseModel):
 class ApiKeyResponse(BaseModel):
     """API-key info. `api_key` (the plaintext) is ONLY present on creation — the
     server stores just a hash, so the secret can never be retrieved again."""
-    api_key: Optional[str] = None
-    prefix: Optional[str] = None
-    created_at: Optional[datetime] = None
-    last_used_at: Optional[datetime] = None
+    api_key: str | None = None
+    prefix: str | None = None
+    created_at: datetime | None = None
+    last_used_at: datetime | None = None
 
 
 class UploadResponse(BaseModel):
@@ -160,7 +161,7 @@ class UploadResponse(BaseModel):
     magnet_link: str
     file_size_mb: float
     embed_url: str
-    thumbnail_url: Optional[str] = None
+    thumbnail_url: str | None = None
 
 
 class AnalyticsEventCreate(BaseModel):
@@ -185,7 +186,7 @@ class FileDetail(BaseModel):
     p2p_offload_percent: float = 0
     bandwidth_saved_gb: float = 0
     active_peers: int = 0
-    thumbnail_url: Optional[str] = None
+    thumbnail_url: str | None = None
 
 
 class BillingStatus(BaseModel):
@@ -209,15 +210,15 @@ class UploadSessionRequest(BaseModel):
     filename: str = Field(max_length=MAX_FILENAME_LEN)
     file_size: int
     total_chunks: int
-    content_type: Optional[str] = None
-    idempotency_key: Optional[str] = Field(default=None, max_length=MAX_IDEMPOTENCY_KEY_LEN)
+    content_type: str | None = None
+    idempotency_key: str | None = Field(default=None, max_length=MAX_IDEMPOTENCY_KEY_LEN)
 
 
 class UploadSessionResponse(BaseModel):
     """Result of session creation. If `result` is set the upload already exists
     for this idempotency key — the client returns it without uploading chunks."""
-    upload_id: Optional[str] = None
-    result: Optional[UploadResponse] = None
+    upload_id: str | None = None
+    result: UploadResponse | None = None
 
 
 class ChunkUploadResponse(BaseModel):
@@ -231,19 +232,19 @@ class UploadPresignRequest(BaseModel):
     proxy); the backend only issues the short-lived URL and later finalizes."""
     filename: str = Field(max_length=MAX_FILENAME_LEN)
     file_size: int
-    content_type: Optional[str] = None
-    idempotency_key: Optional[str] = Field(default=None, max_length=MAX_IDEMPOTENCY_KEY_LEN)
+    content_type: str | None = None
+    idempotency_key: str | None = Field(default=None, max_length=MAX_IDEMPOTENCY_KEY_LEN)
 
 
 class UploadPresignResponse(BaseModel):
     """Result of a presign request. If `result` is set the upload already exists
     for this idempotency key — the client returns it without uploading."""
-    upload_id: Optional[str] = None
+    upload_id: str | None = None
     presigned_url: str = ""
     object_key: str = ""
     content_type: str = ""
     expires_in: int = 0
-    result: Optional[UploadResponse] = None
+    result: UploadResponse | None = None
 
 
 class UploadImportRequest(BaseModel):
@@ -253,8 +254,8 @@ class UploadImportRequest(BaseModel):
     source. `filename` is optional; when absent it is derived from the URL path
     or the response Content-Type."""
     url: str = Field(max_length=MAX_URL_LEN)
-    filename: Optional[str] = Field(default=None, max_length=MAX_FILENAME_LEN)
-    idempotency_key: Optional[str] = Field(default=None, max_length=MAX_IDEMPOTENCY_KEY_LEN)
+    filename: str | None = Field(default=None, max_length=MAX_FILENAME_LEN)
+    idempotency_key: str | None = Field(default=None, max_length=MAX_IDEMPOTENCY_KEY_LEN)
 
 
 # Paystack Transfers API (admin payouts to M-PESA) — see routes/payouts.py.
@@ -276,7 +277,7 @@ class PayoutRecipientCreate(BaseModel):
     bank_code: Literal["MPESA"] = "MPESA"
     type: Literal["mobile_money"] = "mobile_money"
     currency: Literal["KES"] = "KES"
-    description: Optional[str] = Field(default=None, max_length=255)
+    description: str | None = Field(default=None, max_length=255)
 
 
 class PayoutRecipientResponse(BaseModel):
@@ -285,7 +286,7 @@ class PayoutRecipientResponse(BaseModel):
     name: str
     account_number: str
     bank_code: str
-    bank_name: Optional[str] = None
+    bank_name: str | None = None
     type: str = "mobile_money"
     currency: str = "KES"
     active: bool = True
@@ -303,8 +304,8 @@ class PayoutInitiateRequest(BaseModel):
     """
     recipient_code: str = Field(min_length=1, max_length=64)
     amount: int = Field(gt=0, le=10_000_000)
-    reason: Optional[str] = Field(default=None, max_length=255)
-    idempotency_key: Optional[str] = Field(default=None, max_length=64)
+    reason: str | None = Field(default=None, max_length=255)
+    idempotency_key: str | None = Field(default=None, max_length=64)
 
 
 class PayoutResponse(BaseModel):
@@ -315,11 +316,11 @@ class PayoutResponse(BaseModel):
     amount_cents: int
     amount_kes: float
     currency: str = "KES"
-    reason: Optional[str] = None
+    reason: str | None = None
     status: str = "pending"
-    reference: Optional[str] = None
+    reference: str | None = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
 
 class PayoutBalanceResponse(BaseModel):

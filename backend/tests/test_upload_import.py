@@ -14,7 +14,6 @@ the security-critical surface and gets the bulk of the coverage:
     so usage gating, rate limiting, malware scan, torrent build, and
     content-hash dedup all apply identically to imported files.
 """
-from unittest.mock import MagicMock, AsyncMock, patch
 from uuid import UUID
 
 import httpx
@@ -107,7 +106,8 @@ class TestImportUrlIsSafe:
         """A public-looking hostname that RESOLVES to a private address is
         blocked (the classic metadata-SSRF via a friendly hostname)."""
         import socket
-        import app.routes.upload as upload
+
+        from app.routes import upload
         monkeypatch.setattr(
             socket, "getaddrinfo",
             lambda host, port, **kw: [
@@ -118,7 +118,8 @@ class TestImportUrlIsSafe:
 
     def test_resolves_hostname_and_accepts_public_resolution(self, monkeypatch):
         import socket
-        import app.routes.upload as upload
+
+        from app.routes import upload
         monkeypatch.setattr(
             socket, "getaddrinfo",
             lambda host, port, **kw: [
@@ -131,7 +132,8 @@ class TestImportUrlIsSafe:
         """A hostname resolving to BOTH public and private addresses is still
         rejected (one bad address poisons the whole check)."""
         import socket
-        import app.routes.upload as upload
+
+        from app.routes import upload
         monkeypatch.setattr(
             socket, "getaddrinfo",
             lambda host, port, **kw: [
@@ -143,7 +145,8 @@ class TestImportUrlIsSafe:
 
     def test_dns_failure_rejects(self, monkeypatch):
         import socket
-        import app.routes.upload as upload
+
+        from app.routes import upload
         monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: (_ for _ in ()).throw(socket.gaierror("no such host")))
         assert upload._import_url_is_safe("http://nonexistent.invalid/x") is False
 
@@ -173,6 +176,7 @@ class TestImportPinnedAddress:
 
     def test_hostname_resolution_returns_validated_ip(self, monkeypatch):
         import socket
+
         from app.routes.upload import _import_pinned_address
         monkeypatch.setattr(
             socket, "getaddrinfo",
@@ -184,6 +188,7 @@ class TestImportPinnedAddress:
 
     def test_any_private_answer_returns_none(self, monkeypatch):
         import socket
+
         from app.routes.upload import _import_pinned_address
         monkeypatch.setattr(
             socket, "getaddrinfo",
@@ -196,6 +201,7 @@ class TestImportPinnedAddress:
 
     def test_dns_failure_returns_none(self, monkeypatch):
         import socket
+
         from app.routes.upload import _import_pinned_address
         monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: (_ for _ in ()).throw(socket.gaierror("nxdomain")))
         assert _import_pinned_address("http://nonexistent.invalid/x") is None
@@ -207,7 +213,9 @@ class TestPinnedNetworkBackend:
 
     def test_connect_tcp_targets_the_pinned_ip(self, monkeypatch):
         import asyncio
+
         import anyio
+
         from app.routes.upload import _PinnedNetworkBackend
 
         connected = []
@@ -282,6 +290,7 @@ class TestDownloadImportUrl:
 
     def test_download_writes_bytes_and_returns_metadata(self, monkeypatch, tmp_path):
         import asyncio
+
         from app.routes.upload import _download_import_url
         body = b"\x00\x00\x00\x20ftypmp42" + b"x" * 1024  # 12 + 1024 = 1036
         fake = _FakeImportClient([
@@ -298,8 +307,10 @@ class TestDownloadImportUrl:
 
     def test_declared_size_over_cap_is_rejected(self, monkeypatch, tmp_path):
         import asyncio
-        from app.routes.upload import _download_import_url
+
         from fastapi import HTTPException
+
+        from app.routes.upload import _download_import_url
         fake = _FakeImportClient([
             (200, b"x", {"content-length": str(10 * 1024 * 1024)}),
         ])
@@ -314,8 +325,10 @@ class TestDownloadImportUrl:
     def test_streamed_size_over_cap_is_rejected(self, monkeypatch, tmp_path):
         """Even with no/lying Content-Length the byte cap holds during the stream."""
         import asyncio
-        from app.routes.upload import _download_import_url
+
         from fastapi import HTTPException
+
+        from app.routes.upload import _download_import_url
         fake = _FakeImportClient([
             (200, b"y" * (6 * 1024 * 1024), {}),
         ])
@@ -330,6 +343,7 @@ class TestDownloadImportUrl:
     def test_redirect_followed_and_guard_rerun(self, monkeypatch, tmp_path):
         import asyncio
         import socket
+
         from app.routes.upload import _download_import_url
         # Deterministic DNS: every hostname resolves public (the sandbox's DNS
         # may resolve unknown hosts to a private block page, which the guard
@@ -344,14 +358,16 @@ class TestDownloadImportUrl:
         ])
         monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: fake)
 
-        ct, total = asyncio.run(_download_import_url("https://example.com/r", str(tmp_path / "dl.bin"), 1024 * 1024))
+        _, total = asyncio.run(_download_import_url("https://example.com/r", str(tmp_path / "dl.bin"), 1024 * 1024))
         assert total == 3
         assert fake.calls == ["https://example.com/r", "https://cdn.example.com/final.mp4"]
 
     def test_redirect_to_private_is_blocked_before_fetch(self, monkeypatch, tmp_path):
         import asyncio
-        from app.routes.upload import _download_import_url
+
         from fastapi import HTTPException
+
+        from app.routes.upload import _download_import_url
         fake = _FakeImportClient([
             (302, b"", {"location": "http://169.254.169.254/latest/meta-data/"}),
             (200, b"should never fetch", {}),
@@ -365,8 +381,10 @@ class TestDownloadImportUrl:
 
     def test_non_200_raises_http_error(self, monkeypatch, tmp_path):
         import asyncio
-        from app.routes.upload import _download_import_url
+
         from fastapi import HTTPException
+
+        from app.routes.upload import _download_import_url
         fake = _FakeImportClient([(404, b"nope", {})])
         monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: fake)
 
@@ -377,8 +395,10 @@ class TestDownloadImportUrl:
 
     def test_timeout_returns_504(self, monkeypatch, tmp_path):
         import asyncio
-        from app.routes.upload import _download_import_url
+
         from fastapi import HTTPException
+
+        from app.routes.upload import _download_import_url
 
         class _TimeoutClient(_FakeImportClient):
             async def get(self, *a, **k):
@@ -391,8 +411,10 @@ class TestDownloadImportUrl:
 
     def test_connect_error_returns_502(self, monkeypatch, tmp_path):
         import asyncio
-        from app.routes.upload import _download_import_url
+
         from fastapi import HTTPException
+
+        from app.routes.upload import _download_import_url
 
         class _ConnectClient(_FakeImportClient):
             async def get(self, *a, **k):
@@ -405,8 +427,10 @@ class TestDownloadImportUrl:
 
     def test_redirect_loop_is_capped(self, monkeypatch, tmp_path):
         import asyncio
-        from app.routes.upload import _download_import_url, IMPORT_MAX_REDIRECTS
+
         from fastapi import HTTPException
+
+        from app.routes.upload import IMPORT_MAX_REDIRECTS, _download_import_url
         fake = _FakeImportClient([
             (302, b"", {"location": f"https://example.com/{i}"}) for i in range(IMPORT_MAX_REDIRECTS + 2)
         ] + [(200, b"x", {})])
@@ -424,7 +448,8 @@ class TestDownloadImportUrl:
         never used."""
         import asyncio
         import socket
-        import app.routes.upload as upload
+
+        from app.routes import upload
 
         dns_calls = {"n": 0}
 
@@ -446,7 +471,7 @@ class TestDownloadImportUrl:
         fake = _FakeImportClient([(200, b"abc", {"content-type": "video/mp4"})])
         monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: fake)
 
-        ct, total = asyncio.run(upload._download_import_url(
+        _, total = asyncio.run(upload._download_import_url(
             "https://example.com/f.mp4", str(tmp_path / "dl.bin"), 1024 * 1024
         ))
         assert total == 3
@@ -457,9 +482,11 @@ class TestDownloadImportUrl:
         """Per-request timeouts don't bound a slow trickle — the whole download
         is capped by asyncio.timeout (here shrunk to 50ms to test fast)."""
         import asyncio
-        import app.routes.upload as upload
-        from app.routes.upload import _download_import_url
+
         from fastapi import HTTPException
+
+        from app.routes import upload
+        from app.routes.upload import _download_import_url
 
         monkeypatch.setattr(upload, "IMPORT_MAX_TOTAL_SECONDS", 0.2)
 
@@ -585,7 +612,7 @@ class TestImportRoute:
         assert "supported file type" in resp.json()["detail"]
 
     def test_import_oversized_rejected(self, client, auth_headers, monkeypatch, mock_conn):
-        import app.routes.upload as upload
+        from app.routes import upload
         monkeypatch.setattr(upload.settings, "max_upload_size_mb", 0.001)  # ~1 KB
         _patch_import_client(monkeypatch, [(200, b"z" * 2048, {"content-type": "video/mp4"})])
         resp = client.post(self.URL, json={"url": "https://example.com/big.mp4"}, headers=auth_headers)
@@ -614,7 +641,7 @@ class TestImportRoute:
     def test_import_magic_byte_rejection(self, client, auth_headers, monkeypatch):
         """Imported bytes get the SAME magic-byte check as a direct upload — a
         file whose content doesn't match its extension is rejected."""
-        import app.routes.upload as upload
+        from app.routes import upload
         monkeypatch.setattr(upload, "validate_file_magic", lambda fs, fn: (False, "Content does not match .mp4"))
         _patch_import_client(monkeypatch, [
             (200, b"\x00\x00\x00\x20ftypmp42" + b"x" * 64, {"content-type": "video/mp4"}),
@@ -625,7 +652,7 @@ class TestImportRoute:
 
     def test_import_zip_bomb_rejected(self, client, auth_headers, monkeypatch):
         """Compression-ratio (zip bomb) check applies to imported files too."""
-        import app.routes.upload as upload
+        from app.routes import upload
         monkeypatch.setattr(upload, "estimate_compression_ratio", lambda fs: 1000)
         _patch_import_client(monkeypatch, [(200, self.MP4_BYTES, {"content-type": "video/mp4"})])
         resp = client.post(self.URL, json={"url": "https://example.com/bomb.mp4"}, headers=auth_headers)

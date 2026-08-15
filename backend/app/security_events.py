@@ -18,14 +18,13 @@ Design constraints:
 import threading
 import time
 from collections import deque
-from typing import Optional
 
 MAX_EVENTS = 200
 _LOCK = threading.Lock()
 _EVENTS: deque = deque(maxlen=MAX_EVENTS)
 
 
-def record(event_type: str, detail: str = "", ip: Optional[str] = None) -> None:
+def record(event_type: str, detail: str = "", ip: str | None = None) -> None:
     """Append a security event. Never raises (telemetry must not break flows)."""
     try:
         with _LOCK:

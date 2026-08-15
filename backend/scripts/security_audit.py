@@ -4,14 +4,16 @@ Tests all response headers without requiring external infrastructure (Postgres, 
 Uses Starlette TestClient to simulate requests.
 Exit code 0 = all headers present, non-zero = failure.
 """
-import os, sys
+import os
+import sys
 
 os.environ["JWT_SECRET"] = "this-is-a-32-char-secret-for-testing-only!!"
 os.environ.setdefault("APP_ENV", "production")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.main import app
 from starlette.testclient import TestClient
+
+from app.main import app
 
 client = TestClient(app)
 errors = []
@@ -163,6 +165,6 @@ if errors:
     print(f"{'='*60}")
     sys.exit(1)
 else:
-    print(f"  [OK]  ALL CHECKS PASSED")
+    print("  [OK]  ALL CHECKS PASSED")
     print(f"{'='*60}")
     sys.exit(0)

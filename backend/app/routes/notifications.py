@@ -1,9 +1,10 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException
 from uuid import UUID
 
-from ..database import get_db_pool
+from fastapi import APIRouter, Depends, HTTPException
+
 from ..auth import get_current_user_id
+from ..database import get_db_pool
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/notifications", tags=["notifications"])

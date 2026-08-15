@@ -2,10 +2,7 @@
 Unit tests for upload routes: file upload with validation and MinIO integration.
 """
 from io import BytesIO
-from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
-
-import pytest
 
 
 class TestTorrentAndThumbnail:
@@ -15,6 +12,7 @@ class TestTorrentAndThumbnail:
         """The generator writes its own temp file and removes its tempdir in
         the finally (no leaks on the direct/chunked path)."""
         from uuid import uuid4
+
         from app.routes.upload import _torrent_and_thumbnail
 
         stream = BytesIO(b"\x00\x00\x00\x20ftypmp42" + b"\x00" * 4096)
@@ -26,7 +24,9 @@ class TestTorrentAndThumbnail:
         assert magnet.startswith("magnet:?xt=urn:btih:")
         assert "btih:" + file_id not in magnet
         # No torrentcd-* tempdirs left behind under the system temp root.
-        import glob, os, tempfile
+        import glob
+        import os
+        import tempfile
         leftovers = glob.glob(os.path.join(tempfile.gettempdir(), "torrentcd-*"))
         assert leftovers == [], f"leaked tempdirs: {leftovers}"
 
@@ -52,6 +52,7 @@ class TestStreamingTorrentBuilder:
         for every piece-length boundary and reader chunk size."""
         import hashlib
         import os
+
         from torrentool.api import Torrent
         from torrentool.bencode import Bencode
 
@@ -76,7 +77,7 @@ class TestStreamingTorrentBuilder:
 
             for cs in chunk_sizes:
                 with open(path, "rb") as fh:
-                    pieces = hash_pieces_from_stream(lambda: fh.read(cs), size)
+                    pieces = hash_pieces_from_stream(lambda fh=fh, cs=cs: fh.read(cs), size)
                 mine_info = bencode_info(name, pieces, torrentool_piece_length(size), size)
                 assert mine_info == theirs_info, f"info bytes diverge at size={size} chunk={cs}"
                 mine_hash = hashlib.sha1(mine_info).hexdigest()
@@ -287,10 +288,10 @@ class TestUpload:
         own = resp.json()["minio_url"]
         assert own != existing_url
         assert own.endswith("/test-video.mp4")
-        insert_call = [
+        insert_call = next(
             c for c in mock_conn.fetchrow.call_args_list
             if "INSERT INTO uploads" in str(c.args[0])
-        ][0]
+        )
         assert insert_call.args[4] == own  # minio_url param
 
     def test_upload_idempotent_retry_returns_existing(self, client, auth_headers, mock_conn, mock_s3_client):
