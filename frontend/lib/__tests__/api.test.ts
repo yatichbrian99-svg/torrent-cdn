@@ -395,6 +395,22 @@ describe('api client interceptors', () => {
       expect(result.access_token).toBe('t1')
     })
 
+    it('retries once when the first attempt returns a bare 500, then succeeds', async () => {
+      // A bare 500 (e.g. gunicorn timeout-kill or a proxy hiccup) has no JSON
+      // detail the form could show — treat it like the other transient 5xxes
+      // and retry once (login is idempotent).
+      mocks.instance.post
+        .mockRejectedValueOnce({ response: { status: 500, data: 'Internal Server Error' } })
+        .mockResolvedValueOnce({ data: { access_token: 't1', token_type: 'bearer' } })
+
+      const promise = api.login('user@example.com', 'securePass123')
+      await vi.advanceTimersByTimeAsync(2000)
+      const result = await promise
+
+      expect(mocks.instance.post).toHaveBeenCalledTimes(2)
+      expect(result.access_token).toBe('t1')
+    })
+
     it('retries once when the first attempt times out (no response), then succeeds', async () => {
       // A Render cold start more often surfaces as a timeout (axios aborts with
       // no response) than as a fast 5xx — login is idempotent, so retry once.

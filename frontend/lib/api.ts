@@ -282,11 +282,13 @@ export default {
       return (await api.post('/auth/login', { email, password })).data
     } catch (err: any) {
       const status = err.response?.status
-      // Retry once on a cold start: either a transient 502/503/504 from the
-      // proxy OR no response at all (the 45s timeout fires while Render boots).
-      // Login is idempotent (only mints a token) so retrying is safe — it can't
-      // hit the 401/429 lockout paths, which pass through untouched.
-      const isTransient = status === 502 || status === 503 || status === 504 || !err.response
+    // Retry once on a cold start: either a transient 502/503/504 from the
+    // proxy, a bare 500 (gunicorn's --timeout kill surfaces as 500, and the
+    // backend's JSON 500 handler returns no useful per-request detail), OR no
+    // response at all (the 45s timeout fires while Render boots). Login is
+    // idempotent (only mints a token) so retrying is safe — it can't hit the
+    // 401/429 lockout paths, which pass through untouched.
+    const isTransient = status === 500 || status === 502 || status === 503 || status === 504 || !err.response
       if (!isTransient) throw err
       await new Promise((resolve) => setTimeout(resolve, 2000))
       return (await api.post('/auth/login', { email, password })).data

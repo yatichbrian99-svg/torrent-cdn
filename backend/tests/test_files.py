@@ -247,3 +247,166 @@ class TestPoolSaturation:
         assert resp.status_code == 503
         assert resp.headers.get("retry-after") == "5"
         assert "busy" in resp.json()["detail"].lower()
+
+    def test_get_db_pool_wraps_raw_pool_in_timed_proxy(self, monkeypatch):
+        """Regression: get_db_pool must return a proxy that injects
+        db_pool_acquire_timeout into every acquire(). The previous
+        implementation did ``pg_pool.acquire = wrapper`` in place, which raises
+        AttributeError on asyncpg >= 0.30 ('Pool' object attribute 'acquire' is
+        read-only — Cython __slots__). The exception was swallowed by
+        run_startup_migrations' try/except, so the pool ran with asyncpg's
+        DEFAULT acquire(), which blocks INDEFINITELY under saturation — the
+        asyncio.TimeoutError → 503 handler never fired and requests surfaced
+        as bare 500s. This test drives the REAL get_db_pool (via the reference
+        main.py bound at import time, which conftest does not patch) against a
+        mocked asyncpg.create_pool, so the wrapper actually has to install.
+        """
+        import asyncio
+        import importlib
+
+        from app import database
+        # conftest's autouse apply_mocks replaces app.database.get_db_pool (and
+        # therefore app.main's binding) with an AsyncMock BEFORE app.main is
+        # imported by the client fixture — reload restores the real function so
+        # this test drives the actual construction path. The autouse fixture
+        # re-patches for the next test, so the reload is isolated to this test.
+        database = importlib.reload(database)
+
+        class _RawPool:
+            def __init__(self):
+                self.acquire_timeouts = []
+
+            def acquire(self, *args, **kwargs):
+                self.acquire_timeouts.append(kwargs.get("timeout"))
+                return object()  # context-manager stand-in; unused here
+
+            async def close(self):
+                pass
+
+        raw = _RawPool()
+        monkeypatch.setattr(
+            database.asyncpg, "create_pool", AsyncMock(return_value=raw)
+        )
+        monkeypatch.setattr(database, "pg_pool", None)
+
+        pool = asyncio.run(database.get_db_pool())
+
+        assert isinstance(pool, database._TimedPool), (
+            "get_db_pool must return the timed proxy — returning a raw pool "
+            "means the acquire timeout silently never applies"
+        )
+        # default timeout is injected when the caller passes none
+        pool.acquire()
+        assert raw.acquire_timeouts == [database.settings.db_pool_acquire_timeout]
+        # an explicit timeout still wins
+        pool.acquire(timeout=1.5)
+        assert raw.acquire_timeouts == [
+            database.settings.db_pool_acquire_timeout,
+            1.5,
+        ]
+        # everything else delegates to the real pool (close, terminate, ...)
+        assert pool.close == raw.close
+
+
+class TestRedisFailOpen:
+    """A dead/stale Redis client must fail OPEN, never 500 a request.
+
+    Production incident: Render's free managed Redis was recycled, leaving the
+    process with a CACHED client whose connections were dead. get_redis()
+    handed it out without a liveness check, and the global RateLimitMiddleware's
+    unguarded redis.get/incr/expire crashed EVERY non-exempt request (login
+    included) into Starlette's plain-text 500 — which the frontend surfaced as
+    the generic "Login failed. Please try again." (no JSON detail). The app is
+    designed with in-memory fallbacks for exactly this case; the bug was that
+    the failure mode never reached them.
+    """
+
+    def test_get_redis_resets_stale_cached_client_and_fails_open(self, monkeypatch):
+        """Drives the REAL get_redis: after a cached client's connection dies,
+        the next call must tear it down and return None (callers then use their
+        in-memory fallbacks) — and the call after that reconnects fresh.
+        """
+        import asyncio
+        import importlib
+
+        from app import database
+        # Restore the real get_redis (conftest's autouse apply_mocks replaces it
+        # with an AsyncMock); the autouse fixture re-patches for the next test.
+        database = importlib.reload(database)
+        monkeypatch.setattr(database, "redis_client", None)
+
+        connect_count = {"n": 0}
+
+        class _DeadAfterFirstPing:
+            """A fake redis client: the first ping (connect-time) succeeds, then
+            every later ping fails — mimicking a connection that died after the
+            process cached the client (managed-Redis recycle/pause)."""
+
+            def __init__(self):
+                self.pings = 0
+                self.closed = False
+
+            async def ping(self):
+                self.pings += 1
+                if self.pings > 1:
+                    raise ConnectionError("connection reset by peer")
+                return True
+
+            async def aclose(self):
+                self.closed = True
+
+        async def _fake_from_url(url, **kwargs):
+            connect_count["n"] += 1
+            return _DeadAfterFirstPing()
+
+        monkeypatch.setattr(database.Redis, "from_url", _fake_from_url)
+
+        # First call: connect + ping OK → client cached.
+        first = asyncio.run(database.get_redis())
+        assert first is not None
+        assert database.redis_client is first
+        assert connect_count["n"] == 1
+
+        # Second call: cached client's ping fails (dead connection) → reset to
+        # None and return None so callers fall back to in-memory. The dead
+        # client is closed, not leaked.
+        second = asyncio.run(database.get_redis())
+        assert second is None
+        assert database.redis_client is None
+        assert first.closed is True
+
+        # Third call: reconnects fresh (Redis back up).
+        third = asyncio.run(database.get_redis())
+        assert third is not None
+        assert connect_count["n"] == 2
+
+    def test_global_middleware_survives_dead_redis_client(self, client, monkeypatch):
+        """End-to-end regression for the incident: when get_redis() returns a
+        client whose commands raise (a stale cached client), the global
+        RateLimitMiddleware must fall back to its in-memory limiter instead of
+        500ing the request. /auth/me with no token answers 401 (route), NOT the
+        plain-text 500 the frontend read as "Login failed.".
+        """
+        import app.database
+
+        class _DeadClient:
+            async def get(self, *a, **k):
+                raise ConnectionError("connection reset by peer")
+
+            async def incr(self, *a, **k):
+                raise ConnectionError("connection reset by peer")
+
+            async def expire(self, *a, **k):
+                raise ConnectionError("connection reset by peer")
+
+            async def ttl(self, *a, **k):
+                raise ConnectionError("connection reset by peer")
+
+        monkeypatch.setattr(
+            app.database, "get_redis", AsyncMock(return_value=_DeadClient())
+        )
+
+        resp = client.get("/auth/me")
+        # The middleware degraded to in-memory rate limiting; the request then
+        # reached the route and was rejected for missing auth — a 401, never 500.
+        assert resp.status_code == 401

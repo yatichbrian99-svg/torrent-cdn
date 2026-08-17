@@ -356,21 +356,34 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             pass
 
         if redis is not None:
-            rate_key = f"ratelimit:{client_ip}:global"
-            count = await redis.get(rate_key)
-            if count and int(count) >= self._limit:
-                # Check if the window has passed
-                ttl = await redis.ttl(rate_key)
-                retry_after = max(1, ttl) if ttl and ttl > 0 else self._window
-                return JSONResponse(
-                    status_code=429,
-                    content={"detail": f"Rate limit exceeded. Try again in {retry_after}s."},
-                    headers={"Retry-After": str(retry_after)},
+            try:
+                rate_key = f"ratelimit:{client_ip}:global"
+                count = await redis.get(rate_key)
+                if count and int(count) >= self._limit:
+                    # Check if the window has passed
+                    ttl = await redis.ttl(rate_key)
+                    retry_after = max(1, ttl) if ttl and ttl > 0 else self._window
+                    return JSONResponse(
+                        status_code=429,
+                        content={"detail": f"Rate limit exceeded. Try again in {retry_after}s."},
+                        headers={"Retry-After": str(retry_after)},
+                    )
+                await redis.incr(rate_key)
+                if count is None:
+                    await redis.expire(rate_key, self._window)
+            except Exception:
+                # Redis failed mid-request (get_redis()'s liveness ping can't
+                # cover the window between the check and these commands). Degrade
+                # to the in-memory limiter below — Redis is optional by design,
+                # and a dead Redis must throttle, never 500 the request (a 500
+                # here previously crashed EVERY non-exempt request — including
+                # /auth/login — into a plain-text error the frontend showed as
+                # "Login failed. Please try again.").
+                logger.warning(
+                    "Global rate-limit Redis error — using in-memory fallback for %s", client_ip
                 )
-            await redis.incr(rate_key)
-            if count is None:
-                await redis.expire(rate_key, self._window)
-        else:
+                redis = None
+        if redis is None:
             # In-memory fallback — sliding window
             timestamps = self._memory_store.get(client_ip, [])
             cutoff = now - self._window
@@ -438,6 +451,22 @@ async def _timeout_handler(request: Request, exc):
         status_code=503,
         content={"detail": "Service is busy — please retry in a moment."},
         headers={"Retry-After": "5"},
+    )
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    # Any unhandled exception — route, dependency, OR middleware (FastAPI
+    # registers this on the OUTERMOST ServerErrorMiddleware, so it also catches
+    # BaseHTTPMiddleware failures) — returns a structured JSON error instead of
+    # Starlette's default plain-text "Internal Server Error". The frontend's
+    # apiErrorMessage/showError read data.detail, so a bare 500 previously fell
+    # through to the generic "Login failed. Please try again." fallback even
+    # though the real problem was server-side; a JSON detail surfaces an actual
+    # message (and the api layer's retry logic can branch on it).
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error"},
     )
 
 

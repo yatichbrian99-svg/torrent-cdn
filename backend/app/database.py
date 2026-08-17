@@ -127,35 +127,68 @@ redis_client: Redis | None = None
 last_redis_error: str | None = None
 
 
+class _TimedPool:
+    """Thin proxy over an asyncpg.Pool that injects ``db_pool_acquire_timeout``
+    into every ``acquire()`` call.
+
+    Why a proxy instead of monkey-patching: asyncpg's ``Pool`` is a Cython
+    class with ``__slots__``, so ``pg_pool.acquire = wrapper`` raises
+    ``AttributeError: 'Pool' object attribute 'acquire' is read-only`` (seen on
+    asyncpg 0.31.0). That broke the previous in-place wrapper silently — the
+    exception was swallowed by run_startup_migrations' try/except, and the pool
+    then ran with asyncpg's DEFAULT acquire(), which blocks INDEFINITELY when
+    every connection is busy (the failure mode seen at ~300 concurrent users:
+    requests hang until the client or gunicorn gives up, surfacing as bare 500s
+    instead of the designed retryable 503).
+
+    This class delegates every attribute to the real pool, overriding only
+    ``acquire()`` to default the timeout — so all 68 ``pool.acquire()`` call
+    sites get the bound wait without being touched, and explicit timeouts
+    still win. ``acquire()`` is intentionally NOT async: asyncpg's own
+    ``Pool.acquire()`` returns the async context-manager directly (call sites
+    do ``async with pool.acquire() as conn:``), so this must mirror that.
+    """
+
+    __slots__ = ("_pool",)
+
+    def __init__(self, pool: asyncpg.Pool):
+        object.__setattr__(self, "_pool", pool)
+
+    def acquire(self, *args, **kwargs):
+        kwargs.setdefault("timeout", settings.db_pool_acquire_timeout)
+        return self._pool.acquire(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._pool, name)
+
+
 async def get_db_pool() -> asyncpg.Pool:
     global pg_pool
     if pg_pool is None:
-        pg_pool = await asyncpg.create_pool(
+        raw_pool = await asyncpg.create_pool(
             settings.database_url,
             min_size=settings.db_pool_min_size,
             max_size=settings.db_pool_max_size,
             # Required for Supabase/PgBouncer which doesn't support prepared statements
             statement_cache_size=0,
         )
-        # Bound the pool-acquire wait. asyncpg's default acquire() blocks
-        # INDEFINITELY when every connection is busy (the failure mode seen at
-        # ~300 concurrent users: requests hang until the client or gunicorn
-        # gives up). With a timeout, saturation instead raises
-        # asyncio.TimeoutError → the 503 handler in main.py → a fast retryable
-        # response. The wrapper applies the default to all 68 `pool.acquire()`
-        # call sites without touching them; explicit timeouts still win.
-        _orig_acquire = pg_pool.acquire
-
-        def _acquire_with_timeout(*args, **kwargs):
-            kwargs.setdefault("timeout", settings.db_pool_acquire_timeout)
-            return _orig_acquire(*args, **kwargs)
-
-        pg_pool.acquire = _acquire_with_timeout
+        pg_pool = _TimedPool(raw_pool)
     return pg_pool
 
 
 async def get_redis() -> Redis | None:
-    """Get Redis client. Returns None if Redis is unavailable (optional dependency)."""
+    """Get Redis client. Returns None if Redis is unavailable (optional dependency).
+
+    Fail-open contract: every caller treats a None return as "use the in-memory
+    fallback", so a Redis outage must degrade, never 500. The cached client is
+    therefore liveness-checked on EVERY call: a client whose connection died
+    (managed-Redis recycle/pause, network blip) is torn down and the caller
+    falls back, instead of being handed a dead client whose first command
+    raises mid-request. That crash previously propagated through the global
+    RateLimitMiddleware's unguarded redis.get/incr/expire into Starlette's
+    plain-text 500, which the frontend surfaces as the generic "Login failed.
+    Please try again." (no JSON detail).
+    """
     global redis_client, last_redis_error
     if redis_client is None:
         try:
@@ -170,7 +203,24 @@ async def get_redis() -> Redis | None:
             last_redis_error = str(e)[:300]
             redis_client = None
             return None
-    return redis_client
+        return redis_client
+    # Cached client — verify it still serves commands before handing it out
+    # (a stale client from before a Redis restart/pause would otherwise raise
+    # on the caller's first command).
+    try:
+        await redis_client.ping()
+        return redis_client
+    except Exception as e:
+        logger.warning(
+            "Redis connection lost — resetting client (in-memory fallback): %s", e
+        )
+        last_redis_error = str(e)[:300]
+        try:
+            await redis_client.aclose()
+        except Exception:
+            pass
+        redis_client = None
+        return None
 
 
 async def close_db():
