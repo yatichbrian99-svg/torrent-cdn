@@ -113,22 +113,46 @@ req() {
 }
 status() { cat /tmp/import_audit_code.txt; }
 
+# delete_retry <path> <auth> — DELETE via the Vercel proxy with backoff retries,
+# mirroring post_proxy. Cleanup MUST eventually land: a one-shot DELETE that
+# hits a transient error (429 per-IP budgets shared with the other live probes,
+# 502/503/504 while a Render instance wakes, 000 on a cold-start connection
+# drop) would leave an orphaned file/account behind — exactly what the
+# cleanup is meant to prevent. Retries 3× with escalating pauses; the last
+# attempt's code stands (the caller reports it, e.g. 429 after a genuinely
+# exhausted hourly budget). Echoes the final HTTP code.
+delete_retry() {
+  local path="$1" auth="$2" code
+  for attempt in 1 2 3; do
+    code=$(curl -so /dev/null -w '%{http_code}' --max-time 60 -X DELETE "$FE$path" \
+      -H "Authorization: Bearer $auth" 2>/dev/null || echo "000")
+    case "$code" in
+      000|429|502|503|504)
+        [ "$attempt" = "3" ] && break
+        echo "  [cleanup retry] DELETE $path -> HTTP $code (transient/rate-limited), retrying in $((attempt * 20))s…" >&2
+        sleep $((attempt * 20))
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+  echo "$code"
+}
+
 # Cleanup helper — deletes any uploaded files + the throwaway account. Called
 # on abort paths too, so a mid-flow failure never leaves test data behind.
 # Echoes "fileImp fileSrc acct" to stdout (the caller checks them).
 cleanup_all() {
   local fi="skipped" fs="skipped" ac="skipped"
   if [ -n "${FILE_ID_IMP:-}" ] && [ -n "${JWT:-}" ]; then
-    fi=$(curl -so /dev/null -w '%{http_code}' --max-time 60 -X DELETE "$FE/files/$FILE_ID_IMP" \
-      -H "Authorization: Bearer $JWT" 2>/dev/null || echo "000")
+    fi=$(delete_retry "/files/$FILE_ID_IMP" "$JWT")
   fi
   if [ -n "${FILE_ID_SRC:-}" ] && [ -n "${JWT:-}" ]; then
-    fs=$(curl -so /dev/null -w '%{http_code}' --max-time 60 -X DELETE "$FE/files/$FILE_ID_SRC" \
-      -H "Authorization: Bearer $JWT" 2>/dev/null || echo "000")
+    fs=$(delete_retry "/files/$FILE_ID_SRC" "$JWT")
   fi
   if [ -n "${JWT:-}" ]; then
-    ac=$(curl -so /dev/null -w '%{http_code}' --max-time 60 -X DELETE "$FE/auth/me" \
-      -H "Authorization: Bearer $JWT" 2>/dev/null || echo "000")
+    ac=$(delete_retry "/auth/me" "$JWT")
   fi
   echo "cleanup fileImp=$fi fileSrc=$fs acct=$ac" >&2
   echo "$fi $fs $ac"

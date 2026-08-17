@@ -104,6 +104,32 @@ req() {
 }
 status() { cat /tmp/api_key_audit_code.txt; }
 
+# delete_retry <path> <auth> — DELETE via the Vercel proxy with backoff retries,
+# mirroring post_proxy. Cleanup MUST eventually land: a one-shot DELETE that
+# hits a transient error (429 per-IP budgets shared with the other live probes,
+# 502/503/504 while a Render instance wakes, 000 on a cold-start connection
+# drop) would leave an orphaned account behind — exactly what the cleanup is
+# meant to prevent. Retries 3× with escalating pauses; the last attempt's code
+# stands (the caller reports it). Echoes the final HTTP code.
+delete_retry() {
+  local path="$1" auth="$2" code
+  for attempt in 1 2 3; do
+    code=$(curl -so /dev/null -w '%{http_code}' --max-time 60 -X DELETE "$FE$path" \
+      -H "Authorization: Bearer $auth" 2>/dev/null || echo "000")
+    case "$code" in
+      000|429|502|503|504)
+        [ "$attempt" = "3" ] && break
+        echo "  [cleanup retry] DELETE $path -> HTTP $code (transient/rate-limited), retrying in $((attempt * 20))s…" >&2
+        sleep $((attempt * 20))
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+  echo "$code"
+}
+
 # Cleanup helper — attempts to delete the throwaway account. Called on abort
 # paths too, so a mid-flow failure never leaves an orphaned test user behind.
 # (A network-level 000 on a cold start can happen AFTER the server processed
@@ -111,8 +137,7 @@ status() { cat /tmp/api_key_audit_code.txt; }
 cleanup_account() {
   [ -z "${JWT:-}" ] && return 0
   local code
-  code=$(curl -so /dev/null -w '%{http_code}' --max-time 60 -X DELETE "$FE/auth/me" \
-    -H "Authorization: Bearer $JWT" 2>/dev/null || echo "000")
+  code=$(delete_retry "/auth/me" "$JWT")
   echo "  cleanup DELETE /auth/me → $code" >&2
 }
 
@@ -365,8 +390,11 @@ fi
 echo ""
 echo "── 6. CLEANUP ──"
 sum "### 6. Cleanup"
-req 9-cleanup DELETE /auth/me "Bearer $JWT"
-[ "$(status)" = "200" ] && check 0 "Test account deleted (DELETE /auth/me) → 200" || check 1 "Cleanup → $(status)"
+# The final account deletion is cleanup, not an audit assertion — use
+# delete_retry so a 429 on a congested egress IP can't orphan the account
+# (the abort-path cleanup_account above has the same guarantee).
+CLEAN_CODE=$(delete_retry "/auth/me" "$JWT")
+[ "$CLEAN_CODE" = "200" ] && check 0 "Test account deleted (DELETE /auth/me) → 200" || check 1 "Cleanup → $CLEAN_CODE"
 
 # ── SUMMARY ──
 echo ""
