@@ -1100,6 +1100,50 @@ class TestInMemoryRateLimitFallbacks:
             mw._memory_store.clear()
             mw._memory_store.update(saved)
 
+    def test_global_middleware_exempts_auth_endpoints(self, client, auth_headers, monkeypatch):
+        """/auth/* is exempt from the GLOBAL middleware limiter.
+
+        Every auth endpoint carries a DEDICATED, tighter per-IP control than
+        this burst cap: login (5 failed / 15 min per IP+email), register
+        (10/hr), forgot-password (1/60s), MFA confirm (5/15 min), and the rest
+        are token/session-gated. The global budget used to double-count them
+        and 429'd legitimate logins on busy shared (NAT) IPs with a
+        "Try again in 10s" that never cleared while other traffic on the
+        shared key kept the bucket full — the exact production symptom this
+        exemption fixes.
+        """
+        import app.database
+        monkeypatch.setattr(app.database, "get_redis", AsyncMock(return_value=None))
+
+        mw = self._find_rate_limit_middleware(client.app)
+        assert mw is not None, "RateLimitMiddleware not found in middleware stack"
+
+        saved = dict(mw._memory_store)
+        mw._memory_store.clear()
+        try:
+            # Saturate the IP's global budget: the full window of requests already recorded.
+            mw._memory_store["testclient"] = [time.time()] * mw._limit
+
+            # A non-exempt endpoint is still blocked.
+            resp = client.get("/files")
+            assert resp.status_code == 429
+
+            # /auth/login sails through the global limiter — it reaches the
+            # route and returns 401 (no such user) instead of a middleware 429.
+            resp = client.post("/auth/login", json={
+                "email": "nobody@example.com",
+                "password": "wrongPass123",
+            })
+            assert resp.status_code == 401
+            assert resp.json()["detail"] == "Invalid email or password"
+
+            # /auth/me passes the middleware too (route returns 401 unauth'd).
+            resp = client.get("/auth/me")
+            assert resp.status_code == 401
+        finally:
+            mw._memory_store.clear()
+            mw._memory_store.update(saved)
+
     @staticmethod
     def _find_rate_limit_middleware(app):
         """Walk the ASGI middleware chain to find the RateLimitMiddleware instance."""

@@ -118,8 +118,10 @@ class Settings(BaseSettings):
     # uploads/hour, analytics/min, public-file/min); this one only stops gross
     # bursts (a browser page does ~1-2 bursts of <10, so 120 leaves 10+ users
     # per shared IP before it matters). The already-route-limited public
-    # endpoints (analytics/event, analytics/public, files/public) are exempt
-    # from this budget entirely — see RateLimitMiddleware.
+    # endpoints (analytics/event, analytics/public, files/public) AND the auth
+    # endpoints (/auth/* — each has a dedicated per-IP limiter or is
+    # token/session-gated) are exempt from this budget entirely — see
+    # RateLimitMiddleware.
     rate_limit_global: int = 120    # max requests per window per IP
     rate_limit_window_seconds: int = 10  # sliding window for global rate limit
     # Per-IP upload throttling (F-05 hardening): max upload requests per IP per

@@ -178,23 +178,35 @@ class TestLogin:
         assert resp.status_code == 401
         assert resp.json()["detail"] == "Invalid email or password"
 
-    def test_global_budget_exhausted_blocks_login(self, client, mock_conn, mock_redis):
-        """A request 429s once the GLOBAL per-IP budget is exhausted.
+    def test_global_budget_does_not_block_login(self, client, mock_conn, mock_redis):
+        """An exhausted GLOBAL per-IP budget must NOT block /auth/login.
 
-        (The per-route login LOCKOUT — 5 failures for IP+email — is covered in
-        test_security.py::TestLoginLockout; this exercises the middleware gate
-        that runs before the route.)"""
+        /auth/* is exempt from the global burst limiter — every auth endpoint
+        carries its own dedicated control, and the login lockout (5 failures
+        for IP+email, covered in test_security.py::TestLoginLockout) is the
+        gate that matters. The global budget used to 429 legitimate logins on
+        busy shared/NAT IPs with a "Try again in 10s" that never cleared while
+        other traffic on the shared key kept the bucket full.
+
+        Seed the global key AT the limit and prove login sails past the
+        middleware to the route (wrong password → 401, not a middleware 429)."""
         from app.config import get_settings
-        # The global RateLimitMiddleware reads ratelimit:{ip}:global from the
-        # same mock — seed it AT the configured limit so the request is blocked.
-        mock_redis.get.return_value = str(get_settings().rate_limit_global)
+
+        def fake_get(key):
+            if key == "ratelimit:testclient:global":
+                return str(get_settings().rate_limit_global)  # global budget exhausted
+            return None  # login lockout not tripped
+
+        mock_redis.get.side_effect = fake_get
+        mock_conn.fetchrow.return_value = None  # no such user
 
         resp = client.post(self.LOGIN_URL, json={
             "email": "hacker@example.com",
             "password": "bruteForce123",
         })
-        assert resp.status_code == 429
-        assert "Rate limit" in resp.json()["detail"]
+        # Reached the route (invalid credentials) — NOT a middleware 429.
+        assert resp.status_code == 401
+        assert resp.json()["detail"] == "Invalid email or password"
 
     def test_login_unverified_blocked(self, client, mock_conn, monkeypatch):
         """Should block login for unverified users when verification is required."""
@@ -399,10 +411,10 @@ class TestResetPassword:
         """Should reset the password when the token AND its one-time Redis key exist."""
         token = self._valid_reset_token()
 
-        # Key-aware mock: only the reset_token key is populated. The global
-        # RateLimitMiddleware reads the same mock for ratelimit:{ip}:global and
-        # would raise ValueError on int("11111111-…") if we returned the UUID
-        # string for every key.
+        # Key-aware mock: only the reset_token key is populated. /auth/* is
+        # exempt from the global RateLimitMiddleware, so it never reads this
+        # mock — but the key-aware shape keeps the route's own reads (and any
+        # future middleware) from seeing the UUID string for unrelated keys.
         async def _fake_get(key):
             return str(self.USER_ID) if str(key).startswith("reset_token:") else None
         mock_redis.get.side_effect = _fake_get
@@ -458,8 +470,8 @@ class TestResetPassword:
         from app.email_service import decode_password_reset_token
         assert decode_password_reset_token(token) == str(self.USER_ID)
 
-        # Only the reset_token key looks consumed; the global RateLimitMiddleware
-        # reads this same mock for ratelimit:{ip}:global and must see None.
+        # Only the reset_token key looks consumed. (/auth/* is exempt from the
+        # global RateLimitMiddleware, so the mock only serves the route's reads.)
         async def _fake_get(key):
             return "CONSUMED" if str(key).startswith("reset_token:") else None
         mock_redis.get.side_effect = _fake_get

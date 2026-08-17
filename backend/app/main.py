@@ -294,8 +294,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     """
     Global rate limiting — 120 requests per 10 seconds per IP (12 req/s
     sustained). Uses Redis when available, falls back to in-memory.
-    Excludes /health and the already-route-limited public endpoints from
-    rate limiting.
+    Excludes /health, /auth/*, and the already-route-limited public
+    endpoints from rate limiting (each carries its own dedicated control).
     """
     def __init__(self, app):
         super().__init__(app)
@@ -337,8 +337,21 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # they also counted against the global burst budget, a single active
         # viewer (or a handful of NAT'd viewers behind one office/school/mobile
         # IP) would 429 unrelated requests for everyone on that IP.
+        #
+        # /auth/* is exempt for the same reason — every auth endpoint already
+        # carries a DEDICATED, tighter per-IP control than this burst cap:
+        # login (5 failed attempts / 15 min per IP+email), register (10/hr per
+        # IP), forgot-password (1/60s per IP), MFA confirm (5/15 min per IP),
+        # and the rest (me, api-key, referral, reset-password, verify, setup,
+        # logout) are gated by a non-brute-forceable token or a session. The
+        # global budget was double-counting these and 429'd LEGITIMATE logins
+        # on busy shared/NAT IPs with a "Try again in 10s" that never cleared
+        # while other traffic on the same key kept the bucket full — a user
+        # who cannot log in at all is a worse outcome than any burst these
+        # dedicated limiters don't already cover.
         if (
-            path.startswith(("/upload/chunk/", "/analytics/public/", "/files/public/"))
+            path == "/auth"
+            or path.startswith(("/auth/", "/upload/chunk/", "/analytics/public/", "/files/public/"))
             or path == "/analytics/event"
         ):
             return await call_next(request)
