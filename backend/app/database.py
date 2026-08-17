@@ -2,6 +2,9 @@ import logging
 
 import asyncpg
 from redis.asyncio import Redis
+from redis.backoff import ExponentialWithJitterBackoff
+from redis.exceptions import ConnectionError
+from redis.retry import Retry
 
 from .config import get_settings
 
@@ -195,6 +198,27 @@ async def get_redis() -> Redis | None:
             redis_client = await Redis.from_url(
                 settings.redis_url,
                 decode_responses=True,
+                # Bound every connection attempt and command. redis-py's
+                # defaults are NO timeouts: a connection that accepts but
+                # never responds (half-open after a managed-Redis recycle) or
+                # a wedged socket would block a request INDEFINITELY — the
+                # failure mode that ended in gunicorn killing requests and
+                # bare 500s. With these, the get_redis liveness check and the
+                # callers' in-memory fallbacks see a fast error instead.
+                socket_connect_timeout=5,
+                socket_timeout=5,
+                # Proactively detect dead idle connections: redis-py PINGs a
+                # connection that has been idle longer than this before
+                # reusing it, so a recycled instance is caught on the NEXT
+                # command rather than raising mid-request.
+                health_check_interval=30,
+                # Reconnect with short jittered backoff on CONNECTION-level
+                # errors only (a dead pooled connection is replaced with a
+                # fresh one). TimeoutError is deliberately NOT retried — a
+                # genuinely slow/stuck Redis must fail fast to the in-memory
+                # fallback, not loop re-issuing commands.
+                retry=Retry(ExponentialWithJitterBackoff(cap=1.0, base=0.1), 3),
+                retry_on_error=[ConnectionError],
             )
             await redis_client.ping()
             last_redis_error = None

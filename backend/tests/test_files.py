@@ -321,6 +321,48 @@ class TestRedisFailOpen:
     the failure mode never reached them.
     """
 
+    def test_get_redis_creates_client_with_connection_hardening(self, monkeypatch):
+        """The client Redis.from_url returns must be created with bounded socket
+        timeouts, a health check, and a reconnect retry — the hardening that
+        turns a dead/stuck managed-Redis connection into a fast error (→
+        in-memory fallback) instead of an indefinite hang.
+        """
+        import asyncio
+        import importlib
+
+        from app import database
+        database = importlib.reload(database)
+        monkeypatch.setattr(database, "redis_client", None)
+
+        captured = {}
+
+        class _FakeClient:
+            async def ping(self):
+                return True
+
+            async def aclose(self):
+                pass
+
+        async def _fake_from_url(url, **kwargs):
+            captured["kwargs"] = kwargs
+            return _FakeClient()
+
+        monkeypatch.setattr(database.Redis, "from_url", _fake_from_url)
+
+        asyncio.run(database.get_redis())
+
+        kwargs = captured["kwargs"]
+        assert kwargs.get("decode_responses") is True
+        # socket timeouts bound every connect + command (redis-py defaults to
+        # None = hang forever on a wedged connection)
+        assert kwargs.get("socket_connect_timeout") == 5
+        assert kwargs.get("socket_timeout") == 5
+        # idle dead connections are PINGed out proactively before reuse
+        assert kwargs.get("health_check_interval") == 30
+        # reconnect retry is configured for connection errors only
+        assert kwargs.get("retry") is not None
+        assert kwargs.get("retry_on_error") == [database.ConnectionError]
+
     def test_get_redis_resets_stale_cached_client_and_fails_open(self, monkeypatch):
         """Drives the REAL get_redis: after a cached client's connection dies,
         the next call must tear it down and return None (callers then use their

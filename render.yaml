@@ -111,3 +111,22 @@ services:
     # Block ALL external connections: the web service reaches this instance over
     # the private network (internal URL, unauthenticated by default).
     ipAllowList: []
+    # ── Durability note (Aug 2026) ──
+    # The FREE plan has NO persistence and its instance can be recycled/paused
+    # (the same free-tier behavior that cold-starts the web service). A recycle
+    # mid-uptime kills the backend's cached client connections — the cause of
+    # the Aug 2026 site-wide 500s (unguarded redis.get/incr/expire in the
+    # global rate limiter). The app is now resilient to this by design:
+    #   - database.get_redis() liveness-checks the cached client on every call
+    #     and resets it on failure, so callers fall back to in-memory limiters
+    #     and the next request reconnects automatically (self-healing).
+    #   - The client is created with socket timeouts (5s), health_check_interval
+    #     (30s), and a bounded reconnect retry, so a dead/stuck connection
+    #     surfaces as a fast error instead of a hang.
+    # Consequence: rate-limit counters and presign/upload sessions are lost on
+    # a recycle (short-TTL, acceptable on free). If cross-recycle durability is
+    # ever required, upgrade this instance to a paid plan with persistence (or
+    # point REDIS_URL at a managed provider); note the internal connection
+    # string can change when the instance is recreated, so a process that
+    # outlives a recycle still re-reads REDIS_URL only on restart — another
+    # reason the fail-open path exists.
