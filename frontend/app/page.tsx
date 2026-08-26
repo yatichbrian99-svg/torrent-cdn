@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect } from 'react'
 import PricingTable from '@/components/PricingTable'
 import { sanitizeRefCode } from '@/lib/security'
 
@@ -12,8 +12,6 @@ const metrics = [
 ]
 
 export default function LandingPage() {
-  const [count, setCount] = useState(1284)
-
   // Capture ?ref= referral code and persist it for the signup flow. Sanitize
   // at the boundary: only alphanumerics survive (matches the backend's 20-char
   // UPPER(referral_code) lookup), so junk can't ride along into storage.
@@ -22,13 +20,6 @@ export default function LandingPage() {
     const ref = params.get('ref')
     const clean = sanitizeRefCode(ref || '')
     if (clean) sessionStorage.setItem('torrent_cdn_ref', clean)
-  }, [])
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCount((prev) => prev + Math.floor(Math.random() * 3) + 1)
-    }, 4000)
-    return () => clearInterval(interval)
   }, [])
 
   return (
@@ -63,7 +54,7 @@ export default function LandingPage() {
             No credit card required &middot; 100GB free forever
           </p>
           <p className="mt-6 font-mono text-xs" style={{ color: '#555' }}>
-            {count.toLocaleString()} files delivered via P2P
+            Built for high concurrency video delivery
           </p>
         </div>
       </section>
@@ -166,7 +157,7 @@ export default function LandingPage() {
               },
               {
                 q: "What is the maximum file size?",
-                a: "The maximum file size is 1GB per file. Contact us for larger files on the Business plan."
+                a: "The maximum file size is 2GB per file. Larger files are available on the Business plan."
               },
               {
                 q: "Is my content private?",
