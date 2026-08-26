@@ -23,6 +23,11 @@ _PUBLIC_FILE_WINDOW = 60
 # embed players (one metadata fetch per page load, Redis-cached for 60s) while
 # still capping scrapers.
 PUBLIC_FILE_LIMIT = 120
+# M3 FIX: Per-IP 404 counter to prevent file-ID enumeration. An attacker
+# probing random UUIDs would hit 404s; after this many unique-file 404s per
+# minute the IP is throttled. Legitimate embeds rarely see 404s (files exist).
+_PUBLIC_FILE_404_LIMIT = 10
+_public_file_404s: dict[str, list[float]] = {}
 
 # Public metadata cache TTL. The payload (filename/url/magnet/size) is immutable
 # after upload, so every embed for a popular file can be answered from Redis
@@ -196,6 +201,25 @@ async def get_public_file(file_id: UUID, request: Request = None):
             file_id,
         )
         if not row:
+            # M3 FIX: Track 404s per IP to prevent file-ID enumeration.
+            # An attacker probing random UUIDs would otherwise learn which
+            # UUIDs are valid vs invalid at 120/min without limit.
+            if request:
+                _ip = get_client_ip(request)
+                if redis is not None:
+                    _404_key = f"public_file_404:{_ip}"
+                    _404_count = await redis.incr(_404_key)
+                    if _404_count == 1:
+                        await redis.expire(_404_key, 60)
+                    if _404_count > _PUBLIC_FILE_404_LIMIT:
+                        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+                else:
+                    now404 = time.time()
+                    recent404 = [t for t in _public_file_404s.get(_ip, []) if now404 - t < 60]
+                    recent404.append(now404)
+                    _public_file_404s[_ip] = recent404
+                    if len(recent404) > _PUBLIC_FILE_404_LIMIT:
+                        raise HTTPException(status_code=429, detail="Rate limit exceeded")
             raise HTTPException(status_code=404, detail="File not found")
 
         payload = {

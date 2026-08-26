@@ -106,11 +106,21 @@ async def admin_list_users(
         """, datetime.now(UTC).strftime("%Y-%m"), limit, offset)
 
     pages = max(1, (total + limit - 1) // limit) if total else 1
+
+    def _mask_email(email: str) -> str:
+        """Mask email for admin list: u***@domain.com."""
+        if not email or "@" not in email:
+            return email or ""
+        local, domain = email.split("@", 1)
+        if len(local) <= 1:
+            return f"*@{domain}"
+        return f"{local[0]}***@{domain}"
+
     return {
         "users": [
             {
                 "id": str(row["id"]),
-                "email": row["email"],
+                "email": _mask_email(row["email"]),
                 "plan": row["plan"],
                 "verified": bool(row.get("verified", False)),
                 "is_admin": bool(row.get("is_admin", False)),
@@ -214,6 +224,17 @@ async def admin_toggle_admin(
         if not row:
             raise HTTPException(status_code=404, detail="User not found")
         new_status = not row["is_admin"]
+        # H3 FIX: Prevent demoting the last admin — would lock out all admin
+        # access and require ADMIN_SETUP_ENABLED=true to recover.
+        if row["is_admin"] and not new_status:
+            admin_count = await conn.fetchval(
+                "SELECT COUNT(*) FROM users WHERE is_admin = TRUE"
+            )
+            if admin_count <= 1:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Cannot demote the last admin. Promote another admin first.",
+                )
         await conn.execute(
             "UPDATE users SET is_admin = $1 WHERE id = $2",
             new_status, user_id,

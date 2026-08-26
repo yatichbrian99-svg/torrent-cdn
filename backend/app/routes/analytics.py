@@ -123,6 +123,19 @@ async def track_event(
         recent.append(now)
         _analytics_event_requests[ip] = recent
 
+    # M1 FIX: Per-IP per-file rate limit — prevents inflating a specific file's
+    # P2P offload percentage by submitting many small events from the same IP.
+    # 30 events/min/file/IP is generous for legitimate embed players while
+    # blocking automated inflation scripts.
+    _PER_FILE_LIMIT = 30
+    if redis is not None:
+        file_rate_key = f"analytics_file:{ip}:{event.file_id}"
+        file_count = await redis.get(file_rate_key)
+        if file_count and int(file_count) >= _PER_FILE_LIMIT:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        await redis.incr(file_rate_key)
+        await redis.expire(file_rate_key, 60)
+
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(

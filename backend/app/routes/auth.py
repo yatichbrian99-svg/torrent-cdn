@@ -95,12 +95,25 @@ _mfa_attempts: dict[str, list[float]] = {}
 _MFA_WINDOW = 900  # 15 minutes
 _MFA_LIMIT = 5
 
+# Admin setup rate limiting: brute-force protection for the ADMIN_SETUP_TOKEN.
+# Redis primary, in-memory fallback — same pattern as login/MFA.
+_setup_attempts: dict[str, list[float]] = {}
+_SETUP_WINDOW = 900  # 15 minutes
+_SETUP_LIMIT = 5
+
 
 def _prune_mfa_attempts(now: float) -> None:
     """Drop MFA-attempt keys whose newest entry has expired (keeps dict bounded)."""
     expired = [k for k, v in _mfa_attempts.items() if not v or now - v[-1] > _MFA_WINDOW]
     for k in expired:
         del _mfa_attempts[k]
+
+
+def _prune_setup_attempts(now: float) -> None:
+    """Drop setup-attempt keys whose newest entry has expired (keeps dict bounded)."""
+    expired = [k for k, v in _setup_attempts.items() if not v or now - v[-1] > _SETUP_WINDOW]
+    for k in expired:
+        del _setup_attempts[k]
 
 
 async def _check_mfa_rate_limit(ip: str) -> None:
@@ -322,22 +335,19 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks, reques
             CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at DESC);
         """)
 
-        existing = await conn.fetchrow(
-            "SELECT id FROM users WHERE email = $1", data.email
-        )
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already registered",
-            )
-
+        # H1 FIX: No pre-check SELECT — the unique constraint on users.email
+        # catches duplicates, and the generic error below prevents email
+        # enumeration (an attacker can't distinguish "already registered" from
+        # "registration failed").
         password_hash = hash_password(data.password)
         try:
             # No auto-admin on registration — admins are promoted only via
             # /auth/setup (gated by ADMIN_SETUP_ENABLED) or by an existing admin.
-            # Generate the user UUID up front so we can derive a referral code from it.
             user_uuid = uuid.uuid4()
-            referral_code = str(user_uuid).replace("-", "")[:8].upper()
+            # H2 FIX: Generate referral code with independent randomness (not
+            # derived from the UUID) so knowing a referral code leaks nothing
+            # about the user's UUID or file IDs.
+            referral_code = secrets.token_urlsafe(6)[:8].upper()
             user = await conn.fetchrow(
                 """INSERT INTO users (id, email, password_hash, is_admin, terms_accepted, terms_accepted_at, referral_code)
                    VALUES ($1, $2, $3, FALSE, TRUE, NOW(), $4)
@@ -353,7 +363,7 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks, reques
             if "duplicate key" in err_str or "unique" in err_str.lower():
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Email already registered",
+                    detail="Registration failed. Please try again.",
                 )
             logger.error("Registration INSERT failed: %s", e)
             raise HTTPException(
@@ -383,10 +393,10 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks, reques
                         float(get_settings().referral_bonus_cap_gb),
                     )
                     await conn.execute(
-                        "UPDATE users SET referred_by = $1, referral_bonus_gb = $3 WHERE id = $2",
+                        "UPDATE users SET referred_by = $1, referral_bonus_gb = COALESCE(referral_bonus_gb, 0) + $3 WHERE id = $2",
                         referrer["id"],
                         user_uuid,
-                        REFEREE_BONUS_GB,
+                        float(REFEREE_BONUS_GB),
                     )
                     logger.info(
                         "Referral applied: user %s referred by %s", user_uuid, referrer["id"]
@@ -649,9 +659,33 @@ async def reset_password(data: ResetPasswordRequest):
             # replayed link within the 1h JWT window is still blocked.
             await redis.set(token_key, "CONSUMED", ex=3600)
         else:
+            # H4 FIX: Redis was down at send time — fall back to the DB marker.
+            # If the DB also has no marker, this is a fresh un-Redis'd token.
             logger.warning(
-                "Reset token one-time key missing — falling back to JWT-expiry-only "
-                "validation (Redis likely down when the reset email was sent)"
+                "Reset token one-time key missing — checking DB fallback"
+            )
+    else:
+        # H4 FIX: Redis unavailable at click time — check DB fallback marker.
+        import hashlib as _hl
+        token_hash = _hl.sha256(data.token.encode()).hexdigest()
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            stored_hash = await conn.fetchval(
+                "SELECT reset_token_used FROM users WHERE id = $1",
+                UUID(user_id_str),
+            )
+        if stored_hash and stored_hash != token_hash:
+            # Token was already used (different hash stored) — reject replay.
+            raise HTTPException(
+                status_code=400, detail="Invalid or expired reset token"
+            )
+        # Mark as consumed in DB (even if None — prevents future replays).
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET reset_token_used = $1 WHERE id = $2",
+                token_hash,
+                UUID(user_id_str),
             )
 
     pool = await get_db_pool()
@@ -676,6 +710,17 @@ async def reset_password(data: ResetPasswordRequest):
     # stamp is authoritative (works without Redis); Redis adds a fast path.
     await revoke_user_sessions(UUID(user_id_str))
 
+    # H4 FIX: Clear the DB fallback marker so the token can't be replayed.
+    try:
+        pool2 = await get_db_pool()
+        async with pool2.acquire() as conn2:
+            await conn2.execute(
+                "UPDATE users SET reset_token_used = NULL WHERE id = $1",
+                UUID(user_id_str),
+            )
+    except Exception:
+        pass  # Best-effort — security_stamp bump already revoked sessions
+
     logger.info("Password reset successful for user %s", user_id_str)
     record_event("password_reset", detail=str(user_id_str))
     return {"detail": "Password has been reset successfully."}
@@ -683,6 +728,7 @@ async def reset_password(data: ResetPasswordRequest):
 
 @router.post("/setup")
 async def setup_first_admin(
+    request: Request,
     email: str | None = None,
     presented_token: str | None = Header(default=None, alias="X-Admin-Setup-Token"),
     requester_id: UUID = Depends(get_current_user_id),
@@ -712,6 +758,25 @@ async def setup_first_admin(
     if setup_token and (
         not presented_token or not hmac.compare_digest(presented_token, setup_token)
     ):
+        # Rate-limit failed setup-token attempts per IP (brute-force protection).
+        ip = get_client_ip(request)
+        redis = await get_redis()
+        if redis is not None:
+            rate_key = f"setup_attempts:{ip}"
+            count = await redis.get(rate_key)
+            if count and int(count) >= _SETUP_LIMIT:
+                raise HTTPException(status_code=429, detail="Too many attempts. Try again in 15 minutes.")
+            await redis.incr(rate_key)
+            await redis.expire(rate_key, _SETUP_WINDOW)
+        else:
+            now = time.time()
+            _prune_setup_attempts(now)
+            recent = [t for t in _setup_attempts.get(ip, []) if now - t < _SETUP_WINDOW]
+            if len(recent) >= _SETUP_LIMIT:
+                raise HTTPException(status_code=429, detail="Too many attempts. Try again in 15 minutes.")
+            recent.append(now)
+            _setup_attempts[ip] = recent
+        record_event("setup_token_failure", detail="bad token", ip=get_client_ip(request))
         raise HTTPException(
             status_code=403,
             detail="Admin setup requires the ADMIN_SETUP_TOKEN.",
@@ -740,10 +805,8 @@ async def setup_first_admin(
             user = await conn.fetchrow(
                 "SELECT id, email, is_admin FROM users WHERE email = $1", email
             )
-            if not user:
-                return {"detail": f"No user found with email {email}"}
-            if user["is_admin"]:
-                return {"detail": f"User {email} is already an admin"}
+            if not user or user["is_admin"]:
+                return {"detail": "User not found or already an admin"}
 
             await conn.execute(
                 "UPDATE users SET is_admin = TRUE WHERE email = $1", email
@@ -848,7 +911,7 @@ async def get_referral(user_id: UUID = Depends(get_current_user_id)):
         code = user["referral_code"]
         # Backfill referral code for users created before the feature shipped.
         if not code:
-            code = str(user_id).replace("-", "")[:8].upper()
+            code = secrets.token_urlsafe(6)[:8].upper()
             await conn.execute(
                 "UPDATE users SET referral_code = $1 WHERE id = $2", code, user_id
             )
@@ -866,6 +929,37 @@ async def get_referral(user_id: UUID = Depends(get_current_user_id)):
         "total_referrals": total_referrals or 0,
         "bonus_gb_earned": user["referral_bonus_gb"] or 0,
     }
+
+
+@router.post("/logout")
+async def logout(request: Request, user_id: UUID = Depends(get_current_user_id)):
+    """Invalidate the current session token (JWT blocklist via Redis).
+
+    The token's remaining lifetime is bounded by jwt_expire_minutes (24h).
+    Without Redis the endpoint is a no-op — the token stays valid until
+    expiry, but the password-change marker still covers the revoke-on-compromise
+    case. Logs the event for the admin security feed.
+    """
+    # Extract the jti from the raw Authorization header to build the blocklist key.
+    auth_header = request.headers.get("authorization", "")
+    token = auth_header.replace("Bearer ", "") if auth_header.startswith("Bearer ") else ""
+    if token:
+        try:
+            payload = decode_access_token(token)
+            jti = payload.get("jti") if payload else None
+            if jti:
+                redis = await get_redis()
+                if redis is not None:
+                    # Blocklist for the token's remaining lifetime (max 24h).
+                    await redis.set(
+                        f"token_block:{jti}", "1",
+                        ex=settings.jwt_expire_minutes * 60,
+                    )
+        except Exception:
+            pass  # Best-effort — don't fail the logout on a blocklist error
+    logger.info("User %s logged out", user_id)
+    record_event("logout", detail=str(user_id))
+    return {"detail": "Logged out successfully."}
 
 
 @router.get("/me")

@@ -1,3 +1,5 @@
+import asyncio
+import hashlib
 import html
 import logging
 import os
@@ -222,8 +224,20 @@ async def send_password_reset_email(email: str, user_id: UUID) -> bool:
         await redis.set(token_key, str(user_id), ex=3600)
         logger.info("Password reset token stored in Redis for user %s", user_id)
     else:
-        # Without Redis, token can't be revoked — JWT expiry is the only timeout
-        logger.info("Redis unavailable — reset token for user %s relies on JWT expiry only", user_id)
+        # H4 FIX: Without Redis, store the token hash in the DB so the one-time
+        # check can fall back to the database instead of JWT-expiry-only validation.
+        try:
+            from .database import get_db_pool
+            pool = await get_db_pool()
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE users SET reset_token_used = $1 WHERE id = $2",
+                    hashlib.sha256(token.encode()).hexdigest(),
+                    str(user_id),
+                )
+            logger.info("Redis unavailable — reset token for user %s stored in DB fallback", user_id)
+        except Exception as e:
+            logger.warning("DB fallback for reset token failed for %s: %s", user_id, e)
 
     # Try to send the email
     resend = _get_resend()
@@ -256,7 +270,7 @@ async def send_password_reset_email(email: str, user_id: UUID) -> bool:
             "subject": "Reset your TorrentCDN password",
             "html": html,
         }
-        resend.Emails.send(params)
+        await asyncio.to_thread(resend.Emails.send, params)
         logger.info("Password reset email sent to %s", email)
         return True
     except Exception as e:
@@ -298,7 +312,7 @@ async def send_mfa_enabled_email(email: str) -> bool:
             "subject": "Two-factor authentication enabled on your TorrentCDN account",
             "html": html,
         }
-        resend.Emails.send(params)
+        await asyncio.to_thread(resend.Emails.send, params)
         logger.info("MFA-enabled notification email sent to %s", email)
         return True
     except Exception as e:
@@ -344,7 +358,7 @@ async def send_verification_email(email: str, user_id: UUID) -> bool:
             "subject": "Verify your email address",
             "html": html,
         }
-        resend.Emails.send(params)
+        await asyncio.to_thread(resend.Emails.send, params)
         logger.info("Verification email sent to %s", email)
         return True
     except Exception as e:

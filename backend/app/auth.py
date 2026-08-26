@@ -96,13 +96,15 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_access_token(data: dict) -> str:
+    import secrets as _secrets
     to_encode = data.copy()
     now = datetime.now(UTC)
     expire = now + timedelta(minutes=settings.jwt_expire_minutes)
     # iat anchors this token's issue time so the session-revocation check in
     # get_current_user_id can reject tokens issued BEFORE a password change or
     # privilege change (each change bumps a pw_change marker in Redis).
-    to_encode.update({"iat": now, "exp": expire})
+    # jti (JWT ID) enables per-token revocation on logout.
+    to_encode.update({"iat": now, "exp": expire, "jti": _secrets.token_hex(16)})
     # PyJWT 2.x returns a str token (bearer-compatible).
     return jwt.encode(
         to_encode, settings.jwt_secret, algorithm=settings.jwt_algorithm
@@ -314,6 +316,19 @@ async def get_current_user_id(
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    # M2 FIX: Check the per-token blocklist (logout writes jti here).
+    jti = payload.get("jti")
+    if jti:
+        try:
+            r = await get_redis()
+            if r is not None and await r.get(f"token_block:{jti}"):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Session invalidated. Please log in again.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        except Exception:
+            pass  # Redis down — fail open (token expiry is the backstop)
     if await _token_revoked_by_password_change(payload):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

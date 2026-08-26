@@ -68,6 +68,7 @@ async def run_startup_migrations():
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN DEFAULT FALSE;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_backup_codes TEXT;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS security_stamp TIMESTAMP WITH TIME ZONE;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_used TEXT;
                 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS thumbnail_url TEXT;
                 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
                 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS content_hash TEXT;
@@ -243,7 +244,6 @@ class CSPMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
         # Every API response is dynamic JSON consumed by the SPA — never let a
         # shared intermediary (Vercel edge, CDN, corporate proxy) cache it.
         # Sensitive payloads (/auth/me, /files, /billing, /admin/*) must never
