@@ -426,6 +426,21 @@ async def _probe_waf_uncached() -> dict:
     return probe
 
 
+async def _malware_alert_count() -> str:
+    """Count malware_detected notifications in the last 30 days for the health dashboard."""
+    try:
+        from ..database import get_db_pool
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT COUNT(*) AS cnt FROM notifications WHERE type = 'malware_detected' AND created_at >= NOW() - INTERVAL '30 days'"
+            )
+            count = row["cnt"] if row else 0
+            return f"{count} alert(s) in last 30 days" if count else "0 alerts — all clean"
+    except Exception:
+        return "unable to query"
+
+
 @router.get("/health")
 @router.get("/health/status")
 async def admin_health(_: UUID = Depends(require_admin)):
@@ -526,6 +541,11 @@ async def admin_health(_: UUID = Depends(require_admin)):
             "check": "Malware scan (VirusTotal)",
             "status": "warn" if not settings.virustotal_api_key else "pass",
             "detail": "off (fail-open, magic bytes only)" if not settings.virustotal_api_key else "on (hash lookup + <=32MB scans)",
+        },
+        {
+            "check": "Malware alerts (30d)",
+            "status": "pass",
+            "detail": await _malware_alert_count(),
         },
         {
             "check": "Session revocation (DB security_stamp)",

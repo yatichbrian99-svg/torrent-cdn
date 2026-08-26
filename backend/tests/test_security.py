@@ -140,16 +140,18 @@ class TestAuthSetupGating:
         assert "promoted to admin" in resp.json()["detail"]
 
     def test_setup_email_not_found(self, client, auth_headers, mock_conn, monkeypatch):
-        """Requesting promotion for an unknown email is a no-op (no error)."""
+        """Requesting promotion for an unknown email is a no-op (no error) —
+        generic message prevents user enumeration."""
         self._enable_setup(monkeypatch, enabled=True)
         mock_conn.fetchval.return_value = False
         mock_conn.fetchrow.return_value = None
         resp = client.post(self.URL, headers=auth_headers, params={"email": "ghost@example.com"})
         assert resp.status_code == 200
-        assert "No user found" in resp.json()["detail"]
+        assert "User not found or already an admin" in resp.json()["detail"]
 
     def test_setup_email_already_admin(self, client, auth_headers, mock_conn, monkeypatch):
-        """Promoting an existing admin is idempotent (no error)."""
+        """Promoting an existing admin returns the same generic message as not-found
+        (prevents user enumeration via setup endpoint)."""
         self._enable_setup(monkeypatch, enabled=True)
         mock_conn.fetchval.return_value = False
         mock_conn.fetchrow.return_value = {
@@ -159,7 +161,7 @@ class TestAuthSetupGating:
         }
         resp = client.post(self.URL, headers=auth_headers, params={"email": "admin@example.com"})
         assert resp.status_code == 200
-        assert "already an admin" in resp.json()["detail"]
+        assert "User not found or already an admin" in resp.json()["detail"]
 
     def test_setup_requires_token_when_configured(self, client, auth_headers, mock_conn, monkeypatch):
         """With ADMIN_SETUP_TOKEN configured, a missing header blocks the promotion —

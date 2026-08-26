@@ -862,6 +862,60 @@ async def upload_file(
     )
 
 
+async def _alert_admins_malware(pool, user_id: UUID, filename: str, file_stream=None) -> None:
+    """Best-effort alert when VirusTotal flags a file as malicious.
+
+    Inserts a notification for every admin user so they can investigate the
+    uploading account. Also logs the event at WARNING level for operational
+    monitoring. Never raises — a failed notification must never block the
+    upload rejection.
+    """
+    try:
+        # Compute content hash for the log (reuse file_stream if seekable,
+        # otherwise skip — the hash is informational, not critical).
+        content_hash = "unknown"
+        if file_stream is not None:
+            try:
+                pos = file_stream.tell()
+                file_stream.seek(0)
+                h = hashlib.sha256()
+                while chunk := file_stream.read(1 << 20):
+                    h.update(chunk)
+                content_hash = h.hexdigest()[:16]
+                file_stream.seek(pos)
+            except Exception:
+                pass
+
+        logger.warning(
+            "MALWARE DETECTED: user=%s filename='%s' sha256=%s action=rejected+notified",
+            user_id, filename, content_hash,
+        )
+
+        async with pool.acquire() as conn:
+            # Find all admin user IDs
+            admins = await conn.fetch("SELECT id FROM users WHERE is_admin = TRUE")
+            if not admins:
+                return
+            for admin in admins:
+                # De-duplicate: skip if an unread malware alert for this user+file
+                # already exists (e.g. presigned finalize re-scanned after storage)
+                existing = await conn.fetchrow(
+                    "SELECT 1 FROM notifications WHERE user_id = $1 AND type = 'malware_detected' AND message LIKE $2 LIMIT 1",
+                    admin["id"], f"%{filename}%",
+                )
+                if existing:
+                    continue
+                await conn.execute(
+                    "INSERT INTO notifications (user_id, type, message) VALUES ($1, $2, $3)",
+                    admin["id"],
+                    "malware_detected",
+                    f"Malware detected: '{filename}' uploaded by user {str(user_id)[:8]}... (hash prefix: {content_hash}) — file was rejected and not stored.",
+                )
+        logger.info("Malware alert sent to %d admin(s)", len(admins))
+    except Exception as e:
+        logger.warning("Failed to send malware alert: %s", e)
+
+
 async def _store_and_finalize(
     pool,
     user_id: UUID,
@@ -902,6 +956,7 @@ async def _store_and_finalize(
     # Runs BEFORE the bytes hit storage, so a definitively-malicious file is
     # rejected without ever being stored.
     if not await scan_file(file_stream, int(file_size_mb * 1024 * 1024)):
+        await _alert_admins_malware(pool, user_id, safe_filename, file_stream)
         raise HTTPException(
             status_code=422,
             detail="File failed malware scanning and was not stored",
@@ -1831,6 +1886,7 @@ async def presign_finalize(
             # raises below and the except-HttpException handler deletes the
             # object, so malware never gets a finalized uploads row.
             if not await scan_file(temp_path, total_size):
+                await _alert_admins_malware(pool, user_id, session['filename'])
                 raise HTTPException(
                     status_code=422,
                     detail="File failed malware scanning",

@@ -64,10 +64,6 @@ header_check("Referrer-Policy",
              "referrer-policy",
              "strict-origin-when-cross-origin")
 
-header_check("X-XSS-Protection",
-             "x-xss-protection",
-             "1; mode=block")
-
 header_check("Permissions-Policy",
              "permissions-policy",
              "accelerometer=()")

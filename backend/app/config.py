@@ -8,12 +8,15 @@ from email.utils import parsedate_to_datetime
 from functools import lru_cache
 from urllib.parse import urlparse
 
+from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 
 logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
+    model_config = ConfigDict(env_file=".env", case_sensitive=False)
+
     # App
     app_env: str = "development"
     app_url: str = "http://localhost:3000"
@@ -186,9 +189,7 @@ class Settings(BaseSettings):
     virustotal_api_key: str = ""
     virustotal_max_upload_mb: int = 32
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    # model_config is defined at the top of the class (Pydantic v2 style)
 
 
 @lru_cache
