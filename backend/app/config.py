@@ -189,6 +189,10 @@ class Settings(BaseSettings):
     virustotal_api_key: str = ""
     virustotal_max_upload_mb: int = 32
 
+    # MalwareBazaar (abuse.ch) — free hash-lookup database, requires Auth-Key
+    # Register at https://bazaar.abuse.ch/register/ for a free key.
+    malwarebazaar_api_key: str = ""
+
     # model_config is defined at the top of the class (Pydantic v2 style)
 
 

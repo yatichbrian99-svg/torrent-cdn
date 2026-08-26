@@ -540,7 +540,17 @@ async def admin_health(_: UUID = Depends(require_admin)):
         {
             "check": "Malware scan (VirusTotal)",
             "status": "warn" if not settings.virustotal_api_key else "pass",
-            "detail": "off (fail-open, magic bytes only)" if not settings.virustotal_api_key else "on (hash lookup + <=32MB scans)",
+            "detail": "hash lookup only (no key)" if not settings.virustotal_api_key else "hash lookup + <=32MB full scan",
+        },
+        {
+            "check": "Malware scan (MalwareBazaar)",
+            "status": "warn" if not settings.malwarebazaar_api_key else "pass",
+            "detail": "off (no key)" if not settings.malwarebazaar_api_key else "on (hash lookup, unlimited size)",
+        },
+        {
+            "check": "Deep container validation",
+            "status": "pass",
+            "detail": "polyglot detection — scans 256KB from start/mid/end for embedded executables",
         },
         {
             "check": "Malware alerts (30d)",
