@@ -95,6 +95,21 @@ services:
       - key: DB_POOL_ACQUIRE_TIMEOUT
         value: "10"
 
+  # Keep-alive pinger — hits /health every 5 minutes to prevent free-tier cold starts.
+  # Render suspends idle free instances after ~15 min; this cron keeps the web service
+  # alive. The pinger is a 2-second Python script with zero dependencies.
+  - type: cron
+    name: torrentcdn-keepalive
+    schedule: "*/5 * * * *"
+    region: oregon
+    plan: free
+    env: python
+    buildCommand: ""
+    startCommand: "python backend/scripts/keepalive_pinger.py"
+    envVars:
+      - key: WEB_SERVICE_URL
+        value: "https://torrent-cdn.onrender.com"
+
   # Managed Redis (Render Key Value, Valkey 8 — a drop-in for redis-py). Presign
   # upload sessions are stored here with a 30-min TTL, so a session survives a
   # web-instance recycle between presign and finalize; the per-IP upload + global
