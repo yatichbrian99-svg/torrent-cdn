@@ -95,6 +95,19 @@ async def lifespan(app: FastAPI):
     if settings.app_env == "production":
         threading.Thread(target=check_clock_skew, daemon=True).start()
 
+    # Pre-warm the public-file metadata cache so the first viewers after a
+    # deploy don't all miss Redis simultaneously (each miss = 1 DB query;
+    # 10K concurrent viewers = 10K DB queries in the cold-cache window).
+    # Best-effort, non-blocking — runs in a background task so startup
+    # isn't delayed by the DB round-trip.
+    async def _warm_cache():
+        try:
+            from .routes.files import warm_public_file_cache
+            await warm_public_file_cache()
+        except Exception as e:
+            logger.warning("Cache warm failed: %s", e)
+    asyncio.create_task(_warm_cache())
+
     # Production-only background task: periodically delete storage objects that
     # were PUT but never finalized (presign session expired / DB insert failed).
     # Never started in development so the tests (TestClient lifespan) stay

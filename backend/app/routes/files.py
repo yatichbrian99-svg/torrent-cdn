@@ -44,6 +44,63 @@ def _prune_public_file_requests(now: float) -> None:
         del _public_file_requests[k]
 
 
+# Top files to pre-warm after deploy (most-viewed first). This list is small
+# enough to batch-fetch from the DB in a single query and store in Redis
+# without meaningful overhead.
+CACHE_WARM_TOP_N = 50
+
+
+async def warm_public_file_cache() -> int:
+    """Pre-warm Redis cache for the most popular public files.
+
+    Called once at startup (after migrations) so the first viewers after a
+    deploy don't all miss the cache simultaneously. The cache TTL is short
+    (60s), so warming is only valuable in the narrow post-deploy window —
+    after that the natural request pattern re-populates the cache.
+
+    Returns the number of files cached (best-effort, never fatal).
+    """
+    try:
+        redis = await get_redis()
+        if redis is None:
+            return 0
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT u.id, u.filename, u.minio_url, u.torrent_magnet, u.file_size_mb
+                   FROM uploads u
+                   LEFT JOIN (
+                       SELECT file_id, COUNT(*) AS views
+                       FROM analytics
+                       WHERE event_type = 'peer_joined'
+                         AND created_at > NOW() - INTERVAL '7 days'
+                       GROUP BY file_id
+                   ) a ON a.file_id = u.id
+                   ORDER BY COALESCE(a.views, 0) DESC
+                   LIMIT $1""",
+                CACHE_WARM_TOP_N,
+            )
+            if not rows:
+                return 0
+            pipe = redis.pipeline()
+            for row in rows:
+                cache_key = f"public_file:{row['id']}"
+                payload = json.dumps({
+                    "id": str(row["id"]),
+                    "filename": row["filename"],
+                    "minio_url": row["minio_url"],
+                    "magnet_link": row["torrent_magnet"],
+                    "file_size_mb": row["file_size_mb"],
+                }, default=str)
+                pipe.setex(cache_key, PUBLIC_FILE_CACHE_TTL, payload)
+            await pipe.execute()
+            logger.info("Cache warmed for %d popular files", len(rows))
+            return len(rows)
+    except Exception as e:
+        logger.warning("Cache warming skipped: %s", e)
+        return 0
+
+
 # Pagination caps for GET /files: the response shape stays a bare array (the
 # frontend reads it directly), but an unbounded query would let one user with a
 # huge library force an arbitrarily large response. Default 100, hard cap 500.
