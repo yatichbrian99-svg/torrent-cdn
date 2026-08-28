@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -448,6 +449,29 @@ class MaxBodySizeMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(MaxBodySizeMiddleware)
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request: Request, exc: RequestValidationError):
+    """L2 FIX: Return a generic error for JSON parse / validation failures.
+
+    FastAPI's default handler returns the Pydantic schema (field names,
+    types, input values), which reveals the framework (FastAPI/Pydantic)
+    and the expected request body shape. A generic message prevents this
+    reconnaissance while still giving the caller enough to retry correctly.
+    """
+    # Distinguish JSON decode errors (malformed body) from schema errors
+    # (missing/wrong fields) — the caller needs to know which one.
+    errors = exc.errors()
+    is_json_error = any(e.get("type") == "json_invalid" for e in errors)
+    if is_json_error:
+        detail = "Invalid JSON in request body"
+    else:
+        detail = "Invalid request"
+    return JSONResponse(
+        status_code=422,
+        content={"detail": detail},
+    )
 
 
 @app.exception_handler(asyncio.TimeoutError)

@@ -222,6 +222,10 @@ async def get_public_file(file_id: UUID, request: Request = None):
                         raise HTTPException(status_code=429, detail="Rate limit exceeded")
             raise HTTPException(status_code=404, detail="File not found")
 
+        # NOTE: minio_url contains the user_id UUID in the path. We cannot
+        # strip it because R2 needs the full path to serve the file. The
+        # embed player streams directly from this URL. To hide the user_id
+        # would require a proxy endpoint (architectural change).
         payload = {
             "id": str(row["id"]),
             "filename": row["filename"],

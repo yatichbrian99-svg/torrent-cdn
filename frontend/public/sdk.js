@@ -17,7 +17,16 @@
   function isValidApiUrl(url) {
     try {
       var u = new URL(url);
-      return u.protocol === 'https:' || u.protocol === 'http:';
+      // L1 FIX: Only accept https: — http: would send the Bearer token
+      // (in the Authorization header) over an insecure connection.
+      if (u.protocol !== 'https:') return false;
+      // Only allow known production domains to prevent a compromised page
+      // from redirecting API calls to a malicious server.
+      var host = u.hostname;
+      return host === 'www.torrentcdn.store' ||
+             host === 'torrentcdn.store' ||
+             host.endsWith('.r2.cloudflarestorage.com') ||
+             host.endsWith('.r2.dev');
     } catch (e) {
       return false;
     }

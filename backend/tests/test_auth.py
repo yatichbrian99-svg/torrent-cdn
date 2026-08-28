@@ -509,14 +509,16 @@ class TestResetPassword:
 
     def test_reset_password_redis_down_at_click_uses_jwt_only(self, client, mock_conn, monkeypatch):
         """
-        Asymmetry control: if Redis is down at CLICK time, the key check is
-        skipped entirely and the same valid token works — JWT expiry is the
-        only gate. The missing-key fallback above behaves identically.
+        H1 FIX: When Redis is down at CLICK time, the DB fallback marker is
+        checked. If the DB has 'PENDING' (set at send time when Redis was also
+        down), the token is accepted and the marker is replaced with the hash.
         """
         token = self._valid_reset_token()
 
         import app.routes.auth
         monkeypatch.setattr(app.routes.auth, "get_redis", AsyncMock(return_value=None))
+        # Mock fetchval to return 'PENDING' (the DB marker set at send time)
+        mock_conn.fetchval.return_value = "PENDING"
         mock_conn.execute.return_value = "UPDATE 1"
 
         resp = client.post(self.RESET_URL, json={"token": token, "password": "NewPass456!"})

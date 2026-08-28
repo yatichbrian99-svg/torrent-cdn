@@ -666,6 +666,10 @@ async def reset_password(data: ResetPasswordRequest):
             )
     else:
         # H4 FIX: Redis unavailable at click time — check DB fallback marker.
+        # 'PENDING' = a token was issued while Redis was down but not yet used.
+        # Replace with this token's hash (locks out all other tokens issued
+        # during the same outage). If stored == hash (not PENDING), this token
+        # was already used — reject replay.
         import hashlib as _hl
         token_hash = _hl.sha256(data.token.encode()).hexdigest()
         pool = await get_db_pool()
@@ -674,12 +678,17 @@ async def reset_password(data: ResetPasswordRequest):
                 "SELECT reset_token_used FROM users WHERE id = $1",
                 UUID(user_id_str),
             )
-        if stored_hash and stored_hash != token_hash:
-            # Token was already used (different hash stored) — reject replay.
+        if stored_hash == token_hash:
+            # Same token replayed — reject.
             raise HTTPException(
                 status_code=400, detail="Invalid or expired reset token"
             )
-        # Mark as consumed in DB (even if None — prevents future replays).
+        if stored_hash is not None and stored_hash != "PENDING":
+            # Different token was already used — reject.
+            raise HTTPException(
+                status_code=400, detail="Invalid or expired reset token"
+            )
+        # First use: lock to this token (PENDING -> hash).
         pool = await get_db_pool()
         async with pool.acquire() as conn:
             await conn.execute(
