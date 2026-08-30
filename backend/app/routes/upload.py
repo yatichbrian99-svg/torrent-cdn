@@ -56,6 +56,7 @@ from ..models import (
 from ..security import (
     EXTENSION_MIME_MAP,
     MAX_COMPRESSION_RATIO,
+    enforce_max_size,
     estimate_compression_ratio,
     get_client_ip,
     validate_content_type,
@@ -368,6 +369,7 @@ def _prune_upload_requests(now: float) -> None:
     expired = [k for k, v in _upload_requests.items() if not v or now - v[-1] > settings.rate_limit_uploads_window]
     for k in expired:
         del _upload_requests[k]
+    enforce_max_size(_upload_requests)
 
 
 def _upload_limit_detail() -> str:

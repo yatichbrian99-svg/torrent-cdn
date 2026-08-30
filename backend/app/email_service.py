@@ -247,7 +247,7 @@ async def send_password_reset_email(email: str, user_id: UUID) -> bool:
     if resend is None:
         if settings.app_env != "production":
             # Dev convenience only — never log reset tokens in production logs
-            logger.info(
+            logger.debug(
                 "Resend not configured — password reset for %s. Token is valid for 1 hour. "
                 "Reset URL: %s",
                 email, build_reset_url(token),
@@ -331,7 +331,7 @@ async def send_verification_email(email: str, user_id: UUID) -> bool:
     # Log the link ONLY in non-production (dev convenience).
     # Never log verification tokens in production logs.
     if settings.app_env != "production":
-        logger.info(
+        logger.debug(
             "Verification link for %s (user %s): %s",
             email, user_id, verify_url,
         )

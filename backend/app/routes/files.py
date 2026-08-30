@@ -9,7 +9,7 @@ from ..auth import get_current_user_id
 from ..config import get_settings
 from ..database import get_db_pool, get_redis
 from ..models import FileDetail
-from ..security import get_client_ip
+from ..security import enforce_max_size, get_client_ip
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -42,6 +42,7 @@ def _prune_public_file_requests(now: float) -> None:
     expired = [k for k, v in _public_file_requests.items() if not v or now - v[-1] > _PUBLIC_FILE_WINDOW]
     for k in expired:
         del _public_file_requests[k]
+    enforce_max_size(_public_file_requests)
 
 
 # Top files to pre-warm after deploy (most-viewed first). This list is small

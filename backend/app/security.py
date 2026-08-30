@@ -259,6 +259,37 @@ def _get_file_size(file_stream) -> int | None:
         return None
 
 
+# Hard cap for ALL in-memory rate-limiter fallback dicts. When a dict exceeds
+# this size (e.g. under rotated-XFF abuse while Redis is down), the oldest
+# entries are dropped to bound memory. 10K keys × ~100 bytes/key ≈ 1MB —
+# well within Render nano's 512MB budget.
+INMEMORY_DICT_MAX_SIZE = 10_000
+
+
+def enforce_max_size(d: dict, max_size: int = INMEMORY_DICT_MAX_SIZE) -> None:
+    """Drop the oldest keys when a dict exceeds max_size.
+
+    Called opportunistically from pruning functions so the hot path stays O(1)
+    while a degraded/Redis-down state can't balloon. Keys are dropped in
+    insertion order (oldest first) — the values are lists of timestamps or
+    single floats, so the newest entry in each value is compared for eviction."""
+    if len(d) <= max_size:
+        return
+    # Drop the oldest ~25% of keys to avoid constant pruning
+    to_drop = max(1, len(d) // 4)
+    # Sort by the latest timestamp in the value (oldest first)
+    def _last_ts(item):
+        v = item[1]
+        if isinstance(v, list) and v:
+            return v[-1]
+        if isinstance(v, (int, float)):
+            return v
+        return 0
+    sorted_keys = sorted(d.items(), key=_last_ts)
+    for k, _ in sorted_keys[:to_drop]:
+        del d[k]
+
+
 def _normalize_ip(candidate: str) -> str | None:
     """Validate + normalize one XFF entry: strip an IPv4 port ("1.2.3.4:5678" —
     IPv6 keeps its colons), reject junk. Returns the canonical IP string, or

@@ -60,7 +60,7 @@ from ..models import (
     UserLogin,
     UserRegister,
 )
-from ..security import get_client_ip
+from ..security import enforce_max_size, get_client_ip
 from ..security_events import record as record_event
 from ..services.email import send_welcome_email
 
@@ -107,6 +107,7 @@ def _prune_mfa_attempts(now: float) -> None:
     expired = [k for k, v in _mfa_attempts.items() if not v or now - v[-1] > _MFA_WINDOW]
     for k in expired:
         del _mfa_attempts[k]
+    enforce_max_size(_mfa_attempts)
 
 
 def _prune_setup_attempts(now: float) -> None:
@@ -114,6 +115,7 @@ def _prune_setup_attempts(now: float) -> None:
     expired = [k for k, v in _setup_attempts.items() if not v or now - v[-1] > _SETUP_WINDOW]
     for k in expired:
         del _setup_attempts[k]
+    enforce_max_size(_setup_attempts)
 
 
 async def _check_mfa_rate_limit(ip: str) -> None:
@@ -190,6 +192,7 @@ def _prune_login_attempts(now: float) -> None:
     expired = [k for k, v in _login_attempts.items() if not v or now - v[-1] > _LOGIN_WINDOW]
     for k in expired:
         del _login_attempts[k]
+    enforce_max_size(_login_attempts)
 
 
 def _prune_forgot_requests(now: float) -> None:
@@ -197,6 +200,7 @@ def _prune_forgot_requests(now: float) -> None:
     expired = [k for k, v in _forgot_requests.items() if now - v > _FORGOT_WINDOW]
     for k in expired:
         del _forgot_requests[k]
+    enforce_max_size(_forgot_requests)
 
 
 def _prune_register_requests(now: float) -> None:
@@ -204,6 +208,7 @@ def _prune_register_requests(now: float) -> None:
     expired = [k for k, v in _register_requests.items() if not v or now - v[-1] > _REGISTER_WINDOW]
     for k in expired:
         del _register_requests[k]
+    enforce_max_size(_register_requests)
 
 
 async def _check_register_rate_limit(request: Request) -> None:

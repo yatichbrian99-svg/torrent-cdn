@@ -37,7 +37,7 @@ from .routes import (
     upload,
     verification,
 )
-from .security import get_client_ip
+from .security import enforce_max_size, get_client_ip
 
 settings = get_settings()
 
@@ -158,11 +158,15 @@ app = FastAPI(
 # apex origin and its Origin header never legitimately occurs
 # (backend/scripts/check_domains.sh enforces this).
 cors_origins = [
-    "http://localhost:3000",
     "http://frontend:3000",
     "https://torrent-cdn.vercel.app",
     "https://www.torrentcdn.store",
 ]
+# Allow localhost only in development — production never serves pages from
+# localhost, so an allow-list entry would grant credential-bearing cross-origin
+# reads to anyone who discovers the direct backend URL.
+if settings.app_env != "production":
+    cors_origins.append("http://localhost:3000")
 
 extra = os.getenv("CORS_ORIGINS", "")
 if extra:
@@ -437,6 +441,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 ]
                 for k in expired:
                     del self._memory_store[k]
+                enforce_max_size(self._memory_store)
 
         return await call_next(request)
 

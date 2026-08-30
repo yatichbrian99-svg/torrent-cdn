@@ -8,7 +8,7 @@ from ..auth import get_current_user_id
 from ..config import get_settings
 from ..database import get_db_pool, get_redis
 from ..models import AnalyticsEventCreate
-from ..security import get_client_ip
+from ..security import enforce_max_size, get_client_ip
 
 VALID_EVENTS = {"peer_joined", "peer_left", "chunk_downloaded"}
 
@@ -45,6 +45,7 @@ def _prune_analytics_get_requests(now: float) -> None:
     expired = [k for k, v in _analytics_get_requests.items() if not v or now - v[-1] > _ANALYTICS_GET_WINDOW]
     for k in expired:
         del _analytics_get_requests[k]
+    enforce_max_size(_analytics_get_requests)
 
 
 async def _aggregate_file_analytics(conn, file_id: UUID) -> dict:
@@ -91,6 +92,7 @@ def _prune_analytics_event_requests(now: float) -> None:
     expired = [k for k, v in _analytics_event_requests.items() if not v or now - v[-1] > _ANALYTICS_EVENT_WINDOW]
     for k in expired:
         del _analytics_event_requests[k]
+    enforce_max_size(_analytics_event_requests)
 
 
 @router.post("/event")
