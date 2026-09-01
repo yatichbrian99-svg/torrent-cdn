@@ -722,10 +722,20 @@ export default function DemoPage() {
               style={{ color: '#555', fontFamily: 'monospace' }}
             >
               {copied ? <Check size={12} style={{ color: '#4ade80' }} /> : <Copy size={12} />}
-              {copied ? 'copied' : 'copy'}
+              {copied ? 'copied ✓' : 'copy'}
             </button>
           </div>
-          <pre className="overflow-x-auto font-mono text-sm text-white"><code>{DEMO_EMBED}</code></pre>
+          <pre
+            className="cursor-pointer overflow-x-auto font-mono text-sm text-white select-all"
+            style={{ userSelect: 'all' }}
+            onClick={(e) => {
+              const range = document.createRange()
+              range.selectNodeContents(e.currentTarget)
+              const sel = window.getSelection()
+              if (sel) { sel.removeAllRanges(); sel.addRange(range) }
+              handleCopy()
+            }}
+          ><code>{DEMO_EMBED}</code></pre>
         </div>
       </section>
 
