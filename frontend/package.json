@@ -59,6 +59,6 @@
     "jsdom": "^29.1.1",
     "patch-package": "^8.0.1",
     "playwright": "^1.61.0",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }
