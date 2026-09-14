@@ -80,12 +80,14 @@ class TestAdminListUsers:
         assert data["pages"] == 1
         users = data["users"]
         assert len(users) == 2
-        assert users[0]["email"] == "admin@example.com"
+        # Emails are masked in the list view (a***@example.com) so a leaked
+        # admin list can't be used to harvest full addresses.
+        assert users[0]["email"] == "a***@example.com"
         assert users[0]["is_admin"] is True
         assert users[0]["plan"] == "pro"
         assert users[0]["total_files"] == 3
         assert users[0]["total_gb_used"] == 5.0
-        assert users[1]["email"] == "user@example.com"
+        assert users[1]["email"] == "u***@example.com"
         assert users[1]["is_admin"] is False
 
     def test_list_users_pagination(self, client, admin_headers, mock_conn):
@@ -178,11 +180,15 @@ class TestAdminToggleAdmin:
         )
 
     def test_toggle_admin_revoke(self, client, admin_headers, mock_conn):
-        """Should flip an admin back to regular user."""
+        """Should flip an admin back to regular user (when another admin
+        remains — the last-admin demotion guard must not block)."""
         mock_conn.fetchrow.side_effect = [
             {"is_admin": True},  # require_admin check
             {"is_admin": True},  # target user
         ]
+        # H3 FIX: demoting is only allowed while >=1 OTHER admin remains;
+        # report 2 total admins so the demotion proceeds.
+        mock_conn.fetchval.return_value = 2
 
         resp = client.post(
             f"{self.URL}/11111111-1111-4111-8111-111111111111/toggle-admin",

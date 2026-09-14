@@ -12,9 +12,9 @@ class TestRegister:
 
     def test_register_success(self, client, mock_conn):
         """Should register a new user and return a JWT token."""
-        # First fetchrow (SELECT existing user) returns None, second (INSERT) returns id
+        # H1 FIX: there is no pre-check SELECT anymore — the INSERT (with its
+        # unique constraint on users.email) is the first and only fetchrow.
         mock_conn.fetchrow.side_effect = [
-            None,  # no existing user
             {"id": "11111111-1111-4111-8111-111111111111"},  # insert result
         ]
 
@@ -31,7 +31,14 @@ class TestRegister:
 
     def test_register_duplicate_email(self, client, mock_conn):
         """Should reject duplicate email registration."""
-        mock_conn.fetchrow.return_value = {"id": "11111111-1111-4111-8111-111111111111"}
+        # H1 FIX: duplicates are caught by the INSERT's unique constraint (no
+        # pre-check SELECT), and the error is deliberately GENERIC to prevent
+        # email enumeration — an attacker can't distinguish "already registered"
+        # from "registration failed".
+        from asyncpg.exceptions import UniqueViolationError
+        mock_conn.fetchrow.side_effect = UniqueViolationError(
+            'duplicate key value violates unique constraint "users_email_key"'
+        )
 
         resp = client.post(self.REGISTER_URL, json={
             "email": "existing@example.com",
@@ -40,7 +47,7 @@ class TestRegister:
         })
 
         assert resp.status_code == 400
-        assert resp.json()["detail"] == "Email already registered"
+        assert resp.json()["detail"] == "Registration failed. Please try again."
 
     def test_register_invalid_email(self, client):
         """Should reject invalid email format."""
@@ -80,8 +87,8 @@ class TestRegister:
 
     def test_register_exactly_8_chars_password(self, client, mock_conn):
         """Should accept password with exactly 8 characters (boundary)."""
+        # H1 FIX: no pre-check SELECT — the INSERT is the first fetchrow.
         mock_conn.fetchrow.side_effect = [
-            None,
             {"id": "11111111-1111-4111-8111-111111111111"},
         ]
 

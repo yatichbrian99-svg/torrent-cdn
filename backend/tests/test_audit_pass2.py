@@ -132,10 +132,19 @@ class TestAnalyticsEventRateLimitFallback:
                 "bytes_p2p": 1000,
             })
             assert resp.status_code == 200
-            mock_conn.execute.assert_awaited_once()
+            # Scale rework: the event is BUFFERED (Redis/memory), never written
+            # on the request path — the only DB hit is the cold-cache size
+            # lookup (a fetchrow, not an execute). An INSERT-per-event here
+            # would collapse the DB at 200k concurrent viewers.
+            mock_conn.execute.assert_not_awaited()
+            # And the event actually landed in the in-memory buffer (Redis is
+            # down in this test).
+            assert analytics_route._memory_event_buffer, "event was dropped, not buffered"
+            analytics_route._memory_event_buffer.clear()
         finally:
             analytics_route._analytics_event_requests.clear()
             analytics_route._analytics_event_requests.update(saved)
+            analytics_route._memory_event_buffer.clear()
 
 
 class TestRegisterRateLimit:

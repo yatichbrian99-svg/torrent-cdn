@@ -11,9 +11,21 @@ class TestTorrentAndThumbnail:
     def test_no_existing_path_cleans_up_its_own_tempdir(self, tmp_path, mock_s3_client):
         """The generator writes its own temp file and removes its tempdir in
         the finally (no leaks on the direct/chunked path)."""
+        import glob
+        import os
+        import tempfile
         from uuid import uuid4
 
         from app.routes.upload import _torrent_and_thumbnail
+
+        # Snapshot the system temp root BEFORE the call. The assertion is
+        # scoped to THIS call: it must not leave any NEW torrentcd-* dir
+        # behind, but pre-existing leftovers from other processes (e.g. a
+        # killed test run) are not this test's failure to report.
+        def torrentcd_dirs():
+            return set(glob.glob(os.path.join(tempfile.gettempdir(), "torrentcd-*")))
+
+        before = torrentcd_dirs()
 
         stream = BytesIO(b"\x00\x00\x00\x20ftypmp42" + b"\x00" * 4096)
         user_id = uuid4()
@@ -23,12 +35,9 @@ class TestTorrentAndThumbnail:
 
         assert magnet.startswith("magnet:?xt=urn:btih:")
         assert "btih:" + file_id not in magnet
-        # No torrentcd-* tempdirs left behind under the system temp root.
-        import glob
-        import os
-        import tempfile
-        leftovers = glob.glob(os.path.join(tempfile.gettempdir(), "torrentcd-*"))
-        assert leftovers == [], f"leaked tempdirs: {leftovers}"
+        # The generator's OWN tempdir must be gone — no NEW torrentcd-* dirs.
+        leaked = torrentcd_dirs() - before
+        assert leaked == set(), f"leaked tempdirs: {leaked}"
 
 
 class TestStreamingTorrentBuilder:
@@ -112,6 +121,46 @@ class TestStreamingTorrentBuilder:
             assert f"tr={urllib.parse.quote(tr, safe='')}" in magnet
         assert magnet.count("&tr=") == len(PUBLIC_TRACKERS)
 
+    def test_with_webseed_appends_ws_param_without_changing_infohash(self):
+        """with_webseed appends a percent-encoded ws= param (BEP 19 webseed)
+        to the magnet. The infohash is over the info dict ONLY, so appending
+        ws= must never change the 40-hex btih — otherwise the webseed would
+        fork the swarm and peers could never find each other."""
+        import urllib.parse
+
+        from app.torrent_builder import build_magnet, hash_pieces_from_stream, with_webseed
+
+        pieces = bytes(range(256)) * 64  # 16 KiB of deterministic pieces
+        magnet = build_magnet("clip.webm", pieces, len(pieces))
+        btih = magnet[len("magnet:?xt=urn:btih:"): magnet.index("&dn=")]
+
+        seeded = with_webseed(magnet, "https://pub-abc.r2.dev/bucket/u1/f1/clip.webm")
+        assert seeded.startswith(magnet)  # base magnet unchanged (param appended)
+        assert seeded[len("magnet:?xt=urn:btih:"):].startswith(btih)
+        assert "ws=" in seeded
+        assert urllib.parse.quote("https://pub-abc.r2.dev/bucket/u1/f1/clip.webm", safe="") in seeded
+        assert seeded.count("ws=") == 1
+
+    def test_with_webseed_rejects_non_http_and_is_idempotent(self):
+        """Only http(s) URLs are valid webseeds (webtorrent rejects anything
+        else at addWebSeed time — `!/^https?:\\/\\//`); anything else leaves
+        the magnet untouched. A magnet that already carries ws= (e.g. a dedup'd
+        copy's stored magnet) is not double-annotated."""
+        from app.torrent_builder import build_magnet, hash_pieces_from_stream, with_webseed
+
+        pieces = bytes(range(256)) * 64
+        magnet = build_magnet("clip.webm", pieces, len(pieces))
+
+        # Non-http(s): unchanged.
+        assert with_webseed(magnet, "ftp://pub-abc.r2.dev/file") == magnet
+        assert with_webseed(magnet, "wss://tracker.webtorrent.dev") == magnet
+        assert with_webseed(magnet, "not-a-url") == magnet
+        assert with_webseed(magnet, "") == magnet
+
+        # Idempotent: a magnet that already has ws= is not annotated twice.
+        seeded = with_webseed(magnet, "https://pub-abc.r2.dev/bucket/u1/f1/clip.webm")
+        assert with_webseed(seeded, "https://pub-abc.r2.dev/bucket/u1/f1/clip.webm") == seeded
+
 
 class TestUpload:
     """Tests for POST /upload."""
@@ -139,6 +188,33 @@ class TestUpload:
         assert data["filename"] == "test-video.mp4"
         assert "magnet_link" in data
         assert "embed_url" in data
+
+    def test_upload_magnet_carries_webseed_of_final_dedup_url(self, client, auth_headers, mock_conn, mock_s3_client):
+        """End-to-end through the upload route: the stored magnet's ws= must be
+        the POST-dedup minio_url. A dedup hit (identical bytes already stored)
+        swaps minio_http_url to the EXISTING copy's URL — the magnet must point
+        at that surviving object, never the freshly-written one that dedup just
+        deleted (a pre-dedup webseed would 404 for every viewer)."""
+        import urllib.parse
+
+        EXISTING_URL = "https://pub-abc.r2.dev/bucket/existing/file.webm"
+        mock_conn.fetchrow.side_effect = [
+            {"id": UUID("11111111-1111-4111-8111-111111111111"), "plan": "free"},
+            None,
+            {"minio_url": EXISTING_URL},  # content-dedup hit: reuse existing copy
+            {"id": UUID("22222222-2222-4222-8222-222222222222")},
+        ]
+
+        resp = client.post(
+            self.UPLOAD_URL,
+            headers=auth_headers,
+            files={"file": ("clip.webm", b"\x00\x00\x00\x20ftypmp42", "video/webm")},
+        )
+        assert resp.status_code == 200
+        magnet = resp.json()["magnet_link"]
+        assert "ws=" in magnet
+        assert urllib.parse.quote(EXISTING_URL, safe="") in magnet
+        assert "ws=https%3A%2F%2Fpub-abc.r2.dev%2Fbucket%2Fu1%2Ff1%2Fclip.webm" not in magnet
 
     def test_upload_no_file(self, client, auth_headers):
         """Should reject upload without a file (422 validation)."""

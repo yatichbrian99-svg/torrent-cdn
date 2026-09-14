@@ -89,6 +89,8 @@ class TestPresign:
         assert set(rules[0]["AllowedMethods"]) == {"GET", "HEAD", "PUT"}
         assert "*" in rules[0]["AllowedOrigins"]  # presigned URL is the credential
         assert "Content-Type" in rules[0]["AllowedHeaders"]
+        # Range is required for the magnet's ws= webseed (BEP 19 HTTP Range fetches).
+        assert "Range" in rules[0]["AllowedHeaders"]
         _cleanup_session(resp.json()["upload_id"])
 
     def test_presign_no_auth(self, client):

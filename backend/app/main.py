@@ -76,6 +76,13 @@ async def run_startup_migrations():
                 CREATE INDEX IF NOT EXISTS idx_uploads_content_hash ON uploads(content_hash);
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_uploads_user_idempotency ON uploads(user_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
                 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at DESC);
+                -- Viewer hot path: every aggregate query filters analytics by
+                -- file_id and SUMs bytes over a recent time window. Without the
+                -- file_id index each poll degrades to a full-table scan as the
+                -- analytics table grows (200k viewers × events). The created_at
+                -- column lets Postgres prune old partitions of the index for
+                -- the 7-day bandwidth-history query too.
+                CREATE INDEX IF NOT EXISTS idx_analytics_file_created ON analytics(file_id, created_at DESC);
             """)
             logger.info("Startup migrations completed")
     except Exception as e:
@@ -119,6 +126,11 @@ async def lifespan(app: FastAPI):
             "Orphan storage sweep started (every %ss)",
             upload.ORPHAN_SWEEP_INTERVAL_SECONDS,
         )
+    # Analytics ingestion drainer: batch-INSERTs buffered viewer events every
+    # ~2s (one INSERT per ~500 events instead of one per request). Keeps the
+    # DB write rate flat no matter how many concurrent viewers post events.
+    from .routes.analytics import ensure_analytics_flusher
+    ensure_analytics_flusher()
     yield
     # Shutdown
     if orphan_sweep_task is not None:
@@ -238,6 +250,7 @@ class CSPMiddleware(BaseHTTPMiddleware):
             "connect-src 'self' "
             "wss://tracker.webtorrent.dev "
             "wss://tracker.openwebtorrent.com "
+            "wss://tracker.files.fm:7073 "
             f"{minio_src}; "
             "frame-src 'self'; "
             "worker-src 'self' blob:; "
@@ -266,7 +279,14 @@ class CSPMiddleware(BaseHTTPMiddleware):
         # shared intermediary (Vercel edge, CDN, corporate proxy) cache it.
         # Sensitive payloads (/auth/me, /files, /billing, /admin/*) must never
         # be served stale to a different user from a cache.
-        response.headers["Cache-Control"] = "no-store"
+        # EXCEPTION: routes that explicitly set a shared-cache policy (the
+        # public viewer hot path — /files/public/*, /analytics/public/*) set
+        # their own Cache-Control BEFORE this middleware runs; only default
+        # responses that didn't opt in get the no-store blanket. Without this
+        # guard the blanket clobbered the short-TTL CDN caching that keeps
+        # 200k-viewer metadata/stats floods away from the origin.
+        if "cache-control" not in response.headers:
+            response.headers["Cache-Control"] = "no-store"
         # API responses are JSON consumed via CORS-enabled fetch — CORP is safe
         # here and blocks no-cors cross-origin embedding of API payloads.
         response.headers["Cross-Origin-Resource-Policy"] = "same-origin"

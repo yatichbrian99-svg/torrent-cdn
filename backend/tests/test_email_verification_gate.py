@@ -110,8 +110,8 @@ class TestAutoVerifyFallback:
         """A new user is marked verified immediately when there's no provider.
         (Test env has no RESEND_API_KEY, so send_verification_email returns
         False and is_email_service_configured() is False — the natural state.)"""
+        # H1 FIX: no pre-check SELECT — the INSERT is the first fetchrow.
         mock_conn.fetchrow.side_effect = [
-            None,  # no existing user
             {"id": "11111111-1111-4111-8111-111111111111"},  # insert result
         ]
 
@@ -133,7 +133,6 @@ class TestAutoVerifyFallback:
 
         monkeypatch.setattr(auth_route, "is_email_service_configured", lambda: True)
         mock_conn.fetchrow.side_effect = [
-            None,
             {"id": "11111111-1111-4111-8111-111111111111"},
         ]
 

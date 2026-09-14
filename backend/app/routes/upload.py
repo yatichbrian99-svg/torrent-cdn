@@ -62,7 +62,7 @@ from ..security import (
     validate_content_type,
     validate_file_magic,
 )
-from ..torrent_builder import build_magnet, hash_pieces_from_stream
+from ..torrent_builder import build_magnet, hash_pieces_from_stream, with_webseed
 
 # Per-user caps on concurrent in-flight upload sessions (chunked + presign).
 # An authenticated attacker who can't be rate-limited per-IP (XFF spoofing,
@@ -435,9 +435,14 @@ def _ensure_bucket(s3) -> None:
                         # Writes are only possible with a valid presigned URL, so
                         # allowing any origin is safe — this rule is what lets the
                         # uploader's browser PUT (and every embed's GET) work.
+                        # Range is REQUIRED for the webseed: the magnet's ws=
+                        # makes WebTorrent fetch pieces via HTTP Range requests
+                        # (BEP 19), and a browser cross-origin Range request is
+                        # preflighted — without the Range header allow-list the
+                        # webseed silently never engages.
                         "AllowedOrigins": ["*"],
                         "AllowedMethods": ["GET", "HEAD", "PUT"],
-                        "AllowedHeaders": ["Content-Type"],
+                        "AllowedHeaders": ["Content-Type", "Range"],
                         "MaxAgeSeconds": 3600,
                     }
                 ]
@@ -1025,6 +1030,15 @@ async def _store_and_finalize(
     minio_http_url = await _dedup_content(
         pool, s3, content_hash, minio_key, minio_http_url, file_id
     )
+
+    # --- Webseed (BEP 19): the magnet carries the FINAL public object URL as
+    # a ws= param so WebTorrent fetches pieces from origin when the swarm can't
+    # supply them (thin/collapsed swarms, first viewers). Appended AFTER dedup
+    # because dedup may replace minio_http_url with an existing copy's URL — a
+    # pre-dedup URL could point at an object that was just deleted. The ws=
+    # param never changes the infohash (info-dict only), so swarm identity is
+    # preserved.
+    magnet_link = with_webseed(magnet_link, minio_http_url)
 
     # --- Save to database (+ usage accounting, race resolution, alerts) ---
     return await _insert_upload_record(
@@ -1910,6 +1924,10 @@ async def presign_finalize(
             minio_http_url = await _dedup_content(
                 pool, s3, content_hash, object_key, minio_http_url, upload_id
             )
+            # Webseed: the magnet carries the FINAL post-dedup public URL as a
+            # ws= param (origin backs up thin swarms via HTTP Range requests;
+            # never changes the infohash).
+            magnet_link = with_webseed(magnet_link, minio_http_url)
             result = await _insert_upload_record(
                 pool,
                 user_id,

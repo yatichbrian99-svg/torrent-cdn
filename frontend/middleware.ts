@@ -60,6 +60,12 @@ export function middleware(request: NextRequest) {
     // this list.)
     'wss://tracker.webtorrent.dev',
     'wss://tracker.openwebtorrent.com',
+    // Third tracker: peer-discovery redundancy for large swarms — any ONE
+    // tracker dropping connects (rate limit, outage, spike) no longer strands
+    // new viewers. Must match torrent_builder.PUBLIC_TRACKERS (the magnet's
+    // tr= list) — a tracker not in connect-src is silently blocked by CSP and
+    // P2P then only forms via the remaining two.
+    'wss://tracker.files.fm:7073',
     // File uploads go STRAIGHT to Supabase Storage via a presigned PUT (never
     // through the same-origin Vercel proxy, whose ~4.5MB body cap rejects real
     // videos). The presigned URL lives on the storage host (*.supabase.co) and

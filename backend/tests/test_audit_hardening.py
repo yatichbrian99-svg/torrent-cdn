@@ -93,9 +93,10 @@ class TestPasswordByteLimit:
 
     def test_register_accepts_72_ascii_bytes(self, client, mock_conn):
         """Boundary: exactly 72 bytes is legal."""
+        # H1 fix removed the pre-INSERT user lookup, so the only fetchrow is
+        # the INSERT's RETURNING row (a leading None would crash user["id"]).
         mock_conn.fetchrow.side_effect = [
-            None,  # no existing user
-            {"id": "11111111-1111-4111-8111-111111111111"},
+            {"id": "11111111-1111-4111-8111-111111111111"},  # insert result
         ]
         resp = client.post("/auth/register", json={
             "email": "boundary72@example.com",

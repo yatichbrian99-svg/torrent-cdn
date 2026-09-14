@@ -661,10 +661,9 @@ class TestRegistrationEnrollment:
         monkeypatch.setattr(get_settings(), "mfa_required", True)
 
     def _register(self, client, mock_conn, email="newuser@example.com"):
-        # fetchrow sequence: (1) existing-user lookup → None, (2) INSERT RETURNING
-        # id → the new user.
+        # H1 fix removed the pre-INSERT user lookup, so the only fetchrow is
+        # the INSERT RETURNING id → the new user.
         mock_conn.fetchrow.side_effect = [
-            None,
             {"id": self.USER},
         ]
         return client.post(self.REGISTER_URL, json={

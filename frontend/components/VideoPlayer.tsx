@@ -101,10 +101,13 @@ export default function VideoPlayer({ fileId, onPeers }: { fileId: string; onPee
     const totalBytes = Math.round((fileData.file_size_mb || 0) * 1024 * 1024)
     let billed = 0
     let lastBill = 0
+    // Direct-path origin billing batches at the same 5s cadence as the P2P
+    // path below — one POST per 5s per viewer, not per progress event.
+    const DIRECT_BILL_MS = 5000
     const billOrigin = () => {
       if (activeSourceRef.current !== 'direct') return
       const now = Date.now()
-      if (now - lastBill < 1000) return
+      if (now - lastBill < DIRECT_BILL_MS) return
       lastBill = now
       let bufferedEnd = 0
       try {
@@ -162,16 +165,44 @@ export default function VideoPlayer({ fileId, onPeers }: { fileId: string; onPee
           }
         })
         // webtorrent's 'download' fires per 16KiB block received — dozens per
-        // second on a fast P2P transfer. Throttle chunk_downloaded analytics to
-        // ONE POST per second (accumulated bytes) — otherwise the per-IP
-        // analytics rate limit (60/min) 429s the flood and total_p2p never
-        // accrues in the bandwidth charts.
-        let pendingP2pBytes = 0
+        // second on a fast P2P transfer. Batch chunk_downloaded analytics to
+        // ONE POST per 5s (accumulated bytes). 5s (not 1s) because at 200k
+        // concurrent viewers every request-class reduction multiplies out:
+        // 5s batching turns 200k POSTs/min into 40k POSTs/min, comfortably
+        // inside the per-IP/per-file limits while keeping the bandwidth chart
+        // granularity the dashboard actually renders (the server buffers and
+        // batch-inserts, so this cost is demand-side only).
+        //
+        // Webseed honesty: the magnet may carry a ws= webseed (origin backs up
+        // thin swarms via HTTP Range fetches). Webseed bytes DO fire the
+        // torrent-level 'download' event (all registered peers feed it), but
+        // webseed peers NEVER fire torrent.on('wire') — only real P2P wires
+        // do (torrent.js: _onWire emits 'wire'; addWebSeed registers via
+        // _registerPeer directly). So the honest split is:
+        //   bytes_p2p   = per-wire 'download' deltas (real peers only)
+        //   bytes_origin = torrent 'download' delta − p2p delta (webseed bytes
+        //                  served by origin — billed, never free)
+        let pendingP2pBytes = 0   // from torrent.on('wire') download events only
+        let pendingTotalBytes = 0 // from torrent.on('download') — ALL sources
         let lastAnalyticsFlush = 0
-        const flushP2p = () => {
-          if (pendingP2pBytes > 0) {
-            api.trackEvent(fileData.id, 'chunk_downloaded', pendingP2pBytes, 0).catch(() => {})
-            pendingP2pBytes = 0
+        const ANALYTICS_FLUSH_MS = 5000
+        // Real P2P wires only: webseed peers never emit torrent.on('wire'), so
+        // wire-level download bytes are exactly the peer-served bytes.
+        torrent.on('wire', (wire: any) => {
+          wire.on('download', (bytes: number) => {
+            if (mounted) pendingP2pBytes += bytes
+          })
+        })
+        const flushBytes = () => {
+          const p2pDelta = pendingP2pBytes
+          const totalDelta = pendingTotalBytes
+          pendingP2pBytes = 0
+          pendingTotalBytes = 0
+          // Anything the torrent received that no real wire served came from
+          // the webseed — i.e. from origin. Billed as origin bytes.
+          const webseedDelta = Math.max(0, totalDelta - p2pDelta)
+          if (p2pDelta > 0 || webseedDelta > 0) {
+            api.trackEvent(fileData.id, 'chunk_downloaded', p2pDelta, webseedDelta).catch(() => {})
           }
         }
         torrent.on('download', (bytes: number) => {
@@ -180,14 +211,14 @@ export default function VideoPlayer({ fileId, onPeers }: { fileId: string; onPee
           setStatus('p2p'); statusRef.current = 'p2p'
           setPeers(torrent.numPeers)
           onPeersRef.current?.(torrent.numPeers)
-          pendingP2pBytes += bytes
+          pendingTotalBytes += bytes
           const now = Date.now()
-          if (now - lastAnalyticsFlush >= 1000) {
+          if (now - lastAnalyticsFlush >= ANALYTICS_FLUSH_MS) {
             lastAnalyticsFlush = now
-            flushP2p()
+            flushBytes()
           }
         })
-        finalFlushRef.current = flushP2p
+        finalFlushRef.current = flushBytes
         torrent.on('ready', () => {
           if (!mounted) return
           const f = torrent.files.find((f: any) => f.name.match(/\.(mp4|webm|ogv|mov|mkv|mp3|ogg|wav)$/i)) || torrent.files[0]

@@ -50,8 +50,8 @@ def _inserted_user_uuid(mock_conn):
 class TestReferrerBonusCap:
     def test_referrer_credit_is_capped_with_least(self, client, mock_conn):
         """The referrer UPDATE must clamp with LEAST(+, cap) — never a bare +10."""
+        # H1 FIX: no pre-check SELECT — the INSERT is the first fetchrow.
         mock_conn.fetchrow.side_effect = [
-            None,  # existing-email check
             {"id": UUID(USER_ID)},  # INSERT ... RETURNING
             {"id": UUID(REFERRER_ID)},  # referrer lookup
         ]
@@ -74,7 +74,6 @@ class TestReferrerBonusCap:
 
         monkeypatch.setattr(get_settings(), "referral_bonus_cap_gb", 20)
         mock_conn.fetchrow.side_effect = [
-            None,
             {"id": UUID(USER_ID)},
             {"id": UUID(REFERRER_ID)},
         ]
@@ -88,7 +87,6 @@ class TestReferrerBonusCap:
     def test_referee_credit_still_applied(self, client, mock_conn):
         """The new user's own +5GB credit is unchanged by the cap."""
         mock_conn.fetchrow.side_effect = [
-            None,
             {"id": UUID(USER_ID)},
             {"id": UUID(REFERRER_ID)},
         ]
@@ -127,7 +125,6 @@ class TestReferrerBonusCap:
     def test_unknown_ref_code_is_noop(self, client, mock_conn):
         """A code matching no user must be a silent no-op (registration succeeds)."""
         mock_conn.fetchrow.side_effect = [
-            None,
             {"id": UUID(USER_ID)},
             None,  # referrer lookup miss
         ]
@@ -139,7 +136,6 @@ class TestReferrerBonusCap:
     def test_no_ref_code_no_credit(self, client, mock_conn):
         """Plain registration (no ref_code) never emits a bonus UPDATE."""
         mock_conn.fetchrow.side_effect = [
-            None,
             {"id": UUID(USER_ID)},
         ]
         resp = client.post(

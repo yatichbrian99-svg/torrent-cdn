@@ -1,7 +1,10 @@
+import asyncio
 import json
 import logging
 import time
 from uuid import UUID
+
+from fastapi.responses import JSONResponse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -35,6 +38,25 @@ _public_file_404s: dict[str, list[float]] = {}
 # most this long — playback still fails at the storage URL (403/404), so the
 # staleness window is harmless; delete_file invalidates the key immediately.
 PUBLIC_FILE_CACHE_TTL = 60
+
+# Single-flight lock: when a hot file's cache entry EXPIRES, every concurrent
+# viewer miss would otherwise hit the DB at once (a thundering herd — exactly
+# at the start of a traffic spike, the worst moment). The first miss re-populates
+# the cache while the rest wait on this lock and then read the fresh entry.
+# Redis SET NX: works across all gunicorn workers.
+_public_file_lock_key = "public_file_lock:{file_id}"
+
+def _cache_control_public(ttl: int) -> str:
+    """Shared-cache policy for the public viewer hot path.
+
+    max-age lets the Vercel edge / any CDN serve repeated metadata GETs for the
+    same file without touching the origin at all (at 200k viewers the embed
+    page-load burst is the largest request class); stale-while-revalidate keeps
+    serving the previous payload while one request refreshes. The payload is
+    PUBLIC and immutable per file id (delete invalidates server-side), so a
+    shared cache holding it briefly leaks nothing.
+    """
+    return f"public, max-age={ttl}, stale-while-revalidate={ttl}"
 
 
 def _prune_public_file_requests(now: float) -> None:
@@ -216,6 +238,25 @@ async def get_file(file_id: UUID, user_id: UUID = Depends(get_current_user_id)):
         )
 
 
+def _with_webseed_read(magnet: str | None, minio_url: str | None) -> str | None:
+    """Read-time webseed annotation for magnets stored BEFORE ws= existed.
+
+    New uploads get their webseed baked in at write time (routes/upload.py);
+    every magnet already in the DB gets it HERE, at read time, so the whole
+    existing catalogue gains the origin fallback with zero migration. The ws=
+    param does not change the infohash, so this cannot fork a swarm. Idempotent
+    (a magnet already carrying ws= is untouched) and total: on any error the
+    stored magnet is returned as-is.
+    """
+    try:
+        if not magnet or not minio_url or "ws=" in magnet:
+            return magnet
+        from ..torrent_builder import with_webseed
+        return with_webseed(magnet, minio_url)
+    except Exception:
+        return magnet
+
+
 @router.get("/public/{file_id}")
 async def get_public_file(file_id: UUID, request: Request = None):
     """Public endpoint for embed player — no auth required."""
@@ -247,9 +288,45 @@ async def get_public_file(file_id: UUID, request: Request = None):
         try:
             cached = await redis.get(cache_key)
             if cached:
-                return json.loads(cached)
+                payload = json.loads(cached)
+                # Read-time webseed annotation for legacy magnets (see
+                # _with_webseed_read) — only when the cached entry predates it.
+                payload["magnet_link"] = _with_webseed_read(
+                    payload.get("magnet_link"), payload.get("minio_url")
+                )
+                return JSONResponse(payload, headers={"Cache-Control": _cache_control_public(PUBLIC_FILE_CACHE_TTL)})
+        except HTTPException:
+            raise
         except Exception:
             pass
+
+    # Single-flight: one worker re-populates the expired cache entry while the
+    # rest block briefly on the lock (then read the fresh entry). Without this
+    # a hot file's TTL expiry turns every concurrent embed load into a
+    # simultaneous DB hit — a thundering herd exactly when traffic spikes.
+    lock_key = _public_file_lock_key.format(file_id=file_id)
+    lock_acquired = False
+    if redis is not None:
+        try:
+            lock_acquired = bool(await redis.set(lock_key, "1", nx=True, ex=5))
+        except Exception:
+            lock_acquired = False
+        if not lock_acquired:
+            # Someone else is loading it — wait for the fresh entry instead of
+            # also hitting the DB. Bounded: 5 x 100ms, then fall through (a
+            # stuck worker holds the lock only 5s, and the DB path is correct).
+            for _ in range(5):
+                await asyncio.sleep(0.1)
+                try:
+                    cached = await redis.get(cache_key)
+                    if cached:
+                        payload = json.loads(cached)
+                        payload["magnet_link"] = _with_webseed_read(
+                            payload.get("magnet_link"), payload.get("minio_url")
+                        )
+                        return JSONResponse(payload, headers={"Cache-Control": _cache_control_public(PUBLIC_FILE_CACHE_TTL)})
+                except Exception:
+                    break
 
     pool = await get_db_pool()
     async with pool.acquire() as conn:
@@ -288,7 +365,7 @@ async def get_public_file(file_id: UUID, request: Request = None):
             "id": str(row["id"]),
             "filename": row["filename"],
             "minio_url": row["minio_url"],
-            "magnet_link": row["torrent_magnet"],
+            "magnet_link": _with_webseed_read(row["torrent_magnet"], row["minio_url"]),
             "file_size_mb": row["file_size_mb"],
         }
 
@@ -298,7 +375,7 @@ async def get_public_file(file_id: UUID, request: Request = None):
         except Exception:
             pass  # cache write is best-effort — the DB read already succeeded
 
-    return payload
+    return JSONResponse(payload, headers={"Cache-Control": _cache_control_public(PUBLIC_FILE_CACHE_TTL)})
 
 
 @router.delete("/{file_id}")

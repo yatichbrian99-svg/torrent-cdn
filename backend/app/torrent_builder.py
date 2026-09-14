@@ -26,14 +26,25 @@ import urllib.parse
 # Public WebTorrent WSS trackers baked into every magnet. fastcast.nz and
 # tracker.btorrent.xyz are dead/unreliable (TCP connects fail / live WS 500s —
 # the embed suite kept logging btorrent's WebSocket 500 while peers still
-# connected fine through the other two), so this pair is the canonical,
-# currently-live set. The magnet MUST carry them as tr= params: webtorrent's
-# client has NO default tracker list and only announces to the magnet's `tr`,
-# so without them the embed player could never discover peers and P2P would
-# silently never engage.
+# connected fine through the other two). The magnet MUST carry them as tr=
+# params: webtorrent's client has NO default tracker list and only announces
+# to the magnet's `tr`, so without them the embed player could never discover
+# peers and P2P would silently never engage.
+#
+# THREE trackers, not two: peer discovery is the swarm's single point of
+# failure at scale — a tracker that rate-limits or drops WebSocket connects
+# during a traffic spike leaves new viewers with no peers (the collapse
+# scenario in scripts/swarm_collapse_sim.py). A third independent tracker
+# means discovery survives any ONE tracker going away. All three are live
+# openwebtorrent-compatible WSS trackers; clients announce to every tr= and
+# union the peer sets, so the third is pure redundancy. NOTE: adding a
+# tracker does NOT change the infohash (announce list is not part of the
+# info dict), so existing swarms keep working while gaining a third
+# discovery path.
 PUBLIC_TRACKERS = [
     "wss://tracker.webtorrent.dev",
     "wss://tracker.openwebtorrent.com",
+    "wss://tracker.files.fm:7073/announce",
 ]
 
 
@@ -118,3 +129,33 @@ def build_magnet(name: str, pieces: bytes, length: int) -> str:
     info_hash = hashlib.sha1(info).hexdigest()
     tr_params = "".join(f"&tr={urllib.parse.quote(u, safe='')}" for u in PUBLIC_TRACKERS)
     return f"magnet:?xt=urn:btih:{info_hash}&dn={name}{tr_params}"
+
+
+def with_webseed(magnet: str, webseed_url: str) -> str:
+    """Append a BEP 19 webseed (``ws=``) parameter to a magnet link.
+
+    WebTorrent treats an http(s) ``ws`` param as a WebSeed: a permanent
+    full-file peer it fetches pieces from via HTTP Range requests (BEP 19 —
+    ``206`` / ``Content-Range``) whenever the swarm can't supply them. The
+    origin object URL is the natural webseed — it always holds the file and
+    never leaves the swarm — so thin or collapsed swarms are backed up by
+    origin at P2P price instead of the whole-file direct fallback.
+
+    The infohash is the SHA-1 over the torrent's INFO DICT ONLY, so appending
+    ``ws=`` never changes the infohash and never forks the swarm (the frontend
+    seeder rebuilds the identical info dict from xt/dn/tr and is unaffected).
+
+    ``webseed_url`` must be an http(s) URL; anything else (or empty) leaves the
+    magnet unchanged. Idempotent: a magnet that already carries ``ws=`` is
+    returned untouched (dedup can reuse a stored copy whose magnet may already
+    have one).
+    """
+    if not webseed_url:
+        return magnet
+    parsed = urllib.parse.urlparse(webseed_url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return magnet
+    if "ws=" in magnet:
+        return magnet
+    ws = urllib.parse.quote(webseed_url, safe="")
+    return f"{magnet}&ws={ws}"

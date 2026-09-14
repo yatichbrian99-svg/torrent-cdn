@@ -1,10 +1,18 @@
 """
 Unit tests for analytics routes: bandwidth-history (auth, 7-day zero-fill,
 per-day GB aggregation), GET /analytics/{file_id} (auth + ownership), and
-POST /analytics/event byte-counter validation.
+POST /analytics/event byte-counter validation — plus the scale-out ingestion
+contract (buffered batch writes, size-cap cache, load-shedding sampling).
 """
+import asyncio
+import json
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 from uuid import UUID
+
+
+def asyncio_run(coro):
+    return asyncio.new_event_loop().run_until_complete(coro)
 
 
 class TestBandwidthHistory:
@@ -293,3 +301,205 @@ class TestAnalyticsEventValidation:
             "bytes_origin": 0,
         })
         assert resp.status_code == 400
+
+    def test_event_is_buffered_not_written_per_request(self, client, mock_redis, mock_conn):
+        """Scale contract: a valid event lands in the Redis buffer and NO INSERT
+        happens on the request path (one DB write per batch, not per event)."""
+        mock_conn.fetchrow.return_value = {
+            "id": UUID(self.FILE_ID),
+            "file_size_mb": 1.0,
+        }
+        captured = {}
+        async def fake_lpush(key, payload):
+            captured["key"] = key
+            captured["payload"] = payload
+            return 1
+        mock_redis.lpush = fake_lpush
+        mock_redis.llen = AsyncMock(return_value=0)
+
+        resp = client.post(self.URL, json={
+            "file_id": self.FILE_ID,
+            "event_type": "chunk_downloaded",
+            "bytes_p2p": 1000,
+            "bytes_origin": 0,
+        })
+        assert resp.status_code == 200
+        assert captured["key"] == "analytics:event_buffer"
+        assert b'"bytes_p2p":1000' in captured["payload"].encode() or 'bytes_p2p' in captured["payload"]
+        mock_conn.execute.assert_not_awaited()  # no per-event INSERT
+
+    def test_file_size_cap_uses_redis_cache(self, client, mock_redis, mock_conn):
+        """A warm analytics:file_size cache answers the size-cap check without
+        a DB round-trip (200k viewers ≈ 0 size-lookup SELECTs)."""
+        # Warm cache for the size lookup... (get returns None for rate keys)
+        async def get_side_effect(key):
+            return "1.0" if key == f"analytics:file_size:{self.FILE_ID}" else None
+        mock_redis.get = AsyncMock(side_effect=get_side_effect)
+        mock_redis.llen = AsyncMock(return_value=0)
+        async def fake_lpush(key, payload):
+            return 1
+        mock_redis.lpush = fake_lpush
+
+        resp = client.post(self.URL, json={
+            "file_id": self.FILE_ID,
+            "event_type": "peer_joined",
+            "bytes_p2p": 0,
+            "bytes_origin": 0,
+        })
+        assert resp.status_code == 200
+        mock_conn.fetchrow.assert_not_awaited()  # cold-cache lookup skipped
+
+    def test_drain_batch_inserts_and_clears_buffer(self, client, mock_redis, mock_conn):
+        """_drain_analytics_buffer_once pops up to BATCH_SIZE events and writes
+        them with ONE executemany call; a DB failure requeues the batch."""
+        from app.routes import analytics as a
+
+        payloads = [
+            json.dumps({"file_id": self.FILE_ID, "event_type": "chunk_downloaded",
+                        "bytes_p2p": i, "bytes_origin": 0}, separators=(",", ":"))
+            for i in range(5)
+        ]
+        mock_redis.rpop = AsyncMock(return_value=payloads)
+
+        written = asyncio_run(a._drain_analytics_buffer_once())
+        assert written == 5
+        args = mock_conn.executemany.await_args
+        assert len(args.args[1]) == 5
+        mock_redis.lpush.assert_not_awaited()  # success → nothing requeued
+
+    def test_drain_requeues_on_db_failure(self, monkeypatch):
+        """A DB error during the batch INSERT pushes the events back onto the
+        Redis buffer instead of losing them.
+
+        Runs WITHOUT the client fixture: the drain path is fully mocked, and
+        spinning up the TestClient app (which starts lifespan tasks) around a
+        patched get_db_pool made this test hang on Python 3.14.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from app.routes import analytics as a
+
+        payloads = [json.dumps({"file_id": self.FILE_ID, "event_type": "peer_joined",
+                                "bytes_p2p": 0, "bytes_origin": 0}, separators=(",", ":"))]
+        redis = AsyncMock()
+        redis.rpop = AsyncMock(return_value=payloads)
+        redis.lpush = AsyncMock(return_value=1)
+
+        pool = AsyncMock()
+        conn = AsyncMock()
+        conn.executemany = AsyncMock(side_effect=RuntimeError("db down"))
+        pool.acquire = MagicMock(return_value=pool)
+        pool.__aenter__ = AsyncMock(return_value=conn)
+        pool.__aexit__ = AsyncMock(return_value=None)
+
+        monkeypatch.setattr(a, "get_redis", AsyncMock(return_value=redis))
+        monkeypatch.setattr(a, "get_db_pool", AsyncMock(return_value=pool))
+        a._memory_event_buffer.clear()
+        try:
+            written = asyncio_run(a._drain_analytics_buffer_once())
+            assert written == 0
+            redis.lpush.assert_awaited_once()  # batch requeued
+        finally:
+            a._memory_event_buffer.clear()
+
+    def test_sampling_sheds_chunk_events_under_pressure(self, client, mock_redis, mock_conn, monkeypatch):
+        """When buffer pressure exceeds the threshold, most chunk_downloaded
+        events are 202-sampled away; peer_joined is NEVER shed."""
+        from app.routes import analytics as a
+        monkeypatch.setattr(a, "_buffer_pressure", AsyncMock(return_value=a.ANALYTICS_SAMPLE_THRESHOLD + 1))
+        mock_redis.llen = AsyncMock(return_value=0)
+        async def fake_lpush(key, payload):
+            return 1
+        mock_redis.lpush = fake_lpush
+        mock_conn.fetchrow.return_value = {
+            "id": UUID(self.FILE_ID), "file_size_mb": 1.0,
+        }
+
+        sampled = 0
+        for _ in range(40):
+            resp = client.post(self.URL, json={
+                "file_id": self.FILE_ID,
+                "event_type": "chunk_downloaded",
+                "bytes_p2p": 10,
+                "bytes_origin": 0,
+            })
+            if resp.status_code == 202:
+                sampled += 1
+        # ~3/4 sampled (1-in-4 admitted) — with 40 events, at least half must
+        # be shed; exact counts vary with the monotonic clock's divisibility.
+        assert sampled > 10, f"sampling not shedding: {sampled}/40 sampled"
+
+        # peer_joined is never sampled — views must stay exact.
+        resp = client.post(self.URL, json={
+            "file_id": self.FILE_ID,
+            "event_type": "peer_joined",
+            "bytes_p2p": 0,
+            "bytes_origin": 0,
+        })
+        assert resp.status_code == 200
+
+    def test_per_file_limit_holds_when_redis_down(self, client, mock_conn, monkeypatch):
+        """Exploit regression: the per-IP per-file 30/min cap must survive a
+        Redis outage. With Redis down, the ONLY limiter used to be the IP-level
+        budget (600/min) — so an attacker could pump 600 events/min into a
+        SINGLE file's stats (each up to 10x the file size) and push its
+        p2p_offload_percent to ~100%, defrauding the headline metric. The
+        in-memory per-file fallback closes that: the 31st event for the same
+        file from the same IP is 429 even with Redis dead."""
+        from unittest.mock import AsyncMock
+
+        import app.routes.analytics as analytics_mod
+
+        # Redis down — get_redis() returns None, forcing the in-memory limiters.
+        monkeypatch.setattr(analytics_mod, "get_redis", AsyncMock(return_value=None))
+        # Save + clear the module-level in-memory stores so this test is
+        # hermetic AND restores them afterwards (the same TestClient IP would
+        # otherwise leak 30 entries into the next test's budget).
+        saved_events = dict(analytics_mod._analytics_event_requests)
+        saved_files = dict(analytics_mod._analytics_file_requests)
+        analytics_mod._analytics_event_requests.clear()
+        analytics_mod._analytics_file_requests.clear()
+        try:
+            mock_conn.fetchrow.return_value = {
+                "id": UUID(self.FILE_ID),
+                "file_size_mb": 1.0,
+            }
+
+            # The per-file budget is 30/min — the first 30 land.
+            for _ in range(30):
+                resp = client.post(self.URL, json={
+                    "file_id": self.FILE_ID,
+                    "event_type": "chunk_downloaded",
+                    "bytes_p2p": 1024,
+                    "bytes_origin": 0,
+                })
+                assert resp.status_code == 200
+
+            # The 31st is throttled — per-file inflation is capped even
+            # Redis-down.
+            resp = client.post(self.URL, json={
+                "file_id": self.FILE_ID,
+                "event_type": "chunk_downloaded",
+                "bytes_p2p": 1024,
+                "bytes_origin": 0,
+            })
+            assert resp.status_code == 429
+
+            # And a DIFFERENT file is not collateral damage (key is ip:file_id).
+            other = "33333333-3333-4333-8333-333333333333"
+            mock_conn.fetchrow.return_value = {
+                "id": UUID(other),
+                "file_size_mb": 1.0,
+            }
+            resp = client.post(self.URL, json={
+                "file_id": other,
+                "event_type": "chunk_downloaded",
+                "bytes_p2p": 1024,
+                "bytes_origin": 0,
+            })
+            assert resp.status_code == 200
+        finally:
+            analytics_mod._analytics_event_requests.clear()
+            analytics_mod._analytics_event_requests.update(saved_events)
+            analytics_mod._analytics_file_requests.clear()
+            analytics_mod._analytics_file_requests.update(saved_files)

@@ -147,7 +147,18 @@ class TestGetPublicFile:
         mock_redis.get.side_effect = get_side_effect
         resp = client.get(f"{self.PUBLIC_URL}/{FILE_ID}")
         assert resp.status_code == 200
-        assert resp.json() == payload
+        served = resp.json()
+        # Read-time webseed annotation: a legacy cached magnet (no ws=) gains
+        # the origin webseed on serve. The infohash is untouched (ws= is not
+        # part of the info dict) so the swarm never forks.
+        expected = dict(payload)
+        expected["magnet_link"] = payload["magnet_link"] + "&ws=" + __import__(
+            "urllib.parse", fromlist=["quote"]
+        ).quote(payload["minio_url"], safe="")
+        assert served == expected
+        # Shared-cache header: the public viewer hot path may be served by the
+        # edge/CDN (short TTL, immutable payload).
+        assert resp.headers["cache-control"].startswith("public, max-age=")
         mock_conn.fetchrow.assert_not_called()
 
     def test_get_public_file_populates_redis_cache_on_miss(self, client, mock_conn, mock_redis):
