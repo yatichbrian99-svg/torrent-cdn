@@ -111,13 +111,18 @@ async def _aggregate_file_analytics(conn, file_id: UUID) -> dict:
         """SELECT
                COUNT(*) FILTER (WHERE event_type = 'peer_joined') as total_views,
                COUNT(*) FILTER (WHERE event_type = 'peer_left') as total_leaves,
-               COALESCE(SUM(bytes_p2p), 0) as total_p2p,
-               COALESCE(SUM(bytes_origin), 0) as total_origin
+               -- Postgres SUM(bigint) returns numeric, which asyncpg maps to
+               -- Decimal — Decimal poisons every derived value below (round()
+               -- keeps the type) and is not JSON-serializable by json.dumps,
+               -- which 500'd the public JSONResponse endpoint. Cast back to
+               -- bigint so the boundary types are plain ints.
+               COALESCE(SUM(bytes_p2p), 0)::bigint as total_p2p,
+               COALESCE(SUM(bytes_origin), 0)::bigint as total_origin
            FROM analytics WHERE file_id = $1""",
         file_id,
     )
 
-    total_bytes = (result["total_p2p"] or 0) + (result["total_origin"] or 0)
+    total_bytes = int((result["total_p2p"] or 0) + (result["total_origin"] or 0))
     p2p_offload_percent = 0
     bandwidth_saved_gb = 0
     if total_bytes > 0:
@@ -127,16 +132,20 @@ async def _aggregate_file_analytics(conn, file_id: UUID) -> dict:
     active_peers = (result["total_views"] or 0) - (result["total_leaves"] or 0)
     active_peers = max(active_peers, 0)
 
+    # Boundary contract: every value leaving this function must be a plain
+    # JSON number. This is the aggregate that the PUBLIC endpoint caches with
+    # json.dumps and serves via raw JSONResponse (no FastAPI encoder pass),
+    # so a single Decimal leaking through here 500s every embed stats poll.
     return {
-        "total_views": result["total_views"] or 0,
-        "p2p_offload_percent": round(p2p_offload_percent, 1),
-        "bandwidth_saved_gb": round(bandwidth_saved_gb, 3),
-        "active_peers": active_peers,
+        "total_views": int(result["total_views"] or 0),
+        "p2p_offload_percent": round(float(p2p_offload_percent), 1),
+        "bandwidth_saved_gb": round(float(bandwidth_saved_gb), 3),
+        "active_peers": int(active_peers),
         # Absolute byte volumes (GB) so consumers can compute costs directly
         # even when offload is 0% (origin-only traffic) — the percentage alone
         # cannot reconstruct the total once P2P shares hit zero.
         "total_gb": round(total_bytes / (1024 * 1024 * 1024), 3),
-        "origin_gb": round((result["total_origin"] or 0) / (1024 * 1024 * 1024), 3),
+        "origin_gb": round(float(result["total_origin"] or 0) / (1024 * 1024 * 1024), 3),
     }
 
 

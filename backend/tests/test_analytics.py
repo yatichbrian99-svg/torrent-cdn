@@ -7,6 +7,7 @@ contract (buffered batch writes, size-cap cache, load-shedding sampling).
 import asyncio
 import json
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from unittest.mock import AsyncMock
 from uuid import UUID
 
@@ -142,6 +143,46 @@ class TestPublicAnalytics:
         # user id — the public route has no owner concept.
         sql = mock_conn.fetchrow.call_args_list[0].args[0]
         assert "user_id" not in sql
+
+    def test_decimal_aggregates_serialize_to_json(self, client, mock_conn):
+        """PROD REGRESSION: Postgres SUM(bigint) returns numeric, which asyncpg
+        maps to Decimal. The public endpoint serves the aggregate via raw
+        JSONResponse + json.dumps (no FastAPI encoder pass), so a Decimal
+        reaching it 500'd EVERY public analytics request in production. The
+        mocks here previously used plain ints and hid the bug. Assert the
+        boundary contract: the payload is served 200 with pure JSON types."""
+        mock_conn.fetchrow.side_effect = [
+            {"id": self.FILE_ID},
+            {
+                "total_views": Decimal("4"),
+                "total_leaves": Decimal("1"),
+                "total_p2p": Decimal("536870912"),  # 0.5 GiB
+                "total_origin": Decimal("536870912"),
+            },
+        ]
+        resp = client.get(self.URL)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        # No Decimal leakage: json.dumps would have raised before this point,
+        # but assert the types explicitly so a future refactor fails here.
+        assert isinstance(data["total_views"], int)
+        assert isinstance(data["active_peers"], int)
+        assert isinstance(data["bandwidth_saved_gb"], float)
+        assert isinstance(data["total_gb"], float)
+        assert data["total_views"] == 4
+        assert data["active_peers"] == 3
+        assert data["bandwidth_saved_gb"] == 0.5
+
+    def test_aggregate_sql_casts_sum_to_bigint(self, client, mock_conn):
+        """The source fix: SUM() must be cast to ::bigint so Decimal never
+        enters the Python layer (asyncpg maps numeric → Decimal)."""
+        mock_conn.fetchrow.side_effect = [
+            {"id": self.FILE_ID},
+            {"total_views": 0, "total_leaves": 0, "total_p2p": 0, "total_origin": 0},
+        ]
+        client.get(self.URL)
+        agg_sql = mock_conn.fetchrow.call_args_list[1].args[0]
+        assert "::bigint" in agg_sql
 
 
 class TestAnalyticsEventValidation:

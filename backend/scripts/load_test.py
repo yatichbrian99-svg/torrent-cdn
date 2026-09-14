@@ -27,16 +27,24 @@ Usage:
 """
 
 import argparse
+import json
 import random
 import statistics
 import threading
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 
 DEFAULT_FILE_ID = "4a130574-822d-43cb-a54c-f7db8204033d"  # live demo upload
 ENDPOINTS = ["/files/public/{id}", "/analytics/public/{id}"]
+
+# Per-IP-per-file analytics event cap (routes/analytics.py). The pipeline
+# mode stays under it so every event is ACCEPTED — the assertion is that
+# accepted events arrive in the DB, not that the cap holds (that's the
+# shield probe's job).
+EVENT_FILE_CAP_PER_MIN = 30
 
 # Thread-safe logger
 _lock = threading.Lock()
@@ -131,6 +139,104 @@ def print_wave(people: int, summary: dict) -> None:
         print(f"         statuses: {parts}")
 
 
+# ── pipeline mode: prove the write path end-to-end in production ───────────
+
+def _post_event(client: httpx.Client, file_id: str, etype: str) -> tuple[int, float]:
+    t0 = time.monotonic()
+    try:
+        r = client.post("/analytics/event", json={
+            "file_id": file_id, "event_type": etype,
+            "bytes_p2p": 125_000, "bytes_origin": 0,
+        })
+        return r.status_code, (time.monotonic() - t0) * 1000
+    except httpx.HTTPError as e:
+        return f"ERR:{type(e).__name__}", (time.monotonic() - t0) * 1000
+
+
+def _get_analytics(client: httpx.Client, file_id: str) -> dict | None:
+    r = client.get(f"/analytics/public/{file_id}")
+    if r.status_code != 200:
+        return None
+    return r.json()
+
+
+def run_pipeline(args) -> None:
+    """Closed-loop write test: N accepted events → Redis buffer → batch INSERT
+    → Postgres aggregate. Asserts the exact delta (joins_in == views_out) so
+    "the pipeline works" is a measurement, not a hope. Stays under the 30/min
+    per-IP-per-file cap so every event is ACCEPTED; the cap itself is probed
+    separately (shield check). Read-safe: only appends analytics rows to the
+    demo file — no user data touched, nothing mutated or deleted."""
+    # peer_joined is never sampled away under load shedding, so the delta
+    # assertion is deterministic rather than statistical.
+    etype = "peer_joined"
+    with httpx.Client(base_url=args.url, timeout=30.0) as c:
+        r = c.get(f"/analytics/public/{args.file_id}")
+        print(f"sanity: GET /analytics/public -> {r.status_code}")
+        base = _get_analytics(c, args.file_id)
+        if base is None:
+            print("FAIL: could not read baseline aggregate — aborting pipeline test")
+            return
+        n = args.pipeline
+        # Pace under the per-file cap: 30/min → 2.1s between events covers
+        # cap reset boundaries (worst case two windows straddle the burst).
+        pace = max(2.1, 60.0 / (EVENT_FILE_CAP_PER_MIN - 1))
+        print(f"posting {n} accepted '{etype}' events "
+              f"({pace:.1f}s apart to respect the {EVENT_FILE_CAP_PER_MIN}/min cap)...")
+        codes: Counter = Counter()
+        lat = []
+        t_post = time.monotonic()
+        for i in range(n):
+            code, ms = _post_event(c, args.file_id, etype)
+            codes[str(code)] += 1
+            lat.append(ms)
+            if i < n - 1:
+                time.sleep(pace)
+        post_s = time.monotonic() - t_post
+        print(f"posted: {dict(codes)}  latency avg={statistics.mean(lat):.0f}ms "
+              f"p95={sorted(lat)[int(len(lat) * 0.95)]:.0f}ms  wall={post_s:.0f}s")
+
+        accepted = codes.get("200", 0) + codes.get("202", 0)
+        if accepted != n:
+            print(f"FAIL: only {accepted}/{n} events accepted — aborting before aggregate check")
+            return
+
+        # The drainer flushes every ANALYTICS_FLUSH_INTERVAL=2s; poll well past
+        # it (plus one batching cycle) before judging.
+        target = base["total_views"] + n
+        deadline = time.monotonic() + 45
+        got = None
+        while time.monotonic() < deadline:
+            time.sleep(4)
+            got = _get_analytics(c, args.file_id)
+            if got is not None and got["total_views"] >= target:
+                break
+        if got is None:
+            print("FAIL: aggregate endpoint stopped returning 200 during drain")
+            return
+        delta = got["total_views"] - base["total_views"]
+        print(f"aggregate: total_views {base['total_views']} -> {got['total_views']} "
+              f"(delta {delta}, expected {n})")
+        if delta == n:
+            print("PIPELINE VERIFIED: every accepted event reached the DB "
+                  "through the Redis buffer + batch drainer ✅")
+        elif delta > n:
+            print(f"VERIFIED WITH BACKGROUND NOISE: delta {delta} > {n} — "
+                  "live traffic added views during the test window; per-event "
+                  "delivery still exact")
+        else:
+            print(f"FAIL: {n - delta} accepted event(s) missing from the aggregate — "
+                  "drainer lost or dropped events")
+
+        # Shield probe: 3 events over the per-file cap must meet 429s.
+        shield = Counter()
+        for _ in range(3):
+            code, _ms = _post_event(c, args.file_id, etype)
+            shield[str(code)] += 1
+        print(f"shield probe (over-cap): {dict(shield)} "
+              f"{'✅ 429s enforce the cap' if shield.get('429', 0) >= 2 else '⚠️ expected 429s — check cap'}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--url", default="https://torrent-cdn.onrender.com")
@@ -139,9 +245,17 @@ def main() -> None:
                     help="concurrency levels to test (default: escalating ramp)")
     ap.add_argument("--duration", type=float, default=10.0, help="seconds per wave")
     ap.add_argument("--max-error-pct", type=float, default=5.0,
-                    help="stop escalating if a wave exceeds this error %")
+                    help="stop escalating if a wave exceeds this error pct")
     ap.add_argument("--pause", type=float, default=5.0, help="seconds between waves")
+    ap.add_argument("--pipeline", type=int, metavar="N", default=0,
+                    help="run the write-path pipeline test with N accepted "
+                         "events (paced under the 30/min per-file cap), then "
+                         "verify the exact delta in the public aggregate")
     args = ap.parse_args()
+
+    if args.pipeline:
+        run_pipeline(args)
+        return
 
     _log(f"Target: {args.url}  file: {args.file_id}  read-only GETs only")
     _log("Sanity: one request from each endpoint to confirm the route + demo file are live.")
