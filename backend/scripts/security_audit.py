@@ -116,12 +116,17 @@ r = client.options("/health", headers={
 check("Blocks unknown origin",
       r.headers.get("access-control-allow-origin", "") != "http://evil.com")
 
+# The correct production posture is that localhost is NOT allow-listed:
+# production never serves pages from localhost, so an entry would grant
+# credential-bearing cross-origin reads to anyone who discovers the direct
+# backend URL. main.py only appends localhost when APP_ENV != production, so
+# assert the deny (the old check asserted the opposite and failed in prod).
 r = client.options("/health", headers={
     "Origin": "http://localhost:3000",
     "Access-Control-Request-Method": "GET",
 })
-check("Allows localhost:3000",
-      r.headers.get("access-control-allow-origin") == "http://localhost:3000")
+check("Blocks localhost:3000 in production",
+      r.headers.get("access-control-allow-origin", "") != "http://localhost:3000")
 
 # ── 6. HTTP METHODS ──
 print("\n── HTTP Method Restrictions ──")
