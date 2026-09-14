@@ -35,7 +35,7 @@ vi.mock('../auth', () => ({
 
 // Importing the module registers the interceptors via the mocked axios.create,
 // and gives us the api client to test the login retry behavior.
-import api from '../api'
+import api, { isTransientError, retryOnTransient } from '../api'
 
 // The axios instance THIS import created. The production-routing describe below
 // re-imports the module (vi.resetModules) to flip NODE_ENV, which reassigns
@@ -121,6 +121,73 @@ describe('api client interceptors', () => {
       await expect(responseInterceptor.err(error)).rejects.toMatchObject(error)
       expect(mocks.removeToken).toHaveBeenCalledTimes(1)
       expect(window.location.href).toBe('/')
+    })
+  })
+
+  describe('transient-error helpers (page-load cold-start handling)', () => {
+    it('isTransientError: true for proxy 502/503/504 and no-response failures', () => {
+      expect(isTransientError({ response: { status: 502 } })).toBe(true)
+      expect(isTransientError({ response: { status: 503 } })).toBe(true)
+      expect(isTransientError({ response: { status: 504 } })).toBe(true)
+      // A real axios timeout/network error carries request + code.
+      expect(isTransientError({ code: 'ECONNABORTED', request: {} })).toBe(true)
+      expect(isTransientError({ code: 'ERR_NETWORK', request: {} })).toBe(true)
+    })
+
+    it('isTransientError: false for 4xx, app-level 500, and locally-thrown errors', () => {
+      // 401/403 are NOT transient — they mean dead session / not an admin and
+      // must keep driving the re-login / access-denied UI paths.
+      expect(isTransientError({ response: { status: 401 } })).toBe(false)
+      expect(isTransientError({ response: { status: 403 } })).toBe(false)
+      expect(isTransientError({ response: { status: 500 } })).toBe(false)
+      expect(isTransientError({ response: { status: 429 } })).toBe(false)
+      // A locally-thrown Error (e.g. a malformed-payload guard in a page) has
+      // neither request nor code — retrying it can never succeed.
+      expect(isTransientError(new Error('Malformed health payload'))).toBe(false)
+      expect(isTransientError(new Error('timeout of 45000ms exceeded'))).toBe(false)
+    })
+
+    it('retryOnTransient: retries a cold-start 502 and succeeds on the next attempt', async () => {
+      vi.useFakeTimers()
+      let calls = 0
+      const fn = vi.fn(async () => {
+        calls++
+        if (calls === 1) throw { response: { status: 502 } }
+        return { plan: 'pro' }
+      })
+
+      const promise = retryOnTransient(fn)
+      await vi.advanceTimersByTimeAsync(1000)
+      const result = await promise
+
+      expect(result).toEqual({ plan: 'pro' })
+      expect(fn).toHaveBeenCalledTimes(2)
+      vi.useRealTimers()
+    })
+
+    it('retryOnTransient: exhausts retries on repeated transients, then rejects', async () => {
+      vi.useFakeTimers()
+      const fn = vi.fn(async () => {
+        throw { response: { status: 503 } }
+      })
+
+      const promise = retryOnTransient(fn)
+      const assertion = expect(promise).rejects.toMatchObject({ response: { status: 503 } })
+      await vi.advanceTimersByTimeAsync(10000)
+      await assertion
+      // 1 initial + 2 retries
+      expect(fn).toHaveBeenCalledTimes(3)
+      vi.useRealTimers()
+    })
+
+    it('retryOnTransient: never retries a 403 (admin denial) or 401 (dead session)', async () => {
+      const fn403 = vi.fn(async () => { throw { response: { status: 403 } } })
+      await expect(retryOnTransient(fn403)).rejects.toMatchObject({ response: { status: 403 } })
+      expect(fn403).toHaveBeenCalledTimes(1)
+
+      const fn401 = vi.fn(async () => { throw { response: { status: 401 } } })
+      await expect(retryOnTransient(fn401)).rejects.toMatchObject({ response: { status: 401 } })
+      expect(fn401).toHaveBeenCalledTimes(1)
     })
   })
 

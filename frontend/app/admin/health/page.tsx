@@ -8,7 +8,7 @@ import {
   MinusCircle, Loader2, ArrowLeft, Eye,
 } from 'lucide-react'
 import { isLoggedIn } from '@/lib/auth'
-import api from '@/lib/api'
+import api, { isTransientError, retryOnTransient } from '@/lib/api'
 
 interface HealthPayload {
   generated_at: number
@@ -71,7 +71,10 @@ export default function AdminHealthPage() {
   const fetchHealth = useCallback(async (silent = false) => {
     if (!silent) setRefreshing(true)
     try {
-      const d = await api.getAdminHealth()
+      // Retry transient failures (Render cold start: 502/503/504 or timeout) —
+      // the silent auto-refresh already re-tries every 60s, but the initial
+      // load shouldn't depend on that interval.
+      const d = await retryOnTransient(() => api.getAdminHealth())
       // Defensive shape check: the same-origin proxy could return an HTML page
       // (e.g. a route shadow like /admin/health) or a proxy error body — never
       // feed a non-payload into the renderer (Object.values(html) would crash).
@@ -82,7 +85,11 @@ export default function AdminHealthPage() {
       setLastRefresh(new Date())
       setError('')
     } catch (err: any) {
+      // Only a real 403 means "not an admin" — a cold-start 502 previously
+      // rendered the same 'You need admin privileges…' denial on an admin
+      // account. Transient failures get their own honest message.
       if (err?.response?.status === 403) setError('Admin access required')
+      else if (isTransientError(err)) setError('Still connecting to the server — please try again in a moment.')
       else setError('Failed to load health data')
     } finally {
       setLoading(false)
@@ -92,7 +99,8 @@ export default function AdminHealthPage() {
 
   useEffect(() => {
     if (!isLoggedIn()) { router.push('/'); return }
-    api.getMe()
+    // A transient getMe() failure (cold start) must NOT bounce an admin home.
+    retryOnTransient(() => api.getMe(), 2, 1500)
       .then((me) => { if (!me?.is_admin) { router.push('/'); return } fetchHealth() })
       .catch(() => { router.push('/') })
   }, [router, fetchHealth])

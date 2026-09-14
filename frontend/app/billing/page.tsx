@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { CheckCircle, XCircle, Loader2 } from 'lucide-react'
 import { isLoggedIn } from '@/lib/auth'
-import api from '@/lib/api'
+import api, { isTransientError, retryOnTransient } from '@/lib/api'
 import UsageBar from '@/components/UsageBar'
 import PricingTable from '@/components/PricingTable'
 
@@ -15,16 +15,43 @@ function BillingContent() {
   const sp = useSearchParams()
   const [status, setStatus] = useState<BillingStatus | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const success = sp.get('success') === 'true'
   const canceled = sp.get('canceled') === 'true'
 
   useEffect(() => {
     if (!isLoggedIn()) { router.push('/'); return }
-    api.getBillingStatus().then(setStatus).catch(() => {}).finally(() => setLoading(false))
+    // Retry transient failures (Render cold start: 502/503/504 or timeout) and
+    // REMEMBER why the load failed — the old code swallowed the error, so a
+    // cold start rendered a dead-end 'Failed to load' with no explanation and
+    // no way to recover without a full page reload.
+    retryOnTransient(() => api.getBillingStatus())
+      .then((d) => { setStatus(d); setLoadError('') })
+      .catch((err: any) => {
+        setLoadError(
+          err?.response?.status === 401
+            ? 'Your session expired — please log in again.'
+            : isTransientError(err)
+              ? 'Still connecting to the server — please try again in a moment.'
+              : 'Could not load billing data. Please try again.'
+        )
+      })
+      .finally(() => setLoading(false))
   }, [router])
 
   if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 size={20} className="animate-spin" style={{ color: '#555' }} /></div>
-  if (!status) return <div className="flex min-h-[60vh] items-center justify-center"><p className="text-sm" style={{ color: '#555' }}>Failed to load</p></div>
+  if (!status) return (
+    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3">
+      <p className="text-sm" style={{ color: '#555' }}>{loadError || 'Failed to load'}</p>
+      <button
+        onClick={() => { setLoading(true); setLoadError(''); window.location.reload() }}
+        className="border px-4 py-2 text-xs font-bold uppercase tracking-widest text-white transition-colors hover:bg-white hover:text-black"
+        style={{ borderColor: '#333' }}
+      >
+        Retry
+      </button>
+    </div>
+  )
 
   return (
     <>

@@ -69,6 +69,38 @@ const isTransientUploadError = (err: any) => {
   return status === 502 || status === 503 || status === 504 || !err.response
 }
 
+// Public twin of isTransientUploadError for PAGE loads: Render's free tier
+// cold-starts after ~15min idle, and the FIRST request after idle dies as a
+// 502/503/504 at the Vercel proxy (or an axios timeout). Pages must treat that
+// as "retry", not "you don't have access" — the admin pages previously
+// rendered 'You need admin privileges…' for a cold-start 502 because only the
+// 403 status was special-cased.
+// "No response" only counts when the error came from an actual HTTP attempt
+// (axios network/timeout errors carry `request`, and abort errors carry
+// `code`) — a locally-thrown Error (e.g. a malformed-payload guard) has
+// neither and is NOT transient.
+export const isTransientError = (err: any) => {
+  const status = err?.response?.status
+  if (status === 502 || status === 503 || status === 504 || status === 529) return true
+  return !err.response && !!(err.request || err.code)
+}
+
+// Retry fn on transient failures with a fixed pause between attempts. Used by
+// page data loads (cold starts): a 1s + 3s backoff covers a Render wake-up
+// without making a genuinely broken page feel unresponsive.
+export const retryOnTransient = async (fn: () => Promise<any>, retries = 2, delayMs = 1000): Promise<any> => {
+  let lastErr: any
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn()
+    } catch (err: any) {
+      lastErr = err
+      if (!isTransientError(err) || attempt >= retries) throw err
+      await new Promise((resolve) => setTimeout(resolve, delayMs * (attempt + 1)))
+    }
+  }
+}
+
 const newIdempotencyKey = () =>
   typeof crypto !== 'undefined' && crypto.randomUUID
     ? crypto.randomUUID()

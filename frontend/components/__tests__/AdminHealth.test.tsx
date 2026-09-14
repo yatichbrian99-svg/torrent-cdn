@@ -12,6 +12,17 @@ vi.mock('@/lib/api', () => ({
     getMe: mocks.getMe,
     getAdminHealth: mocks.getAdminHealth,
   },
+  // The page wraps getMe()/getAdminHealth() in retryOnTransient — for tests,
+  // pass through to fn directly (all mocked successes/failures here are
+  // deterministic and non-transient).
+  retryOnTransient: (fn: () => any) => fn(),
+  isTransientError: (err: any) => {
+    // Mirror lib/api.ts: proxy 5xx, or a no-response axios error (request/code
+    // present). Locally-thrown Errors are NOT transient.
+    const status = err?.response?.status
+    if (status === 502 || status === 503 || status === 504 || status === 529) return true
+    return !err?.response && !!(err?.request || err?.code)
+  },
 }))
 vi.mock('@/lib/auth', () => ({
   isLoggedIn: vi.fn(() => true),

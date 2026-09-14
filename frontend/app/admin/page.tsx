@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { isLoggedIn } from '@/lib/auth'
-import api from '@/lib/api'
+import api, { isTransientError, retryOnTransient } from '@/lib/api'
 
 interface Analytics {
   total_users: number
@@ -69,18 +69,28 @@ export default function AdminPage() {
 
   const fetchData = useCallback(async (pageNum: number) => {
     try {
+      // Retry transient failures (Render cold start after idle: 502/503/504 or
+      // no response) — the free-tier backend wakes in a few seconds and a retry
+      // loads the page instead of an error.
       const [stats, data] = await Promise.all([
-        api.getAdminStats(),
-        api.getAdminUsers(pageNum),
+        retryOnTransient(() => api.getAdminStats()),
+        retryOnTransient(() => api.getAdminUsers(pageNum)),
       ])
       setAnalytics(stats)
       setUsers(data.users || [])
       setTotal(data.total || 0)
       setPages(data.pages || 1)
       setPage(data.page || 1)
+      setError('')
     } catch (err: any) {
+      // ONLY a real 403 means the account isn't an admin. Any other failure
+      // (cold-start 502, timeout, 500) must NOT render the 'You need admin
+      // privileges…' denial — that message on an actual admin account was the
+      // reported bug. The same transient gate applies to getMe() below.
       if (err?.response?.status === 403) {
         setError('Admin access required')
+      } else if (isTransientError(err)) {
+        setError('Still connecting to the server — please try again in a moment.')
       } else {
         setError('Failed to load admin data')
       }
@@ -91,8 +101,10 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!isLoggedIn()) { router.push('/'); return }
-    // Redirect non-admins to the homepage.
-    api.getMe()
+    // Redirect non-admins to the homepage. A transient failure of getMe()
+    // itself (cold start) must NOT bounce a logged-in admin home — retry,
+    // and only give up (treating it as a dead session) after retries exhaust.
+    retryOnTransient(() => api.getMe(), 2, 1500)
       .then((me) => { if (!me?.is_admin) { router.push('/'); return } fetchData(1) })
       .catch(() => { router.push('/') })
   }, [router, fetchData])

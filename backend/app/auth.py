@@ -26,6 +26,18 @@ security = HTTPBearer()
 # dashboard shows a truncated prefix instead of the secret.
 API_KEY_PREFIX = "tcdn_"
 
+# Clock-skew tolerance for the security_stamp vs token-iat comparison (see
+# _token_revoked_by_password_change). The stamp is written with the DATABASE
+# server's clock while iat is minted from the APP server's clock; managed
+# Postgres providers drift from app hosts by up to minutes, so a stamp can
+# legitimately read up to that drift AHEAD of a token minted AFTER the change.
+# Generous because the cost of a false "revoked" is a forced re-login (the
+# reported bug), while the cost of the slack is that a token minted <5min
+# before a change survives the DB-stamp check for that long — a window that
+# only opens when Redis (the fast path, same-host clock, no skew) is absent or
+# markerless, and that is itself bounded by the 24h token expiry.
+_STAMP_CLOCK_SKEW_SECS = 300
+
 
 def hash_api_key(token: str) -> str:
     """SHA-256 of the full tcdn_ token — the only form stored in the DB."""
@@ -277,7 +289,18 @@ async def _token_revoked_by_password_change(payload: dict) -> bool:
     try:
         stamp = await get_user_security_stamp(sub)
         if stamp is not None:
-            return int(stamp.timestamp()) > iat_secs
+            # The stamp carries the DATABASE server's clock (NOW()); iat carries
+            # the APP container's clock. On managed DBs (Supabase) the two
+            # clocks can drift by minutes. A DB clock AHEAD of the app clock
+            # made even freshly minted tokens (issued AFTER the change, iat >
+            # stamp in true time) look older than the stamp — every request
+            # 401'd "Session invalidated" and the user was bounced into an
+            # endless forced re-login (the exact "admin/billing pages
+            # intermittently force re-login" report: pages load fine after a
+            # manual re-login, then fail again as drift accumulates). Only a
+            # stamp more than the skew band AHEAD of iat proves the token is
+            # genuinely pre-change; drift inside the band is tolerated.
+            return int(stamp.timestamp()) > iat_secs + _STAMP_CLOCK_SKEW_SECS
     except Exception as e:
         logger.warning("security_stamp check failed for %s: %s", sub, e)
     return False

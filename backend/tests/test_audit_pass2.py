@@ -176,8 +176,9 @@ class TestRegisterRateLimit:
             auth_route._register_requests.update(saved)
 
     def test_register_below_limit_proceeds(self, client, mock_conn):
+        # H1 fix removed the pre-INSERT user lookup, so the only fetchrow is
+        # the INSERT's RETURNING row.
         mock_conn.fetchrow.side_effect = [
-            None,  # no existing user
             {"id": "11111111-1111-4111-8111-111111111111"},  # insert result
         ]
         resp = client.post(self.URL, json={
@@ -467,6 +468,66 @@ class TestSessionRevocationWithoutRedis:
         resp = client.get("/auth/me", headers={"Authorization": f"Bearer {fresh}"})
         assert resp.status_code == 200
 
+    def test_db_clock_drift_within_skew_band_token_accepted(self, client, mock_conn, monkeypatch):
+        """Regression (production bug): the DB security_stamp carries the DATABASE
+        server's clock (NOW()) while token iat carries the APP server's clock.
+        On a managed DB whose clock runs ahead of the app host, a freshly minted
+        token looked OLDER than the stamp and every request 401'd — the
+        intermittent 'forced re-login, then admin/billing pages fail' report.
+        A stamp within the skew band ahead of iat must NOT reject the token."""
+        from datetime import datetime
+
+        import jwt as pyjwt
+
+        import app.auth as auth_mod
+        from app.auth import _STAMP_CLOCK_SKEW_SECS
+        from app.config import get_settings
+
+        fresh = self._token()
+        payload = pyjwt.decode(fresh, get_settings().jwt_secret, algorithms=["HS256"])
+        monkeypatch.setattr(auth_mod, "get_redis", AsyncMock(return_value=None))
+        # DB clock ahead of the app clock by just under the skew band — this is
+        # the exact drift scenario that forced re-logins in production.
+        self._override_stamp(
+            monkeypatch,
+            datetime.fromtimestamp(
+                float(payload["iat"]) + _STAMP_CLOCK_SKEW_SECS - 60, tz=UTC
+            ),
+        )
+        mock_conn.fetchrow.return_value = {
+            "id": USER_ID, "email": "user@example.com", "plan": "free",
+            "verified": True, "is_admin": False, "created_at": "2026-01-01T00:00:00Z",
+        }
+
+        resp = client.get("/auth/me", headers={"Authorization": f"Bearer {fresh}"})
+        assert resp.status_code == 200
+
+    def test_stamp_older_than_iat_by_more_than_skew_still_rejects(self, client, monkeypatch):
+        """The skew band must not swallow genuine revocation: a token issued
+        MORE than the skew band BEFORE the stamp change is still rejected."""
+        from datetime import datetime
+
+        import jwt as pyjwt
+
+        import app.auth as auth_mod
+        from app.auth import _STAMP_CLOCK_SKEW_SECS
+        from app.config import get_settings
+
+        old_token = self._token()
+        payload = pyjwt.decode(old_token, get_settings().jwt_secret, algorithms=["HS256"])
+        monkeypatch.setattr(auth_mod, "get_redis", AsyncMock(return_value=None))
+        # Token issued a full day before the change — far outside the band.
+        self._override_stamp(
+            monkeypatch,
+            datetime.fromtimestamp(
+                float(payload["iat"]) + 86400, tz=UTC
+            ),
+        )
+
+        resp = client.get("/auth/me", headers={"Authorization": f"Bearer {old_token}"})
+        assert resp.status_code == 401
+        assert "Session invalidated" in resp.json()["detail"]
+
     def test_redis_up_but_markerless_newer_stamp_rejected(self, client, mock_redis, monkeypatch):
         """Redis UP but with no pw_change marker (restart/eviction window) must
         STILL fall through to the DB stamp — otherwise the authoritative check
@@ -727,8 +788,9 @@ class TestEmailNfcNormalization:
         """The INSERT must receive the NFC-normalized email."""
         from app.routes.auth import _normalize_email
 
+        # H1 fix removed the pre-INSERT user lookup, so the only fetchrow is
+        # the INSERT's RETURNING row (call_args_list[0], not [1]).
         mock_conn.fetchrow.side_effect = [
-            None,  # no existing user
             {"id": "11111111-1111-4111-8111-111111111111"},
         ]
         resp = client.post("/auth/register", json={
@@ -738,5 +800,5 @@ class TestEmailNfcNormalization:
         })
         assert resp.status_code == 200
         # The INSERT fetchrow has args (sql, user_uuid, email, password_hash, referral_code)
-        inserted_email = mock_conn.fetchrow.call_args_list[1].args[2]
+        inserted_email = mock_conn.fetchrow.call_args_list[0].args[2]
         assert inserted_email == _normalize_email("caf\u00e9@example.com")

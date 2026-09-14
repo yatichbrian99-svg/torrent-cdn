@@ -9,7 +9,7 @@ import {
   Phone,  User, FileText, Users, Activity, Ban,
 } from 'lucide-react'
 import { isLoggedIn } from '@/lib/auth'
-import api from '@/lib/api'
+import api, { isTransientError, retryOnTransient } from '@/lib/api'
 
 interface Recipient {
   recipient_code: string
@@ -91,18 +91,24 @@ export default function AdminPayoutsPage() {
 
   const load = useCallback(async () => {
     try {
+      // Retry transient failures (Render cold start: 502/503/504 or timeout).
       const [bal, rcps, pays] = await Promise.all([
         api.getPayoutBalance().catch(() => null), // balance is best-effort (Paystack may 502)
-        api.listPayoutRecipients(),
-        api.listPayouts(),
+        retryOnTransient(() => api.listPayoutRecipients()),
+        retryOnTransient(() => api.listPayouts()),
       ])
       setBalance(bal)
       setRecipients(rcps || [])
       setPayouts(pays || [])
+      setError('')
     } catch (err: any) {
+      // Only a real 403 means "not an admin" — a cold-start 502 previously
+      // rendered the 'You need admin privileges…' denial on an admin account.
       if (err?.response?.status === 403) {
         setAdminDenied(true)
         setError('Admin access required')
+      } else if (isTransientError(err)) {
+        setError('Still connecting to the server — please try again in a moment.')
       } else {
         setError(err?.response?.data?.detail || 'Failed to load payout data')
       }
@@ -113,7 +119,8 @@ export default function AdminPayoutsPage() {
 
   useEffect(() => {
     if (!isLoggedIn()) { router.push('/'); return }
-    api.getMe()
+    // A transient getMe() failure (cold start) must NOT bounce an admin home.
+    retryOnTransient(() => api.getMe(), 2, 1500)
       .then((me) => { if (!me?.is_admin) { router.push('/'); return } load() })
       .catch(() => { router.push('/') })
   }, [router, load])
