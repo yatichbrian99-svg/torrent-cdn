@@ -106,6 +106,8 @@ def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
     import app.routes.billing
     import app.routes.csp
     import app.routes.files
+    import app.routes.live
+    import app.routes.live_internal
     import app.routes.payouts
     import app.routes.upload
 
@@ -117,6 +119,8 @@ def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
     monkeypatch.setattr(app.routes.analytics, "get_db_pool", AsyncMock(return_value=mock_pool))
     monkeypatch.setattr(app.routes.admin, "get_db_pool", AsyncMock(return_value=mock_pool))
     monkeypatch.setattr(app.routes.payouts, "get_db_pool", AsyncMock(return_value=mock_pool))
+    monkeypatch.setattr(app.routes.live, "get_db_pool", AsyncMock(return_value=mock_pool))
+    monkeypatch.setattr(app.routes.live_internal, "get_db_pool", AsyncMock(return_value=mock_pool))
     # verification + notifications were NOT patched here — a module imported once
     # (app.main import) keeps the FIRST test's patched binding forever, so any
     # test exercising /auth/resend-verification or /notifications would read
@@ -133,6 +137,7 @@ def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
     monkeypatch.setattr(app.routes.csp, "get_redis", AsyncMock(return_value=mock_redis))
     monkeypatch.setattr(app.routes.upload, "get_redis", AsyncMock(return_value=mock_redis))
     monkeypatch.setattr(app.routes.files, "get_redis", AsyncMock(return_value=mock_redis))
+    monkeypatch.setattr(app.routes.live, "get_redis", AsyncMock(return_value=mock_redis))
 
     # app/auth.py's get_current_user_id now reads the pw_change revocation
     # marker via get_redis AND resolves tcdn_ API keys via get_db_pool — patch
@@ -169,6 +174,14 @@ def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
     monkeypatch.setattr(app.database, "get_db_pool", AsyncMock(return_value=mock_pool))
     monkeypatch.setattr(app.database, "get_redis", AsyncMock(return_value=mock_redis))
 
+    # Live modules: patch their database references too (live_state / mediamtx
+    # import get_redis at call time via .database, but routes/live.py and
+    # live_internal.py hold local bindings — patched above). The live monitor
+    # must NEVER run inside tests (it would touch real MediaMTX over HTTP).
+    import app.live_state as live_state
+    monkeypatch.setattr(live_state, "get_redis", AsyncMock(return_value=mock_redis))
+    monkeypatch.setattr(live_state, "start_live_monitor", lambda: None)
+
 
 @pytest.fixture(scope="function")
 def client():
@@ -176,6 +189,33 @@ def client():
     from app.main import app
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture(scope="function")
+def live_channel_row(test_user_id):
+    """A live_channels DB row as asyncpg would return it (dict-like)."""
+    from datetime import UTC, datetime
+    from uuid import uuid4
+    row = {
+        "id": uuid4(),
+        "tenant_id": test_user_id,
+        "owner_id": test_user_id,
+        "name": "Test Channel",
+        "slug": "test-channel",
+        "description": "A test channel",
+        "stream_key_hash": "a" * 64,
+        "stream_key_prefix": "live_abcd…",
+        "status": "OFFLINE",
+        "enabled": True,
+        "created_at": datetime.now(UTC),
+        "updated_at": datetime.now(UTC),
+        "last_seen_at": None,
+    }
+    # dict.get works for .get() accesses in routes; bracket access for fetchrow results
+    class _Row(dict):
+        def __getitem__(self, k):
+            return dict.__getitem__(self, k)
+    return _Row(row)
 
 
 @pytest.fixture(scope="function")

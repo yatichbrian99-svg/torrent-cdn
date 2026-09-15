@@ -301,6 +301,16 @@ api.interceptors.response.use(
 )
 
 export default {
+  // Raw axios passthroughs — used by newer clients (e.g. live) that need
+  // custom per-call Authorization headers (playback tokens) without touching
+  // the app session token. Standard verb names on the shared instance so
+  // interceptors (Bearer fallback, 401 handling) keep applying.
+  post: (url: string, data?: unknown, config?: object) => api.post(url, data, config),
+  get: (url: string, config?: object) => api.get(url, config),
+  patch: (url: string, data?: unknown, config?: object) => api.patch(url, data, config),
+  put: (url: string, data?: unknown, config?: object) => api.put(url, data, config),
+  delete: (url: string, config?: object) => api.delete(url, config),
+
   register: (email: string, password: string, termsAccepted: boolean = false, refCode?: string) =>
     api.post('/auth/register', { email, password, terms_accepted: termsAccepted, ref_code: refCode || undefined }).then((r) => r.data),
 

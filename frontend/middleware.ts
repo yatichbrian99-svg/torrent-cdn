@@ -86,6 +86,12 @@ export function middleware(request: NextRequest) {
     // never included in production.
     ...(isProduction ? [] : ['http://localhost:*']),
     'https://*.r2.dev',
+    // Live streaming (P2P segment swarms): the LIVE trackers must match the
+    // backend's live swarm announcement list (see lib/live/swarm.ts — same
+    // list as torrent_builder.PUBLIC_TRACKERS). A tracker missing here is
+    // silently blocked by CSP and live P2P never connects (playback still
+    // works via origin fallback, but offload stays 0). Reuses the VOD tracker
+    // entries above — this comment documents the live dependency.
   ]
 
   // NEXT_PUBLIC_API_URL is ONLY honored in local dev — lib/api.ts hardcodes the

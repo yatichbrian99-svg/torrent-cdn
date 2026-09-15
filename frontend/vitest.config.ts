@@ -22,10 +22,11 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['lib/**', 'components/**'],
-      // VideoPlayer is WebRTC/webtorrent glue — not meaningfully unit-testable
-      // in jsdom (covered by next build + the embed e2e). Everything else in
-      // lib/ and components/ counts, tested or not.
-      exclude: ['**/VideoPlayer.tsx'],
+      // VideoPlayer + LivePlayer are WebRTC/webtorrent/hls.js glue — not
+      // meaningfully unit-testable in jsdom (covered by next build + the e2e
+      // suites). Everything else in lib/ and components/ counts, tested or
+      // not — including the new lib/live/* P2P modules.
+      exclude: ['**/VideoPlayer.tsx', '**/LivePlayer.tsx'],
       reporter: ['text-summary'],
       // Thresholds = measured app-code baseline (v8 skips test files by
       // default, so these numbers exclude the spec files themselves). Raised

@@ -86,6 +86,7 @@ export default function Navbar() {
             {loggedIn && (
               <>
                 <a href="/dashboard" className="text-sm" style={{ color: '#555' }}>Dashboard</a>
+                <a href="/live" className="text-sm" style={{ color: '#555' }}>Live</a>
                 <a href="/billing" className="text-sm" style={{ color: '#555' }}>Billing</a>
                 {user?.is_admin && (
                   <a href="/admin" className="text-sm" style={{ color: '#555' }}>Admin</a>

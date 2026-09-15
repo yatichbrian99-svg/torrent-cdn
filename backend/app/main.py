@@ -18,6 +18,7 @@ import threading
 from .config import check_clock_skew, get_settings
 from .database import (
     API_KEYS_TABLE_DDL,
+    LIVE_TABLES_DDL,
     NOTIFICATIONS_TABLE_DDL,
     PAYOUTS_TABLE_DDL,
     USERS_TABLE_DDL,
@@ -32,6 +33,8 @@ from .routes import (
     billing,
     csp,
     files,
+    live,
+    live_internal,
     notifications,
     payouts,
     upload,
@@ -56,6 +59,8 @@ async def run_startup_migrations():
             await conn.execute(API_KEYS_TABLE_DDL)
             # Payout tables reference users — after users (idempotent on existing DBs).
             await conn.execute(PAYOUTS_TABLE_DDL)
+            # Live tables reference users — after users (idempotent on existing DBs).
+            await conn.execute(LIVE_TABLES_DDL)
             await conn.execute("""
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT FALSE;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;
@@ -131,6 +136,13 @@ async def lifespan(app: FastAPI):
     # DB write rate flat no matter how many concurrent viewers post events.
     from .routes.analytics import ensure_analytics_flusher
     ensure_analytics_flusher()
+    # Live state monitor: drives OFFLINE→STARTING→LIVE transitions from the
+    # actual MediaMTX/stream activity, expires stale peer/segment state, and
+    # rolls Redis live counters into durable live_analytics_events rows.
+    # Every tick isolates failures per channel — one broken channel must never
+    # crash the monitor (and never affect another channel's state).
+    from .live_state import start_live_monitor
+    start_live_monitor()
     yield
     # Shutdown
     if orphan_sweep_task is not None:
@@ -389,7 +401,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # dedicated limiters don't already cover.
         if (
             path == "/auth"
-            or path.startswith(("/auth/", "/upload/chunk/", "/analytics/public/", "/files/public/"))
+            or path.startswith((
+                "/auth/",
+                "/upload/chunk/",
+                "/analytics/public/",
+                "/files/public/",
+                # Live viewer hot path: the player fires a session join + a
+                # heartbeat + an availability report every ~5s per viewer, all
+                # gated by the route's own short-TTL token limiter. The global
+                # budget would double-count them exactly like /auth/*.
+                "/live/session",
+                "/live/heartbeat",
+                "/live/segment/availability",
+            ))
             or path == "/analytics/event"
         ):
             return await call_next(request)
@@ -556,6 +580,8 @@ app.include_router(csp.router)
 app.include_router(admin.router)
 app.include_router(verification.router)
 app.include_router(notifications.router)
+app.include_router(live.router)
+app.include_router(live_internal.router)
 
 
 SECURITY_TXT = """Contact: https://www.torrentcdn.store
@@ -570,6 +596,27 @@ Acknowledgments: https://github.com/yatichbrian99-svg/torrent-cdn
 async def health_check():
     # No service name here — keep the endpoint free of implementation fingerprinting.
     return {"status": "healthy"}
+
+
+@app.get("/api/health/live")
+async def live_health():
+    """Live pipeline health — the coarse status a monitoring probe needs.
+
+    Deliberately UNAUTHENTICATED but detail-free (same posture as /health):
+    exposes only the overall state machine booleans, never MediaMTX URLs,
+    keys, or internal topology. Component-level diagnostics live on the
+    admin health dashboard (which already reports Redis/DB checks).
+    """
+    from .live_state import get_live_monitor_health
+
+    h = get_live_monitor_health()
+    return {
+        "status": "healthy" if h.get("monitor_running") else "degraded",
+        "monitor_running": bool(h.get("monitor_running")),
+        "mediamtx_configured": bool(h.get("mediamtx_configured")),
+        "mediamtx_reachable": bool(h.get("mediamtx_reachable")),
+        "active_channels": int(h.get("active_channels") or 0),
+    }
 
 
 @app.get("/.well-known/security.txt", include_in_schema=False)

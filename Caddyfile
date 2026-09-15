@@ -9,6 +9,23 @@
         reverse_proxy backend:8000
     }
 
+    # ── Live HLS (same-origin playback for the P2P player) ──
+    # The player fetches the playlist + segments from the app's own origin,
+    # so no cross-origin CORS/CSP exceptions are needed. Live-specific cache
+    # behavior:
+    #   - index.m3u8: NEVER cached (the playlist rewrites itself every
+    #     segment; a stale cached playlist stalls every viewer at the live
+    #     edge). no-store on the proxy + MediaMTX's own no-cache headers.
+    #   - segments (.m4s/.ts) + init (.mp4): short shared cache equal to the
+    #     segment duration is safe (segment bytes are immutable once muxed).
+    # Caddy strips /hls/ and forwards the rest to MediaMTX's HLS server.
+    handle_path /hls/* {
+        @playlist path /index.m3u8 */index.m3u8
+        header @playlist Cache-Control "no-store, must-revalidate"
+        header Cache-Control "public, max-age=2"
+        reverse_proxy mediamtx:8888
+    }
+
     # ── Health check & CSP report ──
     # Proxy /health and /csp-report to backend (used by Docker dev)
     handle /health {
@@ -35,8 +52,9 @@
         # HSTS — 1 year, include subdomains, preload
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
 
-        # Block all Permissions-Policy at proxy level
-        Permissions-Policy "accelerometer=(), camera=(), display-capture=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        # Block all Permissions-Policy at proxy level, EXCEPT fullscreen +
+        # encrypted-media which the live/VOD players legitimately use.
+        Permissions-Policy "accelerometer=(), camera=(), display-capture=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=(), fullscreen=*, encrypted-media=*"
     }
 
     # ── Logs ──

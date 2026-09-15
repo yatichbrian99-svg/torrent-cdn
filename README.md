@@ -12,6 +12,7 @@ P2P-assisted video delivery: viewers become peers, so bandwidth costs drop as yo
 | Backend | FastAPI + SQLAlchemy + Redis + PostgreSQL | `backend/` |
 | Storage | S3-compatible (R2 / Supabase Storage), presigned URLs | — |
 | P2P | WebTorrent; magnet links via torrentool; embed SDK (`/sdk.js`) | `frontend/public/` |
+| Live | MediaMTX (RTMP→HLS) + per-segment WebTorrent swarms + hls.js player | `backend/app/routes/live.py`, `frontend/lib/live/`, `deploy/mediamtx/` |
 | Infra | Vercel (frontend), Render (API), Caddy, Docker Compose (local/CI) | root |
 
 ## Repo layout
@@ -19,9 +20,20 @@ P2P-assisted video delivery: viewers become peers, so bandwidth costs drop as yo
 ```
 frontend/   Next.js app (app router, components, lib/api + auth clients, vitest tests)
 backend/    FastAPI app (routes/, services/, security.py, scripts/ CI helpers)
+deploy/     MediaMTX config for live streaming (RTMP ingest → HLS)
+docs/       Feature guides — docs/live-streaming.md covers the live MVP
 .github/    CI workflow — tests + security audits on every push/PR (see below)
 SECURITY.md Security architecture, secrets hygiene, and deploy checklists
 ```
+
+## Live streaming (MVP)
+
+P2P-assisted **live** delivery on the same platform: OBS → RTMP → MediaMTX → HLS →
+TorrentCDN delivery layer → viewer peers with automatic origin fallback. Channel
+management, hashed stream keys, derived LIVE/OFFLINE status, live analytics with a
+measured P2P-offload metric, and a production hls.js player are included. See
+[docs/live-streaming.md](docs/live-streaming.md) for architecture, the quick start,
+OBS settings, verification steps, and deployment notes.
 
 ## Getting started (local dev)
 

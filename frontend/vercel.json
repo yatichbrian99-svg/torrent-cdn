@@ -50,6 +50,14 @@
     {
       "source": "/notifications/(.*)",
       "destination": "https://torrent-cdn.onrender.com/notifications/$1"
+    },
+    {
+      "source": "/live/(.*)",
+      "destination": "https://torrent-cdn.onrender.com/live/$1"
+    },
+    {
+      "source": "/live",
+      "destination": "https://torrent-cdn.onrender.com/live"
     }
   ]
 }

@@ -48,6 +48,37 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Live streaming: MediaMTX (RTMP ingest → HLS) ─────────────────────────
+  # Media is MediaMTX's job; the backend only integrates with it (auth hook,
+  # Control API status polling, playback URL minting). ALL MediaMTX HTTP
+  # surfaces are internal: HLS (8888) is fetched by the backend, and the
+  # Control API (9997) + metrics (9998) are loopback-only — NEVER publish
+  # them to the LAN/0.0.0.0. RTMP (1935) is the only client-facing port and
+  # is loopback-only in dev too (production terminates it at a TLS edge).
+  mediamtx:
+    image: bluenviron/mediamtx:1.11.3
+    restart: unless-stopped
+    environment:
+      # Auth hook → backend (internal network). The shared secret travels in
+      # the URL; MediaMTX → backend is container-to-container, never public.
+      MEDIAMTX_AUTH_URL: http://backend:8000/api/internal/mediamtx/auth?secret=${MEDIAMTX_HOOK_SECRET:?MEDIAMTX_HOOK_SECRET must be set}
+      MEDIAMTX_HLS_SEGMENT_DURATION: ${LIVE_HLS_SEGMENT_DURATION:-2s}
+      MEDIAMTX_HLS_PART_DURATION: ${LIVE_HLS_PART_DURATION:-700ms}
+      MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS: ${MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS:-localhost}
+    ports:
+      - "127.0.0.1:1935:1935"   # RTMP ingest (publishers)
+      - "127.0.0.1:8888:8888"   # HLS (fetched by backend + reverse proxy)
+      - "127.0.0.1:8889:8889"   # WebRTC (optional)
+      - "127.0.0.1:9997:9997"   # Control API (INTERNAL ONLY)
+      - "127.0.0.1:9998:9998"   # Metrics (INTERNAL ONLY)
+    volumes:
+      - ./deploy/mediamtx/mediamtx.yml:/mediamtx.yml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:9997/v3/paths/list >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   backend:
     build:
       context: ./backend
@@ -72,6 +103,14 @@ services:
       PAYSTACK_AMOUNT_BUSINESS: ${PAYSTACK_AMOUNT_BUSINESS:-1200000}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://frontend:3000}
       TRUSTED_HOSTS: ${TRUSTED_HOSTS:-localhost,127.0.0.1,frontend}
+      # ── Live streaming ──
+      MEDIAMTX_API_URL: ${MEDIAMTX_API_URL:-http://mediamtx:9997}
+      MEDIAMTX_RTMP_URL: ${MEDIAMTX_RTMP_URL:-rtmp://localhost:1935}
+      MEDIAMTX_HLS_URL: ${MEDIAMTX_HLS_URL:-http://localhost:8888}
+      MEDIAMTX_WEBRTC_URL: ${MEDIAMTX_WEBRTC_URL:-}
+      MEDIAMTX_HOOK_SECRET: ${MEDIAMTX_HOOK_SECRET:?MEDIAMTX_HOOK_SECRET must be set}
+      PLAYBACK_TOKEN_SECRET: ${PLAYBACK_TOKEN_SECRET:-}
+      PUBLIC_PLAYBACK_DOMAIN: ${PUBLIC_PLAYBACK_DOMAIN:-http://localhost:8888}
     # Loopback-only like the datastores: the API carries no TLS of its own in
     # the dev stack and Caddy is the only intended front door — never expose it
     # to the LAN/0.0.0.0.
@@ -83,6 +122,8 @@ services:
       redis:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      mediamtx:
         condition: service_healthy
     volumes:
       - ./backend:/app

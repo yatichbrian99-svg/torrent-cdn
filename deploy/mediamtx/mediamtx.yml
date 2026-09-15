@@ -1,0 +1,90 @@
+####################################################################
+# MediaMTX — reference configuration for the TorrentCDN live MVP
+#
+# MediaMTX owns ALL media: RTMP ingest, HLS muxing (LL-HLS compatible),
+# protocol conversion. TorrentCDN never implements RTMP/HLS itself.
+#
+# This file uses ${VAR} substitution: MediaMTX resolves environment
+# variables at startup (docker-compose.yml sets them from .env).
+#
+# SECURITY:
+#  - Control API (9997) and metrics (9998) are INTERNAL ONLY — never
+#    publish these ports to the internet (docker-compose binds them to
+#    127.0.0.1; production reverse proxies must not route them).
+#  - External auth: every publish/read is delegated to the TorrentCDN
+#    backend (authMethod: http). The URL carries a shared secret
+#    (MEDIAMTX_HOOK_SECRET) and is only resolvable on the internal
+#    network (http://backend:8000/...).
+#  - api/metrics/pprof actions are EXCLUDED from the external auth
+#    hook (authHTTPExclude) — they are protected by network isolation
+#    instead; do not expose the ports.
+####################################################################
+
+logLevel: info
+logDestinations: [stdout]
+
+# ── External authentication → TorrentCDN backend ────────────────────────────
+# The backend verifies the RTMP stream key (SHA-256 hash lookup per channel)
+# for action=publish and allows reads for enabled channels. $-variables are
+# substituted by MediaMTX at request time.
+authMethod: http
+authHTTPAddress: ${MEDIAMTX_AUTH_URL}
+authHTTPExclude:
+  # The Control API / metrics / pprof are internal-only (network isolation);
+  # they must never fan out to the backend on every poll.
+  - action: api
+  - action: metrics
+  - action: pprof
+
+# ── Control API (INTERNAL) ──────────────────────────────────────────────────
+# TorrentCDN polls this for channel status detection (is the path ready?).
+api: yes
+apiAddress: :9997
+# Optional HTTP Basic auth for the API itself; set MEDIAMTX_API_USER/PASS and
+# configure the same values in the backend env.
+apiEncryption: no
+
+# ── Metrics (INTERNAL, Prometheus) ──────────────────────────────────────────
+metrics: yes
+metricsAddress: :9998
+
+# ── RTMP ingest (publishers: OBS, ffmpeg, …) ────────────────────────────────
+rtmp: yes
+rtmpAddress: :1935
+# Observers are not allowed to publish; auth hook handles per-path checks.
+rtmpEncryption: no
+rtmpSPSManager: no
+
+# ── RTSP / SRT: disabled (not used by the MVP) ──────────────────────────────
+rtsp: no
+srt: no
+
+# ── HLS output (LL-HLS compatible; ~2s segments per the MVP target) ─────────
+hls: yes
+hlsAddress: :8888
+# lowLatency variant keeps the architecture LL-HLS ready; segment duration is
+# the MVP's ~2s target. Part duration must divide the segment duration.
+hlsVariant: lowLatency
+hlsSegmentDuration: ${MEDIAMTX_HLS_SEGMENT_DURATION}
+hlsPartDuration: ${MEDIAMTX_HLS_PART_DURATION}
+hlsSegmentCount: 7
+# Serve the playlist with no-cache; MediaMTX handles this internally, but the
+# public reverse proxy must ALSO not cache index.m3u8 (see Caddyfile).
+hlsEncryption: no
+# Allow origin (our reverse proxy) to fetch anything under /<path>/…
+hlsAllowOrigin: "*"
+hlsTrustedProxies: "*"
+# Direct playback from the HLS port stays behind the reverse proxy; viewers
+# never hit 8888 directly in production.
+hlsDirectory: ""
+
+# ── WebRTC (optional viewer transport; default on for future use) ───────────
+webrtc: yes
+webrtcAddress: :8889
+webrtcAdditionalHosts: ${MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS}
+
+# ── Paths: created dynamically by publishers (OBS stream key = path) ────────
+# TorrentCDN's auth hook maps every publish/read on any path to a live channel
+# (path == channel slug). No per-channel configuration is needed here.
+paths:
+  all_others:

@@ -120,6 +120,71 @@ CREATE INDEX IF NOT EXISTS idx_payouts_created_at ON payouts(created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payouts_reference ON payouts(reference) WHERE reference IS NOT NULL;
 """
 
+# ── Live streaming schema ────────────────────────────────────────────────────
+#
+# Live channels + durable analytics. EPHEMERAL live state (active viewers,
+# peers, heartbeats, per-segment availability) intentionally does NOT live
+# here — it is Redis-first with TTLs (see app/live_state.py); Postgres holds
+# configuration, key hashes, and historical analytics only.
+#
+# tenant_id: multi-tenant ready. The current deployment is single-tenant (the
+# operator's account); every channel stores the owner's user id as tenant_id
+# and queries scope by it, so one tenant can never touch another's channels.
+# viewer-side session rows are keyed by opaque client session ids (no PII —
+# never store IP addresses here; the privacy model forbids it).
+LIVE_TABLES_DDL = """
+CREATE TABLE IF NOT EXISTS live_channels (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(120) NOT NULL,
+    slug VARCHAR(64) NOT NULL,
+    description VARCHAR(500),
+    stream_key_hash TEXT NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'OFFLINE',
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_seen_at TIMESTAMP WITH TIME ZONE,
+    UNIQUE(tenant_id, slug)
+);
+CREATE INDEX IF NOT EXISTS idx_live_channels_tenant ON live_channels(tenant_id);
+
+CREATE TABLE IF NOT EXISTS live_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    channel_id UUID NOT NULL REFERENCES live_channels(id) ON DELETE CASCADE,
+    session_id VARCHAR(128) NOT NULL,
+    peer_id VARCHAR(128),
+    started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    ended_at TIMESTAMP WITH TIME ZONE,
+    last_heartbeat TIMESTAMP WITH TIME ZONE,
+    user_agent VARCHAR(300),
+    region VARCHAR(64),
+    UNIQUE(channel_id, session_id)
+);
+CREATE INDEX IF NOT EXISTS idx_live_sessions_channel ON live_sessions(channel_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS live_analytics_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    channel_id UUID NOT NULL REFERENCES live_channels(id) ON DELETE CASCADE,
+    started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    duration_seconds FLOAT NOT NULL DEFAULT 0,
+    peak_viewers INTEGER NOT NULL DEFAULT 0,
+    peak_peers INTEGER NOT NULL DEFAULT 0,
+    bytes_p2p BIGINT NOT NULL DEFAULT 0,
+    bytes_origin BIGINT NOT NULL DEFAULT 0,
+    segments_served INTEGER NOT NULL DEFAULT 0,
+    segments_failed INTEGER NOT NULL DEFAULT 0,
+    buffering_events BIGINT NOT NULL DEFAULT 0,
+    playback_errors BIGINT NOT NULL DEFAULT 0,
+    avg_startup_ms INTEGER NOT NULL DEFAULT 0,
+    origin_offline_seconds FLOAT NOT NULL DEFAULT 0,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_live_analytics_channel ON live_analytics_events(channel_id, created_at DESC);
+"""
+
 # Connection pools
 pg_pool: asyncpg.Pool | None = None
 redis_client: Redis | None = None
