@@ -2,6 +2,14 @@
 # For local dev: SITE_ADDR=http://localhost (default, plain HTTP, no redirect)
 # For production: SITE_ADDR=example.com (no scheme = Caddy auto-HTTPS)
 {$SITE_ADDR:-http://localhost} {
+    # ── Live API (prefix-PRESERVING) ──
+    # Backend live routes are mounted at /api/live/* (the frontend serves real
+    # pages under /live, so the backend must NOT be at a bare /live prefix).
+    # handle_path strips /api/*, so this dedicated handle keeps the full path.
+    handle /api/live/* {
+        reverse_proxy backend:8000
+    }
+
     # ── API proxy ──
     # Strips /api prefix before forwarding to backend
     # e.g. /api/auth/register → /auth/register

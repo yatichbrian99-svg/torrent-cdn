@@ -8,6 +8,10 @@
   },
   "rewrites": [
     {
+      "source": "/api/live/:path*",
+      "destination": "https://torrent-cdn.onrender.com/api/live/:path*"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "https://torrent-cdn.onrender.com/$1"
     },
@@ -50,14 +54,6 @@
     {
       "source": "/notifications/(.*)",
       "destination": "https://torrent-cdn.onrender.com/notifications/$1"
-    },
-    {
-      "source": "/live/(.*)",
-      "destination": "https://torrent-cdn.onrender.com/live/$1"
-    },
-    {
-      "source": "/live",
-      "destination": "https://torrent-cdn.onrender.com/live"
     }
   ]
 }

@@ -137,38 +137,38 @@ export { isSafeHttpsUrl }
 
 export const liveApi = {
   createChannel: (name: string, description?: string) =>
-    api.post('/live/channels', { name, description: description || undefined }).then((r) => r.data),
+    api.post('/api/live/channels', { name, description: description || undefined }).then((r) => r.data),
 
   listChannels: (): Promise<LiveChannel[]> =>
-    api.get('/live/channels').then((r) => r.data),
+    api.get('/api/live/channels').then((r) => r.data),
 
   getChannel: (id: string): Promise<LiveChannel> =>
-    api.get(`/live/channels/${id}`).then((r) => r.data),
+    api.get(`/api/live/channels/${id}`).then((r) => r.data),
 
   updateChannel: (id: string, data: { name?: string; description?: string }) =>
-    api.patch(`/live/channels/${id}`, data).then((r) => r.data),
+    api.patch(`/api/live/channels/${id}`, data).then((r) => r.data),
 
   deleteChannel: (id: string) =>
-    api.delete(`/live/channels/${id}`).then((r) => r.data),
+    api.delete(`/api/live/channels/${id}`).then((r) => r.data),
 
   enableChannel: (id: string) =>
-    api.post(`/live/channels/${id}/enable`).then((r) => r.data),
+    api.post(`/api/live/channels/${id}/enable`).then((r) => r.data),
 
   disableChannel: (id: string) =>
-    api.post(`/live/channels/${id}/disable`).then((r) => r.data),
+    api.post(`/api/live/channels/${id}/disable`).then((r) => r.data),
 
   // Returns the plaintext stream key exactly once — never store or log it.
   rotateKey: (id: string): Promise<{ channel_id: string; stream_key: string; stream_key_prefix: string }> =>
-    api.post(`/live/channels/${id}/rotate-key`).then((r) => r.data),
+    api.post(`/api/live/channels/${id}/rotate-key`).then((r) => r.data),
 
   getStatus: (id: string): Promise<LiveStatus> =>
-    api.get(`/live/channels/${id}/status`).then((r) => r.data),
+    api.get(`/api/live/channels/${id}/status`).then((r) => r.data),
 
   getAnalytics: (id: string, hours = 24): Promise<LiveAnalytics> =>
-    api.get(`/live/channels/${id}/analytics?hours=${hours}`).then((r) => r.data),
+    api.get(`/api/live/channels/${id}/analytics?hours=${hours}`).then((r) => r.data),
 
   getPlaybackInfo: (id: string): Promise<LivePlaybackInfo> =>
-    api.get(`/live/channels/${id}/playback`).then((r) => r.data),
+    api.get(`/api/live/channels/${id}/playback`).then((r) => r.data),
 }
 
 // ── Viewer endpoints — Bearer = short-lived playback token ───────────────────
@@ -177,7 +177,7 @@ export const liveViewerApi = {
   joinSession: (playback: LivePlaybackInfo, sessionId: string, userAgent?: string) =>
     api
       .post(
-        '/live/session',
+        '/api/live/session',
         {
           channel_slug: playback.channel_slug,
           session_id: sessionId,
@@ -203,7 +203,7 @@ export const liveViewerApi = {
     }
   ) =>
     api
-      .post('/live/heartbeat', { channel_slug: playback.channel_slug, ...data }, { headers: { Authorization: `Bearer ${playback.token}` } })
+      .post('/api/live/heartbeat', { channel_slug: playback.channel_slug, ...data }, { headers: { Authorization: `Bearer ${playback.token}` } })
       .then((r) => r.data),
 
   reportAvailability: (
@@ -217,7 +217,7 @@ export const liveViewerApi = {
   ) =>
     api
       .post(
-        '/live/segment/availability',
+        '/api/live/segment/availability',
         { channel_slug: playback.channel_slug, ...data },
         { headers: { Authorization: `Bearer ${playback.token}` } }
       )
@@ -226,7 +226,7 @@ export const liveViewerApi = {
   leave: (playback: LivePlaybackInfo, sessionId: string, peerId?: string) =>
     api
       .post(
-        '/live/leave',
+        '/api/live/leave',
         { channel_slug: playback.channel_slug, session_id: sessionId, peer_id: peerId },
         { headers: { Authorization: `Bearer ${playback.token}` } }
       )

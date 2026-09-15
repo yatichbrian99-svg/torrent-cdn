@@ -20,7 +20,7 @@ export default function LiveWatchPage() {
     let cancelled = false
     const fetchInfo = () =>
       api
-        .get(`/live/play/${slug}`)
+        .get(`/api/live/play/${slug}`)
         .then((r) => {
           if (!cancelled) {
             setPlayback(r.data)

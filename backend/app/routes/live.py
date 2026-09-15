@@ -60,7 +60,11 @@ from ..security_events import record as record_event
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/live", tags=["live"])
+# Prefix /api/live: the frontend serves real Next.js PAGES under /live — a bare
+# /live prefix collides with them at the Vercel proxy (pages shadow rewrites,
+# so GET /live/channels would return the channels page HTML instead of JSON).
+# The /api/* namespace has no pages, so it proxies cleanly.
+router = APIRouter(prefix="/api/live", tags=["live"])
 
 LIVE_ANALYTICS_WINDOW_HOURS = 24
 

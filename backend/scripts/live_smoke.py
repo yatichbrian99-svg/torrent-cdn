@@ -105,7 +105,7 @@ def main() -> None:
 
     # ── 2. create channel ────────────────────────────────────────────────────
     name = f"smoke-{int(time.time())}"
-    r = client.post(f"{base}/live/channels", json={"name": name}, headers=auth)
+    r = client.post(f"{base}/api/live/channels", json={"name": name}, headers=auth)
     if r.status_code != 201:
         die(f"channel create failed ({r.status_code}): {r.text[:300]}")
     channel = r.json()
@@ -113,7 +113,7 @@ def main() -> None:
     log("channel", f"created {name} (slug={slug})")
 
     # The stream key arrives only via rotate-key (creation stores the hash).
-    r = client.post(f"{base}/live/channels/{ch_id}/rotate-key", headers=auth)
+    r = client.post(f"{base}/api/live/channels/{ch_id}/rotate-key", headers=auth)
     if r.status_code != 200:
         die(f"rotate-key failed ({r.status_code}): {r.text[:300]}")
     stream_key = r.json()["stream_key"]
@@ -156,7 +156,7 @@ def main() -> None:
         published = True
 
         def _live_status():
-            rr = client.get(f"{base}/live/channels/{ch_id}/status", headers=auth)
+            rr = client.get(f"{base}/api/live/channels/{ch_id}/status", headers=auth)
             if rr.status_code != 200:
                 return False, rr.status_code
             return rr.json().get("status") == "LIVE", rr.json().get("status")
@@ -165,7 +165,7 @@ def main() -> None:
         log("status", "channel is LIVE (derived from MediaMTX/segment activity)")
 
         # ── 5. viewer session (playback token + swarm join) ─────────────────
-        r = client.get(f"{base}/live/channels/{ch_id}/playback", headers=auth)
+        r = client.get(f"{base}/api/live/channels/{ch_id}/playback", headers=auth)
         if r.status_code != 200:
             die(f"playback info failed ({r.status_code}): {r.text[:200]}")
         pb = r.json()
@@ -174,7 +174,7 @@ def main() -> None:
 
         vheaders = {"Authorization": f"Bearer {pb['token']}"}
         session_id = f"smoke-viewer-{int(time.time())}"
-        r = client.post(f"{base}/live/session", json={
+        r = client.post(f"{base}/api/live/session", json={
             "channel_slug": slug, "session_id": session_id,
             "user_agent": "live-smoke/1.0 (SIMULATED viewer)",
         }, headers=vheaders)
@@ -186,7 +186,7 @@ def main() -> None:
         # ── 6. heartbeats + availability (SIMULATED peer reports) ───────────
         for i in range(4):
             time.sleep(2)
-            r = client.post(f"{base}/live/heartbeat", json={
+            r = client.post(f"{base}/api/live/heartbeat", json={
                 "channel_slug": slug, "session_id": session_id,
                 "peer_id": f"{session_id}-peer", "bytes_uploaded": 120_000,
                 "bytes_downloaded": 0, "segments_served": 1,
@@ -194,7 +194,7 @@ def main() -> None:
             }, headers=vheaders)
             if r.status_code != 200:
                 die(f"heartbeat failed ({r.status_code}): {r.text[:200]}")
-            r = client.post(f"{base}/live/segment/availability", json={
+            r = client.post(f"{base}/api/live/segment/availability", json={
                 "channel_slug": slug, "session_id": session_id,
                 "peer_id": f"{session_id}-peer",
                 "haves": [(s0.get("latest_sequence") or 0) + i],
@@ -205,7 +205,7 @@ def main() -> None:
                 die(f"availability failed ({r.status_code}): {r.text[:200]}")
         log("p2p", "heartbeats + availability accepted (counters incremented)")
 
-        rr = client.get(f"{base}/live/channels/{ch_id}/analytics", headers=auth)
+        rr = client.get(f"{base}/api/live/channels/{ch_id}/analytics", headers=auth)
         if rr.status_code == 200:
             a = rr.json()
             log("analytics",
@@ -213,7 +213,7 @@ def main() -> None:
                 f"offload={a['p2p_offload_percent']}% served={a['segments_served']} failed={a['segments_failed']}")
             log("analytics", "NOTE: these numbers are from a synthetic source — never production metrics")
 
-        rr = client.get(f"{base}/live/channels/{ch_id}/status", headers=auth)
+        rr = client.get(f"{base}/api/live/channels/{ch_id}/status", headers=auth)
         st = rr.json()
         log("status",
             f"viewers={st['current_viewers']} peers={st['current_peers']} "
@@ -229,7 +229,7 @@ def main() -> None:
 
     if published:
         def _offline():
-            rr = client.get(f"{base}/live/channels/{ch_id}/status", headers=auth)
+            rr = client.get(f"{base}/api/live/channels/{ch_id}/status", headers=auth)
             if rr.status_code != 200:
                 return False, rr.status_code
             st = rr.json().get("status")
@@ -240,7 +240,7 @@ def main() -> None:
 
     # ── 8. cleanup (history preserved, temp channel removed) ────────────────
     if not args.keep:
-        client.delete(f"{base}/live/channels/{ch_id}", headers=auth)
+        client.delete(f"{base}/api/live/channels/{ch_id}", headers=auth)
         log("cleanup", "channel deleted (durable analytics rows for it cascade; "
                        "in real streams keep the channel to preserve history)")
     shutil.rmtree(tmpdir, ignore_errors=True)

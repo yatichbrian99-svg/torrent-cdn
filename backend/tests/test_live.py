@@ -10,7 +10,7 @@ from app.mediamtx import mint_playback_token, verify_playback_token
 
 
 class TestChannelCrud:
-    URL = "/live/channels"
+    URL = "/api/live/channels"
 
     def test_requires_auth(self, client):
         resp = client.get(self.URL)
@@ -105,7 +105,7 @@ class TestStreamKeys:
             "created_at": datetime.now(UTC), "updated_at": datetime.now(UTC),
             "last_seen_at": None,
         }
-        resp = client.post(f"/live/channels/{ch_id}/rotate-key", headers=auth_headers)
+        resp = client.post(f"/api/live/channels/{ch_id}/rotate-key", headers=auth_headers)
         assert resp.status_code == 200
         data = resp.json()
         assert data["stream_key"].startswith("live_")

@@ -82,19 +82,19 @@ describe('isSafeHlsUrl', () => {
 describe('liveApi', () => {
   it('creates channels', async () => {
     await liveApi.createChannel('My Channel', 'desc')
-    expect(post).toHaveBeenCalledWith('/live/channels', { name: 'My Channel', description: 'desc' })
+    expect(post).toHaveBeenCalledWith('/api/live/channels', { name: 'My Channel', description: 'desc' })
   })
   it('lists channels', async () => {
     await liveApi.listChannels()
-    expect(get).toHaveBeenCalledWith('/live/channels')
+    expect(get).toHaveBeenCalledWith('/api/live/channels')
   })
   it('rotates keys', async () => {
     await liveApi.rotateKey('ch-1')
-    expect(post).toHaveBeenCalledWith('/live/channels/ch-1/rotate-key')
+    expect(post).toHaveBeenCalledWith('/api/live/channels/ch-1/rotate-key')
   })
   it('requests status + analytics with window', async () => {
     await liveApi.getAnalytics('ch-1', 168)
-    expect(get).toHaveBeenCalledWith('/live/channels/ch-1/analytics?hours=168')
+    expect(get).toHaveBeenCalledWith('/api/live/channels/ch-1/analytics?hours=168')
   })
 })
 
@@ -113,7 +113,7 @@ describe('liveViewerApi', () => {
   it('sends the playback token as Bearer on join', async () => {
     await liveViewerApi.joinSession(playback, 'viewer-12345678')
     expect(post).toHaveBeenCalledWith(
-      '/live/session',
+      '/api/live/session',
       expect.objectContaining({ channel_slug: 'my-channel', session_id: 'viewer-12345678' }),
       expect.objectContaining({ headers: { Authorization: 'Bearer tok.ensig' } })
     )
@@ -126,7 +126,7 @@ describe('liveViewerApi', () => {
       current_segment: 7,
     })
     expect(post).toHaveBeenCalledWith(
-      '/live/heartbeat',
+      '/api/live/heartbeat',
       expect.objectContaining({ channel_slug: 'my-channel', bytes_uploaded: 1000, current_segment: 7 }),
       expect.objectContaining({ headers: { Authorization: 'Bearer tok.ensig' } })
     )
@@ -140,7 +140,7 @@ describe('liveViewerApi', () => {
       transfers: [{ sequence_number: 5, served: true, bytes: 250000 }],
     })
     expect(post).toHaveBeenCalledWith(
-      '/live/segment/availability',
+      '/api/live/segment/availability',
       expect.objectContaining({ haves: [5, 6], transfers: [{ sequence_number: 5, served: true, bytes: 250000 }] }),
       expect.any(Object)
     )

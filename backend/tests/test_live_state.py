@@ -235,7 +235,7 @@ class TestSessionLifecycle:
 
     def test_join_requires_token(self, client, mock_conn):
         mock_conn.fetchrow.return_value = self._channel_row()
-        resp = client.post("/live/session", json={
+        resp = client.post("/api/live/session", json={
             "channel_slug": "mychan", "session_id": "viewer-12345678",
         })
         assert resp.status_code == 401
@@ -244,7 +244,7 @@ class TestSessionLifecycle:
         row = self._channel_row()
         mock_conn.fetchrow.return_value = row
         headers = self._mint(row["id"])
-        resp = client.post("/live/session", json={
+        resp = client.post("/api/live/session", json={
             "channel_slug": "mychan", "session_id": "viewer-12345678",
         }, headers=headers)
         assert resp.status_code == 200, resp.text
@@ -257,10 +257,10 @@ class TestSessionLifecycle:
         row = self._channel_row()
         mock_conn.fetchrow.return_value = row
         headers = self._mint(row["id"])
-        client.post("/live/session", json={
+        client.post("/api/live/session", json={
             "channel_slug": "mychan", "session_id": "viewer-12345678",
         }, headers=headers)
-        resp = client.post("/live/heartbeat", json={
+        resp = client.post("/api/live/heartbeat", json={
             "channel_slug": "mychan", "session_id": "viewer-12345678",
             "peer_id": "peer-viewer-1", "bytes_uploaded": 2048, "bytes_downloaded": 1024,
             "current_segment": 7,
@@ -274,7 +274,7 @@ class TestSessionLifecycle:
         row = self._channel_row()
         mock_conn.fetchrow.return_value = row
         headers = self._mint(row["id"])
-        resp = client.post("/live/segment/availability", json={
+        resp = client.post("/api/live/segment/availability", json={
             "channel_slug": "mychan", "session_id": "viewer-12345678",
             "peer_id": "peer-viewer-1",
             "haves": [5, 6, 7],
@@ -295,7 +295,7 @@ class TestSessionLifecycle:
         row["enabled"] = False
         mock_conn.fetchrow.return_value = row
         headers = self._mint(row["id"])
-        resp = client.post("/live/session", json={
+        resp = client.post("/api/live/session", json={
             "channel_slug": "mychan", "session_id": "viewer-12345678",
         }, headers=headers)
         assert resp.status_code == 404
@@ -304,7 +304,7 @@ class TestSessionLifecycle:
         row = self._channel_row()
         mock_conn.fetchrow.return_value = row
         headers = self._mint(uuid4())  # token for a different channel
-        resp = client.post("/live/session", json={
+        resp = client.post("/api/live/session", json={
             "channel_slug": "mychan", "session_id": "viewer-12345678",
         }, headers=headers)
         assert resp.status_code == 401

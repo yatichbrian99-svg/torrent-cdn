@@ -410,9 +410,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 # heartbeat + an availability report every ~5s per viewer, all
                 # gated by the route's own short-TTL token limiter. The global
                 # budget would double-count them exactly like /auth/*.
-                "/live/session",
-                "/live/heartbeat",
-                "/live/segment/availability",
+                "/api/live/session",
+                "/api/live/heartbeat",
+                "/api/live/segment/availability",
             ))
             or path == "/analytics/event"
         ):

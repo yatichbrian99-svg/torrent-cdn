@@ -44,7 +44,7 @@ TorrentCDN Live Delivery Layer (backend :8000)
 | Segment registry + fallback | live-edge window, peer→origin pipeline | `frontend/lib/live/segments.ts` |
 | P2P swarm | WebTorrent per-segment swarms (same trackers as VOD) | `frontend/lib/live/swarm.ts` |
 | Player | hls.js + custom loader, live edge, reconnect | `frontend/components/LivePlayer.tsx` |
-| Dashboard | `/live`, `/live/channels/[id]`, `/live/channels/[id]/analytics`, `/live/watch/[slug]` | `frontend/app/live/**` |
+| Dashboard | `/live`, `/live/channels/[id]`, `/live/channels/[id]/analytics`, `/live/watch/[slug]` (pages) | `frontend/app/live/**` |
 | Acceptance smoke | RTMP→HLS→status→session→counters→OFFLINE | `backend/scripts/live_smoke.py` |
 
 ## 2. Multi-tenancy & isolation
@@ -61,7 +61,7 @@ Every channel carries `tenant_id`/`owner_id`; all queries scope by owner and cro
 - Keys are `live_<43 url-safe chars>` (~256 bits, `secrets.token_urlsafe(32)`), shown **once** at creation/rotation; only the SHA-256 hash is stored (same model as `tcdn_` API keys).
 - Rotation replaces the hash — the old key stops working at the next publish (MediaMTX calls the auth hook on every publish).
 - Publishing: MediaMTX POSTs `{action:"publish", path:"live/<slug>", password:<key>, …}` to the backend; the backend hashes + constant-time compares and answers 2xx/403.
-- Playback: enabled channels serve public HLS; viewer *APIs* (sessions/heartbeats) require a short-lived playback token (`Authorization: Bearer <token>`), minted via `/live/channels/{id}/playback` (owner) or `/live/play/{slug}` (public, enabled channels only). A guessed slug cannot open a session on a disabled channel (404).
+- Playback: enabled channels serve public HLS; viewer *APIs* (sessions/heartbeats) require a short-lived playback token (`Authorization: Bearer <token>`), minted via `/api/live/channels/{id}/playback` (owner) or `/api/live/play/{slug}` (public, enabled channels only). A guessed slug cannot open a session on a disabled channel (404).
 - The stream key is never logged; the auth hook records only the slug + outcome in the security-event feed.
 
 ## 4. Status lifecycle (derived, never manual)
@@ -150,28 +150,28 @@ Owner (session JWT or API key):
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/live/channels` | create (returns slug; key shown once via rotate) |
-| GET | `/live/channels` | list + live metrics |
-| GET | `/live/channels/{id}` | detail |
-| PATCH | `/live/channels/{id}` | rename / describe |
-| DELETE | `/live/channels/{id}` | delete (+ clear ephemeral state) |
-| POST | `/live/channels/{id}/enable` · `/disable` | gate publishing+playback |
-| POST | `/live/channels/{id}/rotate-key` | regenerate stream key (shown once) |
-| GET | `/live/channels/{id}/status` | derived status, viewers, peers, bitrate, uptime, latest segment |
-| GET | `/live/channels/{id}/analytics?hours=` | bytes, offload %, transfer rates, buffering, errors, peaks |
-| GET | `/live/channels/{id}/segments` | availability map (owner) |
-| GET | `/live/channels/{id}/playback` | playback info + fresh token |
+| POST | `/api/live/channels` | create (returns slug; key shown once via rotate) |
+| GET | `/api/live/channels` | list + live metrics |
+| GET | `/api/live/channels/{id}` | detail |
+| PATCH | `/api/live/channels/{id}` | rename / describe |
+| DELETE | `/api/live/channels/{id}` | delete (+ clear ephemeral state) |
+| POST | `/api/live/channels/{id}/enable` · `/disable` | gate publishing+playback |
+| POST | `/api/live/channels/{id}/rotate-key` | regenerate stream key (shown once) |
+| GET | `/api/live/channels/{id}/status` | derived status, viewers, peers, bitrate, uptime, latest segment |
+| GET | `/api/live/channels/{id}/analytics?hours=` | bytes, offload %, transfer rates, buffering, errors, peaks |
+| GET | `/api/live/channels/{id}/segments` | availability map (owner) |
+| GET | `/api/live/channels/{id}/playback` | playback info + fresh token |
 
 Viewer (playback token):
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/live/play/{slug}` | public playback info (enabled channels) |
-| POST | `/live/token` | API-key exchange for a viewer token |
-| POST | `/live/session` | join swarm (creates `live_sessions` row) |
-| POST | `/live/heartbeat` | presence + counters |
-| POST | `/live/segment/availability` | haves + measured transfer outcomes |
-| POST | `/live/leave` | leave (ends session, drops presence) |
+| GET | `/api/live/play/{slug}` | public playback info (enabled channels) |
+| POST | `/api/live/token` | API-key exchange for a viewer token |
+| POST | `/api/live/session` | join swarm (creates `live_sessions` row) |
+| POST | `/api/live/heartbeat` | presence + counters |
+| POST | `/api/live/segment/availability` | haves + measured transfer outcomes |
+| POST | `/api/live/leave` | leave (ends session, drops presence) |
 
 Internal (never public):
 
@@ -189,7 +189,7 @@ See `.env.example` — `MEDIAMTX_API_URL`, `MEDIAMTX_RTMP_URL`, `MEDIAMTX_HLS_UR
 
 ## 11. Known limitations (MVP)
 
-- **Segment-level P2P is seeded from viewers that already buffered a segment**; the infohash registry (backend-derived per-segment swarms) is wired through `LiveSwarm`, but peers currently discover each other via the shared WSS trackers with the backend as the infohash authority — a production rollout should add a small `/live/segment/{slug}/{seq}/info` endpoint serving the derived infohash+size so the swarm's `tryPeer` path can resolve infohashes just-in-time (the plumbing in `swarm.ts` accepts it).
+- **Segment-level P2P is seeded from viewers that already buffered a segment**; the infohash registry (backend-derived per-segment swarms) is wired through `LiveSwarm`, but peers currently discover each other via the shared WSS trackers with the backend as the infohash authority — a production rollout should add a small `/api/live/segment/{slug}/{seq}/info` endpoint serving the derived infohash+size so the swarm's `tryPeer` path can resolve infohashes just-in-time (the plumbing in `swarm.ts` accepts it).
 - WebRTC playback (WHEP) and SRT/RTSP ingest are disabled by default; architecture supports them via MediaMTX config.
 - End-to-end latency is *not yet measured* in production — the design targets ~2s segments; do not promise numbers until measured (spec §14).
 - Offload percentages are measured delivery metrics only; no "dollars saved" claims (no pricing configured).
