@@ -1,6 +1,7 @@
 """Tests for the live channel management API: CRUD, stream-key generation and
 rotation, ownership scoping, and derived status."""
 import hashlib
+import inspect
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
@@ -186,3 +187,58 @@ class TestDerivedStatus:
     def test_nothing_is_offline(self):
         import asyncio
         assert asyncio.run(self._derive(self._row())) == "OFFLINE"
+
+
+class TestSchemaMatchesQueries:
+    """Regression guard for the prod 500: live_channels DDL lacked
+    stream_key_prefix while every query selected/inserted it (tests mock the
+    DB, so the mismatch only surfaced in production). Parses the SQL in
+    routes/live.py and asserts every referenced column exists in the DDL."""
+
+    def _ddl_columns(self, table: str) -> set[str]:
+        import re
+        from app.database import LIVE_TABLES_DDL
+        m = re.search(rf"CREATE TABLE IF NOT EXISTS {table} \((.*?)\);", LIVE_TABLES_DDL, re.S)
+        assert m, f"{table} DDL not found"
+        cols = set()
+        for line in m.group(1).splitlines():
+            line = line.strip().rstrip(",")
+            if not line or line.upper().startswith(("CREATE INDEX", "UNIQUE(", "CONSTRAINT")):
+                continue
+            name = line.split()[0]
+            if name.upper() in {"PRIMARY", "UNIQUE", "FOREIGN", "CHECK"}:
+                continue
+            cols.add(name)
+        return cols
+
+    def _statements(self) -> list[str]:
+        import re
+        from app.routes import live as live_routes
+        src = inspect.getsource(live_routes)
+        return [m.group(1) for m in re.finditer(r'"""(SELECT|INSERT|UPDATE|DELETE)[^"]*"""', src, re.I)]
+
+    def test_every_quoted_live_channels_column_exists_in_ddl(self):
+        import re
+        cols = self._ddl_columns("live_channels")
+        for stmt in self._statements():
+            if "live_channels" not in stmt:
+                continue
+            # SELECT lists: capture column tokens between SELECT and FROM
+            for sel in re.finditer(r"SELECT(.*?)FROM", stmt, re.S | re.I):
+                for tok in re.finditer(r"[A-Za-z_][A-Za-z0-9_]*", sel.group(1)):
+                    name = tok.group(0)
+                    if name.upper() in {"SELECT", "DISTINCT", "AS", "COUNT", "NOW", "NOW()", "FROM"}:
+                        continue
+                    assert name in cols, f"live_channels query references unknown column {name!r} in: {stmt[:120]}"
+            # INSERT column lists
+            for ins in re.finditer(r"INSERT INTO live_channels \((.*?)\)", stmt, re.S | re.I):
+                for tok in re.finditer(r"[A-Za-z_][A-Za-z0-9_]*", ins.group(1)):
+                    assert tok.group(0) in cols, f"INSERT references unknown column {tok.group(0)!r}"
+            # UPDATE SET lists
+            for upd in re.finditer(r"UPDATE live_channels SET(.*?)(?:WHERE|$)", stmt, re.S | re.I):
+                for tok in re.finditer(r"SET\s*,?\s*|([A-Za-z_][A-Za-z0-9_]*)\s*=", upd.group(1)):
+                    if tok.group(1):
+                        assert tok.group(1) in cols, f"UPDATE references unknown column {tok.group(1)!r}"
+
+    def test_stream_key_prefix_in_ddl(self):
+        assert "stream_key_prefix" in self._ddl_columns("live_channels")

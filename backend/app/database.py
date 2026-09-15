@@ -141,6 +141,7 @@ CREATE TABLE IF NOT EXISTS live_channels (
     slug VARCHAR(64) NOT NULL,
     description VARCHAR(500),
     stream_key_hash TEXT NOT NULL,
+    stream_key_prefix VARCHAR(24),
     status VARCHAR(16) NOT NULL DEFAULT 'OFFLINE',
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
