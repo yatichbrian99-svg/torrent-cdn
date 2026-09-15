@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Upload, Loader2, Mail, ShieldCheck, Copy, Check, AlertTriangle, Users, Gift, Activity, KeyRound } from 'lucide-react'
+import { Upload, Loader2, Mail, ShieldCheck, Copy, Check, AlertTriangle, Users, Gift, Activity, KeyRound, Radio } from 'lucide-react'
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
 import QRCode from 'qrcode'
 import { isLoggedIn, removeToken } from '@/lib/auth'
@@ -277,6 +277,30 @@ export default function DashboardPage() {
         <a href="/dashboard/upload" className="border px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80" style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000' }}>
           Upload file &rarr;
         </a>
+      </div>
+
+      {/* Live Streaming — entry point to the live channel manager. The navbar
+          has a small "Live" link, but this card makes the feature discoverable
+          from the dashboard itself (it was previously invisible here). */}
+      <div className="mb-8 border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Radio size={16} style={{ color: '#555' }} />
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Live Streaming</p>
+              <p className="mt-1 text-sm" style={{ color: '#555' }}>
+                Go live from OBS — P2P-assisted delivery with automatic origin fallback.
+              </p>
+            </div>
+          </div>
+          <a
+            href="/live"
+            className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80"
+            style={{ borderColor: '#fff', color: '#fff' }}
+          >
+            Manage channels &rarr;
+          </a>
+        </div>
       </div>
 
       {/* API Key — real tcdn_ key: plaintext is shown exactly once at creation
