@@ -52,6 +52,8 @@ from ..live_state import (
 from ..mediamtx import (
     get_path_by_ingress,
     hls_url,
+    rtmp_publish_url,
+    rtmp_ingress_path,
     mint_playback_token,
     verify_playback_token,
 )
@@ -314,8 +316,12 @@ async def create_channel(
         )
     record_event("live_channel_created", detail=f"channel {slug}")
     out = _row_to_out(row)
-    # The plaintext key is shown exactly once, at creation — same UX as API keys.
-    out.stream_key_prefix = stream_key_prefix(key)
+    # OBS setup card: the plaintext key + paste-ready server/path are returned
+    # EXACTLY ONCE, here — stored hashed afterwards, never retrievable again
+    # (same one-time-show contract as the tcdn_ API keys).
+    out.stream_key = key
+    out.rtmp_server = rtmp_publish_url(slug)
+    out.publish_path = rtmp_ingress_path(slug)
     return out
 
 
@@ -439,8 +445,10 @@ async def rotate_key(
     user_id: UUID = Depends(get_current_user_id),
 ):
     """Regenerate the stream key — the old key stops working immediately
-    (hash replaced; MediaMTX auth consults this hash on every publish)."""
-    await require_channel_owner(channel_id, user_id)
+    (hash replaced; MediaMTX auth consults this hash on every publish).
+    Also returns the paste-ready OBS URLs so the reveal flow can refresh
+    the whole setup card in one call."""
+    row = await require_channel_owner(channel_id, user_id)
     key = new_stream_key()
     pool = await get_db_pool()
     async with pool.acquire() as conn:
@@ -449,8 +457,10 @@ async def rotate_key(
             channel_id, hash_stream_key(key), stream_key_prefix(key),
         )
     record_event("live_key_rotated", detail=f"channel {channel_id}")
+    slug = row["slug"]
     return LiveChannelRotateResponse(
-        channel_id=channel_id, stream_key=key, stream_key_prefix=stream_key_prefix(key)
+        channel_id=channel_id, stream_key=key, stream_key_prefix=stream_key_prefix(key),
+        rtmp_server=rtmp_publish_url(slug), publish_path=rtmp_ingress_path(slug),
     )
 
 
@@ -649,6 +659,8 @@ async def _playback_info(row) -> LivePlaybackInfo:
         token=token,
         swarm_base=f"tcdnlive:{slug}",
         latency_target_seconds=s.hls_segment_duration,
+        rtmp_server=rtmp_publish_url(slug),
+        publish_path=rtmp_ingress_path(slug),
     )
 
 

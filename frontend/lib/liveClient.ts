@@ -22,6 +22,11 @@ export interface LiveChannel {
   status: 'OFFLINE' | 'STARTING' | 'LIVE' | 'ERROR'
   enabled: boolean
   stream_key_prefix: string | null
+  // Present ONLY on the creation response — the one-time plaintext setup
+  // secrets (key stored hashed server-side; URLs are config-derived).
+  stream_key?: string | null
+  rtmp_server?: string | null
+  publish_path?: string | null
   created_at: string
   updated_at: string
   last_seen_at: string | null
@@ -41,6 +46,9 @@ export interface LivePlaybackInfo {
   token: string
   swarm_base: string
   latency_target_seconds: number
+  // Paste-ready OBS ingest (no secrets — config-derived hosts).
+  rtmp_server?: string | null
+  publish_path?: string | null
 }
 
 export interface LiveStatus {
@@ -158,7 +166,7 @@ export const liveApi = {
     api.post(`/api/live/channels/${id}/disable`).then((r) => r.data),
 
   // Returns the plaintext stream key exactly once — never store or log it.
-  rotateKey: (id: string): Promise<{ channel_id: string; stream_key: string; stream_key_prefix: string }> =>
+  rotateKey: (id: string): Promise<{ channel_id: string; stream_key: string; stream_key_prefix: string; rtmp_server?: string | null; publish_path?: string | null }> =>
     api.post(`/api/live/channels/${id}/rotate-key`).then((r) => r.data),
 
   getStatus: (id: string): Promise<LiveStatus> =>

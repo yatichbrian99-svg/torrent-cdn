@@ -31,6 +31,11 @@ class TestChannelCrud:
         data = resp.json()
         assert data["slug"] == "my-stream"
         assert data["status"] == "OFFLINE"
+        # OBS setup card: the plaintext key + paste-ready URLs are returned
+        # EXACTLY ONCE here (creation), then stored hashed — never listable.
+        assert data["stream_key"].startswith("live_")
+        assert data["publish_path"] == "live/my-stream"
+        assert data["rtmp_server"].startswith("rtmp://")
         # The stream key is stored hashed, never in plaintext
         sql = mock_conn.fetchrow.await_args.args[0]
         assert "stream_key_hash" in sql
@@ -110,6 +115,9 @@ class TestStreamKeys:
         assert resp.status_code == 200
         data = resp.json()
         assert data["stream_key"].startswith("live_")
+        # Reveal/rotate also refreshes the paste-ready OBS URLs.
+        assert data["publish_path"] == "live/c"
+        assert data["rtmp_server"].startswith("rtmp://")
         # The UPDATE stores only the hash
         update_sql = mock_conn.execute.await_args.args[0]
         assert "stream_key_hash" in update_sql

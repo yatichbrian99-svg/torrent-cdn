@@ -55,7 +55,13 @@ export default function LiveIndexPage() {
       setShowCreate(false)
       setNewName('')
       setNewDesc('')
-      router.push(`/live/channels/${ch.id}`)
+      // One-time stream-key handoff: the plaintext key is returned ONLY here;
+      // the detail page consumes ?key= and immediately scrubs it from the URL.
+      if (ch.stream_key) {
+        router.push(`/live/channels/${ch.id}?key=${encodeURIComponent(ch.stream_key)}`)
+      } else {
+        router.push(`/live/channels/${ch.id}`)
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to create channel.')
     } finally {

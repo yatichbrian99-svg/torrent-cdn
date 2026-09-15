@@ -100,13 +100,22 @@ class LiveChannelOut(BaseModel):
     bitrate_kbps: float = 0.0
     uptime_seconds: int = 0
     latest_segment_sequence: int | None = None
+    # One-time channel setup secrets — populated ONLY on create (and rotate);
+    # list/get/detail responses leave them None so the plaintext key can never
+    # be re-fetched (it is stored hashed, like the tcdn_ API keys).
+    stream_key: str | None = None
+    rtmp_server: str | None = None
+    publish_path: str | None = None
 
 
 class LiveChannelRotateResponse(BaseModel):
-    """Rotate/regenerate response — carries the plaintext key exactly once."""
+    """Rotate/reveal response — carries the plaintext key exactly once, plus
+    the paste-ready OBS server/publish-path (both config-derived)."""
     channel_id: UUID
     stream_key: str
     stream_key_prefix: str
+    rtmp_server: str | None = None
+    publish_path: str | None = None
 
 
 class LiveSessionCreate(BaseModel):
@@ -172,3 +181,6 @@ class LivePlaybackInfo(BaseModel):
     token: str
     swarm_base: str
     latency_target_seconds: int = 2
+    # Paste-ready OBS ingest (owner-visible; no secrets — config-derived hosts).
+    rtmp_server: str | None = None
+    publish_path: str | None = None

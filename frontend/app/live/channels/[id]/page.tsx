@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft, Radio, Loader2, Copy, Check, RefreshCw, Trash2, Play,
-  BarChart3, Users, Wifi, Activity, AlertTriangle, ExternalLink,
+  BarChart3, Users, Wifi, Activity, AlertTriangle, ExternalLink, Eye,
 } from 'lucide-react'
 import { isLoggedIn } from '@/lib/auth'
 import {
@@ -27,7 +27,11 @@ export default function LiveChannelDetailPage() {
   const [channel, setChannel] = useState<LiveChannel | null>(null)
   const [status, setStatus] = useState<LiveStatus | null>(null)
   const [ingest, setIngest] = useState<IngestInfo | null>(null)
-  const [streamKey, setStreamKey] = useState<string | null>(null)
+  // One-time OBS setup secrets. The plaintext key is returned ONLY by channel
+  // creation (handed over via ?key= and immediately stripped from the URL) and
+  // by Reveal/Rotate — it is stored hashed server-side and can never be
+  // re-fetched, exactly like the tcdn_ API keys.
+  const [setup, setSetup] = useState<{ key: string; server?: string; path?: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
@@ -42,13 +46,13 @@ export default function LiveChannelDetailPage() {
       setStatus(st)
       // Playback info carries the canonical URLs (config-driven, no secrets).
       const pb = await liveApi.getPlaybackInfo(id)
-      const hlsBase = pb.hls_url.replace(/\/[^/]+\/index\.m3u8$/, '')
       setIngest({
-        rtmp_url: (process.env.NEXT_PUBLIC_RTMP_INGEST_URL || 'rtmp://localhost:1935') + '/live',
-        publish_path: `live/${ch.slug}`,
+        // Config-driven — the backend derives these from MEDIAMTX_RTMP_URL /
+        // MEDIAMTX_HLS_URL; the client never invents hosts.
+        rtmp_url: pb.rtmp_server || (process.env.NEXT_PUBLIC_RTMP_INGEST_URL || 'rtmp://localhost:1935') + '/live',
+        publish_path: pb.publish_path || `live/${ch.slug}`,
         hls_url: pb.hls_url,
       })
-      void hlsBase
       setError('')
     } catch (err: any) {
       if (err.response?.status === 401) router.push('/')
@@ -62,6 +66,20 @@ export default function LiveChannelDetailPage() {
   useEffect(() => {
     if (isLoggedIn() && id) load()
   }, [id, load])
+
+  // One-time key handoff from channel creation: /live/channels/{id}?key=...
+  // Move it into state and scrub it from the address bar immediately so it is
+  // never left in history, referrers, or a shared link.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const sp = new URLSearchParams(window.location.search)
+    const k = sp.get('key')
+    if (!k) return
+    setSetup({ key: k })
+    sp.delete('key')
+    const qs = sp.toString()
+    window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : ''))
+  }, [id])
 
   useEffect(() => {
     if (!id) return
@@ -77,7 +95,9 @@ export default function LiveChannelDetailPage() {
     setTimeout(() => setCopied(null), 2000)
   }
 
-  const handleRotate = async () => {
+  // Reveal = generate a fresh key and show it. Two-step confirm because this
+  // instantly invalidates any key already configured in OBS.
+  const handleReveal = async () => {
     if (!confirmRotate) {
       setConfirmRotate(true)
       setTimeout(() => setConfirmRotate(false), 5000)
@@ -86,7 +106,7 @@ export default function LiveChannelDetailPage() {
     setBusy('rotate')
     try {
       const res = await liveApi.rotateKey(id)
-      setStreamKey(res.stream_key)
+      setSetup({ key: res.stream_key, server: res.rtmp_server || undefined, path: res.publish_path || undefined })
       setConfirmRotate(false)
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to rotate key.')
@@ -203,23 +223,42 @@ export default function LiveChannelDetailPage() {
           In OBS → Settings → Stream, choose Custom…, and paste:
         </p>
         <div className="mt-4 space-y-3">
-          <FieldRow label="Server" value={ingest?.rtmp_url || ''} copied={copied === 'server'} onCopy={() => copy('server', ingest?.rtmp_url || '')} />
-          <FieldRow label="Stream key" value={streamKey || '•••••••••••••••••••• (rotate to reveal)'}
-                    copied={copied === 'key'} onCopy={() => streamKey && copy('key', streamKey)}
-                    secret={!streamKey} />
-          <FieldRow label="Playback (HLS)" value={ingest?.hls_url || ''} copied={copied === 'hls'} onCopy={() => copy('hls', ingest?.hls_url || '')} />
+          <FieldRow label="Server" value={setup?.server || ingest?.rtmp_url || ''} copied={copied === 'server'} onCopy={() => copy('server', setup?.server || ingest?.rtmp_url || '')} />
+          <FieldRow label="Publish path" value={setup?.path || ingest?.publish_path || ''} copied={copied === 'path'} onCopy={() => copy('path', setup?.path || ingest?.publish_path || '')} />
+          {setup ? (
+            <FieldRow label="Stream key" value={setup.key} copied={copied === 'key'} onCopy={() => copy('key', setup.key)} />
+          ) : (
+            <div className="flex items-center gap-2">
+              <p className="w-32 shrink-0 text-xs uppercase tracking-widest" style={{ color: '#555' }}>Stream key</p>
+              <code className="flex-1 border px-3 py-2 font-mono text-xs" style={{ backgroundColor: '#0c0c0c', borderColor: '#333', color: '#555' }}>
+                •••••••••••••••••••• hidden — stored hashed, shown once per key
+              </code>
+              <button
+                onClick={handleReveal}
+                disabled={busy === 'rotate'}
+                className="flex items-center gap-2 border px-4 py-2 text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-50"
+                style={{ borderColor: confirmRotate ? '#ef4444' : '#fff', backgroundColor: confirmRotate ? '#7f1d1d' : 'transparent', color: confirmRotate ? '#fff' : '#fff' }}
+              >
+                {busy === 'rotate' ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />}
+                {confirmRotate ? 'Click again — old key stops working' : 'Reveal stream key'}
+              </button>
+            </div>
+          )}
         </div>
-        {streamKey && (
+        {setup && (
           <p className="mt-3 text-xs" style={{ color: '#fbbf24' }}>
-            Shown only once — copy it into OBS now. It is stored hashed and cannot be retrieved again.
+            Shown only for this visit — copy it into OBS now. It is stored hashed and cannot be retrieved again
+            (use Reveal to generate a fresh one anytime).
           </p>
         )}
         <div className="mt-5 flex flex-wrap items-center gap-3 border-t pt-4" style={{ borderColor: '#222' }}>
-          <button onClick={handleRotate} disabled={busy === 'rotate'}
-                  className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
-                  style={{ borderColor: confirmRotate ? '#ef4444' : '#553333', color: '#ef4444' }}>
-            {busy === 'rotate' ? <Loader2 size={12} className="animate-spin" /> : confirmRotate ? 'Click again — old key stops working' : 'Rotate stream key'}
-          </button>
+          {!setup && (
+            <button onClick={handleReveal} disabled={busy === 'rotate'}
+                    className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
+                    style={{ borderColor: confirmRotate ? '#ef4444' : '#553333', color: '#ef4444' }}>
+              {busy === 'rotate' ? <Loader2 size={12} className="animate-spin" /> : confirmRotate ? 'Click again — old key stops working' : 'Rotate stream key'}
+            </button>
+          )}
           <button onClick={handleToggleEnable} disabled={busy === 'enable'}
                   className="border px-4 py-2 text-xs transition-opacity hover:opacity-80 disabled:opacity-50"
                   style={{ borderColor: '#333', color: channel?.enabled ? '#fbbf24' : '#4ade80' }}>
@@ -238,10 +277,10 @@ export default function LiveChannelDetailPage() {
       </div>
 
       {/* Stream key prefix (safe) */}
-      {channel?.stream_key_prefix && !streamKey && (
+      {channel?.stream_key_prefix && !setup && (
         <p className="mb-8 text-xs" style={{ color: '#555' }}>
-          Current key: <code className="font-mono text-white">{channel.stream_key_prefix}</code>
-          {' '}(rotate to regenerate — the old key stops working immediately)
+          Current key: <code className="font-mono text-white">{channel.stream_key_prefix}…</code>
+          {' '}(use Reveal to generate a fresh one — the old key stops working immediately)
         </p>
       )}
     </div>
