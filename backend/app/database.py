@@ -147,7 +147,10 @@ CREATE TABLE IF NOT EXISTS live_channels (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     last_seen_at TIMESTAMP WITH TIME ZONE,
-    UNIQUE(tenant_id, slug)
+    -- slug is GLOBALLY unique: playback/lookups (public /play/{slug}, the
+    -- MediaMTX auth hook, viewer sessions) are slug-keyed across tenants —
+    -- a per-tenant unique() would let two tenants shadow the same slug.
+    UNIQUE(slug)
 );
 CREATE INDEX IF NOT EXISTS idx_live_channels_tenant ON live_channels(tenant_id);
 

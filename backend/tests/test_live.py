@@ -167,8 +167,9 @@ class TestDerivedStatus:
         base.update(over)
         return base
 
-    async def _derive(self, row, *, mm_path=None, meta=None):
-        with patch("app.routes.live.get_path_by_ingress", new=AsyncMock(return_value=mm_path)), \
+    async def _derive(self, row, *, mm_path=None, authoritative=False, meta=None):
+        with patch("app.routes.live.resolve_ingress",
+                   new=AsyncMock(return_value=(mm_path, authoritative))), \
              patch("app.routes.live.get_channel_meta", new=AsyncMock(return_value=meta or {})):
             from app.routes.live import derive_channel_status
             return await derive_channel_status(row)
@@ -195,6 +196,20 @@ class TestDerivedStatus:
     def test_nothing_is_offline(self):
         import asyncio
         assert asyncio.run(self._derive(self._row())) == "OFFLINE"
+
+    def test_mediamtx_down_falls_back_to_registry(self):
+        # MediaMTX unreachable (authoritative=False) → segment registry decides
+        import asyncio, time as t
+        meta = {"last_seg_ts": str(t.time() - 1)}
+        assert asyncio.run(self._derive(self._row(), meta=meta)) == "LIVE"
+
+    def test_mediamtx_says_gone_is_offline_even_with_fresh_segments(self):
+        # Regression: an authoritative "no such path" must be OFFLINE —
+        # stale segment freshness must not pin a dead stream in STARTING.
+        import asyncio, time as t
+        meta = {"last_seg_ts": str(t.time() - 1)}
+        assert asyncio.run(
+            self._derive(self._row(), authoritative=True, meta=meta)) == "OFFLINE"
 
 
 class TestSchemaMatchesQueries:
@@ -250,3 +265,24 @@ class TestSchemaMatchesQueries:
 
     def test_stream_key_prefix_in_ddl(self):
         assert "stream_key_prefix" in self._ddl_columns("live_channels")
+
+
+class TestSlugUniquenessGuard:
+    """Slugs are looked up GLOBALLY (public playback, auth hook, sessions) —
+    the schema must enforce a global unique slug, and the startup migration
+    must keep enforcing it on databases created before the fix."""
+
+    def test_ddl_enforces_global_unique_slug(self):
+        import re
+        from app.database import LIVE_TABLES_DDL
+        m = re.search(r"CREATE TABLE IF NOT EXISTS live_channels \((.*?)\);", LIVE_TABLES_DDL, re.S)
+        assert m, "live_channels DDL not found"
+        assert re.search(r"UNIQUE\s*\(\s*slug\s*\)", m.group(1)), \
+            "live_channels must declare UNIQUE(slug) — per-tenant scope lets slugs shadow each other"
+
+    def test_startup_migration_creates_unique_slug_index(self):
+        import re
+        import app.main as main_mod
+        src = open(main_mod.__file__).read()
+        assert re.search(r"CREATE UNIQUE INDEX IF NOT EXISTS idx_live_channels_slug ON live_channels\(slug\)", src), \
+            "startup migration must add the global slug unique index for pre-existing databases"

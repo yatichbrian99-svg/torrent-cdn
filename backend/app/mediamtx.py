@@ -27,10 +27,13 @@ from .live_settings import get_live_settings
 
 logger = logging.getLogger(__name__)
 
-# Path names in MediaMTX are the channel slugs (one path per channel — clean
-# mapping for OBS publish, HLS playback, and per-channel auth decisions).
+# ONE path namespace everywhere: the RTMP publish `live/<slug>` IS the
+# MediaMTX path name — RTMP publishes, the auth hook, and HLS playback URLs
+# all resolve against it. (Verified live: OBS publishing to
+# rtmp://host:1935/live/<slug> creates MediaMTX path "live/<slug>", and HLS
+# is served at /live/<slug>/index.m3u8 — a slug-only HLS URL 404s.)
 def mediamtx_path(slug: str) -> str:
-    return slug
+    return f"live/{slug}"
 
 
 def rtmp_ingress_path(slug: str) -> str:
@@ -139,11 +142,26 @@ async def get_path(slug: str) -> dict | None:
 async def get_path_by_ingress(slug: str) -> dict | None:
     """Resolve a channel's MediaMTX path when the publish path was
     live/<slug> (RTMP strips the app prefix into the path name)."""
-    path = await get_path(slug)
-    if path:
-        return path
+    path, _authoritative = await resolve_ingress(slug)
+    return path
+
+
+async def resolve_ingress(slug: str) -> tuple[dict | None, bool]:
+    """Resolve a channel's MediaMTX path AND whether the answer is authoritative.
+
+    Returns (path_or_None, authoritative):
+      authoritative=True  → MediaMTX answered; None means "no such path"
+                            (the publisher is genuinely disconnected)
+      authoritative=False → MediaMTX unreachable or unconfigured; stream state
+                            is UNKNOWN and callers should fall back to the
+                            segment registry / last_seen heuristics.
+    """
     paths = await list_paths()
-    return paths.get(rtmp_ingress_path(slug)) or paths.get(f"{slug}")
+    if not paths:
+        return None, False
+    return (paths.get(mediamtx_path(slug))
+            or paths.get(rtmp_ingress_path(slug))
+            or paths.get(slug)), True
 
 
 async def mediamtx_reachable() -> bool:

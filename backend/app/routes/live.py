@@ -16,8 +16,9 @@ import json
 import logging
 import time
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
+import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from ..auth import get_current_user_id
@@ -50,7 +51,7 @@ from ..live_state import (
     read_counters,
 )
 from ..mediamtx import (
-    get_path_by_ingress,
+    resolve_ingress,
     hls_url,
     rtmp_publish_url,
     rtmp_ingress_path,
@@ -188,10 +189,17 @@ async def derive_channel_status(row) -> str:
     s = get_live_settings()
     slug = row["slug"]
 
-    path = await get_path_by_ingress(slug)
+    # Authoritative MediaMTX answer: reachable → its verdict is final. No path
+    # means the publisher is genuinely disconnected — segment freshness must
+    # NOT keep a dead stream alive (previously stuck in STARTING).
+    path, authoritative = await resolve_ingress(slug)
     if path and path.get("ready"):
         return "LIVE"
+    if authoritative:
+        return "OFFLINE"
 
+    # MediaMTX unreachable/unconfigured: stream state unknown — fall back to
+    # the segment registry (fresh segment → LIVE, aging → STARTING).
     meta = await get_channel_meta(slug)
     last_seg_ts = float(meta.get("last_seg_ts", 0) or 0)
     if last_seg_ts:
@@ -272,7 +280,7 @@ async def pool_execute_insert_analytics(pool, channel_id, counters, meta) -> Non
                (channel_id, started_at, duration_seconds, peak_viewers, peak_peers,
                 bytes_p2p, bytes_origin, segments_served, segments_failed,
                 buffering_events, playback_errors, avg_startup_ms, metadata)
-               VALUES ($1, NOW() - ($2 || ' seconds')::interval, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)""",
+               VALUES ($1, NOW() - make_interval(secs => $2::int), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)""",
             channel_id,
             int(counters.get("interval_seconds", 0) or 0),
             int(counters.get("peak_viewers", 0) or 0),
@@ -302,18 +310,38 @@ async def create_channel(
 ):
     pool = await get_db_pool()
     async with pool.acquire() as conn:
+        # Slug uniqueness is GLOBAL (public playback, the MediaMTX auth hook,
+        # and viewer sessions are all slug-keyed across tenants) — a per-tenant
+        # scope would let tenant B's channel shadow tenant A's live stream.
         existing = await conn.fetch(
-            "SELECT slug FROM live_channels WHERE tenant_id = $1", user_id
+            "SELECT slug FROM live_channels"
         )
         slug = data.slug or new_slug(data.name, {r["slug"] for r in existing})
         slug = slug[:MAX_SLUG_LEN]
+        if data.slug and slug in {r["slug"] for r in existing}:
+            # 409 (not 404/403): the slug exists but existence is not a secret.
+            raise HTTPException(status_code=409, detail="A channel with this slug already exists")
         key = new_stream_key()
-        row = await conn.fetchrow(
-            """INSERT INTO live_channels (tenant_id, owner_id, name, slug, description, stream_key_hash, stream_key_prefix, status)
-               VALUES ($1, $1, $2, $3, $4, $5, $6, 'OFFLINE')
-               RETURNING id, tenant_id, owner_id, name, slug, description, stream_key_prefix, status, enabled, created_at, updated_at, last_seen_at""",
-            user_id, data.name, slug, data.description, hash_stream_key(key), stream_key_prefix(key),
-        )
+        try:
+            row = await conn.fetchrow(
+                """INSERT INTO live_channels (tenant_id, owner_id, name, slug, description, stream_key_hash, stream_key_prefix, status)
+                    VALUES ($1, $1, $2, $3, $4, $5, $6, 'OFFLINE')
+                    RETURNING id, tenant_id, owner_id, name, slug, description, stream_key_prefix, status, enabled, created_at, updated_at, last_seen_at""",
+                user_id, data.name, slug, data.description,
+                hash_stream_key(key), stream_key_prefix(key),
+            )
+        except asyncpg.UniqueViolationError:
+            # Two concurrent creates racing past the check → the global unique
+            # index is the arbiter. Generated slugs retry with a random suffix.
+            slug = f"{slug[:MAX_SLUG_LEN - 9]}-{uuid4().hex[:4]}"
+            key = new_stream_key()
+            row = await conn.fetchrow(
+                """INSERT INTO live_channels (tenant_id, owner_id, name, slug, description, stream_key_hash, stream_key_prefix, status)
+                    VALUES ($1, $1, $2, $3, $4, $5, $6, 'OFFLINE')
+                    RETURNING id, tenant_id, owner_id, name, slug, description, stream_key_prefix, status, enabled, created_at, updated_at, last_seen_at""",
+                user_id, data.name, slug, data.description,
+                hash_stream_key(key), stream_key_prefix(key),
+            )
     record_event("live_channel_created", detail=f"channel {slug}")
     out = _row_to_out(row)
     # OBS setup card: the plaintext key + paste-ready server/path are returned
@@ -828,7 +856,8 @@ async def segment_availability(
 ):
     """Viewer availability report: what this peer holds (haves) + measured
     transfer outcomes (served/failed per segment). Failed transfers scrub the
-    reporting peer's availability so dead peers stop being selected."""
+    peer from that segment's availability set AFTER the report is applied, so
+    dead peers stop being selected for segments they failed to deliver."""
     await _check_viewer_rate_limit(request, data.channel_slug)
     pool = await get_db_pool()
     async with pool.acquire() as conn:
@@ -856,10 +885,11 @@ async def segment_availability(
         )
 
     failed_seqs = [t.sequence_number for t in data.transfers if not t.served]
-    from ..live_state import mark_peer_dead, peer_report
-    for seq in failed_seqs:
-        # The peer failed to deliver — it loses that segment's availability so
-        # other viewers stop trying it (fallback to another peer / origin).
-        await mark_peer_dead(data.channel_slug, f"{data.peer_id}:{seq}")
+    from ..live_state import mark_peer_dead_for_segment, peer_report
+    # Report first, then scrub: a failure must win over the same report's
+    # have-claim for that segment (contradictory input resolves conservatively
+    # — other viewers stop trying this peer for the segment it failed).
     await peer_report(data.channel_slug, data.peer_id, data.session_id, data.haves)
+    for seq in failed_seqs:
+        await mark_peer_dead_for_segment(data.channel_slug, data.peer_id, seq)
     return {"ok": True}

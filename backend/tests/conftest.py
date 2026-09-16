@@ -13,6 +13,10 @@ from starlette.testclient import TestClient
 # Set test environment before importing app modules
 os.environ.setdefault("JWT_SECRET", "this-is-a-32-char-secret-for-testing-only!!")
 os.environ.setdefault("APP_ENV", "development")
+# Hermetic tests: a developer shell that exports MEDIAMTX_HOOK_SECRET (for
+# docker compose) must not flip internal-hook endpoints into 403-ing the
+# suite. The secret-enforcement test sets/overrides it explicitly.
+os.environ.pop("MEDIAMTX_HOOK_SECRET", None)
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 

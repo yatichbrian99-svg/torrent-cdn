@@ -23,8 +23,11 @@ breaking live playback. Key shape (all with TTLs):
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import Any
+
+import httpx
 
 from .database import get_redis
 
@@ -339,6 +342,21 @@ async def mark_peer_dead(slug: str, peer_id: str) -> None:
             _mem_set(slug, "avail", key, entry, 60)
 
 
+async def mark_peer_dead_for_segment(slug: str, peer_id: str, seq: int) -> None:
+    """Scrub a peer from ONE segment's availability set (transfer failure).
+
+    The peer stays eligible for other segments it may still hold — only the
+    segment it failed to deliver stops being routed through it.
+    """
+    await _redis_call(
+        lambda r: r.srem(f"{KV}:chan:{slug}:avail:{seq}", peer_id))
+    key = str(seq)
+    entry = _mem_get(slug, "avail", key)
+    if isinstance(entry, set) and peer_id in entry:
+        entry.discard(peer_id)
+        _mem_set(slug, "avail", key, entry, 60)
+
+
 def _remove_peer_keys(redis, slug: str, peer_id: str):
     async def _run():
         peer_key = f"{KV}:chan:{slug}:peer:{peer_id}"
@@ -475,6 +493,27 @@ async def _monitor_tick() -> None:
                     slugs.add(parts[3])
         except Exception:
             pass
+    # Segment discovery from the MediaMTX HLS playlists — the server-side
+    # "detect & register segments" lifecycle step. Publishing channels get
+    # their segments registered even before any viewer observes them, so
+    # latest_segment / segment maps / P2P matching are real immediately.
+    if await _mediamtx_reachable_cached():
+        from .mediamtx import list_paths
+        try:
+            paths = await list_paths()
+        except Exception:  # noqa: BLE001 — never kill the tick
+            paths = {}
+        for name, p in paths.items():
+            if not p.get("ready"):
+                continue
+            slug = name[len("live/"):] if name.startswith("live/") else name
+            if not slug:
+                continue
+            slugs.add(slug)
+            try:
+                await _register_segments_from_playlist(slug)
+            except Exception as e:  # noqa: BLE001 — per-channel isolation
+                logger.debug("segment discovery failed for %s: %s", slug, e)
     for slug in sorted(slugs):
         try:
             await monitor_channel_status(slug)
@@ -488,6 +527,64 @@ async def _monitor_tick() -> None:
         except Exception:
             pass
     del interval
+
+
+_mediamtx_ok_at: float = 0.0
+_SEG_NAME_RE = re.compile(r"(\d+)\.(?:m4s|ts|mp4)$", re.I)
+_VARIANT_RE = re.compile(r"([A-Za-z0-9_]+_stream\.m3u8)")
+
+
+async def _mediamtx_reachable_cached() -> bool:
+    """30s-cached reachability so playlist discovery is skipped cheaply when
+    MediaMTX is down (the health endpoint does the uncached probe)."""
+    global _mediamtx_ok_at
+    if _mediamtx_ok_at and time.time() - _mediamtx_ok_at < 30:
+        return True
+    from .mediamtx import mediamtx_reachable
+    if await mediamtx_reachable():
+        _mediamtx_ok_at = time.time()
+        return True
+    return False
+
+
+async def _register_segments_from_playlist(slug: str) -> None:
+    """Fetch the channel's HLS playlists and register unseen full segments.
+
+    Verified MediaMTX LL-HLS shape: master `index.m3u8` → variants
+    `<hash>_video1_stream.m3u8` whose full segments are named
+    `<hash>_video1_seg<N>.mp4` (N = absolute media sequence). `gap.mp4`
+    placeholders and `*_part<k>.mp4` LL-HLS parts are ignored.
+    """
+    from .live_settings import get_live_settings
+    from .mediamtx import mediamtx_path
+
+    s = get_live_settings()
+    base = s.mediamtx_hls_url.rstrip("/")
+    path = mediamtx_path(slug)
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            master = await client.get(f"{base}/{path}/index.m3u8")
+            if master.status_code != 200:
+                return
+            variants = sorted(set(_VARIANT_RE.findall(master.text))) or ["video1_stream.m3u8"]
+            for variant in variants:
+                r = await client.get(f"{base}/{path}/{variant}")
+                if r.status_code != 200:
+                    continue
+                seqs = [int(m.group(1)) for line in r.text.splitlines()
+                        if (m := _SEG_NAME_RE.search(line))]
+                if not seqs:
+                    continue
+                meta = await get_channel_meta(slug)
+                try:
+                    known = int(meta.get("latest_seq", -1))
+                except (TypeError, ValueError):
+                    known = -1
+                for seq in sorted(set(seqs)):
+                    if seq > known:
+                        await register_segment(slug, seq, duration=s.hls_segment_duration)
+    except Exception as e:  # noqa: BLE001 — MediaMTX blips must not raise
+        logger.debug("playlist fetch failed for %s: %s", slug, e)
 
 
 def get_live_monitor_health() -> dict:

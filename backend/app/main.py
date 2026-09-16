@@ -82,6 +82,12 @@ async def run_startup_migrations():
                 -- WITHOUT this column (tests mock the DB, so the mismatch slipped
                 -- through); every live_channels query selects/inserts it → 500s.
                 ALTER TABLE live_channels ADD COLUMN IF NOT EXISTS stream_key_prefix VARCHAR(24);
+                -- Live fix: slugs were UNIQUE(tenant_id, slug) but slug-keyed
+                -- lookups (public playback, MediaMTX auth hook, viewer sessions)
+                -- are global — two tenants could shadow the same slug. Enforce a
+                -- global unique slug; conflicting rows on upgrade are a deploy
+                -- blocker to resolve manually (they cannot coexist safely).
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_live_channels_slug ON live_channels(slug);
                 CREATE INDEX IF NOT EXISTS idx_uploads_content_hash ON uploads(content_hash);
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_uploads_user_idempotency ON uploads(user_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
                 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at DESC);

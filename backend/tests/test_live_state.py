@@ -66,6 +66,15 @@ class TestLiveState:
             assert set(await live_state.peers_with_segment("ch1", 3)) == set()
         run(go())
 
+    def test_failed_transfer_scrubs_only_that_segment(self):
+        async def go():
+            await live_state.peer_report("ch1", "peerA", "sessA", haves=[7, 8])
+            # A fails to deliver segment 7 — it must lose ONLY segment 7
+            await live_state.mark_peer_dead_for_segment("ch1", "peerA", 7)
+            assert await live_state.peers_with_segment("ch1", 7) == []
+            assert await live_state.peers_with_segment("ch1", 8) == ["peerA"]
+        run(go())
+
     def test_peer_scores_rank_stale_out(self):
         async def go():
             await live_state.peer_report("ch1", "fresh", "s1", haves=[1])
@@ -284,7 +293,12 @@ class TestSessionLifecycle:
             ],
         }, headers=headers)
         assert resp.status_code == 200
-        assert set(run(live_state.peers_with_segment("mychan", 6))) == {"peer-viewer-1"}
+        # Failed transfer for segment 6 scrubs the peer from THAT segment only
+        # (other viewers stop trying it there → fallback to peer/origin), while
+        # successfully delivered segments keep the peer listed.
+        assert run(live_state.peers_with_segment("mychan", 6)) == []
+        assert set(run(live_state.peers_with_segment("mychan", 5))) == {"peer-viewer-1"}
+        assert set(run(live_state.peers_with_segment("mychan", 7))) == {"peer-viewer-1"}
         c = run(live_state.read_counters("mychan"))
         assert c["segments_served"] == 1
         assert c["segments_failed"] == 1

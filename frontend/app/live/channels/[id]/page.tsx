@@ -224,12 +224,14 @@ export default function LiveChannelDetailPage() {
         </p>
         <div className="mt-4 space-y-3">
           <FieldRow label="Server" value={setup?.server || ingest?.rtmp_url || ''} copied={copied === 'server'} onCopy={() => copy('server', setup?.server || ingest?.rtmp_url || '')} />
-          <FieldRow label="Publish path" value={setup?.path || ingest?.publish_path || ''} copied={copied === 'path'} onCopy={() => copy('path', setup?.path || ingest?.publish_path || '')} />
+          {/* OBS 'Stream key' field: <slug>?pass=<key> — MediaMTX forwards the
+              stream-name query (user/pass) to the auth hook, and the slug
+              routes the publish to the right channel. */}
           {setup ? (
-            <FieldRow label="Stream key" value={setup.key} copied={copied === 'key'} onCopy={() => copy('key', setup.key)} />
+            <FieldRow label="Stream key (OBS)" value={`${channel?.slug ?? ''}?pass=${setup.key}`} copied={copied === 'key'} onCopy={() => copy('key', `${channel?.slug ?? ''}?pass=${setup.key}`)} />
           ) : (
             <div className="flex items-center gap-2">
-              <p className="w-32 shrink-0 text-xs uppercase tracking-widest" style={{ color: '#555' }}>Stream key</p>
+              <p className="w-32 shrink-0 text-xs uppercase tracking-widest" style={{ color: '#555' }}>Stream key (OBS)</p>
               <code className="flex-1 border px-3 py-2 font-mono text-xs" style={{ backgroundColor: '#0c0c0c', borderColor: '#333', color: '#555' }}>
                 •••••••••••••••••••• hidden — stored hashed, shown once per key
               </code>
@@ -247,8 +249,8 @@ export default function LiveChannelDetailPage() {
         </div>
         {setup && (
           <p className="mt-3 text-xs" style={{ color: '#fbbf24' }}>
-            Shown only for this visit — copy it into OBS now. It is stored hashed and cannot be retrieved again
-            (use Reveal to generate a fresh one anytime).
+            Shown only for this visit — paste the full Stream key (it carries the channel) into OBS now.
+            Stored hashed server-side; regenerate anytime with Reveal.
           </p>
         )}
         <div className="mt-5 flex flex-wrap items-center gap-3 border-t pt-4" style={{ borderColor: '#222' }}>

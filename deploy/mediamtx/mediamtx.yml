@@ -4,8 +4,10 @@
 # MediaMTX owns ALL media: RTMP ingest, HLS muxing (LL-HLS compatible),
 # protocol conversion. TorrentCDN never implements RTMP/HLS itself.
 #
-# This file uses ${VAR} substitution: MediaMTX resolves environment
-# variables at startup (docker-compose.yml sets them from .env).
+# This file is plain YAML: MediaMTX does NOT interpolate ${VAR} inside its
+# config. Every value below can be overridden with MTX_-prefixed environment
+# variables (e.g. hlsSegmentDuration → MTX_HLSSEGMENTDURATION) — that is how
+# docker-compose.yml injects the auth-hook URL and tunables.
 #
 # SECURITY:
 #  - Control API (9997) and metrics (9998) are INTERNAL ONLY — never
@@ -28,7 +30,10 @@ logDestinations: [stdout]
 # for action=publish and allows reads for enabled channels. $-variables are
 # substituted by MediaMTX at request time.
 authMethod: http
-authHTTPAddress: ${MEDIAMTX_AUTH_URL}
+# Default points at the compose-network backend; the real shared secret is
+# injected via MTX_AUTHHTTPADDRESS in docker-compose.yml (never committed).
+# Fail-closed: with an unknown secret the backend rejects every publish.
+authHTTPAddress: http://backend:8000/api/internal/mediamtx/auth?secret=override-via-MTX_AUTHHTTPADDRESS
 authHTTPExclude:
   # The Control API / metrics / pprof are internal-only (network isolation);
   # they must never fan out to the backend on every poll.
@@ -52,8 +57,8 @@ metricsAddress: :9998
 rtmp: yes
 rtmpAddress: :1935
 # Observers are not allowed to publish; auth hook handles per-path checks.
-rtmpEncryption: no
-rtmpSPSManager: no
+# String values: no | strict | optional (NOT a bool).
+rtmpEncryption: "no"
 
 # ── RTSP / SRT: disabled (not used by the MVP) ──────────────────────────────
 rtsp: no
@@ -64,24 +69,23 @@ hls: yes
 hlsAddress: :8888
 # lowLatency variant keeps the architecture LL-HLS ready; segment duration is
 # the MVP's ~2s target. Part duration must divide the segment duration.
+# Override in deployment with MTX_HLSSEGMENTDURATION / MTX_HLSPARTDURATION.
 hlsVariant: lowLatency
-hlsSegmentDuration: ${MEDIAMTX_HLS_SEGMENT_DURATION}
-hlsPartDuration: ${MEDIAMTX_HLS_PART_DURATION}
+hlsSegmentDuration: 2s
+hlsPartDuration: 700ms
 hlsSegmentCount: 7
 # Serve the playlist with no-cache; MediaMTX handles this internally, but the
 # public reverse proxy must ALSO not cache index.m3u8 (see Caddyfile).
 hlsEncryption: no
-# Allow origin (our reverse proxy) to fetch anything under /<path>/…
-hlsAllowOrigin: "*"
-hlsTrustedProxies: "*"
 # Direct playback from the HLS port stays behind the reverse proxy; viewers
 # never hit 8888 directly in production.
-hlsDirectory: ""
 
 # ── WebRTC (optional viewer transport; default on for future use) ───────────
 webrtc: yes
 webrtcAddress: :8889
-webrtcAdditionalHosts: ${MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS}
+# Override with MTX_WEBRTCADDITIONALHOSTS in deployment (public host/IP).
+# []string — comma-separated env values map to this list via MTX_ overrides.
+webrtcAdditionalHosts: [localhost]
 
 # ── Paths: created dynamically by publishers (OBS stream key = path) ────────
 # TorrentCDN's auth hook maps every publish/read on any path to a live channel

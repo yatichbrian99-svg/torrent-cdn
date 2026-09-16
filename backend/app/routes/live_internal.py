@@ -87,8 +87,15 @@ async def _load_channel_by_slug(slug: str):
 async def mediamtx_auth(request: Request):
     """External authentication for MediaMTX (publish + read).
 
-    Publish: user must be the channel slug and password the stream key —
-    verified against the stored SHA-256 hash (never logged, constant-time).
+    Publish: the channel slug comes from the path (`live/<slug>`) and the
+    stream key from `password` — which MediaMTX sources from the stream-name
+    QUERY STRING (`?user=<slug>&pass=<key>`). Verified empirically: RTMP URL
+    userinfo is NOT forwarded (user arrives empty) because RTMP handshake has
+    no credential phase; MediaMTX only parses `user`/`pass` out of the query.
+    So OBS setup is: Server = rtmp://host:1935/live, Stream key =
+    `<slug>?pass=<stream key>` — verified against the stored SHA-256 hash
+    (never logged, constant-time). Empty credentials → 401 challenge, which
+    is how MediaMTX surfaces a missing key to the publisher.
     Read (HLS/WebRTC): allowed for enabled channels; the `query` may carry a
     playback token for deployments that lock reads down, but the default
     posture keeps public HLS readable and gates viewer APIs by token.

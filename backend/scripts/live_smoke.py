@@ -117,9 +117,13 @@ def main() -> None:
     if r.status_code != 200:
         die(f"rotate-key failed ({r.status_code}): {r.text[:300]}")
     stream_key = r.json()["stream_key"]
+    # MediaMTX auth contract: RTMP URL userinfo is IGNORED by publishers —
+    # credentials travel in the stream-name query string (?user=…&pass=…).
+    # OBS does the same: the Stream Key field carries slug + query.
     rtmp_url = f"{args.rtmp.rstrip('/')}/live"
+    publish_url = f"{rtmp_url}/{slug}?user={quote(slug)}&pass={quote(stream_key)}"
     log("ingest", f"RTMP server: {rtmp_url}")
-    log("ingest", "stream key: [REDACTED — printed to OBS config only, never logged]")
+    log("ingest", "stream key: [REDACTED — used in publish URL only, never logged]")
     log("ingest", f"publish path: live/{slug}")
 
     # ── 3. publish a synthetic stream with ffmpeg (SIMULATED source) ─────────
@@ -132,7 +136,7 @@ def main() -> None:
             "-f", "lavfi", "-i", "sine=frequency=440",
             "-c:v", "libx264", "-preset", "veryfast", "-g", "30",
             "-c:a", "aac", "-b:a", "64k",
-            "-f", "flv", f"{rtmp_url}/{slug}",
+            "-f", "flv", publish_url,
         ]
         + [],
         stdin=subprocess.DEVNULL,
@@ -140,7 +144,9 @@ def main() -> None:
         stderr=open(os.path.join(tmpdir, "ffmpeg.log"), "w"),
     )
 
-    playlist_url = f"{args.hls.rstrip('/')}/{slug}/index.m3u8"
+    # MediaMTX path == RTMP publish path: "live/<slug>" — HLS is served at
+    # /live/<slug>/index.m3u8 (verified against the running muxer).
+    playlist_url = f"{args.hls.rstrip('/')}/live/{slug}/index.m3u8"
     published = False
     try:
         # ── 4. wait for HLS + TorrentCDN LIVE detection ─────────────────────

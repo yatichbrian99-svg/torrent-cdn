@@ -59,12 +59,15 @@ services:
     image: bluenviron/mediamtx:1.11.3
     restart: unless-stopped
     environment:
-      # Auth hook → backend (internal network). The shared secret travels in
-      # the URL; MediaMTX → backend is container-to-container, never public.
-      MEDIAMTX_AUTH_URL: http://backend:8000/api/internal/mediamtx/auth?secret=${MEDIAMTX_HOOK_SECRET:?MEDIAMTX_HOOK_SECRET must be set}
-      MEDIAMTX_HLS_SEGMENT_DURATION: ${LIVE_HLS_SEGMENT_DURATION:-2s}
-      MEDIAMTX_HLS_PART_DURATION: ${LIVE_HLS_PART_DURATION:-700ms}
-      MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS: ${MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS:-localhost}
+      # MediaMTX reads overrides from MTX_-prefixed env vars (it does NOT
+      # interpolate ${VAR} inside its YAML). The shared secret travels in the
+      # URL; MediaMTX → backend is container-to-container, never public.
+      # MEDIAMTX_BACKEND_HOST lets a host-run backend receive hooks in dev
+      # (e.g. host.docker.internal); the compose service name is the default.
+      MTX_AUTHHTTPADDRESS: http://${MEDIAMTX_BACKEND_HOST:-backend}:8000/api/internal/mediamtx/auth?secret=${MEDIAMTX_HOOK_SECRET:?MEDIAMTX_HOOK_SECRET must be set}
+      MTX_HLSSEGMENTDURATION: ${LIVE_HLS_SEGMENT_DURATION:-2s}
+      MTX_HLSPARTDURATION: ${LIVE_HLS_PART_DURATION:-700ms}
+      MTX_WEBRTCADDITIONALHOSTS: ${MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS:-localhost}
     ports:
       - "127.0.0.1:1935:1935"   # RTMP ingest (publishers)
       - "127.0.0.1:8888:8888"   # HLS (fetched by backend + reverse proxy)
@@ -73,11 +76,13 @@ services:
       - "127.0.0.1:9998:9998"   # Metrics (INTERNAL ONLY)
     volumes:
       - ./deploy/mediamtx/mediamtx.yml:/mediamtx.yml:ro
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O- http://localhost:9997/v3/paths/list >/dev/null 2>&1 || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 12
+    extra_hosts:
+      # lets MTX_AUTHHTTPADDRESS reach a backend running on the Docker host
+      - "host.docker.internal:host-gateway"
+    # NO container healthcheck: the MediaMTX image is distroless (no shell,
+    # no wget/curl), so a CMD-SHELL probe can never run. MediaMTX health is
+    # observed by the backend instead — see GET /api/health/live
+    # (mediamtx_reachable) and the periodic monitor's fail-open polling.
 
   backend:
     build:
@@ -106,7 +111,9 @@ services:
       # ── Live streaming ──
       MEDIAMTX_API_URL: ${MEDIAMTX_API_URL:-http://mediamtx:9997}
       MEDIAMTX_RTMP_URL: ${MEDIAMTX_RTMP_URL:-rtmp://localhost:1935}
-      MEDIAMTX_HLS_URL: ${MEDIAMTX_HLS_URL:-http://localhost:8888}
+      # container-internal default: reach MediaMTX over the compose network
+      # (a localhost default is only correct for host-run backends)
+      MEDIAMTX_HLS_URL: ${MEDIAMTX_HLS_URL:-http://mediamtx:8888}
       MEDIAMTX_WEBRTC_URL: ${MEDIAMTX_WEBRTC_URL:-}
       MEDIAMTX_HOOK_SECRET: ${MEDIAMTX_HOOK_SECRET:?MEDIAMTX_HOOK_SECRET must be set}
       PLAYBACK_TOKEN_SECRET: ${PLAYBACK_TOKEN_SECRET:-}
@@ -123,8 +130,10 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      # started (not healthy): MediaMTX has no workable in-container healthcheck
+      # (distroless image) and the backend tolerates it being briefly down.
       mediamtx:
-        condition: service_healthy
+        condition: service_started
     volumes:
       - ./backend:/app
       - torrent_temp:/tmp
