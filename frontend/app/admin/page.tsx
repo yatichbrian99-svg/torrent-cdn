@@ -73,8 +73,11 @@ export default function AdminPage() {
       // no response) — the free-tier backend wakes in a few seconds and a retry
       // loads the page instead of an error.
       const [stats, data] = await Promise.all([
-        retryOnTransient(() => api.getAdminStats()),
-        retryOnTransient(() => api.getAdminUsers(pageNum)),
+        // retries=5 (+ the escalating schedule ≈ 47s of retrying) rides out a
+        // full Docker/Render cold start — the backend needs ~40-60s after a
+        // deploy/restart, and giving up early reads as a broken dashboard.
+        retryOnTransient(() => api.getAdminStats(), 5),
+        retryOnTransient(() => api.getAdminUsers(pageNum), 5),
       ])
       setAnalytics(stats)
       setUsers(data.users || [])
@@ -102,9 +105,10 @@ export default function AdminPage() {
   useEffect(() => {
     if (!isLoggedIn()) { router.push('/'); return }
     // Redirect non-admins to the homepage. A transient failure of getMe()
-    // itself (cold start) must NOT bounce a logged-in admin home — retry,
-    // and only give up (treating it as a dead session) after retries exhaust.
-    retryOnTransient(() => api.getMe(), 2, 1500)
+    // itself (cold start) must NOT bounce a logged-in admin home — retry for
+    // up to ~a minute (boot window), and only give up (treating it as a dead
+    // session) after retries exhaust.
+    retryOnTransient(() => api.getMe(), 5, 8000)
       .then((me) => { if (!me?.is_admin) { router.push('/'); return } fetchData(1) })
       .catch(() => { router.push('/') })
   }, [router, fetchData])

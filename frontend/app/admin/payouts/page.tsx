@@ -120,7 +120,8 @@ export default function AdminPayoutsPage() {
   useEffect(() => {
     if (!isLoggedIn()) { router.push('/'); return }
     // A transient getMe() failure (cold start) must NOT bounce an admin home.
-    retryOnTransient(() => api.getMe(), 2, 1500)
+    // ~1min of retries covers a full Docker/Render boot before giving up.
+    retryOnTransient(() => api.getMe(), 5, 8000)
       .then((me) => { if (!me?.is_admin) { router.push('/'); return } load() })
       .catch(() => { router.push('/') })
   }, [router, load])

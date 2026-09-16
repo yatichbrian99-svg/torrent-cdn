@@ -85,10 +85,23 @@ export const isTransientError = (err: any) => {
   return !err.response && !!(err.request || err.code)
 }
 
-// Retry fn on transient failures with a fixed pause between attempts. Used by
-// page data loads (cold starts): a 1s + 3s backoff covers a Render wake-up
-// without making a genuinely broken page feel unresponsive.
-export const retryOnTransient = async (fn: () => Promise<any>, retries = 2, delayMs = 1000): Promise<any> => {
+// Retry fn on transient failures. Used by page data loads (cold starts).
+//
+// The default schedule must survive a FULL Docker/Render cold start, not just
+// a Render wake-up: the dockerized backend takes ~40-60s to boot (migration
+// run + gunicorn workers), and the free-tier Render instance adds its own
+// wake-up on top. The old 1s + 3s schedule gave up at ~4s — the user saw
+// 'Failed to load' / 'You need admin privileges…' (via the getMe redirect)
+// while the backend was still booting. Escalating pauses (2s → 5s → 10s → 10s
+// → 20s → 20s) keep retrying for up to ~65s before surfacing an error; 401/
+// 403 still fail IMMEDIATELY (they mean dead session / not an admin, and
+// retrying those would add ~a minute of dead wait to a real denial).
+// Callers that already pass a retry count keep working: retries are executed
+// against the schedule index (retry N uses schedule[N]), so e.g. retries=2
+// still means '2 extra attempts' with the first two pauses.
+const TRANSIENT_RETRY_DELAYS_MS = [2000, 5000, 10000, 10000, 20000, 20000]
+
+export const retryOnTransient = async (fn: () => Promise<any>, retries = TRANSIENT_RETRY_DELAYS_MS.length, delayMs?: number): Promise<any> => {
   let lastErr: any
   for (let attempt = 0; ; attempt++) {
     try {
@@ -96,7 +109,10 @@ export const retryOnTransient = async (fn: () => Promise<any>, retries = 2, dela
     } catch (err: any) {
       lastErr = err
       if (!isTransientError(err) || attempt >= retries) throw err
-      await new Promise((resolve) => setTimeout(resolve, delayMs * (attempt + 1)))
+      // delayMs (legacy fixed-pause callers) wins; otherwise the escalating
+      // schedule indexed by attempt number (clamped to the last entry).
+      const delay = delayMs ?? TRANSIENT_RETRY_DELAYS_MS[Math.min(attempt, TRANSIENT_RETRY_DELAYS_MS.length - 1)]
+      await new Promise((resolve) => setTimeout(resolve, delay))
     }
   }
 }

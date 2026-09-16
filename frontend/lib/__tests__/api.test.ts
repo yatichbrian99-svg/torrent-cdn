@@ -157,7 +157,7 @@ describe('api client interceptors', () => {
       })
 
       const promise = retryOnTransient(fn)
-      await vi.advanceTimersByTimeAsync(1000)
+      await vi.advanceTimersByTimeAsync(2000)
       const result = await promise
 
       expect(result).toEqual({ plan: 'pro' })
@@ -173,10 +173,33 @@ describe('api client interceptors', () => {
 
       const promise = retryOnTransient(fn)
       const assertion = expect(promise).rejects.toMatchObject({ response: { status: 503 } })
-      await vi.advanceTimersByTimeAsync(10000)
+      // Escalating schedule 2+5+10+10+20+20 = 67s of retries after the first
+      // failure — advance well past it.
+      await vi.advanceTimersByTimeAsync(90000)
       await assertion
-      // 1 initial + 2 retries
-      expect(fn).toHaveBeenCalledTimes(3)
+      // 1 initial + 6 scheduled retries
+      expect(fn).toHaveBeenCalledTimes(7)
+      vi.useRealTimers()
+    })
+
+    it('retryOnTransient: keeps retrying through a FULL Docker cold start (~50s) before success', async () => {
+      vi.useFakeTimers()
+      let calls = 0
+      const fn = vi.fn(async () => {
+        calls++
+        // The backend answers 502 at the proxy until it finishes booting —
+        // regression guard for the admin-dashboard 'failed to load while the
+        // container was still starting' report.
+        if (calls <= 5) throw { response: { status: 502 } }
+        return { is_admin: true }
+      })
+
+      const promise = retryOnTransient(fn)
+      await vi.advanceTimersByTimeAsync(50000)
+      const result = await promise
+
+      expect(result).toEqual({ is_admin: true })
+      expect(fn).toHaveBeenCalledTimes(6)
       vi.useRealTimers()
     })
 
