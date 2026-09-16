@@ -220,6 +220,13 @@ async def derive_channel_status(row) -> str:
     return "OFFLINE"
 
 
+async def _channel_presence_snapshot(slug: str) -> tuple[int, int]:
+    """(viewers, peers) right now — the monitor's peak-sampling input."""
+    from ..live_state import active_peers, active_viewers
+
+    return await active_viewers(slug), len(await active_peers(slug))
+
+
 async def monitor_channel_status(slug: str) -> None:
     """Monitor-tick hook: refresh status + last_seen for every channel with
     the given slug (normally one; the slug is globally unique per tenant)."""
@@ -235,7 +242,7 @@ async def monitor_channel_status(slug: str) -> None:
                 )
             if status == "LIVE":
                 await conn.execute(
-                    "UPDATE live_channels SET last_seen_at = NOW() WHERE id = $2 AND (last_seen_at IS NULL OR last_seen_at < NOW() - INTERVAL '10 seconds')",
+                    "UPDATE live_channels SET last_seen_at = NOW() WHERE id = $1 AND (last_seen_at IS NULL OR last_seen_at < NOW() - INTERVAL '10 seconds')",
                     row["id"],
                 )
 
@@ -379,8 +386,19 @@ async def _attach_live_metrics(ch: LiveChannelOut) -> None:
     ch.current_viewers = await active_viewers(ch.slug)
     ch.current_peers = len(await active_peers(ch.slug))
     total = counters.get("bytes_p2p", 0) + counters.get("bytes_origin", 0)
-    # bitrate from the rolling counters (bytes in the last counter window)
-    ch.bitrate_kbps = round(total * 8 / 1000 / max(60, 1), 1) if total else 0.0
+    # bitrate from the rolling counters over their actual window: counters are
+    # reset by the rollup at most every 300s and expire after 600s — use the
+    # elapsed time since the last rollup (floored at one monitor interval).
+    if total:
+        try:
+            window = max(float(meta.get("last_rollup_ts", 0) or 0) and
+                         (time.time() - float(meta["last_rollup_ts"])), 10.0)
+        except (TypeError, ValueError):
+            window = 60.0
+        window = min(window, 600.0)
+        ch.bitrate_kbps = round(total * 8 / 1000 / window, 1)
+    else:
+        ch.bitrate_kbps = 0.0
     if ch.status == "LIVE" and ch.last_seen_at:
         try:
             ch.uptime_seconds = max(0, int((datetime.now(UTC) - ch.last_seen_at).total_seconds()))
@@ -509,6 +527,19 @@ async def channel_status(
     peers = await active_peers(slug)
     counters = await read_counters(slug)
     total = counters.get("bytes_p2p", 0) + counters.get("bytes_origin", 0)
+    # bitrate from the rolling counters over their actual window: counters are
+    # reset by the rollup at most every 300s and expire after 600s — use the
+    # elapsed time since the last rollup (floored at one monitor interval).
+    if total:
+        try:
+            ts = float(meta.get("last_rollup_ts", 0) or 0)
+            window = max(time.time() - ts, 10.0) if ts > 0 else 60.0
+        except (TypeError, ValueError):
+            window = 60.0
+        window = min(window, 600.0)
+        bitrate = round(total * 8 / 1000 / window, 1)
+    else:
+        bitrate = 0.0
     return {
         "channel_id": str(channel_id),
         "slug": slug,
@@ -516,7 +547,7 @@ async def channel_status(
         "enabled": bool(row.get("enabled", True)),
         "current_viewers": viewers,
         "current_peers": len(peers),
-        "bitrate_kbps": round(total * 8 / 1000 / max(60, 1), 1) if total else 0.0,
+        "bitrate_kbps": bitrate,
         "uptime_seconds": _uptime(row, status),
         "latest_segment_sequence": latest,
         "latency_target_seconds": s.hls_segment_duration,

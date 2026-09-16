@@ -322,3 +322,48 @@ class TestSessionLifecycle:
             "channel_slug": "mychan", "session_id": "viewer-12345678",
         }, headers=headers)
         assert resp.status_code == 401
+
+
+class TestPeakSamplingAndRollup:
+    def test_sample_peaks_grows_monotonically(self):
+        async def go():
+            await live_state.sample_peaks("pk", viewers=10, peers=8)
+            await live_state.sample_peaks("pk", viewers=4, peers=12)
+            await live_state.sample_peaks("pk", viewers=25, peers=3)
+            c = await live_state.read_counters("pk")
+            assert c["peak_viewers"] == 25
+            assert c["peak_peers"] == 12
+        run(go())
+
+    def test_sample_peaks_zero_when_no_audience(self):
+        async def go():
+            await live_state.sample_peaks("pk0", viewers=0, peers=0)
+            c = await live_state.read_counters("pk0")
+            assert "peak_viewers" not in c
+            assert "peak_peers" not in c
+        run(go())
+
+    def test_rollup_consumes_peaks_and_resets(self):
+        async def go():
+            from unittest.mock import patch, AsyncMock
+            await live_state.sample_peaks("pk1", viewers=42, peers=30)
+            await live_state.bump_counters("pk1", bytes_p2p=1000, segments_served=2)
+            await live_state.set_channel_meta("pk1", last_seg_ts=str(time.time() - 999))
+            conn = AsyncMock()
+            conn.fetchrow = AsyncMock(return_value={"id": "ch-id"})
+            cm = type("C", (), {"__aenter__": AsyncMock(return_value=conn),
+                                "__aexit__": AsyncMock(return_value=False)})()
+            pool = type("P", (), {"acquire": lambda self: cm})()
+            with patch("app.routes.live.get_db_pool", new=AsyncMock(return_value=pool)), \
+                 patch("app.routes.live.pool_execute_insert_analytics", new=AsyncMock()) as ins:
+                from app.routes.live import rollup_channel_analytics
+                await rollup_channel_analytics("pk1")
+            args = ins.call_args.args
+            counters = args[2]  # (pool, channel_id, counters, meta)
+            assert counters["peak_viewers"] == 42
+            assert counters["peak_peers"] == 30
+            # counters reset after rollup
+            c = await live_state.read_counters("pk1")
+            assert c.get("bytes_p2p", 0) == 0
+            assert c.get("peak_viewers", 0) == 0
+        run(go())

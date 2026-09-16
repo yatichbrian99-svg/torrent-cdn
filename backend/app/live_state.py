@@ -465,6 +465,24 @@ async def read_counters(slug: str) -> dict:
     return out
 
 
+async def sample_peaks(slug: str, viewers: int, peers: int) -> None:
+    """Record per-rollup-window peaks (max) of viewers/peers into counters.
+
+    Consumed by the analytics rollup, which resets them with the rest of the
+    counters. Single writer (the monitor tick) → read-modify-write is safe.
+    """
+    counters = await read_counters(slug)
+    updates: dict[str, int] = {}
+    cur_v = counters.get("peak_viewers", 0)
+    if viewers > cur_v:
+        updates["peak_viewers"] = viewers - cur_v
+    cur_p = counters.get("peak_peers", 0)
+    if peers > cur_p:
+        updates["peak_peers"] = peers - cur_p
+    if updates:
+        await bump_counters(slug, **updates)
+
+
 async def reset_counters(slug: str) -> dict:
     """Read-and-clear the rolling counters (monitor rollup into Postgres)."""
     out = await read_counters(slug)
@@ -517,6 +535,11 @@ async def _monitor_tick() -> None:
     for slug in sorted(slugs):
         try:
             await monitor_channel_status(slug)
+            # Sample audience peaks once per tick so analytics rollups carry a
+            # real max instead of a constant zero.
+            from .routes.live import _channel_presence_snapshot
+            vw, pr = await _channel_presence_snapshot(slug)
+            await sample_peaks(slug, vw, pr)
             await rollup_channel_analytics(slug)
         except Exception as e:  # noqa: BLE001 — per-channel isolation
             logger.warning("live monitor: channel %s failed: %s", slug, e)
