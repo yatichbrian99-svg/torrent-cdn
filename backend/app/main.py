@@ -423,6 +423,23 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 "/api/live/session",
                 "/api/live/heartbeat",
                 "/api/live/segment/availability",
+                # Playback-info + public status are the OTHER two calls every
+                # viewer fires (page load + keepalive polls), gated by the same
+                # route-level token limiter. Missing from this list they 429'd
+                # the whole 1,000-viewer load test at the global 120/10s budget
+                # (all viewers behind one IP in the test — but the same shape
+                # as a NAT'd office/school IP in production).
+                "/api/live/play/",
+                "/api/live/segment/availability",
+                # MediaMTX → backend auth hook: publishes from NAT'd or
+                # shared-egress publishers (bore.pub relays, cloud relays) all
+                # arrive at this backend from the relay's IP — the global
+                # per-IP budget would 429 the hook for UNRELATED publishers
+                # (observed live: every OBS retry through bore.pub 429'd for
+                # 10s windows). The route self-gates instead: a valid shared
+                # secret passes; wrong/missing secrets get a tight per-IP
+                # limiter inside the route (see live_internal._check_hook_secret).
+                "/api/internal/mediamtx/",
             ))
             or path == "/analytics/event"
         ):

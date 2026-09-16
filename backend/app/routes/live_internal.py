@@ -45,6 +45,11 @@ def _hook_secret() -> str:
     return _HOOK_SECRET
 
 
+_HOOK_BAD_WINDOW = 10  # seconds — matches the "try again" window we report
+_HOOK_BAD_LIMIT = 5  # bad-secret attempts per window per IP (incl. MediaMTX retries)
+_hook_bad_attempts: dict[str, list[float]] = {}
+
+
 def _check_hook_secret(request: Request) -> None:
     secret = _hook_secret()
     if not secret:
@@ -52,8 +57,26 @@ def _check_hook_secret(request: Request) -> None:
     presented = request.headers.get("x-hook-secret") or ""
     if not presented:
         presented = (request.query_params.get("secret") or "")
-    if presented != secret:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    if presented == secret:
+        return
+    # Wrong/missing secret: tightly rate-limit INSTEAD of failing instantly on
+    # the first bad attempt. MediaMTX retries its auth hook aggressively on
+    # startup/reconnect, and publishers behind NAT or a shared egress (bore.pub,
+    # cloud relays) all present the same source IP — an instant 403 storm from
+    # one retry loop would lock every publisher behind that IP out of MediaMTX
+    # (and the failure surfaces to OBS as an inscrutable generic RTMP error).
+    # A valid secret bypasses this entirely; the auth logic itself stays strict.
+    ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    recent = [t for t in _hook_bad_attempts.get(ip, []) if now - t < _HOOK_BAD_WINDOW]
+    if len(recent) >= _HOOK_BAD_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {int(_HOOK_BAD_WINDOW - (now - recent[0])) or 1}s.",
+        )
+    recent.append(now)
+    _hook_bad_attempts[ip] = recent
+    raise HTTPException(status_code=403, detail="Forbidden")
 
 
 def _slug_from_path(path: str) -> str | None:
