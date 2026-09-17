@@ -49,6 +49,49 @@ _HOOK_BAD_WINDOW = 10  # seconds — matches the "try again" window we report
 _HOOK_BAD_LIMIT = 5  # bad-secret attempts per window per IP (incl. MediaMTX retries)
 _hook_bad_attempts: dict[str, list[float]] = {}
 
+# Publisher lifecycle tracking, keyed by slug (ephemeral by design — the
+# monitor's clear_channel wipes it on stream end; bounded like the limiter).
+# Values: publish_first_seen (epoch), publish_attempts count (incl. retries),
+# publish_denied count, last_publish_result, last_disconnect epoch.
+_publish_lifecycle: dict[str, dict[str, float]] = {}
+_PUBLISH_LIFECYCLE_MAX = 200
+
+
+def _track_publish_event(slug: str, outcome: str) -> None:
+    """Record a publish auth attempt (ok / denied / challenge) for the
+    diagnostics endpoint + reconnect counting. Never stores the key itself."""
+    st = _publish_lifecycle.setdefault(slug, {})
+    now = time.time()
+    if outcome == "ok" and not st.get("publish_first_seen"):
+        st["publish_first_seen"] = now  # reconnects do NOT reset the first-seen
+    if outcome in {"ok", "denied", "challenge"}:
+        st["publish_attempts"] = st.get("publish_attempts", 0) + 1
+    if outcome == "denied":
+        st["publish_denied"] = st.get("publish_denied", 0) + 1
+    st["last_publish_result"] = now if outcome != "challenge" else st.get("last_publish_result", 0)
+    st["last_publish_outcome"] = {"ok": "accepted", "denied": "denied",
+                                  "challenge": "challenge"}.get(outcome, outcome)
+    while len(_publish_lifecycle) > _PUBLISH_LIFECYCLE_MAX:
+        _publish_lifecycle.pop(next(iter(_publish_lifecycle)))
+
+
+def _track_disconnect(slug: str) -> None:
+    st = _publish_lifecycle.setdefault(slug, {})
+    st["last_disconnect"] = time.time()
+    st.pop("publish_first_seen", None)  # next connect starts a fresh uptime
+
+
+def publish_lifecycle_snapshot(slug: str) -> dict[str, float | str | None]:
+    """Read-only view for the diagnostics endpoint (no secrets, no IPs)."""
+    st = _publish_lifecycle.get(slug) or {}
+    return {
+        "publish_first_seen": st.get("publish_first_seen"),
+        "publish_attempts": int(st.get("publish_attempts", 0)),
+        "publish_denied": int(st.get("publish_denied", 0)),
+        "last_publish_outcome": st.get("last_publish_outcome"),
+        "last_disconnect": st.get("last_disconnect"),
+    }
+
 
 def _check_hook_secret(request: Request) -> None:
     secret = _hook_secret()
@@ -138,11 +181,15 @@ async def mediamtx_auth(request: Request):
     slug = _slug_from_path(path)
     if not slug:
         # Unknown path naming → reject (do not allow arbitrary MediaMTX paths).
+        logger.warning("live_ingest %s REJECTED path=%s (unmappable)", action or "?", path[:80])
         return JSONResponse(status_code=403, content={"detail": "forbidden"})
 
     channel = await _load_channel_by_slug(slug)
     if not channel or not channel.get("enabled", True):
         # 404-style rejection: do not reveal whether the channel exists.
+        if action == "publish":
+            _track_publish_event(slug, "denied")
+        logger.warning("live_ingest %s REJECTED slug=%s (missing-or-disabled)", action, slug)
         return JSONResponse(status_code=403, content={"detail": "forbidden"})
 
     if action == "publish":
@@ -152,11 +199,25 @@ async def mediamtx_auth(request: Request):
         import hmac as _hmac
 
         if not stored or not _hmac.compare_digest(presented_hash, stored):
+            _track_publish_event(slug, "denied")
+            # Structured, secret-free: outcome + identifiers only. The presented
+            # key/hash must NEVER appear here (spec: no secrets in logs).
+            logger.warning(
+                "live_ingest publish DENIED slug=%s protocol=%s ip=%s path=%s",
+                slug, protocol, request.client.host if request.client else "-", path,
+            )
             record_event("live_publish_denied", detail=f"slug={slug}")
             return JSONResponse(status_code=403, content={"detail": "forbidden"})
         # Authorized publish → STARTING marker; the first segment flips it to LIVE.
+        reconnect = bool(_publish_lifecycle.get(slug, {}).get("last_disconnect"))
+        _track_publish_event(slug, "ok")
         await set_channel_meta(slug, publish_seen=str(time.time()))
         await _touch_last_seen(channel["id"])
+        # Structured lifecycle log: one line per accepted publish attempt.
+        logger.info(
+            "live_ingest publish ACCEPTED slug=%s protocol=%s reconnect=%s path=%s",
+            slug, protocol, reconnect, path,
+        )
         record_event("live_publish_ok", detail=f"slug={slug}")
         return JSONResponse(status_code=200, content={"detail": "ok"})
 
@@ -213,8 +274,11 @@ async def mediamtx_ingest(request: Request):
     channel = await _load_channel_by_slug(slug)
     if not channel or not channel.get("enabled", True):
         raise HTTPException(status_code=404, detail="Channel not found")
-    await register_segment(slug, seq, duration=duration, size=size)
+    await register_segment(slug, seq, duration=duration, size=size,
+                           codec=body.get("codec"), bitrate_kbps=body.get("bitrate_kbps"),
+                           resolution=body.get("resolution"), fps=body.get("fps"))
     await _touch_last_seen_live(channel["id"])
+    logger.info("live_ingest segment slug=%s seq=%s size=%s", slug, seq, size)
     return {"ok": True, "slug": slug, "sequence": seq}
 
 
@@ -244,6 +308,8 @@ async def mediamtx_shutdown(request: Request):
     slug = str(body.get("slug") or "")[:64]
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", slug or ""):
         raise HTTPException(status_code=400, detail="Invalid slug")
+    _track_disconnect(slug)
+    logger.info("live_ingest stream END slug=%s", slug)
     await clear_channel(slug)
     pool = await get_db_pool()
     async with pool.acquire() as conn:

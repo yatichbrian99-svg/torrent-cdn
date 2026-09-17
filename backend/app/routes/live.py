@@ -19,6 +19,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import asyncpg
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from ..auth import get_current_user_id
@@ -218,8 +219,20 @@ async def derive_channel_status(row) -> str:
     # OFFLINE during the ~2-4s mux window (or forever, if segments never
     # registered) even though MediaMTX was actively converting.
     publish_seen = float(meta.get("publish_seen", 0) or 0)
-    if publish_seen and time.time() - publish_seen < 90:
-        return "STARTING"
+    if publish_seen:
+        seen_age = time.time() - publish_seen
+        # 45s sits inside the meta hash's 60s TTL (so this branch is always
+        # reachable) and is ~20x a normal first-segment mux window (~2-6s):
+        # past it, an authorized publisher with zero segments means the ingest
+        # itself is failing.
+        if seen_age < 45:
+            return "STARTING"
+        # Publisher authorized but NO segments for >45s: the ingest is failing
+        # (encoder stalled mid-handshake, network blackhole, MediaMTX mux
+        # error) — ERROR, never a permanent STARTING. A reconnecting encoder
+        # re-triggers the auth hook, refreshing publish_seen, so a healthy
+        # retry loop shows STARTING — only a connect-then-nothing shows ERROR.
+        return "ERROR"
 
     last_seen = row.get("last_seen_at")
     if last_seen:
@@ -237,6 +250,166 @@ async def _channel_presence_snapshot(slug: str) -> tuple[int, int]:
     from ..live_state import active_peers, active_viewers
 
     return await active_viewers(slug), len(await active_peers(slug))
+
+
+# ── Ingest diagnostics (spec §13 — internal, owner-scoped) ───────────────────
+
+_hls_probe_cache: dict[str, tuple[float, bool]] = {}
+
+
+async def _probe_hls_playlist(slug: str) -> bool:
+    """Can the backend actually fetch the channel's HLS playlist right now?
+
+    Cached 10s per slug (owner dashboard polls at 5s; a per-poll fetch through
+    a tunnel would add avoidable load). Returns True only on HTTP 200 — a 404
+    means MediaMTX is up but the path/playlist genuinely does not exist."""
+    cached = _hls_probe_cache.get(slug)
+    if cached and time.time() - cached[0] < 10:
+        return cached[1]
+    ok = False
+    try:
+        async with httpx.AsyncClient(timeout=4.0, follow_redirects=True) as client:
+            resp = await client.get(hls_url(slug), headers={"Cache-Control": "no-cache"})
+            ok = resp.status_code == 200 and "#EXTM3U" in resp.text[:64]
+    except Exception:  # noqa: BLE001 — unreachable HLS is a diagnostic result
+        ok = False
+    if len(_hls_probe_cache) > 200:
+        _hls_probe_cache.clear()
+    _hls_probe_cache[slug] = (time.time(), ok)
+    return ok
+
+
+def _ingest_stage_reason(status: str, *, publisher_connected: bool,
+                         hls_ok: bool | None, seg_age: float | None,
+                         max_seg_age: int) -> str:
+    """Human-readable explanation of WHY the channel is in its current stage
+    (spec §25: never a bare STARTING). Secrets never enter these strings."""
+    if status == "LIVE":
+        if seg_age is not None:
+            return f"Publisher connected and HLS segments advancing (latest {seg_age:.0f}s ago)."
+        return "Publisher connected and HLS segments advancing."
+    if status == "STARTING":
+        if publisher_connected and not hls_ok:
+            return "Publisher connected — waiting for MediaMTX to confirm publisher and produce HLS segments..."
+        if publisher_connected:
+            return "Publisher connected — first HLS segments not registered yet."
+        return "MediaMTX unreachable from the backend — stream state unknown; retrying."
+    if status == "ERROR":
+        if publisher_connected and not hls_ok:
+            return "Publisher connected but the HLS playlist is not available — ingest or muxing failed."
+        if publisher_connected:
+            return "Publisher connected but HLS segments are not advancing — ingest stalled."
+        return "Ingest failed after a publish attempt (encoder stalled, network drop, or MediaMTX error)."
+    if status == "OFFLINE":
+        return "No publisher connected."
+    return status
+
+
+@router.get("/channels/{channel_id}/ingest")
+async def channel_ingest_diagnostics(
+    channel_id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """Ingest diagnostics for the channel owner (spec §13).
+
+    Distinguishes exactly where the ingest chain stands: RTMP reachability
+    (derived from real auth outcomes), authentication, publisher presence,
+    MediaMTX path state, HLS playlist availability, latest segment age, and
+    the OBSERVED stream metadata (bitrate/codec/resolution/fps — never the
+    configured values). Reconnects are counted from real disconnect events.
+    Contains no secrets, no peer IPs, no internal URLs beyond the playback
+    URL the owner already sees."""
+    from .live_internal import publish_lifecycle_snapshot
+
+    row = await require_channel_owner(channel_id, user_id)
+    slug = row["slug"]
+    s = get_live_settings()
+    meta = await get_channel_meta(slug)
+    latest = await latest_segment(slug)
+    path, authoritative = await resolve_ingress(slug)
+    lifecycle = publish_lifecycle_snapshot(slug)
+    now = time.time()
+
+    last_seg_ts = float(meta.get("last_seg_ts", 0) or 0)
+    seg_age = (now - last_seg_ts) if last_seg_ts else None
+    publish_seen = float(meta.get("publish_seen", 0) or 0)
+
+    # Publisher presence: an authoritative MediaMTX answer wins (its verdict
+    # is final); without the control API, the fresh publish_seen marker (set
+    # only by a SUCCESSFUL auth) is the publisher signal.
+    if authoritative:
+        publisher_connected = path is not None
+        path_ready = bool(path.get("ready")) if path else False
+        path_source_type = str(path.get("source", {}).get("type", "")) if path else ""
+    else:
+        publisher_connected = bool(publish_seen and now - publish_seen < 90)
+        path_ready = False
+        path_source_type = ""
+
+    # RTMP listener reachability is INFERRED from real outcomes (a successful
+    # publish proves the listener accepted a TCP+RTMP connection), never by
+    # probing port 1935 from the backend (wrong vantage point behind NAT).
+    first_seen = lifecycle.get("publish_first_seen")
+    last_disc = lifecycle.get("last_disconnect")
+    rtmp_listener_reachable = bool(
+        publisher_connected or (last_disc and now - last_disc < 300)
+    )
+
+    auth_status = "unknown"
+    if lifecycle.get("last_publish_outcome") == "accepted":
+        auth_status = "accepted"
+    elif lifecycle.get("last_publish_outcome") == "denied":
+        auth_status = "denied"
+
+    hls_ok: bool | None = None
+    if publisher_connected or seg_age is not None:
+        hls_ok = await _probe_hls_playlist(slug)
+
+    ingest_healthy = bool(
+        publisher_connected and latest is not None and seg_age is not None
+        and seg_age <= s.live_max_segment_age * 3
+    )
+
+    try:
+        ingest_bitrate = int(meta.get("ingest_bitrate_kbps", 0) or 0)
+    except (TypeError, ValueError):
+        ingest_bitrate = 0
+
+    status = await derive_channel_status(row)
+    publisher_uptime = (
+        int(now - first_seen) if publisher_connected and first_seen else 0
+    )
+    reason = _ingest_stage_reason(
+        status,
+        publisher_connected=publisher_connected,
+        hls_ok=hls_ok,
+        seg_age=seg_age,
+        max_seg_age=s.live_max_segment_age,
+    )
+    return {
+        "channel_id": str(channel_id),
+        "slug": slug,
+        "status": status,
+        "status_reason": reason,
+        "rtmp_listener_reachable": rtmp_listener_reachable,
+        "auth_status": auth_status,
+        "publish_attempts": int(lifecycle.get("publish_attempts", 0)),
+        "publish_denied": int(lifecycle.get("publish_denied", 0)),
+        "reconnect_count": int(lifecycle.get("disconnect_count", 0)),
+        "publisher_connected": publisher_connected,
+        "publisher_uptime_seconds": publisher_uptime,
+        "mediamtx_path": f"live/{slug}",
+        "mediamtx_path_active": path_ready,
+        "mediamtx_source_type": path_source_type,
+        "hls_playlist_available": hls_ok,
+        "latest_segment_sequence": latest,
+        "last_segment_age_seconds": round(seg_age, 1) if seg_age is not None else None,
+        "ingest_bitrate_kbps": ingest_bitrate,
+        "codec": meta.get("codec") or None,
+        "resolution": meta.get("resolution") or None,
+        "fps": float(meta["fps"]) if meta.get("fps") else None,
+        "last_publish_outcome": lifecycle.get("last_publish_outcome"),
+    }
 
 
 async def monitor_channel_status(slug: str) -> None:
@@ -538,6 +711,13 @@ async def channel_status(
     viewers = await active_viewers(slug)
     peers = await active_peers(slug)
     counters = await read_counters(slug)
+    now = time.time()
+    last_seg_ts = float(meta.get("last_seg_ts", 0) or 0)
+    seg_age = (now - last_seg_ts) if last_seg_ts else None
+    publisher_seen = bool(
+        (meta.get("publish_seen") and now - float(meta.get("publish_seen", 0)) < 90)
+        or (seg_age is not None and seg_age < s.live_max_segment_age * 3)
+    )
     total = counters.get("bytes_p2p", 0) + counters.get("bytes_origin", 0)
     # bitrate from the rolling counters over their actual window: counters are
     # reset by the rollup at most every 300s and expire after 600s — use the
@@ -564,6 +744,13 @@ async def channel_status(
         "latest_segment_sequence": latest,
         "latency_target_seconds": s.hls_segment_duration,
         "last_seen_at": row.get("last_seen_at").isoformat() if row.get("last_seen_at") else None,
+        "status_reason": _ingest_stage_reason(
+            status,
+            publisher_connected=publisher_seen,
+            hls_ok=None,
+            seg_age=seg_age,
+            max_seg_age=s.live_max_segment_age,
+        ),
     }
 
 

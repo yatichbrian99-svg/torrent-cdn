@@ -217,9 +217,15 @@ def _delete_channel_keys(redis, slug: str):
 
 # ── Segment registry (live window) ───────────────────────────────────────────
 
-async def register_segment(slug: str, seq: int, duration: float = 0.0, size: int = 0) -> None:
+async def register_segment(slug: str, seq: int, duration: float = 0.0, size: int = 0,
+                           *, codec: str | None = None, bitrate_kbps: int | None = None,
+                           resolution: str | None = None, fps: float | None = None) -> None:
     """Record a segment as present at origin. The entry self-expires after the
-    live retention window — stale segments can never be served as live."""
+    live retention window — stale segments can never be served as live.
+
+    Optional ingest metadata (codec/bitrate/resolution/fps) comes from the
+    ingest webhook or MediaMTX-derived sources and lands in channel meta for
+    the diagnostics endpoint — OBSERVED values only, never configuration."""
     from .live_settings import get_live_settings
 
     s = get_live_settings()
@@ -239,7 +245,18 @@ async def register_segment(slug: str, seq: int, duration: float = 0.0, size: int
     _mem_set(slug, "segs", str(seq), payload, retention)
     if seq > _mem_last_seq.get(slug, -1):
         _mem_last_seq[slug] = seq
-    await set_channel_meta(slug, latest_seq=str(seq), last_seg_ts=str(time.time()))
+    meta_update = {"latest_seq": str(seq), "last_seg_ts": str(time.time())}
+    # Ingest metadata is attached to the meta hash with the SAME 60s TTL —
+    # it self-expires with the stream instead of lingering as stale state.
+    if codec:
+        meta_update["codec"] = str(codec)[:40]
+    if bitrate_kbps:
+        meta_update["ingest_bitrate_kbps"] = str(int(bitrate_kbps))
+    if resolution:
+        meta_update["resolution"] = str(resolution)[:20]
+    if fps:
+        meta_update["fps"] = str(float(fps))
+    await set_channel_meta(slug, **meta_update)
 
 
 async def segment_exists(slug: str, seq: int) -> bool:

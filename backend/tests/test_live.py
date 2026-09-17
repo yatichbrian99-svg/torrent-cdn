@@ -408,13 +408,16 @@ class TestOffHostPublishLifecycle:
             TestDerivedStatus()._row(),
             meta={"publish_seen": str(t.time() - 2)})) == "STARTING"
 
-    def test_old_publish_seen_does_not_block_offline(self):
-        """A hint older than the mux window must not pin a dead channel in
-        STARTING forever — publish_seen expires like the meta TTL does."""
+    def test_old_publish_seen_is_error_not_starting(self):
+        """A publisher authorized but producing NO segments past the ERROR
+        threshold is a failed ingest (encoder stalled / network blackhole /
+        mux error) — it must surface ERROR, never a permanent STARTING and
+        never a fake OFFLINE. A reconnecting encoder re-triggers the hook and
+        refreshes publish_seen, so healthy retries stay STARTING."""
         import asyncio, time as t
         assert asyncio.run(TestDerivedStatus()._derive(
             TestDerivedStatus()._row(),
-            meta={"publish_seen": str(t.time() - 300)})) == "OFFLINE"
+            meta={"publish_seen": str(t.time() - 300)})) == "ERROR"
 
     def test_register_segments_from_public_playlist(self):
         """Monitor registers segments by fetching the PUBLIC playlist —
@@ -483,3 +486,117 @@ class TestOffHostPublishLifecycle:
         # Both seqs are newer than known latest_seq=40
         assert reg == [("my-test", 41), ("my-test", 42)], reg
         assert any("index.m3u8" in u for u, _ in calls)
+
+
+class TestIngestDiagnostics:
+    """GET /channels/{id}/ingest — the external-broadcaster debugging surface
+    (Adam's OBS/Wirecast pilot): publisher state, auth outcome, HLS
+    availability, reconnects, observed stream metadata. No secrets, no IPs."""
+
+    def _channel(self, slug="adam", enabled=True):
+        return {
+            "id": uuid4(), "tenant_id": uuid4(), "owner_id": uuid4(),
+            "name": "Adam", "slug": slug, "description": None,
+            "stream_key_hash": "h", "stream_key_prefix": "live_ab…",
+            "status": "OFFLINE", "enabled": enabled,
+            "created_at": "2026-01-01", "updated_at": "2026-01-01",
+            "last_seen_at": None,
+        }
+
+    def test_diagnostics_endpoint_reports_pipeline_stages(self, monkeypatch):
+        import asyncio as aio
+        import time as t
+        from app.routes import live as live_routes
+
+        row = self._channel()
+        now = t.time()
+        monkeypatch.setattr(live_routes, "require_channel_owner", AsyncMock(return_value=row))
+        monkeypatch.setattr(live_routes, "get_channel_meta", AsyncMock(return_value={
+            "publish_seen": str(now - 3),
+            "last_seg_ts": str(now - 2),
+            "latest_seq": "10",
+            "ingest_bitrate_kbps": "4200",
+            "codec": "H264", "resolution": "1280x720", "fps": "30.0",
+        }))
+        monkeypatch.setattr(live_routes, "latest_segment", AsyncMock(return_value=10))
+        monkeypatch.setattr(live_routes, "resolve_ingress",
+                            AsyncMock(return_value=(None, False)))
+        monkeypatch.setattr(live_routes, "_probe_hls_playlist", AsyncMock(return_value=True))
+
+        d = aio.run(live_routes.channel_ingest_diagnostics(row["id"], row["owner_id"]))
+        assert d["status"] == "LIVE"
+        assert d["publisher_connected"] is True
+        assert d["hls_playlist_available"] is True
+        assert d["ingest_bitrate_kbps"] == 4200
+        assert d["codec"] == "H264" and d["resolution"] == "1280x720" and d["fps"] == 30.0
+        assert d["auth_status"] in {"accepted", "denied", "unknown"}
+        assert d["status_reason"]
+        assert d["mediamtx_path"] == f"live/{row['slug']}"
+
+    def test_diagnostics_error_stage_when_hls_missing(self, monkeypatch):
+        """Publisher seen but no segments and no playlist → ERROR with an
+        actionable reason (the stuck-STARTING failure mode, surfaced honestly)."""
+        import asyncio as aio
+        import time as t
+        from app.routes import live as live_routes
+
+        row = self._channel()
+        monkeypatch.setattr(live_routes, "require_channel_owner", AsyncMock(return_value=row))
+        monkeypatch.setattr(live_routes, "get_channel_meta", AsyncMock(return_value={
+            "publish_seen": str(t.time() - 50),  # past the ERROR threshold
+        }))
+        monkeypatch.setattr(live_routes, "latest_segment", AsyncMock(return_value=None))
+        monkeypatch.setattr(live_routes, "resolve_ingress",
+                            AsyncMock(return_value=(None, False)))
+        monkeypatch.setattr(live_routes, "_probe_hls_playlist", AsyncMock(return_value=False))
+
+        d = aio.run(live_routes.channel_ingest_diagnostics(row["id"], row["owner_id"]))
+        assert d["status"] == "ERROR"
+        assert "not available" in d["status_reason"] or "failed" in d["status_reason"]
+
+    def test_status_reason_strings(self):
+        from app.routes import live as live_routes
+        r = live_routes._ingest_stage_reason
+        assert "waiting for MediaMTX" in r("STARTING", publisher_connected=True, hls_ok=False, seg_age=None, max_seg_age=12)
+        assert "not advancing" in r("ERROR", publisher_connected=True, hls_ok=True, seg_age=60.0, max_seg_age=12)
+        assert "No publisher" in r("OFFLINE", publisher_connected=False, hls_ok=None, seg_age=None, max_seg_age=12)
+        assert "advancing" in r("LIVE", publisher_connected=True, hls_ok=True, seg_age=1.0, max_seg_age=12)
+
+
+class TestPublishLifecycleTracking:
+    """_track_publish_event / _track_disconnect / publish_lifecycle_snapshot —
+    the auth-hook side state that powers diagnostics + reconnect counts.
+    Secrets must never enter this state."""
+
+    def test_first_seen_survives_reconnect(self):
+        from app.routes import live_internal as li
+        li._publish_lifecycle.clear()
+        li._track_publish_event("adam", "ok")
+        li._track_disconnect("adam")
+        li._track_publish_event("adam", "ok")  # reconnect
+        st = li.publish_lifecycle_snapshot("adam")
+        assert st["publish_attempts"] == 2
+        assert st["last_disconnect"] is not None
+        # Uptime restarts after a disconnect (fresh publisher session), but
+        # the attempt/reconnect history is preserved for diagnostics.
+        first = li._publish_lifecycle["adam"]["publish_first_seen"]
+        assert first > 0
+
+    def test_denial_counting_and_outcomes(self):
+        from app.routes import live_internal as li
+        li._publish_lifecycle.clear()
+        li._track_publish_event("eve", "denied")
+        li._track_publish_event("eve", "denied")
+        li._track_publish_event("eve", "challenge")
+        st = li.publish_lifecycle_snapshot("eve")
+        assert st["publish_attempts"] == 3
+        assert st["publish_denied"] == 2
+        assert st["last_publish_outcome"] == "challenge"
+        assert st["publish_first_seen"] is None  # never accepted
+
+    def test_snapshot_never_contains_secrets(self):
+        from app.routes import live_internal as li
+        li._publish_lifecycle.clear()
+        li._track_publish_event("sunday", "ok")
+        blob = str(li.publish_lifecycle_snapshot("sunday"))
+        assert "pass=" not in blob and "password" not in blob

@@ -633,16 +633,36 @@ async def live_health():
     exposes only the overall state machine booleans, never MediaMTX URLs,
     keys, or internal topology. Component-level diagnostics live on the
     admin health dashboard (which already reports Redis/DB checks).
+
+    Distinguishes APPLICATION health (monitor loop, Redis) from MEDIA-PIPELINE
+    health (MediaMTX reachable + segment discovery flowing) — an operator must
+    be able to tell "backend broken" from "ingest broken" at a glance.
     """
+    from .database import get_redis
     from .live_state import get_live_monitor_health
 
     h = get_live_monitor_health()
+    redis_ok = False
+    try:
+        redis_ok = (await get_redis()) is not None
+    except Exception:  # noqa: BLE001 — health never raises
+        redis_ok = False
+    mediamtx_ok = bool(h.get("mediamtx_reachable"))
+    media_pipeline_ok = mediamtx_ok or bool(h.get("active_channels"))
+    app_ok = bool(h.get("monitor_running"))
     return {
-        "status": "healthy" if h.get("monitor_running") else "degraded",
-        "monitor_running": bool(h.get("monitor_running")),
-        "mediamtx_configured": bool(h.get("mediamtx_configured")),
-        "mediamtx_reachable": bool(h.get("mediamtx_reachable")),
+        "status": "healthy" if (app_ok and (media_pipeline_ok or not h.get("mediamtx_configured"))) else "degraded",
+        "application": {
+            "monitor_running": app_ok,
+            "redis": redis_ok,
+        },
+        "media_pipeline": {
+            "mediamtx_configured": bool(h.get("mediamtx_configured")),
+            "mediamtx_reachable": mediamtx_ok,
+            "segment_discovery_active": media_pipeline_ok,
+        },
         "active_channels": int(h.get("active_channels") or 0),
+        "last_error": h.get("last_error"),
     }
 
 

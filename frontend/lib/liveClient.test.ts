@@ -22,6 +22,7 @@ import {
   formatBitrate,
   statusColor,
   isSafeHlsUrl,
+  isLocalRtmpUrl,
 } from './liveClient'
 
 beforeEach(() => {
@@ -76,6 +77,26 @@ describe('isSafeHlsUrl', () => {
     expect(isSafeHlsUrl('data:text/plain,x')).toBe(false)
     expect(isSafeHlsUrl('http://evil.example.com/x.m3u8')).toBe(false)
     expect(isSafeHlsUrl('not a url')).toBe(false)
+  })
+})
+
+describe('isLocalRtmpUrl', () => {
+  // The "stuck on localhost" failure: an external broadcaster (OBS/Wirecast
+  // on ANOTHER machine) cannot use rtmp://localhost:1935 — the dashboard
+  // must detect and badge that case instead of handing out a dead URL.
+  it('detects localhost ingest URLs as local-only', () => {
+    expect(isLocalRtmpUrl('rtmp://localhost:1935/live')).toBe(true)
+    expect(isLocalRtmpUrl('rtmp://127.0.0.1:1935/live')).toBe(true)
+    expect(isLocalRtmpUrl('rtmp://[::1]:1935/live')).toBe(true)
+  })
+  it('treats public hosts as reachable from anywhere', () => {
+    expect(isLocalRtmpUrl('rtmp://bore.pub:37337/live')).toBe(false)
+    expect(isLocalRtmpUrl('rtmp://live.torrentcdn.store:1935/live')).toBe(false)
+    expect(isLocalRtmpUrl('rtmp://203.0.113.7:1935/live')).toBe(false)
+  })
+  it('never throws on malformed input', () => {
+    expect(isLocalRtmpUrl('')).toBe(false)
+    expect(isLocalRtmpUrl('not a url')).toBe(false)
   })
 })
 

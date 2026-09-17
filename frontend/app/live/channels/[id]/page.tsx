@@ -10,7 +10,8 @@ import {
 import { isLoggedIn } from '@/lib/auth'
 import {
   liveApi, statusColor, formatUptime, formatBitrate, formatBytes,
-  type LiveChannel, type LiveStatus,
+  isLocalRtmpUrl,
+  type LiveChannel, type LiveStatus, type LiveIngestDiagnostics,
 } from '@/lib/liveClient'
 
 interface IngestInfo {
@@ -26,6 +27,7 @@ export default function LiveChannelDetailPage() {
 
   const [channel, setChannel] = useState<LiveChannel | null>(null)
   const [status, setStatus] = useState<LiveStatus | null>(null)
+  const [diag, setDiag] = useState<LiveIngestDiagnostics | null>(null)
   const [ingest, setIngest] = useState<IngestInfo | null>(null)
   // One-time OBS setup secrets. The plaintext key is returned ONLY by channel
   // creation (handed over via ?key= and immediately stripped from the URL) and
@@ -83,9 +85,14 @@ export default function LiveChannelDetailPage() {
 
   useEffect(() => {
     if (!id) return
-    const t = setInterval(() => {
+    const tick = () => {
       liveApi.getStatus(id).then(setStatus).catch(() => {})
-    }, 5000)
+      // Diagnostics poll piggybacks on the status poll (5s) — the backend
+      // caches its HLS probe 10s so this stays cheap.
+      liveApi.getIngestDiagnostics(id).then(setDiag).catch(() => {})
+    }
+    tick()
+    const t = setInterval(tick, 5000)
     return () => clearInterval(t)
   }, [id])
 
@@ -195,6 +202,21 @@ export default function LiveChannelDetailPage() {
         </div>
       </div>
 
+      {/* WHY the channel is in its current stage — never a bare STARTING/ERROR. */}
+      {(diag?.status_reason || status?.status_reason) && (
+        <div className="mb-6 flex items-center gap-3 border px-4 py-3"
+             style={{
+               borderColor: status?.status === 'ERROR' ? '#331111' : status?.status === 'LIVE' ? '#113311' : '#332a11',
+               backgroundColor: status?.status === 'ERROR' ? '#1a0d0d' : status?.status === 'LIVE' ? '#0d1a0d' : '#1a170d',
+             }}>
+          {status?.status === 'ERROR' && <AlertTriangle size={16} style={{ color: '#ef4444' }} />}
+          {status?.status === 'LIVE' && <Check size={16} style={{ color: '#4ade80' }} />}
+          <p className="flex-1 text-xs" style={{ color: '#ddd' }}>
+            {diag?.status_reason || status?.status_reason}
+          </p>
+        </div>
+      )}
+
       {/* Live stats row */}
       <div className="mb-8 grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
         {[
@@ -214,6 +236,42 @@ export default function LiveChannelDetailPage() {
         ))}
       </div>
 
+      {/* Ingest diagnostics — where the RTMP → MediaMTX → HLS chain stands. */}
+      <div className="mb-8 border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>
+          Ingest diagnostics
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {([
+            ['Publisher', diag ? (diag.publisher_connected ? `Connected${diag.publisher_uptime_seconds ? ` · ${formatUptime(diag.publisher_uptime_seconds)}` : ''}` : 'Disconnected') : '—',
+              diag?.publisher_connected ? '#4ade80' : '#555'],
+            ['Auth', diag ? diag.auth_status : '—', diag?.auth_status === 'accepted' ? '#4ade80' : diag?.auth_status === 'denied' ? '#ef4444' : '#555'],
+            ['HLS playlist', diag ? (diag.hls_playlist_available == null ? 'unknown' : diag.hls_playlist_available ? 'Available' : 'Not available') : '—',
+              diag?.hls_playlist_available ? '#4ade80' : '#555'],
+            ['Reconnects', diag ? String(diag.reconnect_count) : '—', '#ddd'],
+          ] as [string, string, string][]).map(([label, value, color]) => (
+            <div key={label} className="border p-3" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
+              <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>{label}</p>
+              <p className="mt-1 text-sm font-bold" style={{ color }}>{value}</p>
+            </div>
+          ))}
+          {diag?.ingest_bitrate_kbps ? (
+            <div className="border p-3" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
+              <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Ingest bitrate</p>
+              <p className="mt-1 text-sm font-bold text-white">{formatBitrate(diag.ingest_bitrate_kbps)}</p>
+            </div>
+          ) : null}
+          {diag?.resolution || diag?.codec || diag?.fps ? (
+            <div className="border p-3" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
+              <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Stream</p>
+              <p className="mt-1 text-sm font-bold text-white">
+                {[diag?.resolution, diag?.codec, diag?.fps ? `${Math.round(diag.fps)} fps` : null].filter(Boolean).join(' · ')}
+              </p>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
       {/* Ingest configuration */}
       <div className="mb-8 border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
         <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>
@@ -222,6 +280,23 @@ export default function LiveChannelDetailPage() {
         <p className="mt-1 text-sm" style={{ color: '#555' }}>
           In OBS → Settings → Stream, choose Custom…, and paste:
         </p>
+        {(() => {
+          const rtmpUrl = setup?.server || ingest?.rtmp_url || ''
+          if (rtmpUrl && isLocalRtmpUrl(rtmpUrl)) {
+            return (
+              <div className="mt-3 flex items-center gap-3 border px-4 py-3" style={{ borderColor: '#332a11', backgroundColor: '#1a170d' }}>
+                <AlertTriangle size={16} style={{ color: '#fbbf24' }} />
+                <p className="flex-1 text-xs" style={{ color: '#fbbf24' }}>
+                  This is a <strong>LOCAL DEVELOPMENT RTMP URL</strong> — it only works for an encoder on this same machine.
+                  An external broadcaster (OBS/Wirecast on another device/network) needs the PUBLIC RTMP URL:
+                  set <code className="font-mono">MEDIAMTX_RTMP_URL</code> to the public host (e.g. <code className="font-mono">rtmp://live.yourdomain.com:1935</code>)
+                  and open TCP port 1935.
+                </p>
+              </div>
+            )
+          }
+          return null
+        })()}
         <div className="mt-4 space-y-3">
           <FieldRow label="Server" value={setup?.server || ingest?.rtmp_url || ''} copied={copied === 'server'} onCopy={() => copy('server', setup?.server || ingest?.rtmp_url || '')} />
           {/* OBS 'Stream key' field: <slug>?pass=<key> — MediaMTX forwards the

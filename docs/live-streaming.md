@@ -46,6 +46,7 @@ TorrentCDN Live Delivery Layer (backend :8000)
 | Player | hls.js + custom loader, live edge, reconnect | `frontend/components/LivePlayer.tsx` |
 | Dashboard | `/live`, `/live/channels/[id]`, `/live/channels/[id]/analytics`, `/live/watch/[slug]` (pages) | `frontend/app/live/**` |
 | Acceptance smoke | RTMP→HLS→status→session→counters→OFFLINE | `backend/scripts/live_smoke.py` |
+| Ingest diagnostics | per-channel pipeline stage + observed bitrate/codec + reconnects | `GET /api/live/channels/{id}/ingest` (owner) |
 
 ## 2. Multi-tenancy & isolation
 
@@ -70,8 +71,15 @@ Every channel carries `tenant_id`/`owner_id`; all queries scope by owner and cro
 OFFLINE → publisher authenticates (auth hook sets STARTING marker)
 STARTING → MediaMTX path ready / first segments registered
 LIVE → MediaMTX reports path ready, or freshest segment < LIVE_MAX_SEGMENT_AGE_SECONDS
+ERROR → publisher authorized but NO segments for >45s (encoder stalled, mux failure)
 OFFLINE → publisher gone: segments age out, monitor + /shutdown webhook clear state
 ```
+
+A channel is never left silently stuck in STARTING: the status and
+`/ingest` endpoints return a `status_reason` string explaining the stage
+(e.g. "Publisher connected — waiting for MediaMTX to confirm publisher and
+produce HLS segments...", "Publisher connected but the HLS playlist is not
+available — ingest or muxing failed."). The dashboard shows it verbatim.
 
 The monitor loop (default every 5s) polls MediaMTX, expires segment/peer state, and folds Redis counters into durable `live_analytics_events` rows (historical analytics are preserved; only ephemeral state expires). One broken channel never blocks another — every tick isolates per-channel failures.
 
@@ -111,6 +119,48 @@ docker compose up -d --build
 
 Without Docker: start `mediamtx` with `deploy/mediamtx/mediamtx.yml` (env vars per `.env.example`), then the backend and frontend as in the main README.
 
+## 6b. Ingest test modes — LOCAL vs EXTERNAL (do not confuse them)
+
+Adam's pilot failure (Wirecast flapping green/yellow/red, OBS 71% dropped
+frames, channel stuck in STARTING) was diagnosed against a **bore.pub TCP
+tunnel** to a local MediaMTX. Free TCP relays routinely add latency, cap
+throughput, and drop sustained connections — those symptoms are
+indistinguishable from encoder or application failure unless you test BOTH
+modes and compare. The backend now distinguishes what it can: structured
+`live_ingest …` logs mark each publish as ACCEPTED/DENIED/END, and the
+channel's ingest diagnostics show exactly which stage of
+RTMP → auth → publisher → HLS was reached.
+
+**Mode A — LOCAL test (same machine):**
+
+```
+OBS/Wirecast ──> rtmp://localhost:1935/live ──> MediaMTX (docker compose)
+```
+
+Use this to validate the application. Expect zero dropped frames on a wired
+connection. Dashboard shows the LOCAL badge because the URL only works here.
+
+**Mode B — REAL EXTERNAL test (production acceptance):**
+
+```
+Remote encoder ──> rtmp://PUBLIC_HOST:1935/live ──> MediaMTX on a public server
+```
+
+Requires: a public server (VPS) running MediaMTX, TCP **1935** open
+inbound (`ufw allow 1935/tcp` / cloud firewall rule), and
+`MEDIAMTX_RTMP_URL=rtmp://PUBLIC_HOST:1935` on the backend. Verify BOTH
+layers separately:
+
+1. **TCP reachable** (network layer): `nc -vz PUBLIC_HOST 1935` — must connect.
+2. **RTMP publish accepted** (auth layer): OBS/Wirecast starts streaming AND
+   the backend log shows `live_ingest publish ACCEPTED slug=<channel>`.
+   TCP success alone proves nothing about authentication; auth acceptance
+   alone proves nothing about throughput.
+
+**Tunnels (ngrok/bore/pinggy/trycloudflare) are for demos only:** URLs are
+temporary, ports re-randomize on reconnect, and sustained high-bitrate
+connections degrade. Never run the production acceptance test through one.
+
 ## 7. Verification
 
 ```bash
@@ -142,7 +192,8 @@ How to test origin fallback: stop MediaMTX mid-playback (or publish nothing afte
 - Never expose MediaMTX `9997`/`9998` (bind loopback / private network; the Caddyfile does not route them).
 - HLS is served same-origin through Caddy (`/hls/*` → `mediamtx:8888`): playlist `Cache-Control: no-store, must-revalidate`; segments short cache (`max-age=2`). Never cache `index.m3u8`.
 - Set in the environment: `MEDIAMTX_API_URL`, `MEDIAMTX_RTMP_URL` (public `rtmp://stream.example.com:1935`), `MEDIAMTX_HLS_URL` (public `https://stream.example.com/hls`), `MEDIAMTX_HOOK_SECRET`, `PLAYBACK_TOKEN_SECRET`, `PUBLIC_PLAYBACK_DOMAIN` (+ existing DB/Redis/JWT vars). See `.env.example`.
-- `/api/health/live` reports `{monitor_running, mediamtx_configured, mediamtx_reachable, active_channels}` (unauthenticated, detail-free). Component-level checks live on the admin health dashboard.
+- `/api/health/live` distinguishes **application** health (`monitor_running`, redis) from **media-pipeline** health (`mediamtx_reachable`, `segment_discovery_active`) — an operator can tell "backend broken" from "ingest broken" at a glance (unauthenticated, detail-free). Component-level checks live on the admin health dashboard.
+- **RTMP is NOT reverse-proxied by Caddy.** HTTP proxies do not carry RTMP; port 1935 must terminate directly at MediaMTX on a public host (firewall-opened TCP), while HLS alone is proxied over HTTPS. A reachable `https://stream.example.com` says nothing about RTMP availability — verify with `nc -vz host 1935`.
 
 ## 9. API endpoints (live)
 

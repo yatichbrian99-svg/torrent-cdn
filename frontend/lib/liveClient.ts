@@ -63,6 +63,35 @@ export interface LiveStatus {
   latest_segment_sequence: number | null
   latency_target_seconds: number
   last_seen_at: string | null
+  // Human-readable WHY for the current stage ("Publisher connected — waiting
+  // for MediaMTX to confirm publisher and produce HLS segments..."). Optional
+  // for backward compatibility with older backends.
+  status_reason?: string | null
+}
+
+/** Owner-facing ingest diagnostics (GET /api/live/channels/{id}/ingest). */
+export interface LiveIngestDiagnostics {
+  channel_id: string
+  slug: string
+  status: string
+  status_reason: string
+  rtmp_listener_reachable: boolean
+  auth_status: 'accepted' | 'denied' | 'unknown'
+  publish_attempts: number
+  publish_denied: number
+  reconnect_count: number
+  publisher_connected: boolean
+  publisher_uptime_seconds: number
+  mediamtx_path: string
+  mediamtx_path_active: boolean
+  hls_playlist_available: boolean | null
+  latest_segment_sequence: number | null
+  last_segment_age_seconds: number | null
+  ingest_bitrate_kbps: number
+  codec: string | null
+  resolution: string | null
+  fps: number | null
+  last_publish_outcome: string | null
 }
 
 export interface LiveAnalytics {
@@ -139,6 +168,21 @@ export function isSafeHlsUrl(url: string): boolean {
   }
 }
 
+/**
+ * True when an RTMP ingest URL points at localhost — i.e. it can only work
+ * for an encoder on the SAME machine. External broadcasters (OBS/Wirecast on
+ * another device) need the public RTMP URL; showing localhost to them is the
+ * "stuck on localhost" failure. Used to badge the OBS setup card.
+ */
+export function isLocalRtmpUrl(url: string): boolean {
+  try {
+    const u = new URL(url.replace(/^rtmp:/, 'http:'))
+    return ['localhost', '127.0.0.1', '[::1]', '::1'].includes(u.hostname)
+  } catch {
+    return false
+  }
+}
+
 export { isSafeHttpsUrl }
 
 // ── Owner (dashboard) endpoints — session JWT via the shared axios client ────
@@ -171,6 +215,10 @@ export const liveApi = {
 
   getStatus: (id: string): Promise<LiveStatus> =>
     api.get(`/api/live/channels/${id}/status`).then((r) => r.data),
+
+  // Ingest diagnostics: where the RTMP → MediaMTX → HLS chain stands right now.
+  getIngestDiagnostics: (id: string): Promise<LiveIngestDiagnostics> =>
+    api.get(`/api/live/channels/${id}/ingest`).then((r) => r.data),
 
   getAnalytics: (id: string, hours = 24): Promise<LiveAnalytics> =>
     api.get(`/api/live/channels/${id}/analytics?hours=${hours}`).then((r) => r.data),
