@@ -1,7 +1,9 @@
 """Tests for the live channel management API: CRUD, stream-key generation and
 rotation, ownership scoping, and derived status."""
+import asyncio
 import hashlib
 import inspect
+import pytest
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
@@ -286,3 +288,107 @@ class TestSlugUniquenessGuard:
         src = open(main_mod.__file__).read()
         assert re.search(r"CREATE UNIQUE INDEX IF NOT EXISTS idx_live_channels_slug ON live_channels\(slug\)", src), \
             "startup migration must add the global slug unique index for pre-existing databases"
+
+
+class TestViewerRateLimit:
+    """_check_viewer_rate_limit — per-IP-per-CHANNEL viewer budget.
+
+    The player fires ~24 calls/min per viewer (heartbeat every 5s + availability
+    reports in the same tick when P2P transfers are active). Sizing regression:
+    the old default of 60/min tripped at the THIRD viewer behind one shared IP
+    (family wifi / church / office NAT — exactly the sunday-service audience):
+    session joins 429'd silently, viewers vanished from the dashboard, and lost
+    P2P entirely (join failure is swallowed so origin playback still works).
+    """
+
+    def _request(self, ip="203.0.113.50"):
+        from starlette.requests import Request
+        scope = {
+            "type": "http", "method": "POST", "path": "/api/live/heartbeat",
+            "headers": [(b"x-forwarded-for", ip.encode())],
+            "query_string": b"", "client": (ip, 44444),
+        }
+        return Request(scope)
+
+    def _set_limit(self, monkeypatch, value):
+        """Pin the limiter budget regardless of any local .env override (live
+        settings are read from os.environ on every call, and a dev .env with
+        LIVE_TOKEN_RATE_LIMIT raised for load tests would otherwise leak in)."""
+        monkeypatch.setenv("LIVE_TOKEN_RATE_LIMIT", str(value))
+
+    def test_default_headroom_covers_10_shared_ip_viewers(self, monkeypatch):
+        """10 viewers x 24 calls/min on ONE IP for one channel = 240 — the new
+        default must absorb the full minute without tripping; only beyond it."""
+        import pytest as _pytest
+        from fastapi import HTTPException
+        import app.routes.live as live
+
+        self._set_limit(monkeypatch, 240)
+        monkeypatch.setattr(live, "get_redis", AsyncMock(return_value=None))
+        saved = dict(live._token_requests)
+        live._token_requests.clear()
+        try:
+            req = self._request()
+            for _ in range(240):
+                # Must NOT raise for the full realistic shared-IP minute
+                asyncio.run(live._check_viewer_rate_limit(req, "sunday-service"))
+            # The 241st call inside the window trips the cap
+            with _pytest.raises(HTTPException) as ei:
+                asyncio.run(live._check_viewer_rate_limit(req, "sunday-service"))
+            assert ei.value.status_code == 429
+        finally:
+            live._token_requests.clear()
+            live._token_requests.update(saved)
+
+    def test_budget_is_per_channel(self, monkeypatch):
+        """A drained budget on channel A must never 429 channel B on the same IP
+        (channel isolation extends to rate-limit state)."""
+        import app.routes.live as live
+
+        self._set_limit(monkeypatch, 240)
+        monkeypatch.setattr(live, "get_redis", AsyncMock(return_value=None))
+        saved = dict(live._token_requests)
+        live._token_requests.clear()
+        try:
+            req = self._request()
+            for _ in range(240):
+                asyncio.run(live._check_viewer_rate_limit(req, "channel-a"))
+            # Same IP, different channel: full fresh budget
+            for _ in range(10):
+                asyncio.run(live._check_viewer_rate_limit(req, "channel-b"))
+        finally:
+            live._token_requests.clear()
+            live._token_requests.update(saved)
+
+    def test_redis_path_trips_at_cap_and_keys_per_channel(self, monkeypatch):
+        """Redis-backed limiter: 429 at the configured cap, and the counter key
+        carries the channel slug (never a shared global bucket)."""
+        from fastapi import HTTPException
+        import app.routes.live as live
+
+        store = {}
+        redis = AsyncMock()
+
+        async def fake_get(key):
+            return str(store[key]) if key in store else None
+
+        async def fake_incr(key):
+            store[key] = store.get(key, 0) + 1
+            return store[key]
+
+        redis.get = fake_get
+        redis.incr = fake_incr
+        redis.expire = AsyncMock(return_value=True)
+        monkeypatch.setattr(live, "get_redis", AsyncMock(return_value=redis))
+        self._set_limit(monkeypatch, 240)
+        self._set_limit(monkeypatch, 240)
+
+        req = self._request()
+        for _ in range(240):
+            asyncio.run(live._check_viewer_rate_limit(req, "sunday-service"))
+        with pytest.raises(HTTPException) as ei:
+            asyncio.run(live._check_viewer_rate_limit(req, "sunday-service"))
+        assert ei.value.status_code == 429
+        # Per-channel key shape: live_token_rate:{ip}:{channel}
+        assert any("sunday-service" in k for k in store), store.keys()
+        assert not any("other-channel" in k for k in store)

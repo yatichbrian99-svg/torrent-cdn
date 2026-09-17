@@ -90,7 +90,16 @@ def get_live_settings() -> LiveSettings:
         peer_timeout=_int_env("LIVE_PEER_TIMEOUT_SECONDS", 15),
         monitor_interval=_int_env("LIVE_MONITOR_INTERVAL_SECONDS", 5),
         live_max_segment_age=_int_env("LIVE_MAX_SEGMENT_AGE_SECONDS", 12),
-        token_rate_limit=_int_env("LIVE_TOKEN_RATE_LIMIT", 60),
+        # Per-IP-per-CHANNEL viewer budget (session join + heartbeat +
+        # availability, see _check_viewer_rate_limit). Sizing: the player fires
+        # a heartbeat every LIVE_HEARTBEAT_INTERVAL_SECONDS (default 5s = 12/min)
+        # plus an availability report in the same tick when P2P transfers are
+        # active (~12/min) — ~24/min per viewer. 60 tripped at the THIRD viewer
+        # behind one shared IP (family wifi, church/office NAT — exactly the
+        # sunday-service audience): joins 429'd, viewers silently vanished from
+        # the dashboard and lost P2P. 240 gives ~10 concurrent viewers per
+        # shared IP per channel headroom while still bounding abuse.
+        token_rate_limit=_int_env("LIVE_TOKEN_RATE_LIMIT", 240),
     )
 
 
