@@ -226,6 +226,77 @@ class TestIngestWebhook:
         assert not run(live_state.segment_exists("mychan", 3))
 
 
+class TestReadyHooks:
+    """runOnReady / runOnNotReady webhooks — MediaMTX's instant publisher
+    confirmation (form-encoded slug=, MTX_PATH in the hook command env).
+    /ready flips the channel to LIVE in ~1s instead of a monitor interval;
+    /not-ready tears state down immediately."""
+
+    READY_URL = "/api/internal/mediamtx/ready"
+    NOTREADY_URL = "/api/internal/mediamtx/not-ready"
+
+    def _channel_row(self, slug="mychan", enabled=True):
+        return {
+            "id": uuid4(), "tenant_id": uuid4(), "owner_id": uuid4(),
+            "name": "C", "slug": slug, "description": None,
+            "stream_key_hash": "h", "stream_key_prefix": "p",
+            "status": "STARTING", "enabled": enabled,
+            "created_at": time.time(), "updated_at": time.time(),
+            "last_seen_at": None,
+        }
+
+    def test_ready_confirms_live(self, client, mock_conn):
+        mock_conn.fetchrow.return_value = self._channel_row()
+        resp = client.post(self.READY_URL, content=b"slug=mychan",
+                           headers={"Content-Type": "application/x-www-form-urlencoded"})
+        assert resp.status_code == 200, resp.text
+        # DB was flipped to LIVE (the _touch_last_seen_live path)
+        assert "status = 'LIVE'" in mock_conn.execute.await_args.args[0]
+        meta = run(live_state.get_channel_meta("mychan"))
+        assert float(meta.get("publish_seen", 0)) > 0
+
+    def test_ready_accepts_query_style_body(self, client, mock_conn):
+        mock_conn.fetchrow.return_value = self._channel_row()
+        resp = client.post(self.READY_URL, content=b"slug=mychan&extra=1")
+        assert resp.status_code == 200
+
+    def test_ready_unknown_channel_404(self, client, mock_conn):
+        mock_conn.fetchrow.return_value = None
+        resp = client.post(self.READY_URL, content=b"slug=ghost")
+        assert resp.status_code == 404
+
+    def test_ready_invalid_slug_400(self, client, mock_conn):
+        resp = client.post(self.READY_URL, content=b"slug=../evil")
+        assert resp.status_code == 400
+
+    def test_ready_secret_enforced_when_set(self, client, mock_conn, monkeypatch):
+        import app.routes.live_internal as li
+        monkeypatch.setenv("MEDIAMTX_HOOK_SECRET", "s3cret")
+        monkeypatch.setattr(li, "_HOOK_SECRET", None)
+        resp = client.post(self.READY_URL, content=b"slug=mychan")
+        assert resp.status_code == 403
+        resp = client.post(self.READY_URL, content=b"slug=mychan",
+                           headers={"X-Hook-Secret": "s3cret"})
+        assert resp.status_code in (200, 404)  # 404 = auth passed, channel missing
+
+    def test_not_ready_clears_state(self, client, mock_conn):
+        async def seed():
+            await live_state.register_segment("mychan", 5)
+        run(seed())
+        resp = client.post(self.NOTREADY_URL, content=b"slug=mychan")
+        assert resp.status_code == 200
+        assert not run(live_state.segment_exists("mychan", 5))
+        assert "status = 'OFFLINE'" in mock_conn.execute.await_args.args[0]
+
+    def test_not_ready_tolerates_truncated_body(self, client, mock_conn):
+        """A hook killed mid-write must not 400 (MediaMTX would log noise on
+        every stream end); unknown slug still 400s — only truncation is lenient."""
+        resp = client.post(self.NOTREADY_URL, content=b"slug=")
+        assert resp.status_code == 400
+        resp = client.post(self.NOTREADY_URL, content=b"")
+        assert resp.status_code == 400
+
+
 class TestSessionLifecycle:
     def _channel_row(self):
         from datetime import UTC, datetime

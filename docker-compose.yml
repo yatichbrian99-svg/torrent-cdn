@@ -56,7 +56,13 @@ services:
   # them to the LAN/0.0.0.0. RTMP (1935) is the only client-facing port and
   # is loopback-only in dev too (production terminates it at a TLS edge).
   mediamtx:
-    image: bluenviron/mediamtx:1.11.3
+    # Built from deploy/mediamtx/Dockerfile: upstream distroless image + a
+    # busybox /bin/sh so the runOnReady/runOnNotReady path hooks can execute
+    # (they notify the backend the moment a stream goes ready/offline).
+    build:
+      context: .
+      dockerfile: deploy/mediamtx/Dockerfile
+    image: torrentcdn/mediamtx:1.11.3-sh
     restart: unless-stopped
     environment:
       # MediaMTX reads overrides from MTX_-prefixed env vars (it does NOT
@@ -68,6 +74,10 @@ services:
       MTX_HLSSEGMENTDURATION: ${LIVE_HLS_SEGMENT_DURATION:-2s}
       MTX_HLSPARTDURATION: ${LIVE_HLS_PART_DURATION:-700ms}
       MTX_WEBRTCADDITIONALHOSTS: ${MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS:-localhost}
+      # runOnReady/runOnNotReady hook target + secret (consumed by the hook
+      # command via $MEDIAMTX_READY_HOOK_URL / $MEDIAMTX_HOOK_SECRET).
+      MEDIAMTX_READY_HOOK_URL: http://${MEDIAMTX_BACKEND_HOST:-backend}:8000/api/internal/mediamtx
+      MEDIAMTX_HOOK_SECRET: ${MEDIAMTX_HOOK_SECRET}
     ports:
       - "127.0.0.1:1935:1935"   # RTMP ingest (publishers)
       - "127.0.0.1:8888:8888"   # HLS (fetched by backend + reverse proxy)

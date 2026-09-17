@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/internal/mediamtx", tags=["live-internal"])
 
+# Slug pattern shared by every internal hook body.
+_SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+
 # Ingest webhook shared secret (MEDIAMTX_HOOK_SECRET env — MediaMTX sends it
 # in the X-Hook-Secret header / ?secret= query). Optional but recommended when
 # the hook is reachable from anything but the MediaMTX container.
@@ -327,3 +330,95 @@ async def channel_peer_dump(slug: str, request: Request):
     from ..live_state import peer_scores, peers_with_segment
     peers = await active_peers(slug)
     return {"slug": slug, "peers": peers}
+
+
+# ── runOnReady / runOnNotReady hooks (MediaMTX path lifecycle) ────────────────
+# MediaMTX executes these as one-shot shell commands with MTX_PATH in the
+# environment the moment a stream becomes (or stops being) readable. The
+# command POSTs here — a secret-free, secret-protected notification that is
+# FAR faster than waiting for the monitor's playlist poll to notice segments.
+
+
+def _hook_form(body: bytes) -> dict:
+    """Parse the application/x-www-form-urlencoded body the hook command sends
+    (curl --data-urlencode). Raises ValueError on a malformed body."""
+    from urllib.parse import parse_qs
+    parsed = parse_qs(body.decode("utf-8", "replace"), keep_blank_values=True)
+    return {k: v[0] for k, v in parsed.items() if v}
+
+
+@router.post("/ready")
+async def mediamtx_ready(request: Request):
+    """Stream-ready webhook (MediaMTX runOnReady hook).
+
+    Fired by MediaMTX the instant a stream becomes readable — typically
+    <1s after the publisher's first frame, versus up to one monitor interval
+    (default 5s) + mux latency for playlist-poll discovery. Marks the channel
+    confirmed (LIVE) immediately and pre-warms the playlist poll so segments
+    register on the next tick.
+
+    Body: form-encoded slug=<name> (sent by the hook command). Protected by
+    the shared hook secret (header/query, same as /ingest and /shutdown)."""
+    _check_hook_secret(request)
+    raw = await request.body()
+    try:
+        form = _hook_form(raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid body")
+    # MTX_PATH is the full MediaMTX path name ("live/<slug>") — normalize
+    # exactly like the auth hook does. Accepts a bare slug too.
+    slug = _slug_from_path(str(form.get("slug") or "")) or ""
+    if not slug:
+        raise HTTPException(status_code=400, detail="Invalid slug")
+    channel = await _load_channel_by_slug(slug)
+    if not channel or not channel.get("enabled", True):
+        logger.warning("live_ingest ready REJECTED slug=%s (missing-or-disabled)", slug)
+        raise HTTPException(status_code=404, detail="Channel not found")
+    await set_channel_meta(slug, publish_seen=str(time.time()))
+    await _touch_last_seen_live(channel["id"])
+    logger.info("live_ingest stream READY slug=%s (mediamtx confirmed)", slug)
+    record_event("live_publish_ok", detail=f"slug={slug} ready")
+    # Nudge segment registration: the HLS muxer may have produced the first
+    # segment already; the monitor picks the rest up on its next tick.
+    from ..live_state import _register_segments_from_playlist
+    try:
+        await _register_segments_from_playlist(slug)
+    except Exception as e:  # noqa: BLE001 — the webhook must never fail the hook
+        logger.debug("ready-hook playlist registration failed for %s: %s", slug, e)
+    return {"ok": True, "slug": slug}
+
+
+@router.post("/not-ready")
+async def mediamtx_not_ready(request: Request):
+    """Stream-end webhook (MediaMTX runOnNotReady hook).
+
+    Same contract as /shutdown: clears ephemeral state so the channel returns
+    to OFFLINE promptly. The hook command posts form-encoded slug=<name>.
+    Best-effort by design — a lost notification changes nothing (the monitor
+    still expires state; the hook only makes OFFLINE arrive in ~1s instead of
+    after segment expiry)."""
+    _check_hook_secret(request)
+    raw = await request.body()
+    try:
+        form = _hook_form(raw)
+    except Exception:
+        # Some MediaMTX restart paths can kill the command mid-write; a
+        # truncated/absent body must NOT 400 (MediaMTX would then treat the
+        # hook as failed and log noise on every stream end).
+        form = {}
+    # Normalize like the auth hook (MTX_PATH is "live/<slug>").
+    slug = _slug_from_path(str(form.get("slug") or "")) or ""
+    if not slug:
+        raise HTTPException(status_code=400, detail="Invalid slug")
+    _track_disconnect(slug)
+    logger.info("live_ingest stream END slug=%s (mediamtx not-ready)", slug)
+    await clear_channel(slug)
+    try:
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE live_channels SET status = 'OFFLINE' WHERE slug = $1", slug
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("not-ready status update failed: %s", e)
+    return {"ok": True}

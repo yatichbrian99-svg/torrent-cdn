@@ -90,5 +90,25 @@ webrtcAdditionalHosts: [localhost]
 # ── Paths: created dynamically by publishers (OBS stream key = path) ────────
 # TorrentCDN's auth hook maps every publish/read on any path to a live channel
 # (path == channel slug). No per-channel configuration is needed here.
+#
+# Path lifecycle hooks (verified against MediaMTX v1.11.3 — v1.12 renamed
+# these to runOnOnline/runOnOffline): one-shot shell commands fired the moment
+# a stream becomes/stops being readable, with MTX_PATH in the environment.
+# They notify the backend instantly (~1s) instead of waiting for the
+# monitor's playlist poll — publisher confirmation reaches the dashboard in
+# real time. Requires /bin/sh in the image: the upstream image is distroless,
+# so deploy/mediamtx/Dockerfile layers busybox in (compose builds it).
+# The backend URL carries the shared hook secret (MEDIAMTX_HOOK_SECRET).
 paths:
   all_others:
+    # NOTE: these MUST stay single-line folded scalars (>-) — the header
+    # "X-Hook-Secret: …" contains a colon+space, which terminates a plain
+    # multiline YAML scalar ("mapping values are not allowed in this context").
+    runOnReady: >-
+      sh -c 'wget -q -O- -T 5 --post-data "slug=$MTX_PATH"
+      --header "X-Hook-Secret: $MEDIAMTX_HOOK_SECRET"
+      "$MEDIAMTX_READY_HOOK_URL/ready" || true'
+    runOnNotReady: >-
+      sh -c 'wget -q -O- -T 5 --post-data "slug=$MTX_PATH"
+      --header "X-Hook-Secret: $MEDIAMTX_HOOK_SECRET"
+      "$MEDIAMTX_READY_HOOK_URL/not-ready" || true'
