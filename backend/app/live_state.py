@@ -515,6 +515,16 @@ async def _monitor_tick() -> None:
     # "detect & register segments" lifecycle step. Publishing channels get
     # their segments registered even before any viewer observes them, so
     # latest_segment / segment maps / P2P matching are real immediately.
+    #
+    # Two topologies:
+    #  a) Backend can reach the MediaMTX CONTROL API (same network) → list
+    #     ready paths directly (authoritative).
+    #  b) Backend CANNOT reach the control API (production: MediaMTX runs
+    #     off-host behind a tunnel; 9997 stays internal by design) → the auth
+    #     hook leaves a `publish_seen` hint in channel meta when a publisher
+    #     connects; for those channels, fetch the PUBLIC HLS playlist (the
+    #     same URL viewers use) and register segments from it. Playlist state
+    #     IS the stream state: a responding playlist with segments = LIVE.
     if await _mediamtx_reachable_cached():
         from .mediamtx import list_paths
         try:
@@ -532,6 +542,27 @@ async def _monitor_tick() -> None:
                 await _register_segments_from_playlist(slug)
             except Exception as e:  # noqa: BLE001 — per-channel isolation
                 logger.debug("segment discovery failed for %s: %s", slug, e)
+    else:
+        # (b) No control API: poll the public playlist for channels the hook
+        # says are (recently) publishing. publish_seen carries a 60s meta TTL,
+        # so dead publishers drop out automatically.
+        s = get_live_settings()
+        if s.mediamtx_hls_url and redis is not None:
+            try:
+                async for key in redis.scan_iter(match=f"{KV}:chan:*:meta", count=100):
+                    parts = key.split(":")
+                    if len(parts) < 4:
+                        continue
+                    slug = parts[3]
+                    meta = await get_channel_meta(slug)
+                    publish_seen = float(meta.get("publish_seen", 0) or 0)
+                    if publish_seen and time.time() - publish_seen < 90:
+                        try:
+                            await _register_segments_from_playlist(slug)
+                        except Exception as e:  # noqa: BLE001 — per-channel isolation
+                            logger.debug("playlist discovery failed for %s: %s", slug, e)
+            except Exception as e:  # noqa: BLE001 — never kill the tick
+                logger.debug("ingress-hint discovery failed: %s", e)
     for slug in sorted(slugs):
         try:
             await monitor_channel_status(slug)
@@ -584,14 +615,18 @@ async def _register_segments_from_playlist(slug: str) -> None:
     s = get_live_settings()
     base = s.mediamtx_hls_url.rstrip("/")
     path = mediamtx_path(slug)
+    # Public playlist topology (production): requests traverse the tunnel +
+    # MediaMTX, so follow redirects (edge/proxy may 302) and send no-cache —
+    # a cached-at-the-edge stale playlist must never mask a live one.
+    headers = {"Cache-Control": "no-cache"}
     try:
-        async with httpx.AsyncClient(timeout=4.0) as client:
-            master = await client.get(f"{base}/{path}/index.m3u8")
+        async with httpx.AsyncClient(timeout=6.0, follow_redirects=True) as client:
+            master = await client.get(f"{base}/{path}/index.m3u8", headers=headers)
             if master.status_code != 200:
                 return
             variants = sorted(set(_VARIANT_RE.findall(master.text))) or ["video1_stream.m3u8"]
             for variant in variants:
-                r = await client.get(f"{base}/{path}/{variant}")
+                r = await client.get(f"{base}/{path}/{variant}", headers=headers)
                 if r.status_code != 200:
                     continue
                 seqs = [int(m.group(1)) for line in r.text.splitlines()

@@ -392,3 +392,94 @@ class TestViewerRateLimit:
         # Per-channel key shape: live_token_rate:{ip}:{channel}
         assert any("sunday-service" in k for k in store), store.keys()
         assert not any("other-channel" in k for k in store)
+
+
+class TestOffHostPublishLifecycle:
+    """Off-host MediaMTX topology (production): the backend cannot reach the
+    control API (9997 stays internal), so the auth hook's publish_seen hint
+    seeds the monitor's PUBLIC-playlist segment discovery, and segments
+    registered from that playlist drive STARTING → LIVE."""
+
+    def test_publish_seen_before_first_segment_is_starting(self):
+        """Hook authorized a publish, segments not yet muxed → STARTING (the
+        old code showed OFFLINE through the whole mux window in this topology)."""
+        import asyncio, time as t
+        assert asyncio.run(TestDerivedStatus()._derive(
+            TestDerivedStatus()._row(),
+            meta={"publish_seen": str(t.time() - 2)})) == "STARTING"
+
+    def test_old_publish_seen_does_not_block_offline(self):
+        """A hint older than the mux window must not pin a dead channel in
+        STARTING forever — publish_seen expires like the meta TTL does."""
+        import asyncio, time as t
+        assert asyncio.run(TestDerivedStatus()._derive(
+            TestDerivedStatus()._row(),
+            meta={"publish_seen": str(t.time() - 300)})) == "OFFLINE"
+
+    def test_register_segments_from_public_playlist(self):
+        """Monitor registers segments by fetching the PUBLIC playlist —
+        master → variant → seq extraction — with redirects followed and
+        no-cache sent (stale edge cache must not mask a live stream)."""
+        import asyncio, re
+        import app.live_state as ls
+
+        master = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2500000\nabc123_video1_stream.m3u8\n"
+        variant = (
+            "#EXTM3U\n#EXT-X-TARGETDURATION:2\n"
+            "#EXT-X-MEDIA-SEQUENCE:41\n"
+            "#EXTINF:2.0,\nabc123_video1_seg41.mp4\n"
+            "#EXTINF:2.0,\nabc123_video1_seg42.mp4\n"
+        )
+        calls = []
+
+        class FakeResp:
+            def __init__(self, text):
+                self.status_code = 200
+                self._text = text
+            @property
+            def text(self):
+                return self._text
+
+        class FakeClient:
+            def __init__(self, *a, **k):
+                assert k.get("follow_redirects") is True, "must follow redirects"
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *exc):
+                return False
+            async def get(self, url, headers=None):
+                calls.append((url, headers))
+                if url.endswith("index.m3u8"):
+                    assert headers and headers.get("Cache-Control") == "no-cache"
+                    return FakeResp(master)
+                return FakeResp(variant)
+
+        class FakeRedis:
+            pass
+
+        async def run():
+            saved_redis = ls.get_redis
+            saved_meta = ls.get_channel_meta
+            saved_reg = ls.register_segment
+            ls.get_redis = AsyncMock(return_value=FakeRedis())
+            ls.get_channel_meta = AsyncMock(return_value={"latest_seq": "40"})
+            reg = []
+
+            async def fake_reg(slug, seq, duration=0.0, size=0):
+                reg.append((slug, seq))
+            ls.register_segment = fake_reg
+            orig_client = ls.httpx.AsyncClient
+            ls.httpx.AsyncClient = FakeClient
+            try:
+                await ls._register_segments_from_playlist("my-test")
+            finally:
+                ls.httpx.AsyncClient = orig_client
+                ls.get_redis = saved_redis
+                ls.get_channel_meta = saved_meta
+                ls.register_segment = saved_reg
+            return reg
+
+        reg = asyncio.run(run())
+        # Both seqs are newer than known latest_seq=40
+        assert reg == [("my-test", 41), ("my-test", 42)], reg
+        assert any("index.m3u8" in u for u, _ in calls)

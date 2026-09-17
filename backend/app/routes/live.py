@@ -200,6 +200,10 @@ async def derive_channel_status(row) -> str:
 
     # MediaMTX unreachable/unconfigured: stream state unknown — fall back to
     # the segment registry (fresh segment → LIVE, aging → STARTING).
+    # Segments are registered by the monitor polling the PUBLIC HLS playlist
+    # (seeded by the auth hook's publish_seen hint), so this works in the
+    # off-host-MediaMTX topology where the control API is intentionally
+    # unreachable.
     meta = await get_channel_meta(slug)
     last_seg_ts = float(meta.get("last_seg_ts", 0) or 0)
     if last_seg_ts:
@@ -208,6 +212,14 @@ async def derive_channel_status(row) -> str:
             return "LIVE"
         if age <= s.live_max_segment_age * 3:
             return "STARTING"
+    # No segments yet but the hook just authorized a publish (publish_seen has
+    # a 60s meta TTL): the encoder is connecting/muxing its first segment —
+    # STARTING, not OFFLINE. Without this, the off-host topology showed
+    # OFFLINE during the ~2-4s mux window (or forever, if segments never
+    # registered) even though MediaMTX was actively converting.
+    publish_seen = float(meta.get("publish_seen", 0) or 0)
+    if publish_seen and time.time() - publish_seen < 90:
+        return "STARTING"
 
     last_seen = row.get("last_seen_at")
     if last_seen:
