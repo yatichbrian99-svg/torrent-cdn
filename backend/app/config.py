@@ -119,13 +119,17 @@ class Settings(BaseSettings):
     # burst — a budget below that self-tripped normal use. The real anti-abuse
     # weight lives in the per-route limiters (login lockout, register,
     # uploads/hour, analytics/min, public-file/min); this one only stops gross
-    # bursts (a browser page does ~1-2 bursts of <10, so 120 leaves 10+ users
-    # per shared IP before it matters). The already-route-limited public
-    # endpoints (analytics/event, analytics/public, files/public) AND the auth
-    # endpoints (/auth/* — each has a dedicated per-IP limiter or is
-    # token/session-gated) are exempt from this budget entirely — see
-    # RateLimitMiddleware.
-    rate_limit_global: int = 120    # max requests per window per IP
+    # bursts (a browser page does ~1-2 bursts of <10). Sizing: 300 per 10s
+    # (30 req/s sustained) keeps a SHARED public IP — school/office NAT,
+    # mobile-carrier CGNAT, both common for streaming audiences — comfortable:
+    # a dashboard load fires ~7 calls, so 300 covers ~40 concurrent users on
+    # one IP before it matters, while genuine abuse (a scraping loop) still
+    # trips it. The old 120/10s 429'd unrelated users behind one shared IP
+    # ("Rate limit exceeded" on login→dashboard for everyone on that cell).
+    # The already-route-limited public endpoints (analytics/event,
+    # analytics/public, files/public), /auth/*, and the live viewer hot path
+    # are exempt from this budget entirely — see RateLimitMiddleware.
+    rate_limit_global: int = 300    # max requests per window per IP
     rate_limit_window_seconds: int = 10  # sliding window for global rate limit
     # Per-IP upload throttling (F-05 hardening): max upload requests per IP per
     # window. Protects storage/bandwidth from bulk-automated upload abuse — the

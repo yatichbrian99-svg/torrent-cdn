@@ -141,6 +141,7 @@ describe('api client interceptors', () => {
       expect(isTransientError({ response: { status: 403 } })).toBe(false)
       expect(isTransientError({ response: { status: 500 } })).toBe(false)
       expect(isTransientError({ response: { status: 429 } })).toBe(false)
+      expect(isTransientError({ response: { status: 429, headers: { 'retry-after': '10' } } })).toBe(true)
       // A locally-thrown Error (e.g. a malformed-payload guard in a page) has
       // neither request nor code — retrying it can never succeed.
       expect(isTransientError(new Error('Malformed health payload'))).toBe(false)
@@ -211,6 +212,27 @@ describe('api client interceptors', () => {
       const fn401 = vi.fn(async () => { throw { response: { status: 401 } } })
       await expect(retryOnTransient(fn401)).rejects.toMatchObject({ response: { status: 401 } })
       expect(fn401).toHaveBeenCalledTimes(1)
+    })
+
+    it('retryOnTransient: rides through a 429 with Retry-After (shared-IP burst), waits the window, then succeeds', async () => {
+      vi.useFakeTimers()
+      let calls = 0
+      const fn = vi.fn(async () => {
+        calls++
+        // The global burst limiter's exact response shape: JSONResponse with
+        // Retry-After. Regression guard for 'Rate limit exceeded and nothing
+        // loads' for users behind one shared NAT/office IP.
+        if (calls === 1) throw { response: { status: 429, headers: { 'retry-after': '8' } } }
+        return { ok: true }
+      })
+
+      const promise = retryOnTransient(fn)
+      await vi.advanceTimersByTimeAsync(8250)
+      const result = await promise
+
+      expect(result).toEqual({ ok: true })
+      expect(fn).toHaveBeenCalledTimes(2)
+      vi.useRealTimers()
     })
   })
 

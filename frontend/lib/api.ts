@@ -63,9 +63,14 @@ const CHUNK_SIZE = 4 * 1024 * 1024
 // A failure is "transient" when a retry could plausibly succeed: no response at
 // all (timeout / connection reset — a Render cold start or the documented
 // free-tier POST quirk) or a proxy/load-balancer 502/503/504. 4xx
-// (400/401/413/422/429) and app-level 5xx (500) are NOT transient.
+// (400/401/413/422) and app-level 5xx (500) are NOT transient — except 429
+// WITH a Retry-After header (the global burst limiter's response shape): that
+// is a "slow down and go again" signal, not a rejection, so page loads ride
+// through it instead of dead-ending. A 429 WITHOUT Retry-After is a real
+// lockout (login brute-force gate, 15-min message) and must surface instantly.
 const isTransientUploadError = (err: any) => {
   const status = err?.response?.status
+  if (status === 429 && err.response?.headers?.['retry-after']) return true
   return status === 502 || status === 503 || status === 504 || !err.response
 }
 
@@ -75,6 +80,11 @@ const isTransientUploadError = (err: any) => {
 // as "retry", not "you don't have access" — the admin pages previously
 // rendered 'You need admin privileges…' for a cold-start 502 because only the
 // 403 status was special-cased.
+// 429 WITH Retry-After counts too (global burst limiter): users behind a
+// shared NAT/office IP previously hit 'Rate limit exceeded' with nothing
+// loading when several dashboards opened at once — retrying after the window
+// clears recovers automatically. A 429 WITHOUT Retry-After (login lockout,
+// register gate) is a deliberate lockout and is NOT transient.
 // "No response" only counts when the error came from an actual HTTP attempt
 // (axios network/timeout errors carry `request`, and abort errors carry
 // `code`) — a locally-thrown Error (e.g. a malformed-payload guard) has
@@ -82,6 +92,7 @@ const isTransientUploadError = (err: any) => {
 export const isTransientError = (err: any) => {
   const status = err?.response?.status
   if (status === 502 || status === 503 || status === 504 || status === 529) return true
+  if (status === 429 && err.response?.headers?.['retry-after']) return true
   return !err.response && !!(err.request || err.code)
 }
 
@@ -110,8 +121,12 @@ export const retryOnTransient = async (fn: () => Promise<any>, retries = TRANSIE
       lastErr = err
       if (!isTransientError(err) || attempt >= retries) throw err
       // delayMs (legacy fixed-pause callers) wins; otherwise the escalating
-      // schedule indexed by attempt number (clamped to the last entry).
-      const delay = delayMs ?? TRANSIENT_RETRY_DELAYS_MS[Math.min(attempt, TRANSIENT_RETRY_DELAYS_MS.length - 1)]
+      // schedule indexed by attempt number (clamped to the last entry),
+      // raised to the limiter's Retry-After when the failure was a 429 so
+      // the retry lands after the window actually resets.
+      let delay = delayMs ?? TRANSIENT_RETRY_DELAYS_MS[Math.min(attempt, TRANSIENT_RETRY_DELAYS_MS.length - 1)]
+      const ra = parseInt(err?.response?.headers?.['retry-after'] || '0', 10)
+      if (!delayMs && Number.isFinite(ra) && ra > 0) delay = Math.max(delay, ra * 1000 + 250)
       await new Promise((resolve) => setTimeout(resolve, delay))
     }
   }

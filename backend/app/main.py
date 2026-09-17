@@ -352,7 +352,7 @@ app.add_middleware(CSPMiddleware)
 # Rate limiting middleware (120 requests per 10 seconds per IP)
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
-    Global rate limiting — 120 requests per 10 seconds per IP (12 req/s
+    Global rate limiting — 300 requests per 10 seconds per IP (30 req/s
     sustained). Uses Redis when available, falls back to in-memory.
     Excludes /health, /auth/*, and the already-route-limited public
     endpoints from rate limiting (each carries its own dedicated control).
@@ -360,7 +360,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
         self._window = settings.rate_limit_window_seconds  # 10s
-        self._limit = settings.rate_limit_global  # 120 requests
+        self._limit = settings.rate_limit_global  # 300 requests
         # In-memory fallback: {ip: [(timestamp, count), ...]}
         self._memory_store: dict[str, list[float]] = {}
         # Bounded-store hygiene: the client IP feeds this dict (via X-Forwarded-

@@ -121,6 +121,7 @@ services:
       # per-IP-per-channel viewer budget (join/heartbeat/availability).
       # Raise for load tests / demos with many simulated viewers from one IP.
       LIVE_TOKEN_RATE_LIMIT: ${LIVE_TOKEN_RATE_LIMIT:-60}
+      RATE_LIMIT_GLOBAL: ${RATE_LIMIT_GLOBAL:-300}
     # Loopback-only like the datastores: the API carries no TLS of its own in
     # the dev stack and Caddy is the only intended front door — never expose it
     # to the LAN/0.0.0.0.
