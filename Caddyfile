@@ -1,6 +1,12 @@
 # ── Site Address ──
 # For local dev: SITE_ADDR=http://localhost (default, plain HTTP, no redirect)
 # For production: SITE_ADDR=example.com (no scheme = Caddy auto-HTTPS)
+
+# Live HLS edge site (permanent public URL, on-demand TLS) — see
+# deploy/caddy/hls.caddy. In dev (no hls. DNS) this site block simply never
+# matches any traffic, so it is silent and harmless.
+import /etc/caddy/hls.caddy
+
 {$SITE_ADDR:-http://localhost} {
     # ── Live API (prefix-PRESERVING) ──
     # Backend live routes are mounted at /api/live/* (the frontend serves real

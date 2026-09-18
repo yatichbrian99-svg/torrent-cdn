@@ -98,39 +98,26 @@ services:
 
   # ── Edge profile: permanent public URLs (Option A) ────────────────────────
   # Opt-in via `--profile edge` so dev stacks are byte-for-byte unchanged.
-  # See deploy/cloudflared/README.md for the one-time operator setup.
-  ddns-rtmp:
-    # Keeps the rtmp.<domain> A record pointed at this machine's current
-    # public IP (home/office broadband-friendly). Cloudflare API only —
-    # records are NOT proxied (grey cloud) since arbitrary TCP can't be
-    # proxied without Spectrum.
+  # See deploy/ddns/README.md for the one-time operator setup.
+  ddns:
+    # Keeps the rtmp./hls. A records pointed at this machine's current public
+    # IP via Namecheap's built-in Dynamic DNS (no API token, no DNS migration
+    # — one DDNS password is the whole credential surface). Busybox-only:
+    # wget+grep, zero package installs at runtime.
     image: alpine:3.20
     restart: unless-stopped
-    command: sh -c "apk add --no-cache curl jq >/dev/null && exec sh /usr/local/bin/update_dns.sh"
+    command: sh /usr/local/bin/update_dns.sh
     volumes:
-      - ./deploy/cloudflared/update_dns.sh:/usr/local/bin/update_dns.sh:ro
+      - ./deploy/ddns/update_dns.sh:/usr/local/bin/update_dns.sh:ro
       - ddns_state:/data
     environment:
       # Intentionally NOT :? guards — compose interpolates the whole file even
-      # without the edge profile, and dev stacks must not need CF vars. The
+      # without the edge profile, and dev stacks must not need the secret. The
       # updater script fails fast with a clear message at runtime instead.
-      CF_API_TOKEN: ${CF_API_TOKEN:-}
-      CF_ZONE_ID: ${CF_ZONE_ID:-}
-      DNS_NAME: ${RTMP_DNS_NAME:-rtmp.torrentcdn.store}
-      TTL: "300"
+      NAMECHEAP_DDNS_PASSWORD: ${NAMECHEAP_DDNS_PASSWORD:-}
+      DDNS_DOMAIN: ${DDNS_DOMAIN:-torrentcdn.store}
+      HOSTS: ${DDNS_HOSTS:-rtmp,hls}
       INTERVAL: "300"
-    profiles: ["edge"]
-
-  cloudflared-hls:
-    # Named Cloudflare Tunnel exposing MediaMTX's HLS listener as
-    # https://hls.<domain> — permanent hostname, hides the origin IP,
-    # TLS at the edge. Credentials live in ./deploy/cloudflared/host/
-    # (gitignored) and are created once by setup_tunnel.sh.
-    image: cloudflare/cloudflared:latest
-    restart: unless-stopped
-    command: tunnel --config /etc/cloudflared/config.json run
-    volumes:
-      - ./deploy/cloudflared/host:/etc/cloudflared:ro
     profiles: ["edge"]
 
   backend:
@@ -216,6 +203,7 @@ services:
       ACME_AGREE: "true"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/caddy/hls.caddy:/etc/caddy/hls.caddy:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

@@ -167,17 +167,17 @@ If the machine running MediaMTX has a real public IP (not CGNAT — check
 `curl ifconfig.me` against the 100.64.0.0/10 range), permanent URLs cost $0:
 
 - **RTMP ingest**: router port-forward TCP 1935 → MediaMTX host, plus the
-  `ddns-rtmp` compose service (Cloudflare-API DDNS) keeping
-  `rtmp.torrentcdn.store` pointed at the current public IP. Namecheap's
-  free DDNS is an alternative if DNS stays off Cloudflare.
-- **HLS playback**: the `cloudflared-hls` compose service runs a **named**
-  Cloudflare Tunnel (`hls.torrentcdn.store` → MediaMTX :8888) — permanent
-  hostname, origin IP hidden, TLS at the edge.
+  `ddns` compose service (Namecheap built-in Dynamic DNS) keeping
+  `rtmp.torrentcdn.store` pointed at the current public IP.
+- **HLS playback**: the stack's own **Caddy** terminates TLS for
+  `hls.torrentcdn.store` (`deploy/caddy/hls.caddy`, imported by the
+  Caddyfile with on-demand certs) and proxies to MediaMTX :8888.
 
-Both services live behind the compose `edge` profile (plain
-`docker compose up` is unchanged). One-time setup, verification commands,
-and the Cloudflare token scoping are in `deploy/cloudflared/README.md`.
-Production env values for this setup are already in `render.yaml`.
+Both live behind the compose `edge` profile / a site block that is silent in
+dev (plain `docker compose up` is unchanged). One-time setup (~10 min:
+Namecheap DDNS password + two router forwards), verification commands, and
+the CGNAT check are in `deploy/ddns/README.md`. Production env values for
+this setup are already in `render.yaml`.
 If direct inbound 1935 is blocked by the ISP, fall back to a VPS — Cloudflare
 cannot proxy arbitrary TCP without Spectrum (paid).
 

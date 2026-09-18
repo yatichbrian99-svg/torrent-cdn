@@ -40,7 +40,3 @@ Thumbs.db
 *.log
 tsbuildinfo
 
-# Option A edge: named-tunnel credentials (SECRET) + generated config
-deploy/cloudflared/host/credentials.json
-deploy/cloudflared/host/config.json
-deploy/cloudflared/TUNNEL_ID

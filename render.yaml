@@ -57,10 +57,11 @@ services:
       # unusable by OBS or viewers.
       #
       # PERMANENT endpoints (Option A): the operator machine runs MediaMTX
-      # behind a router port-forward (RTMP) + a named Cloudflare Tunnel (HLS),
-      # with a Cloudflare-API DDNS container keeping DNS current.
-      # One-time setup: deploy/cloudflared/README.md. If either hostname ever
-      # changes, update here + in the Render dashboard.
+      # behind a router port-forward (RTMP :1935 + HTTP :80/:443), with a
+      # Namecheap Dynamic-DDNS container keeping DNS current and the stack's
+      # own Caddy terminating TLS for the HLS host. One-time setup:
+      # deploy/ddns/README.md. If either hostname ever changes, update here
+      # + in the Render dashboard.
       - key: MEDIAMTX_RTMP_URL
         value: "rtmp://rtmp.torrentcdn.store"
       - key: MEDIAMTX_HLS_URL

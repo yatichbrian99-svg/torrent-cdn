@@ -1,0 +1,34 @@
+# ── Live HLS edge site (permanent public URL) ────────────────────────────
+# Imported by the main Caddyfile. This gives MediaMTX's HLS output a
+# permanent HTTPS hostname on the SAME Caddy that already owns :80/:443 —
+# no extra containers, no tunnels:
+#
+#     viewers → https://hls.torrentcdn.store/live/<slug>/index.m3u8
+#           → (router forwards :80/:443 here) → Caddy → mediamtx:8888
+#
+# on_demand TLS: the certificate is requested at the FIRST real request, so
+# dev machines (no DNS/forward) see zero ACME noise at startup. Once the
+# router forwards and DDNS are in place, the first viewer triggers issuance.
+# Scoped to this site block only — no other name can trigger issuance.
+https://hls.torrentcdn.store {
+	tls {
+		on_demand
+	}
+
+	@playlist path /index.m3u8 */index.m3u8
+	header @playlist Cache-Control "no-store, must-revalidate"
+	header Cache-Control "public, max-age=2"
+
+	# The web player on www.torrentcdn.store fetches this host cross-origin.
+	header Access-Control-Allow-Origin "{$APP_URL:-https://www.torrentcdn.store}"
+	header Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+	@preflight method OPTIONS
+	respond @preflight 204
+
+	reverse_proxy mediamtx:8888
+
+	log {
+		output file /data/logs/hls_access.log
+		format json
+	}
+}
