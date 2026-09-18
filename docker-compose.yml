@@ -79,7 +79,9 @@ services:
       MEDIAMTX_READY_HOOK_URL: http://${MEDIAMTX_BACKEND_HOST:-backend}:8000/api/internal/mediamtx
       MEDIAMTX_HOOK_SECRET: ${MEDIAMTX_HOOK_SECRET}
     ports:
-      - "127.0.0.1:1935:1935"   # RTMP ingest (publishers)
+      # RTMP bind is 127.0.0.1 in dev; the edge profile rebinds it to the LAN
+      # interface (0.0.0.0) so the router port-forward can reach MediaMTX.
+      - "${MEDIAMTX_RTMP_BIND:-127.0.0.1}:1935:1935"   # RTMP ingest (publishers)
       - "127.0.0.1:8888:8888"   # HLS (fetched by backend + reverse proxy)
       - "127.0.0.1:8889:8889"   # WebRTC (optional)
       - "127.0.0.1:9997:9997"   # Control API (INTERNAL ONLY)
@@ -93,6 +95,43 @@ services:
     # no wget/curl), so a CMD-SHELL probe can never run. MediaMTX health is
     # observed by the backend instead — see GET /api/health/live
     # (mediamtx_reachable) and the periodic monitor's fail-open polling.
+
+  # ── Edge profile: permanent public URLs (Option A) ────────────────────────
+  # Opt-in via `--profile edge` so dev stacks are byte-for-byte unchanged.
+  # See deploy/cloudflared/README.md for the one-time operator setup.
+  ddns-rtmp:
+    # Keeps the rtmp.<domain> A record pointed at this machine's current
+    # public IP (home/office broadband-friendly). Cloudflare API only —
+    # records are NOT proxied (grey cloud) since arbitrary TCP can't be
+    # proxied without Spectrum.
+    image: alpine:3.20
+    restart: unless-stopped
+    command: sh -c "apk add --no-cache curl jq >/dev/null && exec sh /usr/local/bin/update_dns.sh"
+    volumes:
+      - ./deploy/cloudflared/update_dns.sh:/usr/local/bin/update_dns.sh:ro
+      - ddns_state:/data
+    environment:
+      # Intentionally NOT :? guards — compose interpolates the whole file even
+      # without the edge profile, and dev stacks must not need CF vars. The
+      # updater script fails fast with a clear message at runtime instead.
+      CF_API_TOKEN: ${CF_API_TOKEN:-}
+      CF_ZONE_ID: ${CF_ZONE_ID:-}
+      DNS_NAME: ${RTMP_DNS_NAME:-rtmp.torrentcdn.store}
+      TTL: "300"
+      INTERVAL: "300"
+    profiles: ["edge"]
+
+  cloudflared-hls:
+    # Named Cloudflare Tunnel exposing MediaMTX's HLS listener as
+    # https://hls.<domain> — permanent hostname, hides the origin IP,
+    # TLS at the edge. Credentials live in ./deploy/cloudflared/host/
+    # (gitignored) and are created once by setup_tunnel.sh.
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --config /etc/cloudflared/config.json run
+    volumes:
+      - ./deploy/cloudflared/host:/etc/cloudflared:ro
+    profiles: ["edge"]
 
   backend:
     build:
@@ -190,3 +229,4 @@ volumes:
   torrent_temp:
   caddy_data:
   caddy_config:
+  ddns_state:

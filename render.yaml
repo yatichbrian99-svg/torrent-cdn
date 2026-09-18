@@ -56,19 +56,15 @@ services:
       # what production showed before this ("rtmp://localhost:1935/live"),
       # unusable by OBS or viewers.
       #
-      # Current values route through TUNNELS from the operator's machine:
-      #   bore.pub:37337       → local MediaMTX RTMP (1935), auth-hooked here
-      #   drop-logo-header-…   → cloudflared quick tunnel → local MediaMTX HLS
-      # ⚠️ TEMPORARY by design: quick-tunnel hostnames change whenever the
-      # tunnel container restarts, and the bore port re-randomizes too. When a
-      # tunnel restarts, update BOTH values here + in the Render dashboard and
-      # redeploy. Permanent fix: a small always-on box running MediaMTX (Oracle
-      # Always-Free VM or ~$5 VPS) — then set these to the permanent domain and
-      # stop touching them.
+      # PERMANENT endpoints (Option A): the operator machine runs MediaMTX
+      # behind a router port-forward (RTMP) + a named Cloudflare Tunnel (HLS),
+      # with a Cloudflare-API DDNS container keeping DNS current.
+      # One-time setup: deploy/cloudflared/README.md. If either hostname ever
+      # changes, update here + in the Render dashboard.
       - key: MEDIAMTX_RTMP_URL
-        value: "rtmp://bore.pub:37337"
+        value: "rtmp://rtmp.torrentcdn.store"
       - key: MEDIAMTX_HLS_URL
-        value: "https://drop-logo-header-ebony.trycloudflare.com"
+        value: "https://hls.torrentcdn.store"
       - key: MINIO_SECURE
         value: "true"
       # REDIS_URL is wired to the managed Key Value instance below (blueprint
