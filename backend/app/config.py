@@ -101,6 +101,23 @@ class Settings(BaseSettings):
     # warning — see get_settings().
     trusted_proxies: str = ""
 
+    # Same-origin proxy authentication (EDGE_PROXY_AUTH). The app's own
+    # frontend middleware injects this shared secret as the
+    # `x-edge-proxy-auth` header on every request it proxies to this backend
+    # (Vercel rewrite → Render). When a request carries the correct secret,
+    # get_client_ip() takes the RIGHTMOST valid X-Forwarded-For entry — the
+    # client IP as seen by the edge — instead of doing the trusted-proxy
+    # network walk. This is what makes per-IP rate limiting work behind the
+    # Vercel proxy: Vercel's egress IPs are dynamic and never published, so
+    # they cannot be allow-listed in TRUSTED_PROXIES — and when the walk
+    # stops at an unlisted edge hop, EVERY user collapses into ONE shared
+    # rate-limit bucket (the 429-everywhere bug). The secret is unforgeable
+    # by clients, and the rightmost-entry rule means a forged client-supplied
+    # XFF entry (left of Vercel's appended hop) is never believed. Must be a
+    # long random string; set the SAME value on frontend (EDGE_PROXY_AUTH)
+    # and backend. Empty = feature off, legacy behavior preserved.
+    edge_proxy_auth: str = ""
+
     # Limits
     # 2GB — the app's own ceiling for a single file. Supabase Storage free tier
     # hard-caps objects at 50MB regardless of this value (the 50MB cap is a

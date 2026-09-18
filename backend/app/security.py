@@ -4,6 +4,7 @@ Security utilities.
 File validation (magic bytes, zip bombs, content types) plus client-IP
 resolution for per-IP rate limiting behind reverse proxies.
 """
+import hmac
 import ipaddress
 import logging
 import struct
@@ -366,6 +367,23 @@ def get_client_ip(request) -> str:
 
     trusted = _trusted_proxy_networks()
     xff = (request.headers.get("x-forwarded-for") or "").strip()
+
+    # Same-origin proxy authentication (EDGE_PROXY_AUTH): our own frontend
+    # middleware proved the direct peer is the app's trusted edge by carrying
+    # the shared secret. In this mode the real client is the RIGHTMOST valid
+    # XFF entry — the client IP the edge itself observed. (The edge APPENDS
+    # its hop; a client-forged entry sits LEFT of it and is never reached.
+    # Browsers cannot set XFF at all, so this only matters for raw clients,
+    # for whom the rightmost entry is their own real IP.) This bypasses the
+    # network walk because Vercel's egress IPs are dynamic/unpublished and
+    # cannot be allow-listed — when the walk stops at an unlisted edge hop,
+    # every proxied user collapses into one shared rate-limit bucket.
+    edge_secret = (get_settings().edge_proxy_auth or "").strip()
+    if edge_secret and hmac.compare_digest(
+        (request.headers.get("x-edge-proxy-auth") or "").strip(), edge_secret
+    ):
+        entries_auth = [e for e in (_normalize_ip(p) for p in xff.split(",")) if e]
+        return entries_auth[-1] if entries_auth else peer
 
     # Legacy mode (nothing configured): first XFF entry wins, validated.
     if not trusted:

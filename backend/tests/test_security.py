@@ -1158,3 +1158,72 @@ class TestInMemoryRateLimitFallbacks:
             stack = getattr(stack, "app", None)
             depth += 1
         return None
+
+
+class TestEdgeProxyAuth:
+    """EDGE_PROXY_AUTH mode: a request carrying the shared proxy secret takes
+    the RIGHTMOST XFF entry (the edge-observed client) — this is what keeps
+    per-IP rate limiting per-USER behind the Vercel proxy, whose egress IPs
+    are dynamic and cannot be allow-listed (without it every proxied user
+    collapses into ONE shared bucket)."""
+
+    @staticmethod
+    def _make_request(xff, peer="198.51.100.10", auth=None):
+        from starlette.requests import Request
+        from types import SimpleNamespace
+
+        headers = []
+        if xff is not None:
+            headers.append((b"x-forwarded-for", xff.encode()))
+        if auth is not None:
+            headers.append((b"x-edge-proxy-auth", auth.encode()))
+        scope = {"type": "http", "headers": headers, "client": (peer, 12345)}
+        return Request(scope), SimpleNamespace(
+            edge_proxy_auth="", trusted_proxies=""
+        )
+
+    def _patch(self, monkeypatch, auth_secret: str):
+        """Point app.security's get_settings() at a per-test namespace
+        (config.get_settings is lru_cached — env patches can't reach it)."""
+        from types import SimpleNamespace
+        from app import security
+
+        ns = SimpleNamespace(edge_proxy_auth=auth_secret, trusted_proxies="")
+        monkeypatch.setattr(security, "get_settings", lambda: ns)
+        return security
+
+    def test_secret_takes_rightmost_xff(self, monkeypatch):
+        sec = self._patch(monkeypatch, "s3cret")
+        req, _ = self._make_request(
+            xff="203.0.113.9, 198.51.100.77", peer="203.0.113.200", auth="s3cret"
+        )
+        assert sec.get_client_ip(req) == "198.51.100.77"
+
+    def test_wrong_secret_ignores_header(self, monkeypatch):
+        sec = self._patch(monkeypatch, "s3cret")
+        req, _ = self._make_request(
+            xff="203.0.113.9, 198.51.100.77", peer="203.0.113.200", auth="nope"
+        )
+        # Falls back to legacy first-entry behavior (no trusted proxies set).
+        assert sec.get_client_ip(req) == "203.0.113.9"
+
+    def test_no_secret_header_unchanged(self, monkeypatch):
+        sec = self._patch(monkeypatch, "s3cret")
+        req, _ = self._make_request(xff="203.0.113.9", peer="203.0.113.200")
+        assert sec.get_client_ip(req) == "203.0.113.9"
+
+    def test_feature_off_unchanged(self, monkeypatch):
+        sec = self._patch(monkeypatch, "")
+        req, _ = self._make_request(
+            xff="203.0.113.9, 198.51.100.77", peer="203.0.113.200", auth="s3cret"
+        )
+        assert sec.get_client_ip(req) == "203.0.113.9"
+
+    def test_malformed_entries_skipped_rightmost_valid_wins(self, monkeypatch):
+        sec = self._patch(monkeypatch, "s3cret")
+        req, _ = self._make_request(
+            xff="203.0.113.9, not-an-ip, 198.51.100.77",
+            peer="203.0.113.200",
+            auth="s3cret",
+        )
+        assert sec.get_client_ip(req) == "198.51.100.77"

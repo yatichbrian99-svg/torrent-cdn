@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isScannerUserAgent } from './lib/security'
+import { proxyToBackend } from './proxy'
 
 /**
  * Nonce-based Content Security Policy (official Next.js pattern).
@@ -30,6 +31,13 @@ export function middleware(request: NextRequest) {
       },
     })
   }
+
+  // Same-origin API proxy with edge authentication — see proxy.ts. Runs
+  // AFTER the scanner block (block first, proxy second), and only for the
+  // app's API path prefixes. Replaces the vercel.json rewrites (which cannot
+  // inject the x-edge-proxy-auth header that per-IP rate limiting needs).
+  const proxied = proxyToBackend(request)
+  if (proxied) return proxied
 
   const nonce = crypto.randomUUID().replace(/[^a-zA-Z0-9]/g, '')
   const isProduction = process.env.NODE_ENV === 'production'
