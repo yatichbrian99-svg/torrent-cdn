@@ -9,8 +9,8 @@ import { proxyToBackend } from '../../proxy'
  */
 const ORIG_ENV = { ...process.env }
 
-function req(path: string) {
-  return new NextRequest(`https://www.torrentcdn.store${path}`)
+function req(path: string, method = 'GET') {
+  return new NextRequest(`https://www.torrentcdn.store${path}`, { method })
 }
 
 function destOf(res: ReturnType<typeof proxyToBackend>): string | null {
@@ -66,5 +66,32 @@ describe('proxyToBackend', () => {
   it('no-ops when BACKEND_ORIGIN is unset (local dev)', () => {
     process.env.BACKEND_ORIGIN = ''
     expect(proxyToBackend(req('/api/admin/stats'))).toBeNull()
+  })
+
+  it('does NOT proxy GET navigations to frontend page paths', () => {
+    // Middleware runs BEFORE the filesystem — proxying these would hijack
+    // page navigation and return the backend's 404 instead of the page HTML.
+    for (const p of [
+      '/admin',
+      '/admin/health',
+      '/admin/payouts',
+      '/auth/forgot-password',
+      '/auth/reset-password',
+      '/billing',
+    ]) {
+      expect(proxyToBackend(req(p, 'GET'))).toBeNull()
+      expect(proxyToBackend(req(p, 'HEAD'))).toBeNull()
+    }
+  })
+
+  it('still proxies sub-paths and non-GET methods on page paths', () => {
+    // API calls on sub-paths must keep working...
+    const d = destOf(proxyToBackend(req('/admin/stats', 'GET')))
+    expect(d).toContain('/admin/stats')
+    // ...and POST /auth/forgot-password is a backend endpoint that shares a
+    // path string with a page — must still be proxied.
+    const post = proxyToBackend(req('/auth/forgot-password', 'POST'))
+    expect(post).not.toBeNull()
+    expect(destOf(post)).toContain('/auth/forgot-password')
   })
 })

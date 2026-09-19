@@ -38,6 +38,23 @@ const PROXY_PREFIXES = [
   '/notifications',
 ] as const
 
+/**
+ * Frontend page routes that share a proxied prefix (see proxyToBackend for
+ * why these need special handling). NOTE: every one of these was verified to
+ * have NO same-method API collision — API calls use sub-paths
+ * (/admin/stats, /admin/health/status, /billing/status) except
+ * /auth/forgot-password and /auth/reset-password, which are POST-only
+ * endpoints (the pages are GET).
+ */
+const PAGE_PATHS: ReadonlySet<string> = new Set([
+  '/admin',
+  '/admin/health',
+  '/admin/payouts',
+  '/auth/forgot-password',
+  '/auth/reset-password',
+  '/billing',
+])
+
 /** Returns a proxying response, or null when the path isn't proxied. */
 export function proxyToBackend(request: NextRequest): NextResponse | null {
   const BACKEND = backendOrigin()
@@ -47,6 +64,19 @@ export function proxyToBackend(request: NextRequest): NextResponse | null {
     (p) => pathname === p.replace(/\/$/, '') || pathname.startsWith(p),
   )
   if (!hit) return null
+
+  // Exact paths where the frontend has a Next PAGE. Unlike the old
+  // vercel.json rewrites (which run AFTER the filesystem), middleware runs
+  // BEFORE it — proxying these paths verbatim would hijack the browser's
+  // navigation and return the backend's 404 instead of the dashboard HTML.
+  // Only GET/HEAD are excluded: those are navigations (plus Vercel's HEAD
+  // checks). Non-GET requests to these paths are API calls — e.g.
+  // POST /auth/forgot-password is an endpoint on the backend that shares its
+  // path string with a page — and must still be proxied.
+  const isPagePath = PAGE_PATHS.has(pathname)
+  if (isPagePath && (request.method === 'GET' || request.method === 'HEAD')) {
+    return null
+  }
 
   // Destination parity with the old vercel.json rewrites:
   //   /api/live/*  → backend /api/live/*  (prefix KEPT — live routes are
