@@ -124,6 +124,26 @@ export function middleware(request: NextRequest) {
     }
   }
 
+  // Live HLS playback origin: hls.js fetches playlists + segments via XHR,
+  // which is governed by connect-src — without this entry the browser
+  // silently blocks the live stream even though the edge is healthy.
+  // (iOS native HLS uses video.src → media-src, which already allows https:.)
+  // NEXT_PUBLIC_LIVE_HLS_ORIGIN is baked at Vercel BUILD time (e.g.
+  // https://hls.torrentcdn.store — the Oracle-VM edge, deploy/oracle/). In
+  // local dev the http://localhost:* entry above already covers MediaMTX:8888.
+  const liveHls = process.env.NEXT_PUBLIC_LIVE_HLS_ORIGIN || ''
+  let liveHlsOrigin = ''
+  try {
+    liveHlsOrigin = new URL(liveHls).origin
+  } catch {
+    // Unset/malformed — nothing to allow; live playback then relies on the
+    // same-origin proxy path (dev) and the env must be set before prod edge
+    // cutover (documented in deploy/oracle/README.md step 4).
+  }
+  if (liveHlsOrigin && liveHlsOrigin !== request.nextUrl.origin) {
+    connectSources.push(liveHlsOrigin)
+  }
+
   const connectSourcesJoined = connectSources.join(' ')
 
   const csp = [

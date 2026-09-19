@@ -66,3 +66,11 @@ and confirm the dashboard flips STARTING → LIVE.
 - Some ISPs filter inbound ports; if `nc` fails after forwarding, test with a
   different port or contact the ISP — that failure is at the network layer,
   not the application.
+
+---
+
+> **Superseded (Sep 2026):** the recommended permanent edge is now the
+> **Oracle Always-Free VM** — see `deploy/oracle/README.md`. The VM ships a
+> **static public IP**, which removes the entire reason this DDNS kit exists
+> (keeping A records pointed at a dynamic home IP). This kit still works and
+> stays supported for the no-VM case (home-machine edge + router forward).

@@ -63,12 +63,10 @@ services:
       # what production showed before this ("rtmp://localhost:1935/live"),
       # unusable by OBS or viewers.
       #
-      # PERMANENT endpoints (Option A): the operator machine runs MediaMTX
-      # behind a router port-forward (RTMP :1935 + HTTP :80/:443), with a
-      # Namecheap Dynamic-DDNS container keeping DNS current and the stack's
-      # own Caddy terminating TLS for the HLS host. One-time setup:
-      # deploy/ddns/README.md. If either hostname ever changes, update here
-      # + in the Render dashboard.
+      # PERMANENT endpoints: MediaMTX + Caddy run on an Oracle Always-Free VM
+      # with a static public IP (see deploy/oracle/README.md — the runbook for
+      # creating the VM, opening 80/443/1935, and the DNS A records for
+      # rtmp./hls.torrentcdn.store). One-time setup; hostnames never change.
       - key: MEDIAMTX_RTMP_URL
         value: "rtmp://rtmp.torrentcdn.store"
       - key: MEDIAMTX_HLS_URL

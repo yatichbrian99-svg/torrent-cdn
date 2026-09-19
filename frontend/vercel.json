@@ -4,7 +4,8 @@
   "installCommand": "npm ci --ignore-scripts",
   "framework": "nextjs",
   "env": {
-    "NEXT_PUBLIC_API_URL": "https://www.torrentcdn.store"
+    "NEXT_PUBLIC_API_URL": "https://www.torrentcdn.store",
+    "NEXT_PUBLIC_LIVE_HLS_ORIGIN": "https://hls.torrentcdn.store"
   },
   "rewrites": [
     {
