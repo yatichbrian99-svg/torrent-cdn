@@ -171,19 +171,28 @@ async def _redis_call(fn, *args, **kwargs):
 # ── Channel meta (latest segment, bitrate, uptime, status hints) ─────────────
 
 async def set_channel_meta(slug: str, **fields: Any) -> None:
-    """Merge fields into the channel's ephemeral meta (TTL refresh)."""
+    """Merge fields into the channel's ephemeral meta (TTL refresh).
+
+    The merge is atomic server-side: a single HSET of just the new fields lets
+    Redis combine them with whatever is already stored, instead of the old
+    read-hgetall-rewrite-everything pattern. That rewrite was a classic
+    lost-update race — concurrent writers (auth hook writing publish_seen,
+    ready hook, monitor writing latest_seq, rollup writing last_rollup_ts)
+    interleave between the HGETALL and the rewrite, and the last writer
+    silently wiped the others' fields — e.g. the ready hook's publish_seen
+    getting erased by a simultaneous monitor tick (status flapping).
+    """
     ttl = 60
-    current = await _redis_call(
-        lambda r: r.hgetall(f"{KV}:chan:{slug}:meta")
-    ) or {}
-    current.update({k: str(v) for k, v in fields.items()})
+    mapping = {k: str(v) for k, v in fields.items()}
+    if not mapping:
+        return
+
     async def _w(r):
         pipe = r.pipeline()
-        pipe.delete(f"{KV}:chan:{slug}:meta")
-        if current:
-            pipe.hset(f"{KV}:chan:{slug}:meta", mapping=current)
-            pipe.expire(f"{KV}:chan:{slug}:meta", ttl)
+        pipe.hset(f"{KV}:chan:{slug}:meta", mapping=mapping)
+        pipe.expire(f"{KV}:chan:{slug}:meta", ttl)
         await pipe.execute()
+
     await _redis_call(_w)
     mem_meta = _mem_get(slug, "meta", "data") or {}
     mem_meta.update(fields)
@@ -230,6 +239,23 @@ async def register_segment(slug: str, seq: int, duration: float = 0.0, size: int
 
     s = get_live_settings()
     retention = s.segment_retention
+    # Sequence-era guard: MediaMTX restarts reset segment numbering to 0, but
+    # every consumer (live edge, availability sets, swarm keys) assumes seq
+    # never decreases within a stream. A small backward step is a stale
+    # playlist/poll → ignore it (never move the edge backward). A LARGE
+    # backward step (>100 ≈ >3 min at 2 s segments — beyond any playlist lag)
+    # while the previous latest segment has already left retention means the
+    # stream restarted: clear the old era so peers never mix numbering eras.
+    meta = await get_channel_meta(slug)
+    try:
+        prev = int(meta.get("latest_seq", -1))
+    except (TypeError, ValueError):
+        prev = -1
+    if prev >= 0 and seq < prev:
+        if seq < prev - 100 and not await segment_exists(slug, prev):
+            await clear_channel(slug)
+        else:
+            return
     key = f"{KV}:chan:{slug}:seg:{seq}"
     payload = json.dumps({"ts": time.time(), "duration": duration, "size": size})
     await _redis_call(lambda r: r.setex(key, retention, payload))
@@ -390,12 +416,23 @@ async def active_peers(slug: str) -> list[str]:
     ids = await _redis_call(lambda r: r.smembers(f"{KV}:chan:{slug}:peers"))
     if ids is None:
         return list(_mem_members(slug, "peerset"))
-    # Drop peers whose individual TTL expired even if the index lingers
-    out = []
-    for pid in ids:
-        if await _redis_call(lambda r, p=pid: r.exists(f"{KV}:chan:{slug}:peer:{p}")):
-            out.append(pid)
-    return out
+    if not ids:
+        return []
+    # Drop peers whose individual TTL expired even if the index lingers —
+    # in ONE pipelined round trip (the old per-peer exists() loop was N round
+    # trips per call, and the dashboard list page multiplies it by channels).
+    peer_keys = [f"{KV}:chan:{slug}:peer:{pid}" for pid in ids]
+
+    async def _m(r):
+        pipe = r.pipeline(transaction=False)
+        for key in peer_keys:
+            pipe.exists(key)
+        return await pipe.execute()
+
+    res = await _redis_call(_m)
+    if res is None:
+        return []
+    return [pid for pid, alive in zip(ids, res) if alive]
 
 
 async def active_viewers(slug: str) -> int:
@@ -410,11 +447,21 @@ async def peers_with_segment(slug: str, seq: int) -> list[str]:
     if ids is None:
         entry = _mem_get(slug, "avail", str(seq))
         return list(entry) if isinstance(entry, set) else []
-    out = []
-    for pid in ids:
-        if await _redis_call(lambda r, p=pid: r.exists(f"{KV}:chan:{slug}:peer:{p}")):
-            out.append(pid)
-    return out
+    if not ids:
+        return []
+    # Single pipelined liveness check (same N+1 fix as active_peers).
+    peer_keys = [f"{KV}:chan:{slug}:peer:{pid}" for pid in ids]
+
+    async def _m(r):
+        pipe = r.pipeline(transaction=False)
+        for key in peer_keys:
+            pipe.exists(key)
+        return await pipe.execute()
+
+    res = await _redis_call(_m)
+    if res is None:
+        return []
+    return [pid for pid, alive in zip(ids, res) if alive]
 
 
 async def peer_health(slug: str, peer_id: str) -> dict | None:

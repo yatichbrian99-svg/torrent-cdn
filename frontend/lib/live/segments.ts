@@ -46,6 +46,26 @@ export class LiveSegmentRegistry {
     }
   }
 
+  /** Highest sequence observed from any playlist (the client's live edge). */
+  latestObserved(): number | null {
+    let latest: number | null = null
+    for (const seq of Array.from(this.availability.keys())) {
+      if (latest === null || seq > latest) latest = seq
+    }
+    return latest
+  }
+
+  /** Sequences this client has actually fetched (locally held → shareable). */
+  observedSequences(): number[] {
+    // Only segments with a recorded fetch outcome were truly downloaded by
+    // this peer — claiming un-fetched playlist entries would offer peers
+    // data we don't have (a transfer failure every time).
+    const held = Array.from(this.outcomes.entries())
+      .filter(([, o]) => o.served)
+      .map(([seq]) => seq)
+    return held.sort((a, b) => a - b).slice(-50)
+  }
+
   markPeerHas(seq: number, peerId: string): void {
     let set = this.availability.get(seq)
     if (!set) {
@@ -89,7 +109,7 @@ export class LiveSegmentRegistry {
     haves: number[]
     transfers: { sequence_number: number; served: boolean; bytes: number }[]
   } {
-    const haves = Array.from(this.availability.keys()).slice(-50)
+    const haves = this.observedSequences()
     const transfers = Array.from(this.outcomes.entries())
       .slice(-50)
       .map(([sequence_number, o]) => ({ sequence_number, served: o.served, bytes: o.bytes }))

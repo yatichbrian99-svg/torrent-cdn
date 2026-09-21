@@ -96,6 +96,20 @@ def publish_lifecycle_snapshot(slug: str) -> dict[str, float | str | None]:
     }
 
 
+def _reject_public(request: Request) -> None:
+    """Defense-in-depth: these hooks are internal-network only.
+
+    The Vercel edge stamps x-edge-proxy-auth on every request it proxies to
+    the backend — a genuine MediaMTX hook NEVER carries it. Without this
+    guard, the public origin (https://torrent-cdn.onrender.com/api/internal/…)
+    accepts stream-end/ingest/peers calls from anyone who can guess a slug,
+    letting them wipe a live channel's ephemeral state (DoS on the live
+    swarm). 404 (not 403) so the endpoint's existence isn't confirmed.
+    """
+    if request.headers.get("x-edge-proxy-auth"):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+
 def _check_hook_secret(request: Request) -> None:
     secret = _hook_secret()
     if not secret:
@@ -180,6 +194,7 @@ async def mediamtx_auth(request: Request):
     action = str(body.get("action") or "")
     path = str(body.get("path") or "")
     protocol = str(body.get("protocol") or "")
+    _reject_public(request)
 
     slug = _slug_from_path(path)
     if not slug:
@@ -260,6 +275,7 @@ async def mediamtx_ingest(request: Request):
     optimization + earlier availability, not a single point of failure.
     Body: {slug, sequence, duration, size}
     """
+    _reject_public(request)
     _check_hook_secret(request)
     try:
         body = await request.json()
@@ -303,6 +319,7 @@ async def mediamtx_shutdown(request: Request):
 
     Body: {slug} — clears ephemeral state so the channel returns to OFFLINE
     promptly and temporary live state expires instead of lingering."""
+    _reject_public(request)
     _check_hook_secret(request)
     try:
         body = await request.json()
@@ -325,7 +342,8 @@ async def mediamtx_shutdown(request: Request):
 @router.get("/channels/{slug}/peers")
 async def channel_peer_dump(slug: str, request: Request):
     """Internal diagnostics: peers currently active for a channel. INTERNAL
-    ONLY (never proxied publicly); returns peer ids only, never IPs."""
+    ONLY (never proxied publicly);    returns peer ids only, never IPs."""
+    _reject_public(request)
     _check_hook_secret(request)
     from ..live_state import peer_scores, peers_with_segment
     peers = await active_peers(slug)
@@ -359,6 +377,7 @@ async def mediamtx_ready(request: Request):
 
     Body: form-encoded slug=<name> (sent by the hook command). Protected by
     the shared hook secret (header/query, same as /ingest and /shutdown)."""
+    _reject_public(request)
     _check_hook_secret(request)
     raw = await request.body()
     try:
@@ -397,6 +416,7 @@ async def mediamtx_not_ready(request: Request):
     Best-effort by design — a lost notification changes nothing (the monitor
     still expires state; the hook only makes OFFLINE arrive in ~1s instead of
     after segment expiry)."""
+    _reject_public(request)
     _check_hook_secret(request)
     raw = await request.body()
     try:

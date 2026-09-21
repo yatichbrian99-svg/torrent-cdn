@@ -57,9 +57,26 @@ describe('LiveSegmentRegistry', () => {
     const payload = r.reportPayload('sess-1', 'peer-1')
     expect(payload.session_id).toBe('sess-1')
     expect(payload.peer_id).toBe('peer-1')
-    expect(payload.haves).toEqual([0, 1, 2, 3, 4])
+    // haves = segments this peer actually FETCHED (served outcomes) —
+    // observed-but-never-fetched playlist entries must NOT be offered to
+    // peers (we would fail every transfer we claim availability for).
+    // Segment 3 was fetched; 0-2 were only observed in the playlist.
+    expect(payload.haves).toEqual([3])
     expect(payload.transfers).toContainEqual({ sequence_number: 3, served: true, bytes: 250_000 })
     expect(payload.transfers).toContainEqual({ sequence_number: 4, served: false, bytes: 0 })
+  })
+
+  it('exposes the live edge and held segments for availability reports', () => {
+    const r = new LiveSegmentRegistry('ch')
+    expect(r.latestObserved()).toBeNull()
+    expect(r.observedSequences()).toEqual([])
+    r.observe(7)
+    r.observe(9)
+    expect(r.latestObserved()).toBe(9)
+    // Only fetched segments count as held/shareable.
+    expect(r.observedSequences()).toEqual([])
+    r.markTransfer(9, true, 1000)
+    expect(r.observedSequences()).toEqual([9])
   })
 
   it('counts measured outcomes (served vs failed)', () => {

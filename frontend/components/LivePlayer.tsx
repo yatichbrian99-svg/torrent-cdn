@@ -74,11 +74,17 @@ export default function LivePlayer({ playback, onPeersChange, className }: Props
       if (!joinedRef.current) return
       const c = countersRef.current
       const transfers = pendingTransfersRef.current.splice(0, 20)
+      // P2P outcomes (segments_served/failed + bytes_p2p) are reported by the
+      // RECEIVING peer in the availability report below — one measurement, one
+      // counter. Sending serving-side wire bytes here as well would double-
+      // count every transfer in the offload metric.
       try {
         await liveViewerApi.heartbeat(playback, {
           session_id: sessionId.current,
           peer_id: peerId,
-          ...c,
+          bytes_downloaded: c.bytes_downloaded, // origin-fetch bytes (→ bytes_origin)
+          buffering_events: c.buffering_events,
+          playback_errors: c.playback_errors,
           current_segment: registryRef.current ? lastObservedSegment() : null,
         })
         // reset the deltas after reporting
@@ -87,7 +93,10 @@ export default function LivePlayer({ playback, onPeersChange, className }: Props
           await liveViewerApi.reportAvailability(playback, {
             session_id: sessionId.current,
             peer_id: peerId,
-            haves: (registryRef.current as any).peersFor ? [] : [],
+            // Real observed playlist sequences (what THIS peer actually holds
+            // locally after fetching them) — the old constant [] never
+            // registered availability, so the swarm had no peers to match.
+            haves: (registryRef.current as any).observedSequences?.() ?? [],
             transfers,
           })
         }
@@ -98,9 +107,16 @@ export default function LivePlayer({ playback, onPeersChange, className }: Props
   }, [playback])
 
   const lastObservedSegment = (): number | null => {
-    const video = videoRef.current
-    if (!video) return null
-    return Math.floor(video.currentTime)
+    // The LATEST SEGMENT SEQUENCE observed from the playlist (registry state),
+    // not a playback timestamp: the backend stores this as an availability
+    // have and serves it to peers as a segment number — a wall-clock position
+    // here registered bogus sequence numbers into the swarm.
+    const hls = hlsRef.current
+    if (!hls) return null
+    const details = hls.levels?.[hls.currentLevel]?.details || hls.levels?.[0]?.details
+    const sn = details?.fragments?.length ? details.fragments[details.fragments.length - 1].sn : null
+    if (typeof sn === 'number' && Number.isFinite(sn)) return sn
+    return registryRef.current ? (registryRef.current as any).latestObserved?.() ?? null : null
   }
 
   // ── swarm join/leave ────────────────────────────────────────────────────────
@@ -191,7 +207,10 @@ export default function LivePlayer({ playback, onPeersChange, className }: Props
                 swarm.noteDownloaded(bytes)
               },
               onPeerFetch: (bytes) => {
-                countersRef.current.bytes_uploaded += 0 // uploaded counted at wire level
+                // P2P-delivered bytes are counted on the SERVING peer's wire
+                // uploader (heartbeats read the swarm's cumulative upload
+                // counter) — counting them here too would double-report.
+                void bytes
               },
               getSessionPeerId: () => sessionRef.current?.peerId || sessionId.current,
             },
@@ -200,9 +219,7 @@ export default function LivePlayer({ playback, onPeersChange, className }: Props
               ? { start: context.rangeStart, end: context.rangeEnd }
               : undefined
           )
-            .then(({ data, via }) => {
-              const c2 = countersRef.current
-              if (via === 'p2p') c2.segments_served += 1
+            .then(({ data }) => {
               callbacks.onSuccess({ url: context.url, data }, { total: data.byteLength, loaded: data.byteLength }, context, null)
             })
             .catch((e) => {

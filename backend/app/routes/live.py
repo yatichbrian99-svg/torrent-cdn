@@ -86,10 +86,29 @@ def _prune_token_requests(now: float) -> None:
     enforce_max_size(_token_requests)
 
 
+def get_live_ip(request: Request) -> str:
+    """Client IP for the viewer limiter — as fallback-safe as get_client_ip
+    (a failed IP resolution must 500 the player's heartbeat loop), and
+    reuses the edge-authenticated proxy semantics.
+    """
+    try:
+        return get_client_ip(request)
+    except Exception:  # noqa: BLE001 — limiter must never 500 the hot path
+        return "unknown"
+
+
 async def _check_viewer_rate_limit(request: Request, channel_slug: str) -> None:
     """Per-IP-per-channel budget for the unauthenticated-ish viewer endpoints
-    (session join / heartbeat / availability, gated by playback tokens)."""
-    ip = get_client_ip(request)
+    (session join / heartbeat / availability, gated by playback tokens).
+
+    Sizing: the player fires ~24 calls/min per viewer (heartbeat every 5s +
+    availability reports in the same tick when P2P transfers are active) and
+    households often share one IP. A default under 240 makes the THIRD viewer
+    behind one shared IP 429 — join failure is swallowed by the player, so
+    viewers vanish from the dashboard and P2P silently dies (origin still
+    plays; the outage is invisible except as "why do we have no peers?").
+    """
+    ip = get_live_ip(request)
     limit = get_live_settings().token_rate_limit
     redis = await get_redis()
     if redis is not None:
@@ -589,6 +608,8 @@ async def _attach_live_metrics(ch: LiveChannelOut) -> None:
             ch.uptime_seconds = max(0, int((datetime.now(UTC) - ch.last_seen_at).total_seconds()))
         except (TypeError, ValueError):
             ch.uptime_seconds = 0
+    else:
+        ch.uptime_seconds = 0
 
 
 @router.get("/channels/{channel_id}", response_model=LiveChannelOut)
