@@ -192,10 +192,22 @@ export default function LivePlayer({ playback, onPeersChange, className }: Props
             {
               playback,
               tryPeer: async (meta) => {
-                // The backend-derived infohash registry is fetched lazily by
-                // the swarm in a production rollout; until a peer serves, this
-                // resolves null quickly so playback never waits on P2P.
-                return await swarm.fetchSegment(meta, 2500)
+                // Join the segment's swarm via the backend-published identity.
+                // The first viewer for a segment gets null here (no peers have
+                // it yet) and fetches from origin — then SEEDS it below, so
+                // every subsequent viewer can take the P2P path.
+                const identity = await liveViewerApi.segmentIdentity(playback, meta.sequence_number)
+                if (!identity) return null
+                return await swarm.fetchSegment(
+                  { ...meta, infohash: identity.infohash, filename: identity.filename, size: identity.size },
+                  2500
+                )
+              },
+              onSeed: (meta, data) => {
+                // Serve-while-watch: the origin bytes we just fetched make us
+                // the swarm's first seed. Fire-and-forget — playback already
+                // has the bytes; seeding is purely for other viewers.
+                void swarm.seedSegment(meta, data)
               },
               onOutcome: (seq, served, bytes) => {
                 pendingTransfersRef.current.push({ sequence_number: seq, served, bytes })

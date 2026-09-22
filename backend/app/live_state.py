@@ -648,7 +648,11 @@ async def _monitor_tick() -> None:
 
 
 _mediamtx_ok_at: float = 0.0
+# Full segments only — LL-HLS partial segments (`<hash>_video1_part<k>.mp4`)
+# are NOT swarm objects: registering them would poison the sequence registry
+# with thousands of sub-sequence numbers and split availability.
 _SEG_NAME_RE = re.compile(r"(\d+)\.(?:m4s|ts|mp4)$", re.I)
+_SEG_PART_RE = re.compile(r"_part\d+\.(?:m4s|ts|mp4)$", re.I)
 _VARIANT_RE = re.compile(r"([A-Za-z0-9_]+_stream\.m3u8)")
 
 
@@ -694,7 +698,7 @@ async def _register_segments_from_playlist(slug: str) -> None:
                 if r.status_code != 200:
                     continue
                 seqs = [int(m.group(1)) for line in r.text.splitlines()
-                        if (m := _SEG_NAME_RE.search(line))]
+                        if (m := _SEG_NAME_RE.search(line)) and not _SEG_PART_RE.search(line)]
                 if not seqs:
                     continue
                 meta = await get_channel_meta(slug)

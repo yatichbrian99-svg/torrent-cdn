@@ -217,6 +217,37 @@ class TestIngestWebhook:
                            headers={"X-Hook-Secret": "s3cret"})
         assert resp.status_code in (200, 404)  # 404 if channel missing — auth passed
 
+    def test_auth_hook_requires_secret_when_set(self, client, mock_conn, monkeypatch):
+        """The auth endpoint is a stream-key oracle — it MUST authenticate its
+        caller (MediaMTX presents the shared secret in the hook URL)."""
+        import app.routes.live_internal as li
+        monkeypatch.setenv("MEDIAMTX_HOOK_SECRET", "s3cret")
+        monkeypatch.setattr(li, "_HOOK_SECRET", None)
+        resp = client.post(self.URL, json={"user": "ch", "password": "key",
+                                           "action": "publish", "path": "live/ch"})
+        assert resp.status_code == 403
+        resp = client.post(self.URL, json={"user": "ch", "password": "key",
+                                           "action": "publish", "path": "live/ch"},
+                           headers={"X-Hook-Secret": "s3cret"})
+        # Auth passed → normal channel logic (slug-parse 400, missing 404,
+        # key mismatch 403, success 200 — any of those prove the secret check
+        # no longer rejected the request)
+        assert resp.status_code in (200, 400, 403, 404)
+
+    def test_hooks_fail_closed_in_production_without_secret(self, client, monkeypatch):
+        """Prod hooks are internet-reachable (Render) and _reject_public only
+        blocks edge-stamped requests — an unset secret must reject EVERYTHING
+        rather than run an open stream-key oracle."""
+        import app.routes.live_internal as li
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("MEDIAMTX_HOOK_SECRET", "")
+        monkeypatch.setattr(li, "_HOOK_SECRET", None)
+        resp = client.post(self.URL, json={"slug": "mychan", "sequence": 1})
+        assert resp.status_code == 503
+        resp = client.post("/api/internal/mediamtx/auth",
+                           json={"action": "publish", "path": "live/ch"})
+        assert resp.status_code == 503
+
     def test_shutdown_clears_state(self, client, mock_conn):
         async def seed():
             await live_state.register_segment("mychan", 3)

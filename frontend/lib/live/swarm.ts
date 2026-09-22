@@ -82,8 +82,17 @@ export class LiveSwarm {
 
   /**
    * Announce availability + seed a segment we already hold (fetched from
-   * origin or a peer). `data` is the raw segment bytes; `meta.infohash` is
-   * the backend-derived swarm id.
+   * origin or a peer). `data` is the raw segment bytes.
+   *
+   * IDENTITY: create-torrent computes the infohash FROM the content — the
+   * pinned `infoHash` option is not honored when seeding. Correctness
+   * therefore comes from feeding the EXACT recipe the backend used:
+   *   - name == backend's segment_filename (`<slug>-<seq>.m4s`)
+   *   - pieceLength == torrentool's rule (262144 for >32KiB, else 32768)
+   *   - bytes == the untouched origin segment
+   * With those equal, the seeder's content-derived infohash is byte-identical
+   * to the backend's hash, so leechers that join via the backend-published
+   * identity land in THIS swarm.
    */
   async seedSegment(meta: SegmentMeta, data: ArrayBuffer): Promise<void> {
     const client = await this.ensureClient()
@@ -93,13 +102,10 @@ export class LiveSwarm {
       const file = new File([data], meta.filename, { type: 'video/mp4' })
       const torrent = client.seed(file, {
         name: meta.filename,
-        // Single-segment "files" are tiny (2s @ ~1Mbps ≈ 250KB) — a 16KiB
-        // piece size keeps the info dict small and discovery fast.
-        pieceLength: 16384,
+        // torrentool's piece-length rule — the backend hashed with the same
+        // (a mismatched piece size would fork the swarm: different info dict).
+        pieceLength: meta.size > 32768 ? 262144 : 32768,
         announce: LIVE_TRACKERS,
-        // infoHash is pinned so every viewer joins the SAME swarm for this
-        // segment regardless of who seeded first.
-        infoHash: meta.infohash,
       })
       this.torrentFor.set(meta.sequence_number, { seq: meta.sequence_number, torrent })
       const self = this
@@ -124,10 +130,11 @@ export class LiveSwarm {
   async fetchSegment(meta: SegmentMeta, timeoutMs = 4000): Promise<ArrayBuffer | null> {
     const client = await this.ensureClient()
     if (!client || this.destroyed) return null
+    // Already seeding/leeching this segment — read what the swarm has.
     const existing = this.torrentFor.get(meta.sequence_number)
     if (existing?.torrent) {
       const f = existing.torrent.files?.[0]
-      if (f) {
+      if (f && existing.torrent.progress === 1) {
         try {
           return await withTimeout(f.arrayBuffer(), timeoutMs)
         } catch {
@@ -135,8 +142,70 @@ export class LiveSwarm {
           return null
         }
       }
+      if (f) {
+        // Torrent added but incomplete — wait for it within the budget.
+        try {
+          await withTimeout(
+            new Promise<void>((resolve, reject) => {
+              if (existing.torrent.progress === 1) return resolve()
+              existing.torrent.on('done', resolve)
+              existing.torrent.on('error', reject)
+            }),
+            timeoutMs
+          )
+          return await f.arrayBuffer()
+        } catch {
+          this.stats.segments_failed += 1
+          return null
+        }
+      }
     }
-    return null
+    // Join the swarm by the backend-published identity — the ONLY way to
+    // find peers before having the bytes (content-derived identity cannot be
+    // computed pre-download). Without meta.infohash there is no swarm to join:
+    // return null → the loader falls back to origin.
+    if (!meta.infohash) return null
+    try {
+      const torrent = await withTimeout(
+        new Promise<any>((resolve, reject) => {
+          const t = client.add({ infoHash: meta.infohash, announce: LIVE_TRACKERS, name: meta.filename })
+          const onReady = () => resolve(t)
+          const onErr = (e: unknown) => reject(e)
+          t.once('ready', onReady)
+          t.once('error', onErr)
+        }),
+        timeoutMs
+      )
+      const wireStats = (wire: any) => {
+        wire.on('download', (n: number) => { this.stats.bytes_downloaded += n })
+        wire.on('upload', (n: number) => { this.stats.bytes_uploaded += n })
+      }
+      torrent.on('wire', wireStats)
+      const file = torrent.files?.[0]
+      if (!file) {
+        torrent.destroy({ destroyStore: true })
+        this.stats.segments_failed += 1
+        return null
+      }
+      // Metadata received — the download itself shares the remaining budget.
+      const data = (await withTimeout(file.arrayBuffer(), timeoutMs)) as ArrayBuffer
+      this.torrentFor.set(meta.sequence_number, { seq: meta.sequence_number, torrent })
+      // Keep the torrent alive: we are now a seed for late joiners.
+      return data
+    } catch {
+      // Swarm didn't form in time — tear down the partial torrent so the
+      // client stops announcing, and let the loader fall back to origin.
+      try {
+        const t = this.torrentFor.get(meta.sequence_number)?.torrent
+        if (!t) {
+          // client.add may still be pending inside the client; remove it.
+          const stray = client.torrents?.find((x: any) => x.infoHash === meta.infohash)
+          if (stray) stray.destroy({ destroyStore: true })
+        }
+      } catch { /* already gone */ }
+      this.stats.segments_failed += 1
+      return null
+    }
   }
 
   /** Register a failed P2P fetch so the backend scrubs the dead peer. */

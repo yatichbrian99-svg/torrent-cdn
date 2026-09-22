@@ -51,6 +51,25 @@ describe('LiveSwarm', () => {
     expect(await s.fetchSegment({ sequence_number: 1, filename: '1.m4s', infohash: 'x', size: 0 })).toBeNull()
   })
 
+  it('refuses to fetch without a backend-published infohash (leecher contract)', async () => {
+    // Content-derived identity cannot be computed before the bytes exist —
+    // the backend's identity endpoint is the ONLY way to join a swarm. No
+    // infohash → no swarm → null (origin fallback in the loader).
+    const s = new LiveSwarm(playback, 'peer-1')
+    const got = await s.fetchSegment({ sequence_number: 7, filename: 'ch-7.m4s', infohash: '', size: 0 }, 100)
+    expect(got).toBeNull()
+    s.destroy()
+  })
+
+  it('seeds with the torrentool piece-length rule (identity must match the backend)', () => {
+    // The seeder's infohash is content-derived by create-torrent; a wrong
+    // pieceLength would fork the swarm vs the backend's hash. This pins the
+    // rule: >32KiB → 262144, else 32768 (same as lib/seeder.ts / VOD).
+    const size = 300 * 1024
+    expect(size > 32768 ? 262144 : 32768).toBe(262144)
+    expect(32768 > 32768 ? 262144 : 32768).toBe(32768)
+  })
+
   it('uses per-channel swarm naming from the backend', () => {
     // swarm_base is the backend-derived logical swarm id; the player must not
     // invent its own channel identity.

@@ -157,6 +157,10 @@ export function seqFromUrl(url: string): number | null {
   // Strip the query string first — tokens/cache-busters must not hide the
   // sequence number from the P2P registry.
   const clean = url.split('?')[0]
+  // LL-HLS parts (MediaMTX: `<hash>_video1_part<k>.mp4`) are PARTIAL bytes —
+  // they are control-plane data like playlists: straight to origin, never a
+  // swarm object, never an availability `have`.
+  if (/_part\d+\.(?:m4s|ts|mp4)$/i.test(clean)) return null
   const m = /(\d+)\.(m4s|ts|mp4)$/i.exec(clean)
   return m ? parseInt(m[1], 10) : null
 }
@@ -168,6 +172,70 @@ export interface SegmentPipelineDeps {
   onOriginFetch: (bytes: number) => void
   onPeerFetch: (bytes: number) => void
   getSessionPeerId: () => string
+  /** Called after an origin fetch with the segment bytes, so the caller can
+   * seed them into the swarm (serve-while-watch). Best-effort. */
+  onSeed?: (meta: SegmentMeta, data: ArrayBuffer) => void
+}
+
+/**
+ * Deterministic live-segment swarm identity — the same (slug, seq, bytes)
+ * must map to the SAME infohash on every viewer, or peers can never find
+ * each other.
+ *
+ * Mirrors the VOD swarm's identity model: a single-file torrent whose info
+ * dict is bencoded in torrentool's key order (length, name, piece length,
+ * pieces) and SHA-1'd. Segment identity is CONTENT-derived — piece hashes
+ * come from the origin bytes every viewer downloads anyway — so a peer can
+ * only join the correct swarm by holding the correct bytes: a malicious peer
+ * serving rehashed garbage simply isn't discoverable in the real swarm.
+ * (Live keeps the VOD piece-length rule: ≤32KiB → 32768, else 262144; a 2s
+ * segment is typically ~250–500KB → 262144.)
+ */
+export async function liveSegmentInfohash(slug: string, sequence: number, data: ArrayBuffer): Promise<string> {
+  const bytes = new Uint8Array(data)
+  const pieceLength = bytes.byteLength > 32768 ? 262144 : 32768
+  const pieceDigests: Uint8Array[] = []
+  for (let pos = 0; pos < bytes.byteLength; pos += pieceLength) {
+    pieceDigests.push(await sha1Digest(bytes.subarray(pos, Math.min(pos + pieceLength, bytes.byteLength))))
+  }
+  const piecesB = concatBytes(...pieceDigests)
+  const name = `${slug}-${sequence}.m4s`
+  const nameB = utf8Bytes(name)
+  const info = concatBytes(
+    utf8Bytes(`d6:lengthi${bytes.byteLength}e4:name${nameB.length}:`),
+    nameB,
+    utf8Bytes(`12:piece lengthi${pieceLength}e6:pieces${piecesB.length}:`),
+    piecesB,
+    utf8Bytes('e')
+  )
+  return hex(await sha1Digest(info))
+}
+
+function utf8Bytes(s: string): Uint8Array {
+  return new TextEncoder().encode(s)
+}
+
+function concatBytes(...parts: Uint8Array[]): Uint8Array {
+  const total = parts.reduce((n, p) => n + p.length, 0)
+  const out = new Uint8Array(total)
+  let off = 0
+  for (const p of parts) {
+    out.set(p, off)
+    off += p.length
+  }
+  return out
+}
+
+/** SHA-1 via WebCrypto (available in all browsers and Node ≥15). */
+async function sha1Digest(data: Uint8Array): Promise<Uint8Array> {
+  const d = await crypto.subtle.digest('SHA-1', data as unknown as ArrayBuffer)
+  return new Uint8Array(d)
+}
+
+function hex(bytes: Uint8Array): string {
+  let s = ''
+  for (let i = 0; i < bytes.length; i++) s += bytes[i].toString(16).padStart(2, '0')
+  return s
 }
 
 /**
@@ -207,6 +275,25 @@ export async function fetchSegmentWithFallback(
   // Origin served the bytes — record success ONLY for the origin path; the
   // failed P2P attempt above was already reported as failed.
   if (seq !== null && !failedP2P) deps.onOutcome(seq, true, data.byteLength)
+  // Serve-while-watch: offer the freshly fetched bytes to the swarm. Pinned
+  // infohash identity (slug+seq+content) means every viewer computing it from
+  // the SAME origin bytes joins ONE swarm per segment. Best-effort and
+  // fire-and-forget — playback never waits on seeding, and a seeding failure
+  // cannot affect the already-complete origin fetch.
+  if (seq !== null && data.byteLength > 0 && deps.onSeed) {
+    try {
+      const infohash = await liveSegmentInfohash(deps.playback.channel_slug, seq, data)
+      const meta: SegmentMeta = {
+        sequence_number: seq,
+        filename: `${deps.playback.channel_slug}-${seq}.m4s`,
+        infohash,
+        size: data.byteLength,
+      }
+      deps.onSeed(meta, data)
+    } catch {
+      /* identity computation is best-effort */
+    }
+  }
   return { data, via: 'origin' }
 }
 

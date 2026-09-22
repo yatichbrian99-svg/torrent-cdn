@@ -600,3 +600,82 @@ class TestPublishLifecycleTracking:
         li._track_publish_event("sunday", "ok")
         blob = str(li.publish_lifecycle_snapshot("sunday"))
         assert "pass=" not in blob and "password" not in blob
+
+
+class TestSegmentIdentityEndpoint:
+    """GET /segments/{slug}/{seq}/identity — the P2P leecher bootstrap.
+
+    Playback-token gated (same contract as /session): the identity endpoint
+    tells a viewer WHICH swarm to join for a segment; without auth it would be
+    a free swarm-enumeration oracle for private channels.
+    """
+
+    def _request(self, ip="198.51.100.77", auth=None):
+        from starlette.requests import Request
+        headers = [(b"x-forwarded-for", ip.encode())]
+        if auth:
+            headers.append((b"authorization", auth.encode()))
+        scope = {
+            "type": "http", "method": "GET", "path": "/api/live/segments/ch/1/identity",
+            "headers": headers, "query_string": b"", "client": (ip, 44444),
+        }
+        return Request(scope)
+
+    def _row(self, channel_id):
+        return {"id": channel_id, "slug": "ch", "name": "Ch", "enabled": True,
+                "status": "LIVE", "tenant_id": channel_id, "owner_id": channel_id}
+
+    def _auth(self, channel_id):
+        """Save + restore limiter state and live settings touched by the call."""
+        import app.routes.live as live
+        saved = dict(live._token_requests)
+        live._token_requests.clear()
+        return saved
+
+    @pytest.mark.asyncio
+    async def test_requires_playback_token(self, monkeypatch):
+        from fastapi import HTTPException
+        import app.routes.live as live
+        from uuid import uuid4
+        cid = uuid4()
+        pool = AsyncMock()
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(return_value=self._row(cid))
+        pool.acquire = lambda: AsyncMock(__aenter__=AsyncMock(return_value=conn), __aexit__=AsyncMock(return_value=False))
+        monkeypatch.setattr(live, "get_db_pool", AsyncMock(return_value=pool))
+        with pytest.raises(HTTPException) as ei:
+            await live.segment_identity("ch", 3, self._request(auth="Bearer garbage.token"))
+        assert ei.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_returns_identity_for_valid_token(self, monkeypatch):
+        import app.routes.live as live
+        from uuid import uuid4
+        cid = uuid4()
+        pool = AsyncMock()
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(return_value=self._row(cid))
+        pool.acquire = lambda: AsyncMock(__aenter__=AsyncMock(return_value=conn), __aexit__=AsyncMock(return_value=False))
+        monkeypatch.setattr(live, "get_db_pool", AsyncMock(return_value=pool))
+        token = mint_playback_token(str(cid), ttl_seconds=60)
+        ident = {"infohash": "a" * 40, "filename": "ch-3.m4s", "size": 1000}
+        monkeypatch.setattr("app.live_p2p.get_segment_identity", AsyncMock(return_value=ident))
+        got = await live.segment_identity("ch", 3, self._request(auth=f"Bearer {token}"))
+        assert got == ident
+
+    @pytest.mark.asyncio
+    async def test_gone_segment_404s_never_stale(self, monkeypatch):
+        from fastapi import HTTPException
+        import app.routes.live as live
+        from uuid import uuid4
+        cid = uuid4()
+        pool = AsyncMock()
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(return_value=self._row(cid))
+        pool.acquire = lambda: AsyncMock(__aenter__=AsyncMock(return_value=conn), __aexit__=AsyncMock(return_value=False))
+        monkeypatch.setattr(live, "get_db_pool", AsyncMock(return_value=pool))
+        token = mint_playback_token(str(cid), ttl_seconds=60)
+        monkeypatch.setattr("app.live_p2p.get_segment_identity", AsyncMock(return_value=None))
+        with pytest.raises(HTTPException) as ei:
+            await live.segment_identity("ch", 999, self._request(auth=f"Bearer {token}"))
+        assert ei.value.status_code == 404

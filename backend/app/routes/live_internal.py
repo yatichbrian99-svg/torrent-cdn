@@ -36,15 +36,28 @@ router = APIRouter(prefix="/api/internal/mediamtx", tags=["live-internal"])
 _SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 
 # Ingest webhook shared secret (MEDIAMTX_HOOK_SECRET env — MediaMTX sends it
-# in the X-Hook-Secret header / ?secret= query). Optional but recommended when
-# the hook is reachable from anything but the MediaMTX container.
+# in the X-Hook-Secret header / ?secret= query). MANDATORY in production:
+# on Render these endpoints are internet-reachable, and _reject_public only
+# blocks requests that carry the Vercel edge marker — a direct request to the
+# onrender.com origin carries nothing. Without the secret, anyone could call
+# the auth hook to brute-force stream keys offline or wipe swarm state via
+# /not-ready. Dev/docker keeps it optional (network isolation covers it).
 _HOOK_SECRET = None
+_HOOK_WARNED = False
 
 
 def _hook_secret() -> str:
-    global _HOOK_SECRET
+    global _HOOK_SECRET, _HOOK_WARNED
     if _HOOK_SECRET is None:
         _HOOK_SECRET = os.environ.get("MEDIAMTX_HOOK_SECRET", "")
+        if not _HOOK_SECRET and os.environ.get("APP_ENV") == "production" and not _HOOK_WARNED:
+            _HOOK_WARNED = True
+            logger.error(
+                "MEDIAMTX_HOOK_SECRET is NOT set in production — internal live "
+                "hooks (/api/internal/mediamtx/*) will REJECT all requests. "
+                "MediaMTX ingest and lifecycle detection are DOWN until this "
+                "env var is configured."
+            )
     return _HOOK_SECRET
 
 
@@ -113,7 +126,11 @@ def _reject_public(request: Request) -> None:
 def _check_hook_secret(request: Request) -> None:
     secret = _hook_secret()
     if not secret:
-        return  # not configured — rely on network isolation
+        if os.environ.get("APP_ENV") == "production":
+            # Fail-closed: prod hooks are internet-reachable; an unauthenticated
+            # auth hook is a free stream-key oracle and /not-ready is a DoS.
+            raise HTTPException(status_code=503, detail="hook not configured")
+        return  # dev/docker — network isolation (compose-internal) covers it
     presented = request.headers.get("x-hook-secret") or ""
     if not presented:
         presented = (request.query_params.get("secret") or "")
@@ -195,6 +212,10 @@ async def mediamtx_auth(request: Request):
     path = str(body.get("path") or "")
     protocol = str(body.get("protocol") or "")
     _reject_public(request)
+    # The auth hook is a stream-key oracle — it MUST authenticate its caller
+    # (MediaMTX carries the shared secret in the hook URL) even though the
+    # other internal hooks historically didn't require it in dev.
+    _check_hook_secret(request)
 
     slug = _slug_from_path(path)
     if not slug:

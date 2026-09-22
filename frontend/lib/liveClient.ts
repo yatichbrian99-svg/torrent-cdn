@@ -288,4 +288,15 @@ export const liveViewerApi = {
       )
       .then((r) => r.data)
       .catch(() => {}), // leaving must never block unmount
+
+  /** P2P swarm identity for one live segment (playback-token gated).
+   * Resolves {infohash, filename, size}, or null when the segment left the
+   * live window / MediaMTX is unreachable — callers fall back to origin. */
+  segmentIdentity: (playback: LivePlaybackInfo, sequence: number) =>
+    api
+      .get(`/api/live/segments/${encodeURIComponent(playback.channel_slug)}/${sequence}/identity`, {
+        headers: { Authorization: `Bearer ${playback.token}` },
+      })
+      .then((r) => r.data as { infohash: string; filename: string; size: number })
+      .catch(() => null),
 }

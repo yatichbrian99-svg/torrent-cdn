@@ -943,6 +943,42 @@ async def _playback_info(row) -> LivePlaybackInfo:
     )
 
 
+@router.get("/segments/{slug}/{seq}/identity")
+async def segment_identity(
+    slug: str,
+    seq: int,
+    request: Request,
+):
+    """P2P swarm identity for one live segment (playback-token gated).
+
+    Returns {infohash, filename, size} so a leecher can join the segment's
+    swarm BEFORE it has the bytes. The infohash is computed by the backend
+    from the origin bytes (same torrentool recipe as VOD) and Redis-cached —
+    content-derived identity means a peer serving different bytes computes a
+    different infohash and is never introduced into the real swarm (BitTorrent
+    piece verification catches anything that slips through).
+
+    Auth: a valid playback token for THIS channel — same contract as
+    /session and /heartbeat. Unauthenticated callers get 401; the segment
+    leaving the live window returns 404 (never cached stale identity).
+    """
+    await _check_viewer_rate_limit(request, slug)
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        row = await _resolve_channel_for_playback(conn, slug)
+        if not row or not row.get("enabled", True):
+            raise HTTPException(status_code=404, detail="Channel not found")
+        if not _request_token_valid(request, str(row["id"])):
+            raise HTTPException(status_code=401, detail="Playback token required")
+    if seq < 0:
+        raise HTTPException(status_code=400, detail="Invalid sequence")
+    from ..live_p2p import get_segment_identity
+    ident = await get_segment_identity(slug, seq)
+    if not ident:
+        raise HTTPException(status_code=404, detail="Segment not in live window")
+    return ident
+
+
 @router.post("/token")
 async def mint_viewer_token(
     request: Request,
