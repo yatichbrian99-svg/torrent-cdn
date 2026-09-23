@@ -448,8 +448,8 @@ export default {
     api.post('/auth/mfa/disable', { code }).then((r) => r.data),
 
   // Second factor for a pending MFA login (password already verified).
-  mfaConfirm: (mfaToken: string, code: string) =>
-    api.post('/auth/mfa/confirm', { mfa_token: mfaToken, code }).then((r) => r.data),
+  mfaConfirm: (mfaToken: string, code: string, rememberMe = false) =>
+    api.post('/auth/mfa/confirm', { mfa_token: mfaToken, code, remember_me: rememberMe }).then((r) => r.data),
 
   verifyEmail: (token: string) =>
     api.post('/auth/verify-email', { token }).then((r) => r.data),

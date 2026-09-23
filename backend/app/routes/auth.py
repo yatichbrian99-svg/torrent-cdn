@@ -1190,6 +1190,12 @@ async def mfa_disable(data: MfaCodeRequest, user_id: UUID = Depends(get_current_
     return {"detail": "Two-factor authentication disabled. Sign in again."}
 
 
+# "Remember me" session lifetime: 14 days in minutes. Applied ONLY to the
+# session token minted after a valid authenticator code — never to the
+# short-lived mfa_token.
+_REMEMBER_ME_MINUTES = 14 * 24 * 60
+
+
 @router.post("/mfa/confirm")
 async def mfa_confirm(
     data: MfaConfirmRequest,
@@ -1311,8 +1317,18 @@ async def mfa_confirm(
         pass
 
     logger.info("MFA confirmed for user %s", user_id_str)
-    token = create_access_token({"sub": user_id_str})
-    resp: dict = {"access_token": token, "token_type": "bearer"}
+    # "Remember me": extend ONLY the post-OTP session to 14 days. The second
+    # factor is still mandatory at every login — this never bypasses the
+    # authenticator code, it just lets a trusted device keep its session.
+    # Capped server-side (the client can't ask for more) and it revokes
+    # normally via security_stamp rotation on password/MFA changes.
+    lifetime = _REMEMBER_ME_MINUTES if data.remember_me else None
+    token = create_access_token({"sub": user_id_str}, expires_minutes=lifetime)
+    resp: dict = {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": lifetime or get_settings().jwt_expire_minutes * 60,
+    }
     if backup_codes_remaining is not None:
         resp["backup_codes_remaining"] = backup_codes_remaining
     return resp

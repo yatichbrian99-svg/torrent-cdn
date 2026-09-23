@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   mfaConfirm: vi.fn(),
   mfaSetup: vi.fn(),
   saveToken: vi.fn(),
+  saveRememberedToken: vi.fn(),
 }))
 vi.mock('@/lib/api', () => ({
   default: {
@@ -20,6 +21,7 @@ vi.mock('@/lib/api', () => ({
 }))
 vi.mock('@/lib/auth', () => ({
   saveToken: mocks.saveToken,
+  saveRememberedToken: mocks.saveRememberedToken,
 }))
 
 import AuthModal from '../AuthModal'
@@ -31,6 +33,8 @@ describe('AuthModal', () => {
     mocks.mfaConfirm.mockReset()
     mocks.mfaSetup.mockReset()
     mocks.saveToken.mockReset()
+    mocks.saveRememberedToken.mockReset()
+    mocks.saveRememberedToken.mockReset()
   })
 
   it('toggles the password field between hidden and visible', async () => {
@@ -108,7 +112,7 @@ describe('AuthModal', () => {
 
     // The code step appears and the session token is NOT saved yet.
     expect(await screen.findByPlaceholderText('000000')).toBeInTheDocument()
-    expect(mocks.saveToken).not.toHaveBeenCalled()
+    expect(mocks.saveRememberedToken).not.toHaveBeenCalled()
   })
 
   it('completes login with a valid MFA code and saves the token', async () => {
@@ -123,8 +127,8 @@ describe('AuthModal', () => {
     await user.type(await screen.findByPlaceholderText('000000'), '123456')
     await user.click(screen.getByRole('button', { name: 'Verify code' }))
 
-    await waitFor(() => expect(mocks.mfaConfirm).toHaveBeenCalledWith('mfa-jwt', '123456'))
-    expect(mocks.saveToken).toHaveBeenCalledWith('real-token')
+    await waitFor(() => expect(mocks.mfaConfirm).toHaveBeenCalledWith('mfa-jwt', '123456', false))
+    expect(mocks.saveRememberedToken).toHaveBeenCalledWith('real-token', false)
   })
 
   it('warns when the last backup code was consumed before closing the modal', async () => {
@@ -143,7 +147,7 @@ describe('AuthModal', () => {
 
     // Login succeeded (token saved) but the modal holds open with the warning
     // instead of closing immediately.
-    await waitFor(() => expect(mocks.saveToken).toHaveBeenCalledWith('real-token'))
+    await waitFor(() => expect(mocks.saveRememberedToken).toHaveBeenCalledWith('real-token', false))
     expect(await screen.findByText("You've used your last backup code")).toBeInTheDocument()
     expect(onClose).not.toHaveBeenCalled()
 
@@ -165,7 +169,7 @@ describe('AuthModal', () => {
     await user.type(await screen.findByPlaceholderText('000000'), 'ABC1234567')
     await user.click(screen.getByRole('button', { name: 'Verify code' }))
 
-    await waitFor(() => expect(mocks.saveToken).toHaveBeenCalledWith('real-token'))
+    await waitFor(() => expect(mocks.saveRememberedToken).toHaveBeenCalledWith('real-token', false))
     expect(onClose).toHaveBeenCalledTimes(1)
     expect(screen.queryByText("You've used your last backup code")).not.toBeInTheDocument()
   })
@@ -183,7 +187,7 @@ describe('AuthModal', () => {
     await user.click(screen.getByRole('button', { name: 'Verify code' }))
 
     expect(await screen.findByText('Invalid authentication code')).toBeInTheDocument()
-    expect(mocks.saveToken).not.toHaveBeenCalled()
+    expect(mocks.saveRememberedToken).not.toHaveBeenCalled()
   })
 
   it('walks through mandatory 2FA enrollment when login requires setup', async () => {
@@ -208,14 +212,14 @@ describe('AuthModal', () => {
     expect(await screen.findByAltText('TOTP QR code')).toBeInTheDocument()
     expect(screen.getByText('JBSWY3DPEHPK3PXP')).toBeInTheDocument()
     expect(screen.getByText('ABC1234567')).toBeInTheDocument()
-    expect(mocks.saveToken).not.toHaveBeenCalled()
+    expect(mocks.saveRememberedToken).not.toHaveBeenCalled()
 
     // Verifying with the code completes BOTH enrollment and login.
     await user.type(screen.getByPlaceholderText('000000'), '123456')
     await user.click(screen.getByRole('button', { name: 'Verify & continue' }))
 
-    await waitFor(() => expect(mocks.mfaConfirm).toHaveBeenCalledWith('mfa-jwt', '123456'))
-    expect(mocks.saveToken).toHaveBeenCalledWith('real-token')
+    await waitFor(() => expect(mocks.mfaConfirm).toHaveBeenCalledWith('mfa-jwt', '123456', false))
+    expect(mocks.saveRememberedToken).toHaveBeenCalledWith('real-token', false)
   })
 
   it('returns to the login form when mandatory enrollment setup fails', async () => {
@@ -232,7 +236,7 @@ describe('AuthModal', () => {
     // and bounces back to the login form so the user can start over.
     expect(await screen.findByText('MFA session expired — please log in again')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('password')).toBeInTheDocument()
-    expect(mocks.saveToken).not.toHaveBeenCalled()
+    expect(mocks.saveRememberedToken).not.toHaveBeenCalled()
   })
 
   it('walks through mandatory 2FA enrollment right after signup', async () => {
@@ -261,14 +265,14 @@ describe('AuthModal', () => {
     expect(mocks.mfaSetup).toHaveBeenCalledWith('mfa-jwt')
     expect(await screen.findByAltText('TOTP QR code')).toBeInTheDocument()
     expect(screen.getByText('JBSWY3DPEHPK3PXP')).toBeInTheDocument()
-    expect(mocks.saveToken).not.toHaveBeenCalled()
+    expect(mocks.saveRememberedToken).not.toHaveBeenCalled()
 
     // Verifying with the code completes BOTH enrollment and the signup.
     await user.type(screen.getByPlaceholderText('000000'), '123456')
     await user.click(screen.getByRole('button', { name: 'Verify & continue' }))
 
-    await waitFor(() => expect(mocks.mfaConfirm).toHaveBeenCalledWith('mfa-jwt', '123456'))
-    expect(mocks.saveToken).toHaveBeenCalledWith('real-token')
+    await waitFor(() => expect(mocks.mfaConfirm).toHaveBeenCalledWith('mfa-jwt', '123456', false))
+    expect(mocks.saveRememberedToken).toHaveBeenCalledWith('real-token', false)
   })
 
   it('bounces signup enrollment failures to the LOGIN view (the account already exists)', async () => {
@@ -289,6 +293,6 @@ describe('AuthModal', () => {
     // signup form (resubmitting would be an "Email already registered" dead end).
     expect(screen.getByRole('button', { name: 'Login' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Forgot password?' })).toBeInTheDocument()
-    expect(mocks.saveToken).not.toHaveBeenCalled()
+    expect(mocks.saveRememberedToken).not.toHaveBeenCalled()
   })
 })

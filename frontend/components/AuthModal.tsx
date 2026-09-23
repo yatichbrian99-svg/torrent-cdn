@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Eye, EyeOff, Loader2, ShieldCheck, Copy, Check } from 'lucide-react'
 import QRCode from 'qrcode'
-import { saveToken } from '@/lib/auth'
+import { saveToken, saveRememberedToken } from '@/lib/auth'
 import api from '@/lib/api'
 
 // Enrollment payload from /auth/mfa/setup — secret + backup codes are returned
@@ -31,6 +31,9 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
   const [mfaNeedsSetup, setMfaNeedsSetup] = useState(false)
   const [mfaSetupData, setMfaSetupData] = useState<MfaSetupData | null>(null)
   const [mfaCode, setMfaCode] = useState('')
+  // "Keep me logged in for 2 weeks" — set on the login form, applied when the
+  // post-OTP session token is minted (the OTP is still required every login).
+  const [rememberMe, setRememberMe] = useState(false)
   const [copiedUri, setCopiedUri] = useState(false)
   // Set when the confirm response reports the LAST backup code was consumed —
   // the modal holds open to warn the user before they land in the dashboard.
@@ -129,8 +132,8 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
     setLoading(true)
     setError('')
     try {
-      const data = await api.mfaConfirm(mfaToken, mfaCode)
-      saveToken(data.access_token)
+      const data = await api.mfaConfirm(mfaToken, mfaCode, rememberMe)
+      saveRememberedToken(data.access_token, rememberMe)
       // The LAST backup code was just consumed. The login succeeded (token is
       // saved) but the modal stays open to warn the user before they land in
       // the dashboard — zero codes left means losing the authenticator app is
@@ -338,6 +341,15 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
               Enter the 6-digit code from your authenticator app{''}
               {' '}(or a single-use backup code).
             </p>
+            <label className="flex cursor-pointer items-center gap-2 text-xs" style={{ color: '#888' }}>
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="h-3.5 w-3.5 accent-white"
+              />
+              Keep me logged in for 2 weeks
+            </label>
             {error && <p className="text-xs text-white">{error}</p>}
             <button type="submit" disabled={loading}
               className="w-full border py-2 text-sm font-medium disabled:opacity-50"

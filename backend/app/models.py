@@ -140,9 +140,15 @@ class MfaCodeRequest(BaseModel):
 
 
 class MfaConfirmRequest(BaseModel):
-    """Second factor for a pending MFA login (mfa_token + code)."""
+    """Second factor for a pending MFA login (mfa_token + code).
+
+    remember_me: when true, the minted session token lives 14 days instead of
+    the default 24h. It only extends the SESSION obtained after a valid
+    authenticator code — the OTP itself is still required at every login.
+    """
     mfa_token: str = Field(max_length=MAX_TOKEN_LEN)
     code: str = Field(min_length=6, max_length=12)
+    remember_me: bool = False
 
 
 class ApiKeyResponse(BaseModel):

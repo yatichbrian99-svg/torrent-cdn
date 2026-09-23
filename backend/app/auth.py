@@ -107,11 +107,11 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
 
 
-def create_access_token(data: dict) -> str:
+def create_access_token(data: dict, expires_minutes: int | None = None) -> str:
     import secrets as _secrets
     to_encode = data.copy()
     now = datetime.now(UTC)
-    expire = now + timedelta(minutes=settings.jwt_expire_minutes)
+    expire = now + timedelta(minutes=expires_minutes or settings.jwt_expire_minutes)
     # iat anchors this token's issue time so the session-revocation check in
     # get_current_user_id can reject tokens issued BEFORE a password change or
     # privilege change (each change bumps a pw_change marker in Redis).
