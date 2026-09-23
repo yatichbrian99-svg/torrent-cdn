@@ -2,32 +2,141 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================================
+   THEME TOKENS
+   The app's UI colors are CSS variables consumed via `var(--x)` everywhere
+   (inline styles included). Dark is the DEFAULT theme — its values are byte-
+   identical to the original hardcoded palette, so this refactor is purely a
+   re-plumbing with zero visual change. Light mode overrides the core neutrals
+   by setting the same variables under [data-theme="light"] on <html> (set by
+   the pre-paint script in layout.tsx + the navbar ThemeToggle).
+
+   Token rules:
+     --bg-* / --border / --text-*  → theme-dependent (overridden in light)
+     status/accent colors (green, amber, red, purple, blue, orange-red) are
+     SHARED by both themes — chosen once for contrast on dark, still readable
+     on the light paper background (they are all ≥ 3:1 on white).
+   ========================================================================== */
 :root {
+  /* Core neutrals (dark default = original palette) */
   --bg-primary: #000000;
   --bg-secondary: #0c0c0c;
   --bg-card: #111111;
+  --bg-raised: #080808;
   --border: #222222;
+  --border-strong: #333333;
   --text-primary: #ffffff;
   --text-muted: #555555;
+  --text-faint: #444444;
+  --text-dim: #666666;
+  --text-soft: #888888;
+  --text-bright: #ddd;
+  --inverse-bg: #ffffff; /* "inverted" buttons: bg on black / black on white */
+  --inverse-fg: #000000;
+  --grid-line: rgba(255, 255, 255, 0.03);
+  --scrollbar-track: #000000;
+  --scrollbar-thumb: #222222;
+  --hover-overlay: rgba(255, 255, 255, 0.06);
+  --flow-sheen: rgba(255, 255, 255, 0.10);
+
+  /* Status colors (shared across themes) */
+  --ok: #4ade80;        /* green — LIVE, success, P2P bytes */
+  --warn: #fbbf24;      /* amber — STARTING, BETA, warnings */
+  --err: #ef4444;       /* red — ERROR, destructive */
+  --err-bright: #ff6b6b;/* admin error text / red accents */
+  --err-soft: #fca5a5;  /* red error body text */
+  --purple: #a78bfa;    /* business plan, admin badges */
+  --info: #60a5fa;      /* informational blue */
+  --orange: #fb923c;    /* origin segment in the bandwidth bar */
+  --danger-bg: #7f1d1d; /* confirmed destructive button bg */
+  --danger-border: #553333;
+
+  /* Tinted status-chip surfaces (banner/card backgrounds + borders around
+     status text). Dark values keep the original hexes. */
+  --ok-chip-bg: #1a3a1a;
+  --ok-chip-border: #1a3a1a;
+  --ok-chip-text: #86efac;
+  --warn-chip-bg: #1a170d;
+  --warn-chip-border: #332a11;
+  --err-chip-bg: #1a0d0d;
+  --err-chip-border: #331111;
+  --err-chip-text: #fca5a5;
+  --info-chip-border: #1a2a4a;
+
+  /* Subtle surfaces */
+  --divider: #1a1a1a;
+  --bg-hover: #1a1a1a;
+}
+
+/* LIGHT MODE — warm paper neutral, same structure. Only neutrals flip; status
+   colors are inherited unchanged from :root above. */
+[data-theme='light'] {
+  --bg-primary: #fafaf9;
+  --bg-secondary: #f4f4f2;
+  --bg-card: #ffffff;
+  --bg-raised: #f0f0ee;
+  --border: #e0e0dc;
+  --border-strong: #cfcfc8;
+  --text-primary: #111111;
+  --text-muted: #57534e;
+  --text-faint: #78716c;
+  --text-dim: #8a8580;
+  --text-soft: #a8a29e;
+  --text-bright: #1c1917;
+  --inverse-bg: #111111;
+  --inverse-fg: #ffffff;
+  --grid-line: rgba(0, 0, 0, 0.045);
+  --scrollbar-track: #fafaf9;
+  --scrollbar-thumb: #d6d3d1;
+  --hover-overlay: rgba(0, 0, 0, 0.05);
+  --flow-sheen: rgba(0, 0, 0, 0.08);
+  /* Status colors: darken the pastel-optimized dark-mode tones so they keep
+     ≥3:1 contrast on the light background (WCAG AA for large/UI text). */
+  --ok: #16a34a;
+  --warn: #b45309;
+  --err: #dc2626;
+  --err-bright: #b91c1c;
+  --err-soft: #991b1b;
+  --purple: #7c3aed;
+  --info: #2563eb;
+  --orange: #c2410c;
+  --danger-bg: #b91c1c;
+  --danger-border: #7f1d1d;
+
+  /* Tinted status-chip surfaces — very low-alpha tints of the status color
+     over white, so banners read as "tinted paper" instead of gray blobs. */
+  --ok-chip-bg: #f0fdf4;
+  --ok-chip-border: #bbf7d0;
+  --ok-chip-text: #166534;
+  --warn-chip-bg: #fffbeb;
+  --warn-chip-border: #fde68a;
+  --err-chip-bg: #fef2f2;
+  --err-chip-border: #fecaca;
+  --err-chip-text: #991b1b;
+  --info-chip-border: #bfdbfe;
+
+  /* Subtle surfaces */
+  --divider: #e7e5e4;
+  --bg-hover: #f5f5f4;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-  background-color: #000;
-  color: #fff;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
 
 ::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: #000; }
-::-webkit-scrollbar-thumb { background: #222; }
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); }
 
 .bg-grid {
   background-image:
-    linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
   background-size: 40px 40px;
 }
 
@@ -38,7 +147,7 @@ body {
 .terminal-dots span {
   width: 8px;
   height: 8px;
-  border: 1px solid #333;
+  border: 1px solid var(--border-strong);
 }
 
 /* Bandwidth meter — animated data-flow sheen on the P2P segment. A repeating
@@ -52,7 +161,7 @@ body {
   background-image: repeating-linear-gradient(
     120deg,
     rgba(255, 255, 255, 0) 0 10px,
-    rgba(255, 255, 255, 0.10) 10px 14px,
+    var(--flow-sheen) 10px 14px,
     rgba(255, 255, 255, 0) 14px 28px
   );
   animation: bandwidth-flow 1.1s linear infinite;
@@ -70,4 +179,10 @@ body {
   .bandwidth-flow {
     animation: none;
   }
+}
+
+/* While the pre-paint script resolves the stored theme, keep the page neutral
+   to avoid a light flash on dark (or vice versa). Removed by the script. */
+html:not([data-theme-resolved]) body {
+  visibility: hidden;
 }

@@ -303,7 +303,7 @@ export default function DemoPage() {
 
   const costRow = (label: string, value: string, color?: string) => (
     <div className="flex items-center justify-between gap-4">
-      <span style={{ color: '#555' }}>{label}</span>
+      <span style={{ color: 'var(--text-muted)' }}>{label}</span>
       <span className="font-bold" style={{ color: color || '#fff' }}>{value}</span>
     </div>
   )
@@ -313,7 +313,7 @@ export default function DemoPage() {
       {/* Header */}
       <div className="mb-10">
         <h1 className="text-3xl font-bold tracking-[-0.02em] text-white sm:text-4xl">Live P2P Demo</h1>
-        <p className="mt-2 text-sm" style={{ color: '#555' }}>
+        <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>
           Watch how viewers become peers in real time.
         </p>
       </div>
@@ -322,7 +322,7 @@ export default function DemoPage() {
       <section className="mb-10">
         <VideoPlayer fileId={DEMO_FILE_ID} onPeers={setPeers} />
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="flex items-center gap-1.5 border px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.2em]" style={{ borderColor: '#333', color: '#4ade80' }}>
+          <span className="flex items-center gap-1.5 border px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.2em]" style={{ borderColor: 'var(--border-strong)', color: '#4ade80' }}>
             <span className="relative flex h-1.5 w-1.5">
               <span className="absolute inline-flex h-full w-full animate-ping opacity-75" style={{ backgroundColor: '#4ade80' }} />
               <span className="relative inline-flex h-1.5 w-1.5" style={{ backgroundColor: '#4ade80' }} />
@@ -330,29 +330,29 @@ export default function DemoPage() {
             Live
           </span>
           {!isLive && (
-            <span className="border px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.2em]" style={{ borderColor: '#553333', color: '#ef4444' }}>
+            <span className="border px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.2em]" style={{ borderColor: 'var(--danger-border)', color: '#ef4444' }}>
               Demo file pending
             </span>
           )}
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="flex items-center gap-2 font-mono text-xs" style={{ color: '#888' }}>
+          <p className="flex items-center gap-2 font-mono text-xs" style={{ color: 'var(--text-soft)' }}>
             <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping opacity-60" style={{ backgroundColor: peers > 0 ? '#4ade80' : '#333' }} />
-              <span className="relative inline-flex h-2 w-2" style={{ backgroundColor: peers > 0 ? '#4ade80' : '#333' }} />
+              <span className="absolute inline-flex h-full w-full animate-ping opacity-60" style={{ backgroundColor: peers > 0 ? '#4ade80' : 'var(--border-strong)' }} />
+              <span className="relative inline-flex h-2 w-2" style={{ backgroundColor: peers > 0 ? '#4ade80' : 'var(--border-strong)' }} />
             </span>
             {peers} {peers === 1 ? 'peer' : 'peers'} connected right now
           </p>
-          <p className="font-mono text-xs" style={{ color: '#888' }}>
+          <p className="font-mono text-xs" style={{ color: 'var(--text-soft)' }}>
             P2P offload:{' '}
             <span className="font-bold text-white">{stats ? `${stats.p2p_offload_percent.toFixed(1)}%` : '—'}</span>
           </p>
         </div>
         {/* Self-seed indicator — this tab is a peer in the swarm */}
         {isLive && seeding && (
-          <div className="mt-3 flex items-center gap-2 border-t pt-3" style={{ borderColor: '#222' }}>
-            <span className="h-2 w-2 animate-pulse rounded-full" style={{ backgroundColor: seedPeers > 0 ? '#4ade80' : '#444' }} />
-            <span className="font-mono text-[11px]" style={{ color: '#666' }}>
+          <div className="mt-3 flex items-center gap-2 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+            <span className="h-2 w-2 animate-pulse rounded-full" style={{ backgroundColor: seedPeers > 0 ? '#4ade80' : 'var(--text-faint)' }} />
+            <span className="font-mono text-[11px]" style={{ color: 'var(--text-dim)' }}>
               {seedPeers > 0
                 ? `your browser is a peer — seeding to ${seedPeers} ${seedPeers === 1 ? 'viewer' : 'viewers'}`
                 : 'this tab is seeding the video to the swarm…'}
@@ -360,7 +360,7 @@ export default function DemoPage() {
           </div>
         )}
         {!isLive && (
-          <p className="mt-2 font-mono text-[11px]" style={{ color: '#666' }}>
+          <p className="mt-2 font-mono text-[11px]" style={{ color: 'var(--text-dim)' }}>
             &gt; Player goes live once a demo video is uploaded — replace <span className="text-white">DEMO_FILE_ID</span> at the top of <span className="text-white">frontend/app/demo/page.tsx</span>.
           </p>
         )}
@@ -369,15 +369,15 @@ export default function DemoPage() {
       {/* Live stats */}
       <section className="mb-10">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Live stats</h2>
-          <p className="font-mono text-[10px]" style={{ color: '#444' }}>
+          <h2 className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Live stats</h2>
+          <p className="font-mono text-[10px]" style={{ color: 'var(--text-faint)' }}>
             {isLive ? (lastUpdated ? `updated ${lastUpdated.toLocaleTimeString()}` : 'connecting…') : 'waiting for demo file'}
           </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {statCards.map((s) => (
-            <div key={s.label} className="border p-4" style={{ borderColor: '#222', backgroundColor: '#111' }}>
-              <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>
+            <div key={s.label} className="border p-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+              <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
                 <s.icon size={12} /> {s.label}
               </p>
               <p className="mt-2 font-mono text-2xl font-bold text-white">{s.value}</p>
@@ -389,10 +389,10 @@ export default function DemoPage() {
       {/* P2P offload trend — live line chart built from the 5s poll history */}
       <section className="mb-10">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>
+          <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
             <TrendingUp size={12} /> P2P offload over time
           </h2>
-          <p className="font-mono text-[10px]" style={{ color: '#444' }}>
+          <p className="font-mono text-[10px]" style={{ color: 'var(--text-faint)' }}>
             {isLive
               ? offloadHistory.length > 1
                 ? `sampled every 5s — last ${offloadHistory.length} points`
@@ -400,29 +400,29 @@ export default function DemoPage() {
               : 'waiting for demo file'}
           </p>
         </div>
-        <div className="border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+        <div className="border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
           {isLive && offloadHistory.length > 1 ? (
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={offloadHistory}>
-                <CartesianGrid stroke="#111" />
+                <CartesianGrid stroke='var(--bg-card)' />
                 <XAxis
                   dataKey="t"
-                  stroke="#222"
-                  tick={{ fill: '#555', fontSize: 10, fontFamily: 'monospace' }}
+                  stroke='var(--border)'
+                  tick={{ fill: 'var(--text-muted)', fontSize: 10, fontFamily: 'monospace' }}
                   tickFormatter={(v: number) => new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                   tickMargin={8}
                 />
                 <YAxis
                   domain={[0, 100]}
-                  stroke="#222"
-                  tick={{ fill: '#555', fontSize: 10, fontFamily: 'monospace' }}
+                  stroke='var(--border)'
+                  tick={{ fill: 'var(--text-muted)', fontSize: 10, fontFamily: 'monospace' }}
                   tickFormatter={(v: number) => `${v}%`}
                   tickMargin={4}
                 />
-                <ReferenceLine y={0} stroke="#222" />
+                <ReferenceLine y={0} stroke='var(--border)' />
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#111', border: '1px solid #222', color: '#fff' }}
-                  labelStyle={{ color: '#555', fontFamily: 'monospace' }}
+                  contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid #222', color: '#fff' }}
+                  labelStyle={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}
                   itemStyle={{ color: '#fff' }}
                   labelFormatter={(v) => new Date(Number(v)).toLocaleTimeString()}
                   formatter={(value: unknown) => [`${Number(value ?? 0).toFixed(1)}%`, 'P2P offload']}
@@ -431,13 +431,13 @@ export default function DemoPage() {
               </LineChart>
             </ResponsiveContainer>
           ) : (
-            <div className="flex h-[200px] items-center justify-center border" style={{ borderColor: '#222' }}>
-              <p className="text-sm" style={{ color: '#555' }}>
+            <div className="flex h-[200px] items-center justify-center border" style={{ borderColor: 'var(--border)' }}>
+              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
                 {isLive ? 'Watching the swarm — chart fills in as views accumulate…' : 'Upload a demo file to see the P2P trend'}
               </p>
             </div>
           )}
-          <p className="mt-3 flex items-center gap-2 font-mono text-[11px]" style={{ color: '#444' }}>
+          <p className="mt-3 flex items-center gap-2 font-mono text-[11px]" style={{ color: 'var(--text-faint)' }}>
             <span className="inline-block h-1 w-4" style={{ backgroundColor: '#4ade80' }} />
             share of bandwidth delivered peer-to-peer, live from the {isLive ? `${DEMO_FILE_ID.slice(0, 8)}…` : ''}swarm
           </p>
@@ -446,8 +446,8 @@ export default function DemoPage() {
 
       {/* Cost comparison */}
       <section className="mb-10">
-        <div className="border p-6" style={{ borderColor: '#222', backgroundColor: '#111' }}>
-          <h2 className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Live cost comparison</h2>
+        <div className="border p-6" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+          <h2 className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Live cost comparison</h2>
 
           {/* Real actuals so far */}
           <div className="mt-5 space-y-3 font-mono text-sm">
@@ -459,7 +459,7 @@ export default function DemoPage() {
               '#4ade80'
             )}
           </div>
-          <p className="mt-3 font-mono text-[11px]" style={{ color: '#444' }}>
+          <p className="mt-3 font-mono text-[11px]" style={{ color: 'var(--text-faint)' }}>
             Real bytes served so far{stats ? ` — ${totalGb.toFixed(4)} GB total, ${savedGb.toFixed(4)} GB via peers` : ''}. P2P delivery is free; TorrentCDN only bills what leaves your origin.
           </p>
         </div>
@@ -467,13 +467,13 @@ export default function DemoPage() {
 
       {/* Scenario calculator — clearly-labeled inputs, live math */}
       <section className="mb-10">
-        <div className="border p-6" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+        <div className="border p-6" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Cost calculator — your scenario</h2>
+            <h2 className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Cost calculator — your scenario</h2>
             <button
               onClick={handleCopyPermalink}
               className="flex items-center gap-1.5 font-mono text-[11px] transition-colors hover:text-white"
-              style={{ color: '#555' }}
+              style={{ color: 'var(--text-muted)' }}
               title="Copy a link to this exact scenario"
             >
               {permalinkCopied ? <Check size={12} style={{ color: '#4ade80' }} /> : <Link2 size={12} />}
@@ -486,7 +486,7 @@ export default function DemoPage() {
             <div className="space-y-6">
               <div>
                 <div className="flex items-center justify-between font-mono text-xs">
-                  <span className="font-bold uppercase tracking-widest" style={{ color: '#888' }}>Viewers</span>
+                  <span className="font-bold uppercase tracking-widest" style={{ color: 'var(--text-soft)' }}>Viewers</span>
                   <span className="flex items-center gap-1 text-white">
                     <input
                       type="number"
@@ -497,7 +497,7 @@ export default function DemoPage() {
                       onChange={(e) => setScenarioViewersDraft(e.target.value)}
                       onBlur={() => { clampCommit(scenarioViewersDraft ?? '', SCENARIO_VIEWERS_RANGE.min, SCENARIO_VIEWERS_RANGE.max, SCENARIO_DEFAULT_VIEWERS, setScenarioViewers); setScenarioViewersDraft(null) }}
                       className="w-24 border bg-transparent px-2 py-1 text-right font-mono text-sm text-white"
-                      style={{ borderColor: '#333' }}
+                      style={{ borderColor: 'var(--border-strong)' }}
                     />
                   </span>
                 </div>
@@ -511,14 +511,14 @@ export default function DemoPage() {
                   className="mt-2 w-full cursor-pointer"
                   style={{ accentColor: '#fff' }}
                 />
-                <p className="mt-1 font-mono text-[10px]" style={{ color: '#444' }}>
+                <p className="mt-1 font-mono text-[10px]" style={{ color: 'var(--text-faint)' }}>
                   {SCENARIO_VIEWERS_RANGE.min.toLocaleString()} – {SCENARIO_VIEWERS_RANGE.max.toLocaleString()}
                 </p>
               </div>
 
               <div>
                 <div className="flex items-center justify-between font-mono text-xs">
-                  <span className="font-bold uppercase tracking-widest" style={{ color: '#888' }}>Video size</span>
+                  <span className="font-bold uppercase tracking-widest" style={{ color: 'var(--text-soft)' }}>Video size</span>
                   <span className="flex items-center gap-1 text-white">
                     <input
                       type="number"
@@ -529,9 +529,9 @@ export default function DemoPage() {
                       onChange={(e) => setScenarioVideoMbDraft(e.target.value)}
                       onBlur={() => { clampCommit(scenarioVideoMbDraft ?? '', SCENARIO_VIDEO_MB_RANGE.min, SCENARIO_VIDEO_MB_RANGE.max, SCENARIO_DEFAULT_VIDEO_MB, setScenarioVideoMb); setScenarioVideoMbDraft(null) }}
                       className="w-24 border bg-transparent px-2 py-1 text-right font-mono text-sm text-white"
-                      style={{ borderColor: '#333' }}
+                      style={{ borderColor: 'var(--border-strong)' }}
                     />
-                    <span style={{ color: '#555' }}>MB</span>
+                    <span style={{ color: 'var(--text-muted)' }}>MB</span>
                   </span>
                 </div>
                 <input
@@ -544,14 +544,14 @@ export default function DemoPage() {
                   className="mt-2 w-full cursor-pointer"
                   style={{ accentColor: '#fff' }}
                 />
-                <p className="mt-1 font-mono text-[10px]" style={{ color: '#444' }}>
+                <p className="mt-1 font-mono text-[10px]" style={{ color: 'var(--text-faint)' }}>
                   {SCENARIO_VIDEO_MB_RANGE.min} – {SCENARIO_VIDEO_MB_RANGE.max.toLocaleString()} MB
                 </p>
               </div>
 
               <div>
                 <div className="flex items-center justify-between font-mono text-xs">
-                  <span className="font-bold uppercase tracking-widest" style={{ color: '#888' }}>Average watch</span>
+                  <span className="font-bold uppercase tracking-widest" style={{ color: 'var(--text-soft)' }}>Average watch</span>
                   <span className="flex items-center gap-1 text-white">
                     <input
                       type="number"
@@ -562,9 +562,9 @@ export default function DemoPage() {
                       onChange={(e) => setScenarioWatchPctDraft(e.target.value)}
                       onBlur={() => { clampCommit(scenarioWatchPctDraft ?? '', SCENARIO_WATCH_RANGE.min, SCENARIO_WATCH_RANGE.max, SCENARIO_DEFAULT_WATCH_PCT, setScenarioWatchPct); setScenarioWatchPctDraft(null) }}
                       className="w-24 border bg-transparent px-2 py-1 text-right font-mono text-sm text-white"
-                      style={{ borderColor: '#333' }}
+                      style={{ borderColor: 'var(--border-strong)' }}
                     />
-                    <span style={{ color: '#555' }}>%</span>
+                    <span style={{ color: 'var(--text-muted)' }}>%</span>
                   </span>
                 </div>
                 <input
@@ -577,12 +577,12 @@ export default function DemoPage() {
                   className="mt-2 w-full cursor-pointer"
                   style={{ accentColor: '#fff' }}
                 />
-                <p className="mt-1 font-mono text-[10px]" style={{ color: '#444' }}>
+                <p className="mt-1 font-mono text-[10px]" style={{ color: 'var(--text-faint)' }}>
                   {SCENARIO_WATCH_RANGE.min} – {SCENARIO_WATCH_RANGE.max}%
                 </p>
               </div>
 
-              <div className="border-t pt-4" style={{ borderColor: '#222' }}>
+              <div className="border-t pt-4" style={{ borderColor: 'var(--border)' }}>
                 <div className="flex items-center justify-between font-mono text-xs">
                   <span className="font-bold uppercase tracking-widest" style={{ color: '#4ade80' }}>P2P offload</span>
                   <span className="flex items-center gap-1 text-white">
@@ -595,9 +595,9 @@ export default function DemoPage() {
                       onChange={(e) => { setScenarioP2pDraft(e.target.value); p2pTouchedRef.current = true }}
                       onBlur={() => { clampCommit(scenarioP2pDraft ?? '', SCENARIO_P2P_RANGE.min, SCENARIO_P2P_RANGE.max, SCENARIO_DEFAULT_P2P_PCT, (n) => setScenarioP2pPct(snapToStep(n, SCENARIO_P2P_RANGE))); setScenarioP2pDraft(null) }}
                       className="w-20 border bg-transparent px-2 py-1 text-right font-mono text-sm text-white"
-                      style={{ borderColor: '#333' }}
+                      style={{ borderColor: 'var(--border-strong)' }}
                     />
-                    <span style={{ color: '#555' }}>%</span>
+                    <span style={{ color: 'var(--text-muted)' }}>%</span>
                     <button
                       onClick={() => {
                         p2pTouchedRef.current = true
@@ -606,7 +606,7 @@ export default function DemoPage() {
                         setScenarioP2pDraft(null)
                       }}
                       className="border px-2 py-1 font-mono text-[10px] uppercase tracking-widest transition-colors hover:text-white"
-                      style={{ borderColor: '#333', color: '#4ade80' }}
+                      style={{ borderColor: 'var(--border-strong)', color: '#4ade80' }}
                       title={liveP2pPct !== null ? `Reset to the live swarm rate (${liveP2pPct.toFixed(1)}%)` : 'Reset to the default rate'}
                     >
                       use live
@@ -624,7 +624,7 @@ export default function DemoPage() {
                   style={{ accentColor: '#4ade80' }}
                 />
 
-                <p className="mt-1 font-mono text-[10px]" style={{ color: '#444' }}>
+                <p className="mt-1 font-mono text-[10px]" style={{ color: 'var(--text-faint)' }}>
                   {SCENARIO_P2P_RANGE.min} – {SCENARIO_P2P_RANGE.max}% ·{' '}
                   {liveP2pPct !== null ? `live swarm is ${liveP2pPct.toFixed(1)}%` : 'live swarm rate arriving…'}
                 </p>
@@ -632,7 +632,7 @@ export default function DemoPage() {
             </div>
 
             {/* Results */}
-            <div className="border p-5" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
+            <div className="border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
               {/* The clearly-labeled scenario headline */}
               <p className="font-mono text-sm text-white">
                 {scenarioViewers.toLocaleString()} viewers × {scenarioVideoMb.toLocaleString()} MB × {scenarioWatchPct}% avg watch ={' '}
@@ -648,7 +648,7 @@ export default function DemoPage() {
               <div className="mt-4">
                 <div
                   className="flex h-6 w-full overflow-hidden border"
-                  style={{ borderColor: '#333', backgroundColor: '#111' }}
+                  style={{ borderColor: 'var(--border-strong)', backgroundColor: 'var(--bg-card)' }}
                   role="img"
                   aria-label={`Bandwidth split: ${scenarioGbOrigin.toFixed(1)} GB from origin, ${scenarioGbSaved.toFixed(1)} GB from peers`}
                 >
@@ -656,7 +656,7 @@ export default function DemoPage() {
                     className="flex h-full items-center justify-center overflow-hidden"
                     style={{
                       width: `${(scenarioGbOrigin / Math.max(scenarioGbDelivered, 0.0001)) * 100}%`,
-                      backgroundColor: '#7f1d1d',
+                      backgroundColor: 'var(--danger-bg)',
                       transition: 'width 500ms cubic-bezier(0.4, 0, 0.2, 1)',
                     }}
                   >
@@ -677,18 +677,18 @@ export default function DemoPage() {
                   >
                     <span
                       className="bandwidth-label truncate px-1 font-mono text-[9px]"
-                      style={{ color: '#bbf7d0', opacity: scenarioGbSaved / scenarioGbDelivered >= 0.12 ? 1 : 0 }}
+                      style={{ color: 'var(--ok-chip-text)', opacity: scenarioGbSaved / scenarioGbDelivered >= 0.12 ? 1 : 0 }}
                     >
                       {scenarioGbSaved.toFixed(0)} GB P2P
                     </span>
                   </div>
                 </div>
                 <div className="mt-1.5 flex items-center justify-between font-mono text-[10px]">
-                  <span className="flex items-center gap-1.5" style={{ color: '#555' }}>
-                    <span className="inline-block h-2 w-2" style={{ backgroundColor: '#7f1d1d' }} />
+                  <span className="flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
+                    <span className="inline-block h-2 w-2" style={{ backgroundColor: 'var(--danger-bg)' }} />
                     origin · {scenarioGbOrigin.toFixed(1)} GB ({scenarioGbDelivered > 0 ? ((scenarioGbOrigin / scenarioGbDelivered) * 100).toFixed(0) : 0}%) — billed
                   </span>
-                  <span className="flex items-center gap-1.5" style={{ color: '#555' }}>
+                  <span className="flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
                     peers · {scenarioGbSaved.toFixed(1)} GB ({scenarioGbDelivered > 0 ? ((scenarioGbSaved / scenarioGbDelivered) * 100).toFixed(0) : 0}%) — free
                     <span className="inline-block h-2 w-2" style={{ backgroundColor: '#4ade80' }} />
                   </span>
@@ -701,7 +701,7 @@ export default function DemoPage() {
                 {costRow('Bandwidth saved by P2P', `${scenarioGbSaved.toFixed(1)} GB`, '#4ade80')}
                 {costRow('Money saved by P2P', money(scenarioMoneySaved), '#4ade80')}
               </div>
-              <p className="mt-4 border-t pt-3 font-mono text-[11px]" style={{ borderColor: '#222', color: '#444' }}>
+              <p className="mt-4 border-t pt-3 font-mono text-[11px]" style={{ borderColor: 'var(--border)', color: 'var(--text-faint)' }}>
                 {scenarioGbOrigin.toFixed(1)} GB still leaves your origin at ${TORRENTCDN_ORIGIN_RATE_PER_GB}/GB — the other {scenarioGbSaved.toFixed(1)} GB
                 comes from viewers' own browsers, free. CloudFront bills all {scenarioGbDelivered.toFixed(1)} GB.
               </p>
@@ -712,14 +712,14 @@ export default function DemoPage() {
 
       {/* Embed code */}
       <section className="mb-10">
-        <h2 className="mb-3 text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>One-line embed</h2>
-        <div className="border p-4" style={{ backgroundColor: '#0c0c0c', borderColor: '#222' }}>
+        <h2 className="mb-3 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>One-line embed</h2>
+        <div className="border p-4" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
           <div className="mb-3 flex items-center justify-between">
             <div className="terminal-dots"><span /><span /><span /></div>
             <button
               onClick={handleCopy}
               className="flex items-center gap-1.5 text-xs transition-colors hover:text-white"
-              style={{ color: '#555', fontFamily: 'monospace' }}
+              style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}
             >
               {copied ? <Check size={12} style={{ color: '#4ade80' }} /> : <Copy size={12} />}
               {copied ? 'copied ✓' : 'copy'}
@@ -740,15 +740,15 @@ export default function DemoPage() {
       </section>
 
       {/* CTA */}
-      <section className="border p-10 text-center" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+      <section className="border p-10 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
         <h2 className="text-xl font-bold tracking-[-0.02em] text-white">Want this for your platform?</h2>
-        <p className="mx-auto mt-2 max-w-md text-sm" style={{ color: '#555' }}>
+        <p className="mx-auto mt-2 max-w-md text-sm" style={{ color: 'var(--text-muted)' }}>
           Upload a video, paste one line of code, and your viewers start sharing bandwidth immediately.
         </p>
         <a
           href="https://www.torrentcdn.store/dashboard/upload"
           className="mt-6 inline-flex items-center gap-2 border px-6 py-3 text-sm font-medium transition-opacity hover:opacity-80"
-          style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000' }}
+          style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)' }}
         >
           Start uploading <ArrowRight size={14} />
         </a>

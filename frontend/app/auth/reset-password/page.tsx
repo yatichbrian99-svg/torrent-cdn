@@ -11,8 +11,8 @@ export default function ResetPasswordPage() {
     <Suspense fallback={
       <div className="flex min-h-[80vh] items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 size={24} className="animate-spin" style={{ color: '#555' }} />
-          <p className="text-xs tracking-widest uppercase" style={{ color: '#444' }}>Loading...</p>
+          <Loader2 size={24} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
+          <p className="text-xs tracking-widest uppercase" style={{ color: 'var(--text-faint)' }}>Loading...</p>
         </div>
       </div>
     }>
@@ -75,8 +75,8 @@ function ResetPasswordForm() {
     return (
       <div className="flex min-h-[80vh] items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 size={24} className="animate-spin" style={{ color: '#555' }} />
-          <p className="text-xs tracking-widest uppercase" style={{ color: '#444' }}>Checking reset link...</p>
+          <Loader2 size={24} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
+          <p className="text-xs tracking-widest uppercase" style={{ color: 'var(--text-faint)' }}>Checking reset link...</p>
         </div>
       </div>
     )
@@ -89,7 +89,7 @@ function ResetPasswordForm() {
         <Link
           href="/"
           className="mb-6 inline-flex items-center gap-1.5 text-xs transition-colors hover:text-white"
-          style={{ color: '#555' }}
+          style={{ color: 'var(--text-muted)' }}
         >
           <ArrowLeft size={12} />
           Back to home
@@ -97,17 +97,17 @@ function ResetPasswordForm() {
 
         {/* Success state */}
         {status === 'success' && (
-          <div className="border p-8 text-center" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+          <div className="border p-8 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
             <div className="mx-auto mb-4 flex items-center justify-center w-12 h-12 rounded-full" style={{ backgroundColor: 'rgba(74,222,128,0.1)' }}>
               <CheckCircle size={24} style={{ color: '#4ade80' }} />
             </div>
             <h2 className="mb-2 text-lg font-bold text-white">Password Reset</h2>
-            <p className="mb-2 text-sm" style={{ color: '#888' }}>{message}</p>
-            <p className="mb-6 text-xs" style={{ color: '#555' }}>You can now log in with your new password.</p>
+            <p className="mb-2 text-sm" style={{ color: 'var(--text-soft)' }}>{message}</p>
+            <p className="mb-6 text-xs" style={{ color: 'var(--text-muted)' }}>You can now log in with your new password.</p>
             <button
               onClick={() => router.push('/')}
               className="border px-5 py-2.5 text-sm font-medium transition-opacity hover:opacity-80"
-              style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000' }}
+              style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)' }}
             >
               Log in &rarr;
             </button>
@@ -116,16 +116,16 @@ function ResetPasswordForm() {
 
         {/* Error state (no token or expired) */}
         {status === 'error' && (
-          <div className="border p-8 text-center" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+          <div className="border p-8 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
             <div className="mx-auto mb-4 flex items-center justify-center w-12 h-12 rounded-full" style={{ backgroundColor: 'rgba(239,68,68,0.1)' }}>
               <XCircle size={24} style={{ color: '#ef4444' }} />
             </div>
             <h2 className="mb-2 text-lg font-bold text-white">Invalid Link</h2>
-            <p className="mb-6 text-sm" style={{ color: '#888' }}>{message}</p>
+            <p className="mb-6 text-sm" style={{ color: 'var(--text-soft)' }}>{message}</p>
             <button
               onClick={() => router.push('/')}
               className="border px-5 py-2.5 text-sm font-medium transition-opacity hover:opacity-80"
-              style={{ borderColor: '#fff', color: '#fff' }}
+              style={{ borderColor: 'var(--inverse-bg)', color: '#fff' }}
             >
               Back to login
             </button>
@@ -134,21 +134,21 @@ function ResetPasswordForm() {
 
         {/* Reset form */}
         {(status === 'ready' || status === 'loading') && (
-          <div className="border p-8" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+          <div className="border p-8" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
             <div className="mb-6 flex items-center gap-3">
               <div className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ backgroundColor: 'rgba(59,130,246,0.1)' }}>
                 <Lock size={15} style={{ color: '#60a5fa' }} />
               </div>
               <div>
                 <h2 className="text-sm font-semibold text-white">Reset your password</h2>
-                <p className="text-xs" style={{ color: '#555' }}>Choose a new password for your account</p>
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Choose a new password for your account</p>
               </div>
             </div>
 
             <form onSubmit={handleSubmit} className="flex flex-col gap-5">
               {/* New password */}
               <div>
-                <label className="mb-1.5 block text-xs uppercase tracking-widest" style={{ color: '#555' }}>
+                <label className="mb-1.5 block text-xs uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
                   New password
                 </label>
                 <div className="relative">
@@ -159,7 +159,7 @@ function ResetPasswordForm() {
                     required
                     minLength={8}
                     className="w-full border px-3 py-2 pr-9 text-sm text-white outline-none transition-colors focus:border-white/20"
-                    style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}
+                    style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
                     placeholder="••••••••"
                     autoFocus
                   />
@@ -167,18 +167,18 @@ function ResetPasswordForm() {
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors hover:text-white"
-                    style={{ color: '#555' }}
+                    style={{ color: 'var(--text-muted)' }}
                     tabIndex={-1}
                   >
                     {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                 </div>
-                <p className="mt-1 text-[10px]" style={{ color: '#444' }}>Minimum 8 characters</p>
+                <p className="mt-1 text-[10px]" style={{ color: 'var(--text-faint)' }}>Minimum 8 characters</p>
               </div>
 
               {/* Confirm password */}
               <div>
-                <label className="mb-1.5 block text-xs uppercase tracking-widest" style={{ color: '#555' }}>
+                <label className="mb-1.5 block text-xs uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
                   Confirm password
                 </label>
                 <div className="relative">
@@ -189,14 +189,14 @@ function ResetPasswordForm() {
                     required
                     minLength={8}
                     className="w-full border px-3 py-2 pr-9 text-sm text-white outline-none transition-colors focus:border-white/20"
-                    style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}
+                    style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
                     placeholder="••••••••"
                   />
                   <button
                     type="button"
                     onClick={() => setShowConfirm(!showConfirm)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors hover:text-white"
-                    style={{ color: '#555' }}
+                    style={{ color: 'var(--text-muted)' }}
                     tabIndex={-1}
                   >
                     {showConfirm ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -235,7 +235,7 @@ function ResetPasswordForm() {
                 type="submit"
                 disabled={status === 'loading'}
                 className="w-full border py-2.5 text-sm font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
-                style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000' }}
+                style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)' }}
               >
                 {status === 'loading' ? (
                   <span className="flex items-center justify-center gap-2">

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TorrentCDN — How to Embed Video</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #000; color: #fff; min-height: 100vh; }
+    .container { max-width: 800px; margin: 0 auto; padding: 60px 24px; }
+    h1 { font-size: 36px; font-weight: 700; margin-bottom: 8px; }
+    .subtitle { color: #666; font-size: 16px; margin-bottom: 60px; }
+    .step { margin-bottom: 60px; }
+    .step-number { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 2px solid #4ade80; border-radius: 50%; font-size: 14px; font-weight: 700; color: #4ade80; margin-bottom: 12px; }
+    .step-title { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+    .step-desc { color: #888; font-size: 14px; margin-bottom: 16px; line-height: 1.6; }
+    .code-block { background: #0c0c0c; border: 1px solid #222; border-radius: 8px; padding: 16px 20px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 14px; color: #4ade80; position: relative; cursor: pointer; transition: border-color 0.2s; }
+    .code-block:hover { border-color: #444; }
+    .code-block .copy-btn { position: absolute; top: 12px; right: 12px; background: #222; border: 1px solid #333; color: #888; padding: 4px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; transition: all 0.2s; }
+    .code-block .copy-btn:hover { background: #333; color: #fff; }
+    .code-block .copy-btn.copied { background: #166534; border-color: #4ade80; color: #4ade80; }
+    .player-wrapper { background: #111; border: 1px solid #222; border-radius: 8px; overflow: hidden; }
+    .player-wrapper iframe { width: 100%; aspect-ratio: 16/9; border: none; }
+    .arrow { text-align: center; color: #333; font-size: 24px; margin: -20px 0; }
+    .result { background: #0c0c0c; border: 1px solid #222; border-radius: 8px; padding: 20px; text-align: center; }
+    .result .check { font-size: 48px; margin-bottom: 12px; }
+    .result p { color: #888; font-size: 14px; line-height: 1.6; }
+    .result strong { color: #4ade80; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Embed Video in 3 Steps</h1>
+    <p class="subtitle">P2P video delivery that gets cheaper as you scale</p>
+
+    <!-- Step 1: Upload -->
+    <div class="step">
+      <div class="step-number">1</div>
+      <h2 class="step-title">Upload your video</h2>
+      <p class="step-desc">Go to your dashboard and upload any video file. We'll generate a torrent and a CDN link automatically.</p>
+      <a href="https://www.torrentcdn.store/dashboard/upload" target="_blank" style="display: inline-block; background: #fff; color: #000; padding: 10px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px;">Open Dashboard →</a>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <!-- Step 2: Copy the code -->
+    <div class="step">
+      <div class="step-number">2</div>
+      <h2 class="step-title">Copy this one line</h2>
+      <p class="step-desc">After uploading, you get an embed code. Copy it:</p>
+      <div class="code-block" id="codeBlock" onclick="copyCode()">
+        <span id="codeText">&lt;div data-torrent-cdn="4a130574-822d-43cb-a54c-f7db8204033d"&gt;&lt;/div&gt;</span>
+        <button class="copy-btn" id="copyBtn" onclick="event.stopPropagation(); copyCode()">copy</button>
+      </div>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <!-- Step 3: Paste and play -->
+    <div class="step">
+      <div class="step-number">3</div>
+      <h2 class="step-title">Paste it into your HTML</h2>
+      <p class="step-desc">Add the code anywhere on your page. Your viewers start sharing bandwidth immediately.</p>
+      <div class="code-block" style="color: #888;">
+        <span>&lt;!-- paste anywhere --&gt;</span><br>
+        <span style="color: #4ade80;">&lt;div data-torrent-cdn="4a130574-822d-43cb-a54c-f7db8204033d"&gt;&lt;/div&gt;</span><br>
+        <span>&lt;script src="https://cdn.torrentcdn.store/sdk.js"&gt;&lt;/script&gt;</span>
+      </div>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <!-- Result: Working player -->
+    <div class="step">
+      <div class="result">
+        <div class="check">✓</div>
+        <p><strong>Your video is live.</strong><br>Viewers serve each other — your CDN bill drops as traffic increases.</p>
+      </div>
+      <div class="player-wrapper" style="margin-top: 16px;">
+        <iframe src="https://www.torrentcdn.store/embed/4a130574-822d-43cb-a54c-f7db8204033d" allowfullscreen></iframe>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function copyCode() {
+      const code = document.getElementById('codeText').textContent;
+      navigator.clipboard.writeText(code).then(() => {
+        const btn = document.getElementById('copyBtn');
+        btn.textContent = 'copied ✓';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 2000);
+      });
+    }
+  </script>
+</body>
+</html>

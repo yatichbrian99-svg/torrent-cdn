@@ -206,17 +206,17 @@ export default function AdminPage() {
   // Plan badge styling per spec:
   // free — plain white text on #111; pro — white text, #222 border; business — white text, #fff border
   const planColors: Record<string, { bg: string; text: string; border?: string }> = {
-    free: { bg: '#111', text: '#fff' },
-    pro: { bg: '#111', text: '#fff', border: '#222' },
-    business: { bg: '#111', text: '#fff', border: '#fff' },
+    free: { bg: 'var(--bg-card)', text: '#fff' },
+    pro: { bg: 'var(--bg-card)', text: '#fff', border: 'var(--border)' },
+    business: { bg: 'var(--bg-card)', text: '#fff', border: '#fff' },
   }
 
   // Loading state
   if (loading) return (
     <div className="flex min-h-[70vh] items-center justify-center select-none">
       <div className="flex flex-col items-center gap-4">
-        <Loader2 size={24} className="animate-spin" style={{ color: '#555' }} />
-        <p className="text-xs tracking-widest uppercase" style={{ color: '#444' }}>Loading dashboard</p>
+        <Loader2 size={24} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
+        <p className="text-xs tracking-widest uppercase" style={{ color: 'var(--text-faint)' }}>Loading dashboard</p>
       </div>
     </div>
   )
@@ -228,7 +228,7 @@ export default function AdminPage() {
         <ShieldCheck size={20} style={{ color: '#ff6b6b' }} />
       </div>
       <p className="text-sm mb-1" style={{ color: '#ff6b6b' }}>{error}</p>
-      <p className="text-xs" style={{ color: '#555' }}>You need admin privileges to access this page.</p>
+      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>You need admin privileges to access this page.</p>
     </div>
   )
 
@@ -239,8 +239,8 @@ export default function AdminPage() {
         <div
           className="fixed top-4 right-4 z-[100] px-4 py-3 text-sm border shadow-2xl animate-in slide-in-from-top-2"
           style={{
-            backgroundColor: toast.type === 'success' ? '#0a2a0a' : '#2a0a0a',
-            borderColor: toast.type === 'success' ? '#1a4a1a' : '#4a1a1a',
+            backgroundColor: toast.type === 'success' ? 'var(--ok-chip-bg)' : 'var(--err-chip-bg)',
+            borderColor: toast.type === 'success' ? 'var(--ok-chip-bg)' : 'var(--err-chip-border)',
             color: toast.type === 'success' ? '#4ade80' : '#ff6b6b',
           }}
         >
@@ -256,7 +256,7 @@ export default function AdminPage() {
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.8)' }}>
           <div
             className="w-full max-w-sm border p-6 shadow-2xl"
-            style={{ backgroundColor: '#0c0c0c', borderColor: '#222' }}
+            style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border)' }}
           >
             <div className="flex items-center gap-3 mb-4">
               <div className="flex items-center justify-center w-10 h-10 rounded-full" style={{ backgroundColor: 'rgba(255,107,107,0.1)' }}>
@@ -264,10 +264,10 @@ export default function AdminPage() {
               </div>
               <div>
                 <p className="text-sm font-medium text-white">Delete User</p>
-                <p className="text-xs" style={{ color: '#555' }}>{deleteTarget.email}</p>
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{deleteTarget.email}</p>
               </div>
             </div>
-            <p className="text-xs mb-5" style={{ color: '#666' }}>
+            <p className="text-xs mb-5" style={{ color: 'var(--text-dim)' }}>
               This will permanently delete this user and all their files, analytics, and usage records. This action cannot be undone.
             </p>
             {deleteTarget.is_admin && (
@@ -279,7 +279,7 @@ export default function AdminPage() {
               <button
                 onClick={() => setDeleteTarget(null)}
                 className="px-4 py-2 text-xs transition-colors hover:text-white"
-                style={{ color: '#555' }}
+                style={{ color: 'var(--text-muted)' }}
                 disabled={deleting}
               >
                 Cancel
@@ -316,18 +316,18 @@ export default function AdminPage() {
           </span>
         </div>
         <div className="flex items-center justify-between mt-2">
-          <p className="text-xs" style={{ color: '#555' }}>Monitor platform activity and manage users</p>
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Monitor platform activity and manage users</p>
           <Link
             href="/admin/payouts"
             className="flex items-center gap-1.5 border px-3 py-1.5 text-[10px] uppercase tracking-widest transition-colors hover:border-white/20"
-            style={{ borderColor: '#222', color: '#fbbf24', fontFamily: 'monospace' }}
+            style={{ borderColor: 'var(--border)', color: '#fbbf24', fontFamily: 'monospace' }}
           >
             <DollarSign size={11} /> Payouts
           </Link>
           <Link
             href="/admin/health"
             className="flex items-center gap-1.5 border px-3 py-1.5 text-[10px] uppercase tracking-widest transition-colors hover:border-white/20"
-            style={{ borderColor: '#222', color: '#4ade80', fontFamily: 'monospace' }}
+            style={{ borderColor: 'var(--border)', color: '#4ade80', fontFamily: 'monospace' }}
           >
             <Activity size={11} /> Security & Health
           </Link>
@@ -368,7 +368,7 @@ export default function AdminPage() {
               <div
                 key={i}
                 className="group relative border transition-all duration-200 hover:border-opacity-40 p-4 sm:p-5 overflow-hidden"
-                style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}
+                style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}
               >
                 <div className="relative z-10">
                   <div className="flex items-center justify-between mb-3">
@@ -380,13 +380,13 @@ export default function AdminPage() {
                     </div>
                     <span
                       className="text-[10px] uppercase tracking-widest font-medium transition-opacity duration-200 opacity-0 group-hover:opacity-100"
-                      style={{ color: '#555' }}
+                      style={{ color: 'var(--text-muted)' }}
                     >
                       View
                     </span>
                   </div>
                   <p className="text-2xl font-bold text-white tracking-tight">{card.value}</p>
-                  <p className="mt-1 text-[11px] leading-relaxed" style={{ color: '#555' }}>{card.sub}</p>
+                  <p className="mt-1 text-[11px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>{card.sub}</p>
                 </div>
                 {/* Hover accent line */}
                 <div
@@ -398,13 +398,13 @@ export default function AdminPage() {
           </div>
 
           {/* Plan Distribution Mini Bar */}
-          <div className="mb-8 border p-4 sm:p-5" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
+          <div className="mb-8 border p-4 sm:p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <BarChart3 size={14} style={{ color: '#555' }} />
-                <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555' }}>Plan Distribution</p>
+                <BarChart3 size={14} style={{ color: 'var(--text-muted)' }} />
+                <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Plan Distribution</p>
               </div>
-              <span className="text-[10px]" style={{ color: '#444' }}>{analytics.total_users} total</span>
+              <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>{analytics.total_users} total</span>
             </div>
             <div className="flex h-2 gap-[2px] rounded-full overflow-hidden">
               {analytics.users_by_plan.free > 0 && (
@@ -412,7 +412,7 @@ export default function AdminPage() {
                   className="h-full transition-all duration-500"
                   style={{
                     width: `${(analytics.users_by_plan.free / analytics.total_users) * 100}%`,
-                    backgroundColor: '#333',
+                    backgroundColor: 'var(--border-strong)',
                   }}
                   title={`Free: ${analytics.users_by_plan.free}`}
                 />
@@ -439,13 +439,13 @@ export default function AdminPage() {
               )}
             </div>
             <div className="flex items-center gap-4 mt-3">
-              <span className="flex items-center gap-1.5 text-[10px]" style={{ color: '#555' }}>
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#333' }} /> Free ({analytics.users_by_plan.free})
+              <span className="flex items-center gap-1.5 text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--border-strong)' }} /> Free ({analytics.users_by_plan.free})
               </span>
-              <span className="flex items-center gap-1.5 text-[10px]" style={{ color: '#555' }}>
+              <span className="flex items-center gap-1.5 text-[10px]" style={{ color: 'var(--text-muted)' }}>
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#3b82f6' }} /> Pro ({analytics.users_by_plan.pro})
               </span>
-              <span className="flex items-center gap-1.5 text-[10px]" style={{ color: '#555' }}>
+              <span className="flex items-center gap-1.5 text-[10px]" style={{ color: 'var(--text-muted)' }}>
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#8b5cf6' }} /> Business ({analytics.users_by_plan.business})
               </span>
             </div>
@@ -454,42 +454,42 @@ export default function AdminPage() {
       )}
 
       {/* Users Section */}
-      <div className="border" style={{ borderColor: '#222' }}>
+      <div className="border" style={{ borderColor: 'var(--border)' }}>
         {/* Header with Search */}
-        <div className="border-b px-4 sm:px-5 py-3 sm:py-4" style={{ borderColor: '#222' }}>
+        <div className="border-b px-4 sm:px-5 py-3 sm:py-4" style={{ borderColor: 'var(--border)' }}>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <UserCog size={14} style={{ color: '#555' }} />
-              <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555' }}>
+              <UserCog size={14} style={{ color: 'var(--text-muted)' }} />
+              <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
                 Users
-                <span className="ml-2 font-normal" style={{ color: '#444' }}>({total})</span>
+                <span className="ml-2 font-normal" style={{ color: 'var(--text-faint)' }}>({total})</span>
               </p>
             </div>
             <div className="flex items-center gap-2">
               {/* Search */}
               <div className="relative flex-1 sm:flex-initial">
-                <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#444' }} />
+                <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-faint)' }} />
                 <input
                   type="text"
                   placeholder="Search by email..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full sm:w-56 border px-8 py-1.5 text-xs outline-none transition-colors focus:border-white/20"
-                  style={{ backgroundColor: '#080808', borderColor: '#222', color: '#fff' }}
+                  style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: '#fff' }}
                 />
                 {searchQuery && (
                   <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2">
-                    <X size={12} style={{ color: '#444' }} />
+                    <X size={12} style={{ color: 'var(--text-faint)' }} />
                   </button>
                 )}
               </div>
               <button
                 onClick={() => fetchData(page)}
                 className="border p-1.5 transition-colors hover:border-white/20"
-                style={{ borderColor: '#222' }}
+                style={{ borderColor: 'var(--border)' }}
                 title="Refresh"
               >
-                <RefreshCw size={12} style={{ color: '#555' }} />
+                <RefreshCw size={12} style={{ color: 'var(--text-muted)' }} />
               </button>
             </div>
           </div>
@@ -499,10 +499,10 @@ export default function AdminPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b" style={{ borderColor: '#222' }}>
+              <tr className="border-b" style={{ borderColor: 'var(--border)' }}>
                 <th
                   className="px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer"
-                  style={{ color: '#555' }}
+                  style={{ color: 'var(--text-muted)' }}
                   onClick={() => toggleSort('email')}
                 >
                   <span className="flex items-center">
@@ -511,7 +511,7 @@ export default function AdminPage() {
                 </th>
                 <th
                   className="px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer"
-                  style={{ color: '#555' }}
+                  style={{ color: 'var(--text-muted)' }}
                   onClick={() => toggleSort('plan')}
                 >
                   <span className="flex items-center">
@@ -520,7 +520,7 @@ export default function AdminPage() {
                 </th>
                 <th
                   className="hidden sm:table-cell px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer"
-                  style={{ color: '#555' }}
+                  style={{ color: 'var(--text-muted)' }}
                   onClick={() => toggleSort('verified')}
                 >
                   <span className="flex items-center">
@@ -529,7 +529,7 @@ export default function AdminPage() {
                 </th>
                 <th
                   className="hidden md:table-cell px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer"
-                  style={{ color: '#555' }}
+                  style={{ color: 'var(--text-muted)' }}
                   onClick={() => toggleSort('total_files')}
                 >
                   <span className="flex items-center">
@@ -538,7 +538,7 @@ export default function AdminPage() {
                 </th>
                 <th
                   className="hidden md:table-cell px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer"
-                  style={{ color: '#555' }}
+                  style={{ color: 'var(--text-muted)' }}
                   onClick={() => toggleSort('total_gb_used')}
                 >
                   <span className="flex items-center">
@@ -547,14 +547,14 @@ export default function AdminPage() {
                 </th>
                 <th
                   className="hidden lg:table-cell px-4 sm:px-5 py-3 text-left text-xs font-medium cursor-pointer"
-                  style={{ color: '#555' }}
+                  style={{ color: 'var(--text-muted)' }}
                   onClick={() => toggleSort('created_at')}
                 >
                   <span className="flex items-center">
                     Joined <SortIcon field="created_at" />
                   </span>
                 </th>
-                <th className="px-4 sm:px-5 py-3 text-right text-xs font-medium" style={{ color: '#555' }}>
+                <th className="px-4 sm:px-5 py-3 text-right text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
                   Actions
                 </th>
               </tr>
@@ -564,8 +564,8 @@ export default function AdminPage() {
                 <tr>
                   <td colSpan={7} className="px-5 py-12 text-center">
                     <div className="flex flex-col items-center gap-2">
-                      <Search size={18} style={{ color: '#333' }} />
-                      <p className="text-xs" style={{ color: '#555' }}>
+                      <Search size={18} style={{ color: 'var(--border-strong)' }} />
+                      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                         {searchQuery ? `No users matching "${searchQuery}"` : 'No users found'}
                       </p>
                     </div>
@@ -578,7 +578,7 @@ export default function AdminPage() {
                     <tr
                       key={user.id}
                       className="group border-b transition-colors duration-150 hover:bg-white/[0.02]"
-                      style={{ borderColor: '#222' }}
+                      style={{ borderColor: 'var(--border)' }}
                     >
                       <td className="px-4 sm:px-5 py-3">
                         <div className="flex items-center gap-2.5">
@@ -588,7 +588,7 @@ export default function AdminPage() {
                             </div>
                           ) : (
                             <div className="flex items-center justify-center w-6 h-6 rounded-full flex-shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.04)' }}>
-                              <UserCheck size={12} style={{ color: '#555' }} />
+                              <UserCheck size={12} style={{ color: 'var(--text-muted)' }} />
                             </div>
                           )}
                           <div className="min-w-0">
@@ -597,7 +597,7 @@ export default function AdminPage() {
                               <button
                                 onClick={() => copyEmail(user.id, user.email)}
                                 className="p-1 rounded transition-all duration-150 opacity-0 group-hover:opacity-100 hover:bg-white/10"
-                                style={{ color: '#555' }}
+                                style={{ color: 'var(--text-muted)' }}
                                 title="Copy email"
                                 aria-label={`Copy ${user.email}`}
                               >
@@ -620,7 +620,7 @@ export default function AdminPage() {
                       <td className="px-4 sm:px-5 py-3">
                         <div className="flex items-center gap-2">
                           {planUpdating === user.id ? (
-                            <Loader2 size={12} className="animate-spin" style={{ color: '#555' }} />
+                            <Loader2 size={12} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
                           ) : (
                             <select
                               value={user.plan}
@@ -633,9 +633,9 @@ export default function AdminPage() {
                                 borderRadius: 0,
                               }}
                             >
-                              <option value="free" style={{ backgroundColor: '#111', color: '#888' }}>Free</option>
-                              <option value="pro" style={{ backgroundColor: '#111', color: '#60a5fa' }}>Pro</option>
-                              <option value="business" style={{ backgroundColor: '#111', color: '#a78bfa' }}>Business</option>
+                              <option value="free" style={{ backgroundColor: 'var(--bg-card)', color: 'var(--text-soft)' }}>Free</option>
+                              <option value="pro" style={{ backgroundColor: 'var(--bg-card)', color: '#60a5fa' }}>Pro</option>
+                              <option value="business" style={{ backgroundColor: 'var(--bg-card)', color: '#a78bfa' }}>Business</option>
                             </select>
                           )}
                         </div>
@@ -643,7 +643,7 @@ export default function AdminPage() {
                       <td className="hidden sm:table-cell px-4 sm:px-5 py-3">
                         <span
                           className="inline-flex items-center gap-1.5 text-[11px]"
-                          style={{ color: user.verified ? '#4ade80' : '#555' }}
+                          style={{ color: user.verified ? '#4ade80' : 'var(--text-muted)' }}
                         >
                           {user.verified ? (
                             <><CheckCircle size={12} /> Verified</>
@@ -653,15 +653,15 @@ export default function AdminPage() {
                         </span>
                       </td>
                       <td className="hidden md:table-cell px-4 sm:px-5 py-3">
-                        <span className="flex items-center gap-1.5 text-xs" style={{ color: '#555' }}>
+                        <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
                           <FolderOpen size={11} /> {user.total_files}
                         </span>
                       </td>
                       <td className="hidden md:table-cell px-4 sm:px-5 py-3">
-                        <span className="text-xs" style={{ color: '#555' }}>{user.total_gb_used} GB</span>
+                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{user.total_gb_used} GB</span>
                       </td>
                       <td className="hidden lg:table-cell px-4 sm:px-5 py-3">
-                        <span className="flex items-center gap-1.5 text-xs" style={{ color: '#555' }}>
+                        <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
                           <Calendar size={11} />
                           {new Date(user.created_at).toLocaleDateString('en-US', {
                             month: 'short', day: 'numeric', year: 'numeric',
@@ -682,7 +682,7 @@ export default function AdminPage() {
                                 }
                               }}
                               className="p-1.5 rounded transition-all duration-150 opacity-0 group-hover:opacity-100 hover:bg-green-500/10"
-                              style={{ color: '#555' }}
+                              style={{ color: 'var(--text-muted)' }}
                               title="Verify user"
                             >
                               <CheckCircle size={12} className="transition-colors hover:text-green-400" />
@@ -692,7 +692,7 @@ export default function AdminPage() {
                             onClick={() => toggleAdmin(user)}
                             disabled={adminToggling === user.id}
                             className="p-1.5 rounded transition-all duration-150 opacity-0 group-hover:opacity-100 hover:bg-purple-500/10 disabled:opacity-40"
-                            style={{ color: '#555' }}
+                            style={{ color: 'var(--text-muted)' }}
                             title={user.is_admin ? 'Revoke admin' : 'Make admin'}
                           >
                             {adminToggling === user.id ? (
@@ -704,7 +704,7 @@ export default function AdminPage() {
                           <button
                             onClick={() => setDeleteTarget(user)}
                             className="p-1.5 rounded transition-all duration-150 opacity-0 group-hover:opacity-100 hover:bg-red-500/10"
-                            style={{ color: '#555' }}
+                            style={{ color: 'var(--text-muted)' }}
                             title="Delete user"
                           >
                             <Trash2 size={12} className="transition-colors hover:text-red-400" />
@@ -720,9 +720,9 @@ export default function AdminPage() {
         </div>
 
         {/* Footer with pagination */}
-        <div className="border-t px-5 py-3" style={{ borderColor: '#222' }}>
+        <div className="border-t px-5 py-3" style={{ borderColor: 'var(--border)' }}>
           <div className="flex items-center justify-between">
-            <p className="text-[10px]" style={{ color: '#444' }}>
+            <p className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
               {total} user{total === 1 ? '' : 's'}
               {searchQuery && ` · filtering "${searchQuery}"`}
             </p>
@@ -731,7 +731,7 @@ export default function AdminPage() {
                 <button
                   onClick={() => setSearchQuery('')}
                   className="text-[10px] transition-colors hover:text-white"
-                  style={{ color: '#555' }}
+                  style={{ color: 'var(--text-muted)' }}
                 >
                   Clear filter
                 </button>
@@ -741,16 +741,16 @@ export default function AdminPage() {
                   onClick={() => fetchData(page - 1)}
                   disabled={page <= 1}
                   className="border px-3 py-1 text-[10px] uppercase tracking-widest transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                  style={{ borderColor: '#222', color: '#555', fontFamily: 'monospace' }}
+                  style={{ borderColor: 'var(--border)', color: 'var(--text-muted)', fontFamily: 'monospace' }}
                 >
                   Previous
                 </button>
-                <span className="text-[10px]" style={{ color: '#555' }}>Page {page} of {pages}</span>
+                <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Page {page} of {pages}</span>
                 <button
                   onClick={() => fetchData(page + 1)}
                   disabled={page >= pages}
                   className="border px-3 py-1 text-[10px] uppercase tracking-widest transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                  style={{ borderColor: '#222', color: '#555', fontFamily: 'monospace' }}
+                  style={{ borderColor: 'var(--border)', color: 'var(--text-muted)', fontFamily: 'monospace' }}
                 >
                   Next
                 </button>

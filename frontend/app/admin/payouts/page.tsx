@@ -229,8 +229,8 @@ export default function AdminPayoutsPage() {
   if (loading) return (
     <div className="flex min-h-[70vh] items-center justify-center select-none">
       <div className="flex flex-col items-center gap-4">
-        <Loader2 size={24} className="animate-spin" style={{ color: '#555' }} />
-        <p className="text-xs tracking-widest uppercase" style={{ color: '#444' }}>Loading payouts</p>
+        <Loader2 size={24} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
+        <p className="text-xs tracking-widest uppercase" style={{ color: 'var(--text-faint)' }}>Loading payouts</p>
       </div>
     </div>
   )
@@ -241,7 +241,7 @@ export default function AdminPayoutsPage() {
         <ShieldCheck size={20} style={{ color: '#ff6b6b' }} />
       </div>
       <p className="text-sm mb-1" style={{ color: '#ff6b6b' }}>{error}</p>
-      <p className="text-xs" style={{ color: '#555' }}>
+      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
         {adminDenied ? 'You need admin privileges to access this page.' : 'Could not load payout data. Please try again.'}
       </p>
     </div>
@@ -256,8 +256,8 @@ export default function AdminPayoutsPage() {
         <div
           className="fixed top-4 right-4 z-[100] px-4 py-3 text-sm border shadow-2xl animate-in slide-in-from-top-2"
           style={{
-            backgroundColor: toast.type === 'success' ? '#0a2a0a' : '#2a0a0a',
-            borderColor: toast.type === 'success' ? '#1a4a1a' : '#4a1a1a',
+            backgroundColor: toast.type === 'success' ? 'var(--ok-chip-bg)' : 'var(--err-chip-bg)',
+            borderColor: toast.type === 'success' ? 'var(--ok-chip-bg)' : 'var(--err-chip-border)',
             color: toast.type === 'success' ? '#4ade80' : '#ff6b6b',
           }}
         >
@@ -271,17 +271,17 @@ export default function AdminPayoutsPage() {
       {/* Deactivate-recipient confirmation modal — irreversible on Paystack's side */}
       {deactivateTarget && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.8)' }}>
-          <div className="w-full max-w-sm border p-6 shadow-2xl" style={{ backgroundColor: '#0c0c0c', borderColor: '#222' }}>
+          <div className="w-full max-w-sm border p-6 shadow-2xl" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
             <div className="flex items-center gap-3 mb-4">
               <div className="flex items-center justify-center w-10 h-10 rounded-full" style={{ backgroundColor: 'rgba(255,107,107,0.1)' }}>
                 <AlertTriangle size={18} style={{ color: '#ff6b6b' }} />
               </div>
               <div>
                 <p className="text-sm font-medium text-white">Deactivate Recipient</p>
-                <p className="text-xs" style={{ color: '#555' }}>{deactivateTarget.name}</p>
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{deactivateTarget.name}</p>
               </div>
             </div>
-            <p className="text-xs mb-5" style={{ color: '#666' }}>
+            <p className="text-xs mb-5" style={{ color: 'var(--text-dim)' }}>
               This permanently deactivates <span style={{ fontFamily: 'monospace' }}>{deactivateTarget.account_number}</span> on Paystack.
               Existing payouts are kept, but this M-PESA number can no longer receive new transfers.
             </p>
@@ -289,7 +289,7 @@ export default function AdminPayoutsPage() {
               <button
                 onClick={() => setDeactivateTarget(null)}
                 className="px-4 py-2 text-xs transition-colors hover:text-white"
-                style={{ color: '#555' }}
+                style={{ color: 'var(--text-muted)' }}
                 disabled={deactivating}
               >
                 Cancel
@@ -314,28 +314,28 @@ export default function AdminPayoutsPage() {
       {/* Transfer confirmation modal — real money, so confirm before sending */}
       {confirmTarget && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.8)' }}>
-          <div className="w-full max-w-sm border p-6 shadow-2xl" style={{ backgroundColor: '#0c0c0c', borderColor: '#222' }}>
+          <div className="w-full max-w-sm border p-6 shadow-2xl" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
             <div className="flex items-center gap-3 mb-4">
               <div className="flex items-center justify-center w-10 h-10 rounded-full" style={{ backgroundColor: 'rgba(251,191,36,0.1)' }}>
                 <Send size={18} style={{ color: '#fbbf24' }} />
               </div>
               <div>
                 <p className="text-sm font-medium text-white">Confirm Transfer</p>
-                <p className="text-xs" style={{ color: '#555' }}>Funds leave your Paystack balance</p>
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Funds leave your Paystack balance</p>
               </div>
             </div>
             <div className="space-y-2 mb-5 text-xs">
-              <div className="flex justify-between"><span style={{ color: '#666' }}>Recipient</span><span className="text-white">{confirmTarget.recipient_name}</span></div>
-              <div className="flex justify-between"><span style={{ color: '#666' }}>Amount</span><span className="text-white font-semibold">{kes(confirmTarget.amount_kes)}</span></div>
+              <div className="flex justify-between"><span style={{ color: 'var(--text-dim)' }}>Recipient</span><span className="text-white">{confirmTarget.recipient_name}</span></div>
+              <div className="flex justify-between"><span style={{ color: 'var(--text-dim)' }}>Amount</span><span className="text-white font-semibold">{kes(confirmTarget.amount_kes)}</span></div>
               {confirmTarget.reason && (
-                <div className="flex justify-between gap-4"><span style={{ color: '#666' }}>Reason</span><span className="text-white text-right">{confirmTarget.reason}</span></div>
+                <div className="flex justify-between gap-4"><span style={{ color: 'var(--text-dim)' }}>Reason</span><span className="text-white text-right">{confirmTarget.reason}</span></div>
               )}
             </div>
             <div className="flex items-center gap-3 justify-end">
               <button
                 onClick={() => setConfirmTarget(null)}
                 className="px-4 py-2 text-xs transition-colors hover:text-white"
-                style={{ color: '#555' }}
+                style={{ color: 'var(--text-muted)' }}
                 disabled={transferring}
               >
                 Cancel
@@ -369,19 +369,19 @@ export default function AdminPayoutsPage() {
           </span>
         </div>
         <div className="flex items-center justify-between mt-2">
-          <p className="text-xs" style={{ color: '#555' }}>Pay out from your Paystack balance to M-PESA wallets (Transfers API)</p>
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Pay out from your Paystack balance to M-PESA wallets (Transfers API)</p>
           <div className="flex items-center gap-2">
             <Link
               href="/admin/health"
               className="flex items-center gap-1.5 border px-3 py-1.5 text-[10px] uppercase tracking-widest transition-colors hover:border-white/20"
-              style={{ borderColor: '#222', color: '#4ade80', fontFamily: 'monospace' }}
+              style={{ borderColor: 'var(--border)', color: '#4ade80', fontFamily: 'monospace' }}
             >
               <Activity size={11} /> Health
             </Link>
             <Link
               href="/admin"
               className="flex items-center gap-1.5 border px-3 py-1.5 text-[10px] uppercase tracking-widest transition-colors hover:border-white/20"
-              style={{ borderColor: '#222', color: '#a78bfa', fontFamily: 'monospace' }}
+              style={{ borderColor: 'var(--border)', color: '#a78bfa', fontFamily: 'monospace' }}
             >
               <ArrowLeft size={11} /> Dashboard
             </Link>
@@ -390,25 +390,25 @@ export default function AdminPayoutsPage() {
       </div>
 
       {/* Balance card */}
-      <div className="mb-8 border p-5 sm:p-6 overflow-hidden relative" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
+      <div className="mb-8 border p-5 sm:p-6 overflow-hidden relative" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Wallet size={14} style={{ color: '#fbbf24' }} />
-            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555' }}>Available balance</p>
+            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Available balance</p>
           </div>
           <button
             onClick={() => api.getPayoutBalance().then(setBalance).catch(() => showToast('Could not refresh balance', 'error'))}
             className="border p-1.5 transition-colors hover:border-white/20"
-            style={{ borderColor: '#222' }}
+            style={{ borderColor: 'var(--border)' }}
             title="Refresh balance"
           >
-            <RefreshCw size={12} style={{ color: '#555' }} />
+            <RefreshCw size={12} style={{ color: 'var(--text-muted)' }} />
           </button>
         </div>
         <p className="text-3xl font-bold text-white tracking-tight">
           {balance ? kes(balance.balance_kes) : '—'}
         </p>
-        <p className="mt-2 text-[11px] leading-relaxed" style={{ color: '#555' }}>
+        <p className="mt-2 text-[11px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
           Transfers draw from this balance. If a transfer returns <span style={{ color: '#fb923c' }}>OTP required</span>,
           complete it in the Paystack dashboard (Settings → Preferences) or approve via the OTP sent to your business phone.
         </p>
@@ -416,21 +416,21 @@ export default function AdminPayoutsPage() {
 
       <div className="grid lg:grid-cols-2 gap-4 sm:gap-6 mb-8">
         {/* Initiate transfer */}
-        <div className="border p-4 sm:p-5" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
+        <div className="border p-4 sm:p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
           <div className="flex items-center gap-2 mb-4">
             <Send size={14} style={{ color: '#fbbf24' }} />
-            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555' }}>Initiate transfer</p>
+            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Initiate transfer</p>
           </div>
           <div className="space-y-3">
             <div>
-              <label className="block text-[11px] mb-1.5" style={{ color: '#666' }}>Recipient (M-PESA)</label>
+              <label className="block text-[11px] mb-1.5" style={{ color: 'var(--text-dim)' }}>Recipient (M-PESA)</label>
               <div className="relative">
-                <Users size={12} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#444' }} />
+                <Users size={12} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-faint)' }} />
                 <select
                   value={selRecipient}
                   onChange={(e) => setSelRecipient(e.target.value)}
                   className="w-full border px-8 py-2 text-xs outline-none transition-colors focus:border-white/20 appearance-none"
-                  style={{ backgroundColor: '#080808', borderColor: '#222', color: '#fff' }}
+                  style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: '#fff' }}
                 >
                   <option value="">Select recipient…</option>
                   {activeRecipients.map((r) => (
@@ -447,7 +447,7 @@ export default function AdminPayoutsPage() {
               )}
             </div>
             <div>
-              <label className="block text-[11px] mb-1.5" style={{ color: '#666' }}>Amount (KES)</label>
+              <label className="block text-[11px] mb-1.5" style={{ color: 'var(--text-dim)' }}>Amount (KES)</label>
               <input
                 type="number"
                 min={10}
@@ -456,14 +456,14 @@ export default function AdminPayoutsPage() {
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="e.g. 500"
                 className="w-full border px-3 py-2 text-xs outline-none transition-colors focus:border-white/20"
-                style={{ backgroundColor: '#080808', borderColor: '#222', color: '#fff' }}
+                style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: '#fff' }}
               />
-              <p className="mt-1.5 text-[11px]" style={{ color: '#444' }}>Minimum KES 10 · sent to Paystack as {amount ? `${Number(amount) * 100} cents` : 'cents'}</p>
+              <p className="mt-1.5 text-[11px]" style={{ color: 'var(--text-faint)' }}>Minimum KES 10 · sent to Paystack as {amount ? `${Number(amount) * 100} cents` : 'cents'}</p>
             </div>
             <div>
-              <label className="block text-[11px] mb-1.5" style={{ color: '#666' }}>Reason (optional)</label>
+              <label className="block text-[11px] mb-1.5" style={{ color: 'var(--text-dim)' }}>Reason (optional)</label>
               <div className="relative">
-                <FileText size={12} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#444' }} />
+                <FileText size={12} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-faint)' }} />
                 <input
                   type="text"
                   value={reason}
@@ -471,7 +471,7 @@ export default function AdminPayoutsPage() {
                   placeholder="e.g. Creator payout — July"
                   maxLength={255}
                   className="w-full border px-8 py-2 text-xs outline-none transition-colors focus:border-white/20"
-                  style={{ backgroundColor: '#080808', borderColor: '#222', color: '#fff' }}
+                  style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: '#fff' }}
                 />
               </div>
             </div>
@@ -487,16 +487,16 @@ export default function AdminPayoutsPage() {
         </div>
 
         {/* Create recipient */}
-        <div className="border p-4 sm:p-5" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
+        <div className="border p-4 sm:p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
           <div className="flex items-center gap-2 mb-4">
             <UserPlus size={14} style={{ color: '#a78bfa' }} />
-            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555' }}>Add recipient</p>
+            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Add recipient</p>
           </div>
           <div className="space-y-3">
             <div>
-              <label className="block text-[11px] mb-1.5" style={{ color: '#666' }}>Full name</label>
+              <label className="block text-[11px] mb-1.5" style={{ color: 'var(--text-dim)' }}>Full name</label>
               <div className="relative">
-                <User size={12} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#444' }} />
+                <User size={12} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-faint)' }} />
                 <input
                   type="text"
                   value={rcpName}
@@ -504,14 +504,14 @@ export default function AdminPayoutsPage() {
                   placeholder="e.g. Jane M"
                   maxLength={255}
                   className="w-full border px-8 py-2 text-xs outline-none transition-colors focus:border-white/20"
-                  style={{ backgroundColor: '#080808', borderColor: '#222', color: '#fff' }}
+                  style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: '#fff' }}
                 />
               </div>
             </div>
             <div>
-              <label className="block text-[11px] mb-1.5" style={{ color: '#666' }}>M-PESA number</label>
+              <label className="block text-[11px] mb-1.5" style={{ color: 'var(--text-dim)' }}>M-PESA number</label>
               <div className="relative">
-                <Phone size={12} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#444' }} />
+                <Phone size={12} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-faint)' }} />
                 <input
                   type="tel"
                   value={rcpPhone}
@@ -519,13 +519,13 @@ export default function AdminPayoutsPage() {
                   placeholder="254712345678 or 0712345678"
                   maxLength={20}
                   className="w-full border px-8 py-2 text-xs outline-none transition-colors focus:border-white/20"
-                  style={{ backgroundColor: '#080808', borderColor: '#222', color: '#fff' }}
+                  style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: '#fff' }}
                 />
               </div>
-              <p className="mt-1.5 text-[11px]" style={{ color: '#444' }}>Sent to Paystack as a <span style={{ color: '#666' }}>mobile_money</span> recipient (MPESA).</p>
+              <p className="mt-1.5 text-[11px]" style={{ color: 'var(--text-faint)' }}>Sent to Paystack as a <span style={{ color: 'var(--text-dim)' }}>mobile_money</span> recipient (MPESA).</p>
             </div>
             <div>
-              <label className="block text-[11px] mb-1.5" style={{ color: '#666' }}>Description (optional)</label>
+              <label className="block text-[11px] mb-1.5" style={{ color: 'var(--text-dim)' }}>Description (optional)</label>
               <input
                 type="text"
                 value={rcpDesc}
@@ -533,7 +533,7 @@ export default function AdminPayoutsPage() {
                 placeholder="e.g. Creator on Business plan"
                 maxLength={255}
                 className="w-full border px-3 py-2 text-xs outline-none transition-colors focus:border-white/20"
-                style={{ backgroundColor: '#080808', borderColor: '#222', color: '#fff' }}
+                style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: '#fff' }}
               />
             </div>
             <button
@@ -551,22 +551,22 @@ export default function AdminPayoutsPage() {
       </div>
 
       {/* Recipients */}
-      <div className="border mb-8" style={{ borderColor: '#222' }}>
-        <div className="border-b px-4 sm:px-5 py-3" style={{ borderColor: '#222' }}>
+      <div className="border mb-8" style={{ borderColor: 'var(--border)' }}>
+        <div className="border-b px-4 sm:px-5 py-3" style={{ borderColor: 'var(--border)' }}>
           <div className="flex items-center gap-2">
-            <Users size={14} style={{ color: '#555' }} />
-            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555' }}>
-              Recipients <span className="ml-2 font-normal" style={{ color: '#444' }}>({recipients.length})</span>
+            <Users size={14} style={{ color: 'var(--text-muted)' }} />
+            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+              Recipients <span className="ml-2 font-normal" style={{ color: 'var(--text-faint)' }}>({recipients.length})</span>
             </p>
           </div>
         </div>
         <div className="overflow-x-auto">
           {recipients.length === 0 ? (
-            <p className="px-5 py-8 text-center text-xs" style={{ color: '#444' }}>No recipients yet.</p>
+            <p className="px-5 py-8 text-center text-xs" style={{ color: 'var(--text-faint)' }}>No recipients yet.</p>
           ) : (
             <table className="w-full text-left">
               <thead>
-                <tr className="text-[10px] uppercase tracking-widest" style={{ color: '#444' }}>
+                <tr className="text-[10px] uppercase tracking-widest" style={{ color: 'var(--text-faint)' }}>
                   <th className="px-4 sm:px-5 py-2.5 font-medium">Name</th>
                   <th className="px-4 py-2.5 font-medium">M-PESA</th>
                   <th className="px-4 py-2.5 font-medium">Code</th>
@@ -576,10 +576,10 @@ export default function AdminPayoutsPage() {
               </thead>
               <tbody>
                 {recipients.map((r) => (
-                  <tr key={r.recipient_code} className="border-t" style={{ borderColor: '#1a1a1a' }}>
+                  <tr key={r.recipient_code} className="border-t" style={{ borderColor: 'var(--divider)' }}>
                     <td className="px-4 sm:px-5 py-3 text-xs text-white">{r.name}</td>
-                    <td className="px-4 py-3 text-xs" style={{ color: '#999' }}>{r.account_number}</td>
-                    <td className="px-4 py-3 text-[11px]" style={{ color: '#555', fontFamily: 'monospace' }}>{r.recipient_code}</td>
+                    <td className="px-4 py-3 text-xs" style={{ color: 'var(--text-soft)' }}>{r.account_number}</td>
+                    <td className="px-4 py-3 text-[11px]" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>{r.recipient_code}</td>
                     <td className="px-4 py-3">
                       <span
                         className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest rounded"
@@ -596,7 +596,7 @@ export default function AdminPayoutsPage() {
                         <button
                           onClick={() => setDeactivateTarget(r)}
                           className="inline-flex items-center gap-1 text-[11px] transition-colors hover:text-red-400"
-                          style={{ color: '#555' }}
+                          style={{ color: 'var(--text-muted)' }}
                         >
                           <Trash2 size={11} /> Deactivate
                         </button>
@@ -611,32 +611,32 @@ export default function AdminPayoutsPage() {
       </div>
 
       {/* Payout history */}
-      <div className="border" style={{ borderColor: '#222' }}>
-        <div className="border-b px-4 sm:px-5 py-3" style={{ borderColor: '#222' }}>
+      <div className="border" style={{ borderColor: 'var(--border)' }}>
+        <div className="border-b px-4 sm:px-5 py-3" style={{ borderColor: 'var(--border)' }}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <ArrowDownToLine size={14} style={{ color: '#555' }} />
-              <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555' }}>
-                Transfer history <span className="ml-2 font-normal" style={{ color: '#444' }}>({payouts.length})</span>
+              <ArrowDownToLine size={14} style={{ color: 'var(--text-muted)' }} />
+              <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                Transfer history <span className="ml-2 font-normal" style={{ color: 'var(--text-faint)' }}>({payouts.length})</span>
               </p>
             </div>
             <button
               onClick={() => api.listPayouts().then(setPayouts).catch(() => showToast('Could not refresh transfers', 'error'))}
               className="border p-1.5 transition-colors hover:border-white/20"
-              style={{ borderColor: '#222' }}
+              style={{ borderColor: 'var(--border)' }}
               title="Refresh transfers"
             >
-              <RefreshCw size={12} style={{ color: '#555' }} />
+              <RefreshCw size={12} style={{ color: 'var(--text-muted)' }} />
             </button>
           </div>
         </div>
         <div className="overflow-x-auto">
           {payouts.length === 0 ? (
-            <p className="px-5 py-8 text-center text-xs" style={{ color: '#444' }}>No transfers yet — initiate one above.</p>
+            <p className="px-5 py-8 text-center text-xs" style={{ color: 'var(--text-faint)' }}>No transfers yet — initiate one above.</p>
           ) : (
             <table className="w-full text-left">
               <thead>
-                <tr className="text-[10px] uppercase tracking-widest" style={{ color: '#444' }}>
+                <tr className="text-[10px] uppercase tracking-widest" style={{ color: 'var(--text-faint)' }}>
                   <th className="px-4 sm:px-5 py-2.5 font-medium">Date</th>
                   <th className="px-4 py-2.5 font-medium">Recipient</th>
                   <th className="px-4 py-2.5 font-medium">Amount</th>
@@ -647,16 +647,16 @@ export default function AdminPayoutsPage() {
               </thead>
               <tbody>
                 {payouts.map((p) => {
-                  const st = STATUS_STYLES[p.status] || { color: '#999', bg: 'rgba(153,153,153,0.08)', label: p.status }
+                  const st = STATUS_STYLES[p.status] || { color: 'var(--text-soft)', bg: 'rgba(153,153,153,0.08)', label: p.status }
                   return (
-                    <tr key={p.transfer_code} className="border-t" style={{ borderColor: '#1a1a1a' }}>
-                      <td className="px-4 sm:px-5 py-3 text-xs whitespace-nowrap" style={{ color: '#999' }}>{fmtDate(p.created_at)}</td>
+                    <tr key={p.transfer_code} className="border-t" style={{ borderColor: 'var(--divider)' }}>
+                      <td className="px-4 sm:px-5 py-3 text-xs whitespace-nowrap" style={{ color: 'var(--text-soft)' }}>{fmtDate(p.created_at)}</td>
                       <td className="px-4 py-3 text-xs text-white">
                         {p.recipient_name || p.recipient_code}
-                        <span className="block text-[10px]" style={{ color: '#555', fontFamily: 'monospace' }}>{p.transfer_code}</span>
+                        <span className="block text-[10px]" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>{p.transfer_code}</span>
                       </td>
                       <td className="px-4 py-3 text-xs font-semibold text-white whitespace-nowrap">{kes(p.amount_kes)}</td>
-                      <td className="px-4 py-3 text-xs max-w-[180px] truncate" style={{ color: '#999' }}>{p.reason || '—'}</td>
+                      <td className="px-4 py-3 text-xs max-w-[180px] truncate" style={{ color: 'var(--text-soft)' }}>{p.reason || '—'}</td>
                       <td className="px-4 py-3">
                         <span
                           className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest rounded"
@@ -670,7 +670,7 @@ export default function AdminPayoutsPage() {
                           onClick={() => refreshPayout(p.transfer_code)}
                           disabled={refreshing === p.transfer_code}
                           className="inline-flex items-center gap-1 text-[11px] transition-colors hover:text-white"
-                          style={{ color: '#555' }}
+                          style={{ color: 'var(--text-muted)' }}
                           title="Fetch latest status from Paystack"
                         >
                           {refreshing === p.transfer_code ? (
@@ -690,7 +690,7 @@ export default function AdminPayoutsPage() {
         </div>
       </div>
 
-      <p className="mt-6 text-[11px] flex items-center gap-1.5" style={{ color: '#444' }}>
+      <p className="mt-6 text-[11px] flex items-center gap-1.5" style={{ color: 'var(--text-faint)' }}>
         <Ban size={11} /> Transfers send from your Paystack balance. Transfer completion arrives via webhook
         (<span style={{ fontFamily: 'monospace' }}>transfer.success / failed / reversed</span>) and updates the status here automatically.
       </p>

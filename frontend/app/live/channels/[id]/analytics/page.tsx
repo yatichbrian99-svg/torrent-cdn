@@ -51,7 +51,7 @@ export default function LiveChannelAnalyticsPage() {
   if (loading) {
     return (
       <div className="mx-auto flex h-64 max-w-5xl items-center justify-center px-6">
-        <Loader2 size={20} className="animate-spin" style={{ color: '#555' }} />
+        <Loader2 size={20} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
       </div>
     )
   }
@@ -59,10 +59,10 @@ export default function LiveChannelAnalyticsPage() {
   if (error || !analytics) {
     return (
       <div className="mx-auto max-w-5xl px-6 py-10">
-        <Link href="/live" className="mb-6 inline-flex items-center gap-1.5 text-sm" style={{ color: '#555' }}>
+        <Link href="/live" className="mb-6 inline-flex items-center gap-1.5 text-sm" style={{ color: 'var(--text-muted)' }}>
           <ArrowLeft size={14} /> All channels
         </Link>
-        <div className="flex items-center gap-3 border px-4 py-3" style={{ borderColor: '#331111', backgroundColor: '#1a0d0d' }}>
+        <div className="flex items-center gap-3 border px-4 py-3" style={{ borderColor: 'var(--err-chip-border)', backgroundColor: 'var(--err-chip-bg)' }}>
           <AlertTriangle size={16} style={{ color: '#ef4444' }} />
           <p className="text-xs" style={{ color: '#fca5a5' }}>{error || 'Not found'}</p>
         </div>
@@ -75,13 +75,13 @@ export default function LiveChannelAnalyticsPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-10 select-none">
-      <Link href={`/live/channels/${id}`} className="mb-6 inline-flex items-center gap-1.5 text-sm transition-colors hover:text-white" style={{ color: '#555' }}>
+      <Link href={`/live/channels/${id}`} className="mb-6 inline-flex items-center gap-1.5 text-sm transition-colors hover:text-white" style={{ color: 'var(--text-muted)' }}>
         <ArrowLeft size={14} /> {channel?.name || 'Channel'}
       </Link>
 
       <div className="mb-6 flex items-center justify-between">
         <h1 className="flex items-center gap-2 text-xl font-bold tracking-[-0.02em] text-white">
-          <BarChart3 size={18} style={{ color: '#555' }} /> Live analytics
+          <BarChart3 size={18} style={{ color: 'var(--text-muted)' }} /> Live analytics
           <span className="border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest"
                 style={{ borderColor: '#fbbf24', color: '#fbbf24' }}>Beta</span>
         </h1>
@@ -89,7 +89,7 @@ export default function LiveChannelAnalyticsPage() {
           value={windowHours}
           onChange={(e) => setWindowHours(Number(e.target.value))}
           className="border px-3 py-1.5 text-xs text-white"
-          style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}
+          style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
         >
           <option value={1}>Last hour</option>
           <option value={24}>Last 24 hours</option>
@@ -98,20 +98,20 @@ export default function LiveChannelAnalyticsPage() {
       </div>
 
       {/* Headline: measured offload */}
-      <div className="mb-6 border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
-        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>
+      <div className="mb-6 border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
           Measured P2P offload
         </p>
         <p className="mt-2 text-4xl font-bold text-white">{a.p2p_offload_percent.toFixed(1)}%</p>
-        <div className="mt-4 flex h-3 overflow-hidden" style={{ backgroundColor: '#0c0c0c' }}>
-          <div style={{ width: `${a.p2p_offload_percent}%`, backgroundColor: '#fff' }} />
-          <div style={{ width: `${100 - a.p2p_offload_percent}%`, backgroundColor: '#7f1d1d' }} />
+        <div className="mt-4 flex h-3 overflow-hidden" style={{ backgroundColor: 'var(--bg-secondary)' }}>
+          <div style={{ width: `${a.p2p_offload_percent}%`, backgroundColor: 'var(--inverse-bg)' }} />
+          <div style={{ width: `${100 - a.p2p_offload_percent}%`, backgroundColor: 'var(--danger-bg)' }} />
         </div>
-        <div className="mt-2 flex items-center justify-between font-mono text-xs" style={{ color: '#555' }}>
+        <div className="mt-2 flex items-center justify-between font-mono text-xs" style={{ color: 'var(--text-muted)' }}>
           <span>P2P {formatBytes(a.bytes_p2p)}</span>
           <span>Origin {formatBytes(a.bytes_origin)}</span>
         </div>
-        <p className="mt-3 text-[11px]" style={{ color: '#444' }}>
+        <p className="mt-3 text-[11px]" style={{ color: 'var(--text-faint)' }}>
           Measured delivery metric: bytes delivered by viewer peers ÷ total bytes delivered. No cost savings are
           implied unless origin/CDN pricing is configured.
         </p>
@@ -128,28 +128,28 @@ export default function LiveChannelAnalyticsPage() {
           { label: 'Avg startup', value: a.avg_startup_ms ? `${a.avg_startup_ms} ms` : '—' },
           { label: 'Peak viewers / peers', value: `${a.peak_viewers} / ${a.peak_peers}` },
         ].map((s) => (
-          <div key={s.label} className="border p-4" style={{ borderColor: '#222', backgroundColor: '#111' }}>
-            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>{s.label}</p>
+          <div key={s.label} className="border p-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>{s.label}</p>
             <p className="mt-1 text-lg font-bold text-white">{s.value}</p>
           </div>
         ))}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <div className="border p-4" style={{ borderColor: '#222', backgroundColor: '#111' }}>
-          <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>
+        <div className="border p-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+          <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
             <Users size={12} /> Viewers now
           </p>
           <p className="mt-1 text-lg font-bold text-white">{a.current.viewers}</p>
         </div>
-        <div className="border p-4" style={{ borderColor: '#222', backgroundColor: '#111' }}>
-          <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>
+        <div className="border p-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+          <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
             <Wifi size={12} /> Peers now
           </p>
           <p className="mt-1 text-lg font-bold text-white">{a.current.peers}</p>
         </div>
-        <div className="border p-4" style={{ borderColor: '#222', backgroundColor: '#111' }}>
-          <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>
+        <div className="border p-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+          <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
             <Activity size={12} /> Segments served / failed
           </p>
           <p className="mt-1 text-lg font-bold text-white">{a.segments_served} / {a.segments_failed}</p>

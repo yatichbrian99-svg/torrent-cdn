@@ -9,7 +9,7 @@ export default function VerifyEmailPage() {
   return (
     <Suspense fallback={
       <div className="flex min-h-[80vh] items-center justify-center">
-        <Loader2 size={20} className="animate-spin" style={{ color: '#555' }} />
+        <Loader2 size={20} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
       </div>
     }>
       <VerifyEmailContent />
@@ -44,10 +44,10 @@ function VerifyEmailContent() {
 
   return (
     <div className="flex min-h-[80vh] items-center justify-center">
-      <div className="w-full max-w-sm border p-8 text-center" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+      <div className="w-full max-w-sm border p-8 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
         {status === 'loading' && (
           <>
-            <Loader2 size={32} className="mx-auto mb-4 animate-spin" style={{ color: '#555' }} />
+            <Loader2 size={32} className="mx-auto mb-4 animate-spin" style={{ color: 'var(--text-muted)' }} />
             <p className="text-sm text-white">Verifying your email...</p>
           </>
         )}
@@ -55,11 +55,11 @@ function VerifyEmailContent() {
           <>
             <CheckCircle size={32} className="mx-auto mb-4" style={{ color: '#4ade80' }} />
             <h2 className="mb-2 text-lg font-bold text-white">Email Verified</h2>
-            <p className="mb-6 text-sm" style={{ color: '#888' }}>{message}</p>
+            <p className="mb-6 text-sm" style={{ color: 'var(--text-soft)' }}>{message}</p>
             <button
               onClick={() => router.push('/dashboard')}
               className="border px-4 py-2 text-sm font-medium"
-              style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000' }}
+              style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)' }}
             >
               Go to Dashboard &rarr;
             </button>
@@ -69,11 +69,11 @@ function VerifyEmailContent() {
           <>
             <XCircle size={32} className="mx-auto mb-4" style={{ color: '#ef4444' }} />
             <h2 className="mb-2 text-lg font-bold text-white">Verification Failed</h2>
-            <p className="mb-6 text-sm" style={{ color: '#888' }}>{message}</p>
+            <p className="mb-6 text-sm" style={{ color: 'var(--text-soft)' }}>{message}</p>
             <button
               onClick={() => router.push('/dashboard')}
               className="border px-4 py-2 text-sm font-medium"
-              style={{ borderColor: '#fff', color: '#fff' }}
+              style={{ borderColor: 'var(--inverse-bg)', color: '#fff' }}
             >
               Back to Dashboard
             </button>

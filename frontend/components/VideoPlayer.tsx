@@ -260,28 +260,28 @@ export default function VideoPlayer({ fileId, onPeers }: { fileId: string; onPee
     }
   }, [fileData, fallbackToDirect, fileId])
 
-  if (loading) return <div className="flex aspect-video items-center justify-center border" style={{ borderColor: '#222', backgroundColor: '#111' }}><Loader2 size={20} className="animate-spin" style={{ color: '#555' }} /></div>
-  if (error || !fileData) return <div className="flex aspect-video items-center justify-center border" style={{ borderColor: '#222', backgroundColor: '#111' }}><p className="text-sm" style={{ color: '#555' }}>{error || 'Not found'}</p></div>
+  if (loading) return <div className="flex aspect-video items-center justify-center border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}><Loader2 size={20} className="animate-spin" style={{ color: 'var(--text-muted)' }} /></div>
+  if (error || !fileData) return <div className="flex aspect-video items-center justify-center border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}><p className="text-sm" style={{ color: 'var(--text-muted)' }}>{error || 'Not found'}</p></div>
 
   if (fileId === 'demo') {
     return (
-      <div className="border" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+      <div className="border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
         <div className="flex aspect-video items-center justify-center">
           <div className="text-center">
             <p className="text-sm font-medium text-white">Demo Player</p>
-            <p className="mt-1 text-xs" style={{ color: '#555' }}>Upload a file to see the real P2P player</p>
+            <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>Upload a file to see the real P2P player</p>
           </div>
         </div>
-        <div className="flex items-center justify-between border-t px-4 py-2" style={{ borderColor: '#222' }}>
-          <span className="font-mono text-xs" style={{ color: '#555' }}>preview mode</span>
-          <span className="flex items-center gap-1 font-mono text-xs" style={{ color: '#555' }}><Users size={12} /> 0 peers</span>
+        <div className="flex items-center justify-between border-t px-4 py-2" style={{ borderColor: 'var(--border)' }}>
+          <span className="font-mono text-xs" style={{ color: 'var(--text-muted)' }}>preview mode</span>
+          <span className="flex items-center gap-1 font-mono text-xs" style={{ color: 'var(--text-muted)' }}><Users size={12} /> 0 peers</span>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="border" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+    <div className="border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
       <div className="relative">
         <video ref={videoRef} className="aspect-video w-full" controls playsInline crossOrigin="anonymous" />
         {status === 'connecting' && (
@@ -290,10 +290,10 @@ export default function VideoPlayer({ fileId, onPeers }: { fileId: string; onPee
           </div>
         )}
       </div>
-      <div className="flex items-center justify-between border-t px-4 py-2" style={{ borderColor: '#222' }}>
-        <span className="text-sm" style={{ color: '#555' }}>{fileData.filename}</span>
-        <span className="flex items-center gap-1 font-mono text-sm" style={{ color: '#555' }}>
-          <span className="h-2 w-2" style={{ backgroundColor: peers > 0 ? '#fff' : '#333' }} />
+      <div className="flex items-center justify-between border-t px-4 py-2" style={{ borderColor: 'var(--border)' }}>
+        <span className="text-sm" style={{ color: 'var(--text-muted)' }}>{fileData.filename}</span>
+        <span className="flex items-center gap-1 font-mono text-sm" style={{ color: 'var(--text-muted)' }}>
+          <span className="h-2 w-2" style={{ backgroundColor: peers > 0 ? '#fff' : 'var(--border-strong)' }} />
           {peers} {peers === 1 ? 'peer' : 'peers'} {status === 'p2p' ? 'connected' : status === 'direct' ? '(direct)' : ''}
         </span>
       </div>

@@ -11,7 +11,7 @@ export default function UploadPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-10 select-none">
-      <a href="/dashboard" className="mb-6 inline-block text-sm transition-colors hover:text-white" style={{ color: '#666' }}>
+      <a href="/dashboard" className="mb-6 inline-block text-sm transition-colors hover:text-white" style={{ color: 'var(--text-dim)' }}>
         &larr; Dashboard
       </a>
       <h1 className="text-xl font-bold tracking-[-0.02em] text-white">Upload a file</h1>

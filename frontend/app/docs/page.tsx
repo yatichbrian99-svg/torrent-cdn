@@ -18,10 +18,10 @@ function CodeBlock({ code }: { code: string }) {
     setTimeout(() => setCopied(false), 2000)
   }
   return (
-    <div className="border p-3" style={{ backgroundColor: '#0c0c0c', borderColor: '#222' }}>
+    <div className="border p-3" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
       <div className="mb-2 flex items-center justify-between">
         <div className="terminal-dots"><span /><span /><span /></div>
-        <button onClick={handleCopy} className="flex items-center gap-1 text-xs" style={{ color: '#555', fontFamily: 'monospace' }}>
+        <button onClick={handleCopy} className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
           {copied ? <Check size={12} /> : <Copy size={12} />}
           {copied ? 'copied' : 'copy'}
         </button>
@@ -35,9 +35,9 @@ function CodeBlock({ code }: { code: string }) {
 
 function MethodBadge({ method }: { method: 'GET' | 'POST' | 'DELETE' }) {
   const colors: Record<string, { color: string; border: string }> = {
-    GET: { color: '#4ade80', border: '#1a3a1a' },
-    POST: { color: '#60a5fa', border: '#1a2a4a' },
-    DELETE: { color: '#f87171', border: '#3a1a1a' },
+    GET: { color: '#4ade80', border: 'var(--ok-chip-border)' },
+    POST: { color: '#60a5fa', border: 'var(--info-chip-border)' },
+    DELETE: { color: '#f87171', border: 'var(--err-chip-border)' },
   }
   const c = colors[method]
   return (
@@ -57,21 +57,21 @@ function Endpoint({
   response?: string
 }) {
   return (
-    <div id={url.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()} className="border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+    <div id={url.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()} className="border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <MethodBadge method={method} />
         <code className="text-sm text-white" style={{ fontFamily: 'monospace' }}>{url}</code>
       </div>
-      <p className="mb-4 text-sm leading-relaxed" style={{ color: '#555' }}>{desc}</p>
+      <p className="mb-4 text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>{desc}</p>
       {request && (
         <div className="mb-4">
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Request</p>
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Request</p>
           <CodeBlock code={request} />
         </div>
       )}
       {response && (
         <div>
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Response</p>
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Response</p>
           <CodeBlock code={response} />
         </div>
       )}
@@ -87,17 +87,17 @@ export default function DocsPage() {
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
       <h1 className="text-xl font-bold tracking-[-0.02em] text-white">API Reference</h1>
-      <p className="mt-2 text-sm" style={{ color: '#555' }}>
+      <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>
         Programmatic access to upload, manage, and analyze your media.
       </p>
 
       {/* 1. Introduction */}
       <section className="mt-10">
         <SectionTitle>1. Introduction</SectionTitle>
-        <div className="border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
-          <p className="mb-3 text-sm" style={{ color: '#555' }}>All endpoints use the following base URL:</p>
+        <div className="border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+          <p className="mb-3 text-sm" style={{ color: 'var(--text-muted)' }}>All endpoints use the following base URL:</p>
           <CodeBlock code={`${BASE_URL}`} />
-          <div className="mt-4 space-y-2 text-sm" style={{ color: '#555' }}>
+          <div className="mt-4 space-y-2 text-sm" style={{ color: 'var(--text-muted)' }}>
             <p><span className="font-bold text-white">Authentication:</span> Bearer token <em>or</em> API key in the <code className="text-white" style={{ fontFamily: 'monospace' }}>Authorization</code> header.</p>
             <p><span className="font-bold text-white">Format:</span> All requests and responses are JSON.</p>
             <p>Two credential types work: a short-lived token from <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /auth/login</code> (or <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /auth/register</code>) — issued after you pass the two-factor step (see section 2) — or an <span className="font-bold text-white">API key</span> created in your dashboard (<code className="text-white" style={{ fontFamily: 'monospace' }}>tcdn_…</code>). Keys are shown once at creation, stored only as a hash, and sent exactly like a token: <code className="text-white" style={{ fontFamily: 'monospace' }}>Authorization: Bearer tcdn_…</code>. Revoke or rotate them any time from the dashboard.</p>
@@ -139,7 +139,7 @@ export default function DocsPage() {
   "token_type": "bearer"
 }`}
           />
-          <p className="text-xs leading-relaxed" style={{ color: '#555' }}>
+          <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
             <code className="text-white" style={{ fontFamily: 'monospace' }}>needs_setup</code> is{' '}
             <code className="text-white" style={{ fontFamily: 'monospace' }}>false</code> when the account already has 2FA
             (the code step only), and <code className="text-white" style={{ fontFamily: 'monospace' }}>true</code> when the
@@ -147,16 +147,16 @@ export default function DocsPage() {
             these endpoints return <code className="text-white" style={{ fontFamily: 'monospace' }}>{`{"access_token", "token_type"}`}</code>{' '}
 as before.
           </p>
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Start login — returns the second-factor step (complete it via /auth/mfa/confirm)</p>
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Start login — returns the second-factor step (complete it via /auth/mfa/confirm)</p>
           <CodeBlock code={`curl -X POST ${BASE_URL}/auth/login \\
   -H "Content-Type: application/json" \\
   -d '{"email":"you@example.com","password":"yourpassword1"}'
 # → {"mfa_required":true,"mfa_token":"<mfa>","needs_setup":false,"token_type":"bearer"}`} />
 
           {/* Mandatory two-factor authentication */}
-          <div className="border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+          <div className="border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
             <h3 className="mb-3 text-sm font-bold uppercase tracking-widest text-white">Mandatory two-factor authentication</h3>
-            <div className="space-y-3 text-sm leading-relaxed" style={{ color: '#888' }}>
+            <div className="space-y-3 text-sm leading-relaxed" style={{ color: 'var(--text-soft)' }}>
               <p>
                 Two-factor authentication (2FA) is <span className="font-bold text-white">required for every account</span>.
                 You enroll an authenticator app (Google Authenticator, Authy, 1Password, …) once, and every sign-in asks for a
@@ -175,7 +175,7 @@ as before.
                 with a code. The token expires in ~5 minutes.
               </p>
               <p>The three-step API flow is:</p>
-              <ol className="list-decimal space-y-1 pl-5" style={{ color: '#888' }}>
+              <ol className="list-decimal space-y-1 pl-5" style={{ color: 'var(--text-soft)' }}>
                 <li>
                   <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /auth/register</code> (or{' '}
                   <code className="text-white" style={{ fontFamily: 'monospace' }}>/auth/login</code>) →{' '}
@@ -221,7 +221,7 @@ as before.
   "token_type": "bearer"
 }`}
           />
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Full enrollment flow (3 calls)</p>
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Full enrollment flow (3 calls)</p>
           <CodeBlock code={`# 1. Create the account — no session yet, just an mfa_token
 curl -X POST ${BASE_URL}/auth/register \\
   -H "Content-Type: application/json" \\
@@ -236,7 +236,7 @@ curl -X POST ${BASE_URL}/auth/mfa/setup \\
 curl -X POST ${BASE_URL}/auth/mfa/confirm \\
   -H "Content-Type: application/json" \\
   -d '{"mfa_token":"<mfa>","code":"123456"}'`} />
-          <p className="text-xs leading-relaxed" style={{ color: '#555' }}>
+          <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
             Already enrolled? Login returns <code className="text-white" style={{ fontFamily: 'monospace' }}>needs_setup: false</code>{' '}
             and you skip straight to the code step. Manage 2FA from the dashboard:{' '}
             <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /auth/mfa/enable</code> after setup, or{' '}
@@ -244,7 +244,7 @@ curl -X POST ${BASE_URL}/auth/mfa/confirm \\
             (you will be asked to re-enroll at your next sign-in). Losing your authenticator is what the backup codes are for
             — each is single-use and can never be shown again.
           </p>
-          <div className="border p-5" style={{ borderColor: '#553333', backgroundColor: '#1a0d0d' }}>
+          <div className="border p-5" style={{ borderColor: 'var(--danger-border)', backgroundColor: 'var(--err-chip-bg)' }}>
             <h4 className="mb-2 text-[10px] font-bold uppercase tracking-widest" style={{ color: '#f87171' }}>
               Lost your authenticator?
             </h4>
@@ -263,8 +263,8 @@ curl -X POST ${BASE_URL}/auth/mfa/confirm \\
       {/* 3. Upload File */}
       <section className="mt-10">
         <SectionTitle>3. Upload File</SectionTitle>
-        <div className="mb-4 border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
-          <p className="text-sm leading-relaxed" style={{ color: '#555' }}>
+        <div className="mb-4 border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>
             Two ways to upload. <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /upload</code> sends the file through the API proxy — simple, but the proxy caps request bodies at ~4.5MB, so it only suits small files. For anything real (video), use the <span className="font-bold text-white">presigned flow</span>: <code className="text-white" style={{ fontFamily: 'monospace' }}>presign</code> → PUT the file bytes <span className="font-bold text-white">directly to storage</span> (never through the proxy) → <code className="text-white" style={{ fontFamily: 'monospace' }}>finalize</code>.
           </p>
         </div>
@@ -286,7 +286,7 @@ Body:
 }`}
         />
         <div className="mt-4">
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>curl example</p>
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>curl example</p>
           <CodeBlock code={`curl -X POST ${BASE_URL}/upload \\
   -H "Authorization: Bearer <YOUR_TOKEN>" \\
   -F "file=@video.mp4"`} />
@@ -299,9 +299,9 @@ Body:
           response={`{\n  \"upload_id\": \"3fa85f64-5717-4562-b3fc-2c963f66afa6\",\n  \"presigned_url\": \"https://<project>.supabase.co/storage/v1/s3/...?X-Amz-Signature=...\",\n  \"object_key\": \"<user-id>/3fa85f64-.../video.mp4\",\n  \"content_type\": \"video/mp4\",\n  \"expires_in\": 900,\n  \"result\": null\n}`}
         />
         <div className="mt-4">
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Step 2 — PUT the file bytes straight to storage</p>
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Step 2 — PUT the file bytes straight to storage</p>
           <CodeBlock code={`curl -X PUT \"<presigned_url>\" -H \"Content-Type: video/mp4\" --data-binary @video.mp4`} />
-          <p className="mt-2 text-xs" style={{ color: '#444' }}>
+          <p className="mt-2 text-xs" style={{ color: 'var(--text-faint)' }}>
             No Authorization header here — the signature is in the URL. The Content-Type must exactly match the value returned by presign.
           </p>
         </div>
@@ -394,8 +394,8 @@ Body:
       {/* 8. Embed */}
       <section className="mt-10">
         <SectionTitle>8. Embed</SectionTitle>
-        <div className="border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
-          <p className="mb-3 text-sm" style={{ color: '#555' }}>
+        <div className="border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+          <p className="mb-3 text-sm" style={{ color: 'var(--text-muted)' }}>
             Drop the SDK script on your page and add a single div. The player auto-mounts and streams via P2P.
           </p>
           <CodeBlock code={`<!-- Add to your HTML -->

@@ -13,10 +13,10 @@ export default function EmbedCode({ fileId }: { fileId: string }) {
   const handleCopy = async () => { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2000) }
 
   return (
-    <div className="border p-3" style={{ backgroundColor: '#0c0c0c', borderColor: '#222' }}>
+    <div className="border p-3" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
       <div className="mb-2 flex items-center justify-between">
         <div className="terminal-dots"><span /><span /><span /></div>
-        <button onClick={handleCopy} className="flex items-center gap-1 text-xs" style={{ color: '#555', fontFamily: 'monospace' }}>
+        <button onClick={handleCopy} className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
           {copied ? <Check size={12} /> : <Copy size={12} />}
           {copied ? 'copied' : 'copy'}
         </button>

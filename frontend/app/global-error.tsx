@@ -14,7 +14,7 @@ export default function GlobalError({
 }) {
   return (
     <html lang="en">
-      <body style={{ backgroundColor: '#000', color: '#fff', minHeight: '100vh', margin: 0, fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', WebkitFontSmoothing: 'antialiased' }}>
+      <body style={{ backgroundColor: 'var(--bg-primary)', color: '#fff', minHeight: '100vh', margin: 0, fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', WebkitFontSmoothing: 'antialiased' }}>
         <div
           style={{
             minHeight: '100vh',
@@ -43,15 +43,15 @@ export default function GlobalError({
             <h1 style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', margin: '0 0 8px' }}>
               Something went wrong
             </h1>
-            <p style={{ fontSize: 13, color: '#555555', lineHeight: 1.6, margin: '0 0 24px' }}>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 24px' }}>
               A transient error interrupted the page load. This usually clears on
               refresh — your files and account are unaffected.
             </p>
             <button
               onClick={reset}
               style={{
-                backgroundColor: '#fff',
-                color: '#000',
+                backgroundColor: 'var(--inverse-bg)',
+                color: 'var(--bg-primary)',
                 border: 'none',
                 borderRadius: '8px',
                 padding: '10px 22px',
@@ -63,7 +63,7 @@ export default function GlobalError({
             >
               Reload page
             </button>
-            <p style={{ fontSize: 11, color: '#333333', marginTop: 20 }}>
+            <p style={{ fontSize: 11, color: 'var(--border-strong)', marginTop: 20 }}>
               Still stuck? Hard-refresh (Ctrl/Cmd + Shift + R) to pull the latest build.
             </p>
           </div>

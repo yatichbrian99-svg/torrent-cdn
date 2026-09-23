@@ -6,6 +6,7 @@ import { Bell } from 'lucide-react'
 import { isLoggedIn, removeToken } from '@/lib/auth'
 import api from '@/lib/api'
 import AuthModal from './AuthModal'
+import ThemeToggle from './ThemeToggle'
 
 interface Notification {
   id: string
@@ -77,43 +78,44 @@ export default function Navbar() {
 
   return (
     <>
-      <nav className="fixed top-0 z-50 flex h-12 w-full items-center border-b" style={{ borderColor: '#222', backgroundColor: '#000' }}>
+      <nav className="fixed top-0 z-50 flex h-12 w-full items-center border-b" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-primary)' }}>
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4">
           <a href="/" className="font-mono text-sm font-medium text-white">TorrentCDN</a>
 
           <div className="flex items-center gap-4">
-            <a href="/docs" className="text-sm transition-colors hover:text-white" style={{ color: '#555' }}>Docs</a>
+            <ThemeToggle />
+            <a href="/docs" className="text-sm transition-colors hover:text-white" style={{ color: 'var(--text-muted)' }}>Docs</a>
             {loggedIn && (
               <>
-                <a href="/dashboard" className="text-sm" style={{ color: '#555' }}>Dashboard</a>
-                <a href="/live" className="text-sm" style={{ color: '#555' }}>Live</a>
-                <a href="/billing" className="text-sm" style={{ color: '#555' }}>Billing</a>
+                <a href="/dashboard" className="text-sm" style={{ color: 'var(--text-muted)' }}>Dashboard</a>
+                <a href="/live" className="text-sm" style={{ color: 'var(--text-muted)' }}>Live</a>
+                <a href="/billing" className="text-sm" style={{ color: 'var(--text-muted)' }}>Billing</a>
                 {user?.is_admin && (
-                  <a href="/admin" className="text-sm" style={{ color: '#555' }}>Admin</a>
+                  <a href="/admin" className="text-sm" style={{ color: 'var(--text-muted)' }}>Admin</a>
                 )}
                 <div className="relative" ref={notifRef}>
                   <button onClick={() => setShowNotifs((s) => !s)} className="relative p-1 transition-opacity hover:opacity-80" aria-label="Notifications">
-                    <Bell size={16} style={{ color: '#555' }} />
+                    <Bell size={16} style={{ color: 'var(--text-muted)' }} />
                     {unreadCount > 0 && (
                       <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full" style={{ backgroundColor: '#ef4444' }} />
                     )}
                   </button>
                   {showNotifs && (
-                    <div className="absolute right-0 top-8 z-50 max-h-96 w-80 overflow-y-auto border" style={{ backgroundColor: '#0c0c0c', borderColor: '#222' }}>
-                      <div className="border-b px-4 py-2" style={{ borderColor: '#222' }}>
-                        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Notifications</p>
+                    <div className="absolute right-0 top-8 z-50 max-h-96 w-80 overflow-y-auto border" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
+                      <div className="border-b px-4 py-2" style={{ borderColor: 'var(--border)' }}>
+                        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Notifications</p>
                       </div>
                       {notifications.length === 0 ? (
-                        <p className="px-4 py-6 text-center text-xs" style={{ color: '#555' }}>No notifications</p>
+                        <p className="px-4 py-6 text-center text-xs" style={{ color: 'var(--text-muted)' }}>No notifications</p>
                       ) : (
                         notifications.map((n) => (
-                          <div key={n.id} className="border-b px-4 py-3" style={{ borderColor: '#222' }}>
-                            <p className={`text-xs leading-relaxed ${n.read ? '' : 'font-medium text-white'}`} style={n.read ? { color: '#666' } : {}}>
+                          <div key={n.id} className="border-b px-4 py-3" style={{ borderColor: 'var(--border)' }}>
+                            <p className={`text-xs leading-relaxed ${n.read ? '' : 'font-medium text-white'}`} style={n.read ? { color: 'var(--text-dim)' } : {}}>
                               {n.message}
                             </p>
                             <div className="mt-2 flex items-center gap-3">
                               {!n.read && (
-                                <button onClick={() => handleMarkRead(n.id)} className="text-[10px] uppercase tracking-widest transition-colors hover:text-white" style={{ color: '#888', fontFamily: 'monospace' }}>
+                                <button onClick={() => handleMarkRead(n.id)} className="text-[10px] uppercase tracking-widest transition-colors hover:text-white" style={{ color: 'var(--text-soft)', fontFamily: 'monospace' }}>
                                   Mark read
                                 </button>
                               )}
@@ -127,14 +129,14 @@ export default function Navbar() {
                     </div>
                   )}
                 </div>
-                <span className="text-sm" style={{ color: '#555' }}>{user?.email}</span>
-                <button onClick={handleLogout} className="border px-3 py-1 text-sm" style={{ borderColor: '#222', color: '#555' }}>Logout</button>
+                <span className="text-sm" style={{ color: 'var(--text-muted)' }}>{user?.email}</span>
+                <button onClick={handleLogout} className="border px-3 py-1 text-sm" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>Logout</button>
               </>
             )}
             {!loggedIn && (
               <>
-                <button onClick={() => setShowAuth(true)} className="text-sm" style={{ color: '#555' }}>Login</button>
-                <button onClick={() => setShowAuth(true)} className="border px-3 py-1 text-sm font-medium" style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000' }}>Sign up</button>
+                <button onClick={() => setShowAuth(true)} className="text-sm" style={{ color: 'var(--text-muted)' }}>Login</button>
+                <button onClick={() => setShowAuth(true)} className="border px-3 py-1 text-sm font-medium" style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)' }}>Sign up</button>
               </>
             )}
           </div>

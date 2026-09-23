@@ -57,6 +57,14 @@ services:
       # limit bucket). Set the SAME value on the Vercel project.
       - key: EDGE_PROXY_AUTH
         sync: false
+      # Shared secret between this backend and the MediaMTX edge (auth hook URL
+      # + runOnReady/notReady/ingest/shutdown hooks). The internal live hooks
+      # FAIL CLOSED without it in production (they are internet-reachable on
+      # Render; the edge-marker guard does not cover direct requests). Copy the
+      # generated value into the media-edge env (deploy/oracle bootstrap prints
+      # where; docker-compose reads the same name from .env).
+      - key: MEDIAMTX_HOOK_SECRET
+        generateValue: true
       # ── Live streaming public endpoints ──────────────────────────────────
       # The dashboard builds the OBS setup card (RTMP server, HLS playback URL)
       # from these. Unset, the code falls back to localhost defaults — which is

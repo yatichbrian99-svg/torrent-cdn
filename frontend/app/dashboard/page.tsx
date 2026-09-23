@@ -228,16 +228,16 @@ export default function DashboardPage() {
     <div className="mx-auto max-w-5xl px-6 py-10 select-none">
       {/* Email verification banner */}
       {verified === false && (
-        <div className="mb-6 flex items-center gap-3 border px-4 py-3" style={{ borderColor: '#333', backgroundColor: '#1a1a1a' }}>
+        <div className="mb-6 flex items-center gap-3 border px-4 py-3" style={{ borderColor: 'var(--border-strong)', backgroundColor: 'var(--bg-hover)' }}>
           <Mail size={16} style={{ color: '#fbbf24' }} />
-          <p className="flex-1 text-xs" style={{ color: '#ccc' }}>
+          <p className="flex-1 text-xs" style={{ color: 'var(--text-soft)' }}>
             Please verify your email address to unlock all features.
           </p>
           <button
             onClick={handleResend}
             disabled={resending}
             className="border px-3 py-1 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
-            style={{ borderColor: '#555', color: '#fff' }}
+            style={{ borderColor: 'var(--text-muted)', color: '#fff' }}
           >
             {resending ? 'Sending...' : 'Resend email'}
           </button>
@@ -247,9 +247,9 @@ export default function DashboardPage() {
         </div>
       )}
       {verified === true && (
-        <div className="mb-6 flex items-center gap-3 border px-4 py-3" style={{ borderColor: '#1a3a1a', backgroundColor: '#0d1f0d' }}>
+        <div className="mb-6 flex items-center gap-3 border px-4 py-3" style={{ borderColor: 'var(--ok-chip-border)', backgroundColor: 'var(--ok-chip-bg)' }}>
           <ShieldCheck size={16} style={{ color: '#4ade80' }} />
-          <p className="flex-1 text-xs" style={{ color: '#86efac' }}>
+          <p className="flex-1 text-xs" style={{ color: 'var(--ok-chip-text)' }}>
             Email verified
           </p>
         </div>
@@ -257,13 +257,13 @@ export default function DashboardPage() {
 
       {/* Files load error banner */}
       {error && (
-        <div className="mb-6 flex items-center gap-3 border px-4 py-3" style={{ borderColor: '#331111', backgroundColor: '#1a0d0d' }}>
+        <div className="mb-6 flex items-center gap-3 border px-4 py-3" style={{ borderColor: 'var(--err-chip-border)', backgroundColor: 'var(--err-chip-bg)' }}>
           <AlertTriangle size={16} style={{ color: '#ef4444' }} />
           <p className="flex-1 text-xs" style={{ color: '#fca5a5' }}>{error}</p>
           <button
             onClick={loadFiles}
             className="border px-3 py-1 text-xs font-medium transition-opacity hover:opacity-80"
-            style={{ borderColor: '#7f1d1d', color: '#fff' }}
+            style={{ borderColor: 'var(--danger-bg)', color: '#fff' }}
           >
             Refresh
           </button>
@@ -274,7 +274,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-xl font-bold tracking-[-0.02em] text-white">Your Files</h1>
         </div>
-        <a href="/dashboard/upload" className="border px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80" style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000' }}>
+        <a href="/dashboard/upload" className="border px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80" style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)' }}>
           Upload file &rarr;
         </a>
       </div>
@@ -282,13 +282,13 @@ export default function DashboardPage() {
       {/* Live Streaming — entry point to the live channel manager. The navbar
           has a small "Live" link, but this card makes the feature discoverable
           from the dashboard itself (it was previously invisible here). */}
-      <div className="mb-8 border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+      <div className="mb-8 border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Radio size={16} style={{ color: '#555' }} />
+            <Radio size={16} style={{ color: 'var(--text-muted)' }} />
             <div>
-              <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Live Streaming</p>
-              <p className="mt-1 text-sm" style={{ color: '#555' }}>
+              <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Live Streaming</p>
+              <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>
                 Go live from OBS — P2P-assisted delivery with automatic origin fallback.
               </p>
             </div>
@@ -296,7 +296,7 @@ export default function DashboardPage() {
           <a
             href="/live"
             className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80"
-            style={{ borderColor: '#fff', color: '#fff' }}
+            style={{ borderColor: 'var(--inverse-bg)', color: '#fff' }}
           >
             Manage channels &rarr;
           </a>
@@ -305,11 +305,11 @@ export default function DashboardPage() {
 
       {/* API Key — real tcdn_ key: plaintext is shown exactly once at creation
           and stored only as a hash server-side (never recoverable again). */}
-      <div className="mb-8 border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+      <div className="mb-8 border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>API Key</p>
-            <p className="mt-1 text-sm" style={{ color: '#555' }}>
+            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>API Key</p>
+            <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>
               {apiKey?.api_key
                 ? 'Authenticate API requests with: Authorization: Bearer <key>'
                 : 'Generate a key to use the REST API programmatically.'}
@@ -320,7 +320,7 @@ export default function DashboardPage() {
               onClick={handleRevokeKey}
               disabled={revokingKey}
               className="border px-4 py-2 text-xs transition-opacity hover:opacity-80 disabled:opacity-50"
-              style={{ borderColor: '#553333', color: '#ef4444' }}
+              style={{ borderColor: 'var(--danger-border)', color: '#ef4444' }}
             >
               {revokingKey ? <Loader2 size={12} className="animate-spin" /> : 'Revoke'}
             </button>
@@ -329,7 +329,7 @@ export default function DashboardPage() {
               onClick={handleGenerateKey}
               disabled={generatingKey}
               className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
-              style={{ borderColor: '#fff', color: '#fff' }}
+              style={{ borderColor: 'var(--inverse-bg)', color: '#fff' }}
             >
               {generatingKey ? <Loader2 size={12} className="animate-spin" /> : 'Generate API key'}
             </button>
@@ -339,13 +339,13 @@ export default function DashboardPage() {
         {apiKey?.api_key ? (
           <>
             <div className="mt-3 flex items-center gap-2">
-              <code className="flex-1 border px-3 py-2 font-mono text-xs text-white" style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}>
+              <code className="flex-1 border px-3 py-2 font-mono text-xs text-white" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}>
                 {apiKey.api_key}
               </code>
               <button
                 onClick={handleCopyKey}
                 className="border px-3 py-2 text-xs transition-opacity hover:opacity-80"
-                style={{ borderColor: '#333', color: '#555' }}
+                style={{ borderColor: 'var(--border-strong)', color: 'var(--text-muted)' }}
               >
                 {copiedKey ? <><Check size={12} className="inline" style={{ color: '#4ade80' }} /> Copied</> : 'Copy'}
               </button>
@@ -355,7 +355,7 @@ export default function DashboardPage() {
             </p>
           </>
         ) : apiKey?.prefix ? (
-          <p className="mt-3 text-xs" style={{ color: '#555' }}>
+          <p className="mt-3 text-xs" style={{ color: 'var(--text-muted)' }}>
             Current key: <code className="font-mono text-white">{apiKey.prefix}</code>
             {apiKey.created_at ? ` (created ${new Date(apiKey.created_at).toLocaleDateString()})` : ''}.
             Generating a new key revokes the old one.
@@ -365,13 +365,13 @@ export default function DashboardPage() {
 
       {/* Two-Factor Authentication — TOTP; setup shows the QR/secret/backup
           codes once, then verifies possession before the flag flips. */}
-      <div className="mb-8 border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+      <div className="mb-8 border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <KeyRound size={16} style={{ color: '#555' }} />
+            <KeyRound size={16} style={{ color: 'var(--text-muted)' }} />
             <div>
-              <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Two-Factor Authentication</p>
-              <p className="mt-1 text-sm" style={{ color: '#555' }}>
+              <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Two-Factor Authentication</p>
+              <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>
                 {mfa?.enabled
                   ? 'Enabled — signing in requires a code from your authenticator app.'
                   : 'Required for all accounts — signing in prompts you to set up the authenticator.'}
@@ -383,7 +383,7 @@ export default function DashboardPage() {
               onClick={handleMfaSetup}
               disabled={mfaBusy}
               className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
-              style={{ borderColor: '#fff', color: '#fff' }}
+              style={{ borderColor: 'var(--inverse-bg)', color: '#fff' }}
             >
               {mfaBusy ? <Loader2 size={12} className="animate-spin" /> : 'Set up'}
             </button>
@@ -407,7 +407,7 @@ export default function DashboardPage() {
             reminding until the user mints a fresh set. */}
         {mfa?.enabled && !mfa.backup_codes_remaining && (
           <p className="mt-2 flex items-start gap-2 border px-3 py-2 text-xs leading-relaxed"
-            style={{ borderColor: '#7c2d12', backgroundColor: '#1c0f06', color: '#fbbf24' }}>
+            style={{ borderColor: '#7c2d12', backgroundColor: 'var(--warn-chip-bg)', color: '#fbbf24' }}>
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
             You've used all your backup codes. If you lose your authenticator app, you won't be
             able to sign in. Disable and re-enable two-factor authentication to generate a fresh set.
@@ -415,18 +415,18 @@ export default function DashboardPage() {
         )}
 
         {mfaSetup && !mfa?.enabled && (
-          <div className="mt-4 border p-4" style={{ borderColor: '#333', backgroundColor: '#0c0c0c' }}>
-            <p className="text-xs" style={{ color: '#888' }}>
+          <div className="mt-4 border p-4" style={{ borderColor: 'var(--border-strong)', backgroundColor: 'var(--bg-secondary)' }}>
+            <p className="text-xs" style={{ color: 'var(--text-soft)' }}>
               1. Scan this QR code with your authenticator app (Google Authenticator, Authy, 1Password…)
               or copy the otpauth link and enter the secret manually.
             </p>
             <div className="mt-3 flex items-start gap-4">
               {mfaSetup.qr && (
                 <img src={mfaSetup.qr} alt="TOTP QR code" width={180} height={180}
-                  className="border" style={{ backgroundColor: '#fff' }} />
+                  className="border" style={{ backgroundColor: 'var(--inverse-bg)' }} />
               )}
               <div className="flex-1">
-                <p className="text-[11px] uppercase tracking-widest" style={{ color: '#555' }}>Secret</p>
+                <p className="text-[11px] uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Secret</p>
                 <code className="block font-mono text-xs text-white" style={{ wordBreak: 'break-all' }}>
                   {mfaSetup.secret}
                 </code>
@@ -437,7 +437,7 @@ export default function DashboardPage() {
                     setTimeout(() => setCopiedUri(false), 2000)
                   }}
                   className="mt-2 border px-2 py-1 text-[11px] transition-opacity hover:opacity-80"
-                  style={{ borderColor: '#333', color: '#555' }}
+                  style={{ borderColor: 'var(--border-strong)', color: 'var(--text-muted)' }}
                 >
                   {copiedUri ? <><Check size={12} className="inline" style={{ color: '#4ade80' }} /> Copied</> : 'Copy otpauth link'}
                 </button>
@@ -449,7 +449,7 @@ export default function DashboardPage() {
             <div className="mt-2 grid grid-cols-2 gap-1 sm:grid-cols-5">
               {mfaSetup.backup_codes.map((c) => (
                 <code key={c} className="border px-2 py-1 text-center font-mono text-[11px]"
-                  style={{ borderColor: '#333', color: '#ccc' }}>
+                  style={{ borderColor: 'var(--border-strong)', color: 'var(--text-soft)' }}>
                   {c}
                 </code>
               ))}
@@ -462,17 +462,17 @@ export default function DashboardPage() {
                 onChange={(e) => setMfaCode(e.target.value)}
                 placeholder="6-digit code"
                 className="w-40 border px-3 py-2 text-sm text-white"
-                style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}
+                style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
               />
               <button
                 onClick={handleMfaEnable}
                 disabled={mfaBusy}
                 className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
-                style={{ borderColor: '#fff', color: '#fff' }}
+                style={{ borderColor: 'var(--inverse-bg)', color: '#fff' }}
               >
                 {mfaBusy ? <Loader2 size={12} className="animate-spin" /> : 'Enable'}
               </button>
-              <p className="text-[11px]" style={{ color: '#888' }}>
+              <p className="text-[11px]" style={{ color: 'var(--text-soft)' }}>
                 You'll be signed out and must sign in with your code after enabling.
               </p>
             </div>
@@ -489,13 +489,13 @@ export default function DashboardPage() {
                 onChange={(e) => setMfaCode(e.target.value)}
                 placeholder="Current code"
                 className="w-40 border px-3 py-2 text-sm text-white"
-                style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}
+                style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
               />
               <button
                 onClick={handleMfaDisable}
                 disabled={mfaBusy}
                 className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
-                style={{ borderColor: '#553333', color: '#ef4444' }}
+                style={{ borderColor: 'var(--danger-border)', color: '#ef4444' }}
               >
                 {mfaBusy ? <Loader2 size={12} className="animate-spin" /> : 'Disable'}
               </button>
@@ -511,16 +511,16 @@ export default function DashboardPage() {
       </div>
 
       {/* Referral */}
-      <div className="mb-8 border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+      <div className="mb-8 border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
         <div className="flex items-center gap-3">
-          <Users size={16} style={{ color: '#555' }} />
+          <Users size={16} style={{ color: 'var(--text-muted)' }} />
           <div>
-            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Refer a friend</p>
-            <p className="mt-1 text-sm" style={{ color: '#555' }}>You earn <span className="font-medium text-white">10GB</span> for each friend who signs up. They get <span className="font-medium text-white">5GB</span> free.</p>
+            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Refer a friend</p>
+            <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>You earn <span className="font-medium text-white">10GB</span> for each friend who signs up. They get <span className="font-medium text-white">5GB</span> free.</p>
           </div>
         </div>
         <div className="mt-3 flex items-center gap-2">
-          <code className="flex-1 border px-3 py-2 font-mono text-xs text-white" style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}>
+          <code className="flex-1 border px-3 py-2 font-mono text-xs text-white" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}>
             {referralUrl || 'Loading...'}
           </code>
           <button
@@ -531,20 +531,20 @@ export default function DashboardPage() {
               setTimeout(() => setCopiedRef(false), 2000)
             }}
             className="border px-3 py-2 text-xs transition-opacity hover:opacity-80"
-            style={{ borderColor: '#333', color: '#555' }}
+            style={{ borderColor: 'var(--border-strong)', color: 'var(--text-muted)' }}
           >
             {copiedRef ? <><Copy size={12} className="inline" style={{ color: '#4ade80' }} /> Copied</> : 'Copy'}
           </button>
         </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div className="border p-4" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
-            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>
+          <div className="border p-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
+            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
               <Users size={12} /> Friends referred
             </p>
             <p className="mt-1 text-lg font-bold text-white">{referral?.total_referrals ?? 0}</p>
           </div>
-          <div className="border p-4" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
-            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>
+          <div className="border p-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
+            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
               <Gift size={12} /> Bonus earned
             </p>
             <p className="mt-1 text-lg font-bold text-white">{referral?.bonus_gb_earned ?? 0} GB</p>
@@ -553,20 +553,20 @@ export default function DashboardPage() {
       </div>
 
       {/* Delete Account */}
-      <div className="mb-8 border p-5" style={{ borderColor: '#331111', backgroundColor: '#110808' }}>
+      <div className="mb-8 border p-5" style={{ borderColor: 'var(--err-chip-border)', backgroundColor: 'var(--err-chip-bg)' }}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <AlertTriangle size={16} style={{ color: '#ef4444' }} />
             <div>
               <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#ef4444', fontFamily: 'monospace' }}>Danger Zone</p>
-              <p className="mt-1 text-sm" style={{ color: '#888' }}>Permanently delete your account and all associated data. This cannot be undone.</p>
+              <p className="mt-1 text-sm" style={{ color: 'var(--text-soft)' }}>Permanently delete your account and all associated data. This cannot be undone.</p>
             </div>
           </div>
           <button
             onClick={handleDeleteAccount}
             disabled={deletingAccount}
             className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
-            style={{ borderColor: deleteAccountConfirm ? '#ef4444' : '#553333', backgroundColor: deleteAccountConfirm ? '#7f1d1d' : 'transparent', color: '#ef4444' }}
+            style={{ borderColor: deleteAccountConfirm ? '#ef4444' : 'var(--danger-border)', backgroundColor: deleteAccountConfirm ? 'var(--danger-bg)' : 'transparent', color: '#ef4444' }}
           >
             {deletingAccount ? 'Deleting...' : deleteAccountConfirm ? 'Click again to confirm' : 'Delete account'}
           </button>
@@ -579,43 +579,43 @@ export default function DashboardPage() {
           { label: 'Bandwidth saved', value: `${totalBW.toFixed(2)} GB` },
           { label: 'Avg P2P offload', value: `${avgP2P.toFixed(1)}%` },
         ].map((s) => (
-          <div key={s.label} className="border p-4" style={{ borderColor: '#222', backgroundColor: '#111' }}>
-            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>{s.label}</p>
+          <div key={s.label} className="border p-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>{s.label}</p>
             <p className="mt-1 text-lg font-bold text-white">{s.value}</p>
           </div>
         ))}
       </div>
 
       {/* Bandwidth Usage Graph */}
-      <div className="mb-10 border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+      <div className="mb-10 border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Activity size={14} style={{ color: '#555' }} />
-            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>
+            <Activity size={14} style={{ color: 'var(--text-muted)' }} />
+            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
               Bandwidth Usage — Last 7 Days
             </p>
           </div>
-          <p className="text-xs" style={{ color: '#555' }}>
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
             Total (last 7 days): <span className="font-medium text-white">{totalBandwidth7d.toFixed(2)} GB</span>
           </p>
         </div>
         {allZero || bandwidth.length === 0 ? (
-          <div className="flex h-[200px] items-center justify-center border" style={{ borderColor: '#222' }}>
-            <p className="text-sm" style={{ color: '#555' }}>No data yet — upload a file to see usage</p>
+          <div className="flex h-[200px] items-center justify-center border" style={{ borderColor: 'var(--border)' }}>
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No data yet — upload a file to see usage</p>
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={bandwidth}>
-              <CartesianGrid stroke="#111" />
+              <CartesianGrid stroke='var(--bg-card)' />
               <XAxis
                 dataKey="date"
-                stroke="#222"
-                tick={{ fill: '#555', fontSize: 11 }}
+                stroke='var(--border)'
+                tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
                 tickFormatter={(v: string) => v.slice(5)}
               />
-              <YAxis stroke="#222" tick={{ fill: '#555', fontSize: 11 }} tickFormatter={(v: number) => `${v} GB`} />
+              <YAxis stroke='var(--border)' tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={(v: number) => `${v} GB`} />
               <Tooltip
-                contentStyle={{ backgroundColor: '#111', border: '1px solid #222', color: '#fff' }}
+                contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid #222', color: '#fff' }}
                 labelStyle={{ color: '#fff' }}
                 itemStyle={{ color: '#fff' }}
                 // recharts 3 types: value can be undefined/unknown — coerce safely.
@@ -628,20 +628,20 @@ export default function DashboardPage() {
       </div>
 
       {loading ? (
-        <div className="flex h-40 items-center justify-center border" style={{ borderColor: '#222' }}>
-          <Loader2 size={20} className="animate-spin" style={{ color: '#555' }} />
+        <div className="flex h-40 items-center justify-center border" style={{ borderColor: 'var(--border)' }}>
+          <Loader2 size={20} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
         </div>
       ) : !error && files.length === 0 ? (
-        <div className="border p-16 text-center" style={{ borderColor: '#222', backgroundColor: '#111' }}>
-          <Upload size={24} className="mx-auto mb-3" style={{ color: '#555' }} />
+        <div className="border p-16 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+          <Upload size={24} className="mx-auto mb-3" style={{ color: 'var(--text-muted)' }} />
           <p className="text-sm text-white">No files yet.</p>
-          <a href="/dashboard/upload" className="mt-4 inline-block border px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80" style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000' }}>
+          <a href="/dashboard/upload" className="mt-4 inline-block border px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80" style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)' }}>
             Upload your first file &rarr;
           </a>
         </div>
       ) : files.length > 0 ? (
         <div>
-          <div className="flex items-center gap-6 border-b px-4 py-2 text-xs font-bold uppercase tracking-widest" style={{ borderColor: '#222', color: '#555', fontFamily: 'monospace' }}>
+          <div className="flex items-center gap-6 border-b px-4 py-2 text-xs font-bold uppercase tracking-widest" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
             <div className="flex-1">Filename</div><div className="w-16">Size</div><div className="w-12">Views</div><div className="w-24">P2P%</div><div className="w-20">Saved</div><div className="w-28">Actions</div>
           </div>
           {files.map((file) => <FileCard key={file.id} file={file} onDelete={handleDelete} />)}

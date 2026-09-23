@@ -116,8 +116,8 @@ export default function AdminHealthPage() {
   if (loading) return (
     <div className="flex min-h-[70vh] items-center justify-center select-none">
       <div className="flex flex-col items-center gap-4">
-        <Loader2 size={24} className="animate-spin" style={{ color: '#555' }} />
-        <p className="text-xs tracking-widest uppercase" style={{ color: '#444' }}>Checking systems</p>
+        <Loader2 size={24} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
+        <p className="text-xs tracking-widest uppercase" style={{ color: 'var(--text-faint)' }}>Checking systems</p>
       </div>
     </div>
   )
@@ -128,7 +128,7 @@ export default function AdminHealthPage() {
         <ShieldAlert size={20} style={{ color: '#ff6b6b' }} />
       </div>
       <p className="text-sm mb-1" style={{ color: '#ff6b6b' }}>{error}</p>
-      <p className="text-xs" style={{ color: '#555' }}>You need admin privileges to access this page.</p>
+      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>You need admin privileges to access this page.</p>
     </div>
   )
 
@@ -161,8 +161,8 @@ export default function AdminHealthPage() {
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-1">
-          <button onClick={() => router.push('/admin')} className="p-1.5 border transition-colors hover:border-white/20" style={{ borderColor: '#222' }}>
-            <ArrowLeft size={14} style={{ color: '#555' }} />
+          <button onClick={() => router.push('/admin')} className="p-1.5 border transition-colors hover:border-white/20" style={{ borderColor: 'var(--border)' }}>
+            <ArrowLeft size={14} style={{ color: 'var(--text-muted)' }} />
           </button>
           <div className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ backgroundColor: 'rgba(74,222,128,0.1)' }}>
             <Activity size={16} style={{ color: '#4ade80' }} />
@@ -174,11 +174,11 @@ export default function AdminHealthPage() {
           </span>
         </div>
         <div className="flex items-center gap-4 mt-2">
-          <p className="text-xs flex items-center gap-1.5" style={{ color: '#555' }}>
+          <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
             <Clock size={11} /> Uptime {Math.floor(data.uptime_seconds / 86400)}d {(Math.floor(data.uptime_seconds / 3600)) % 24}h
           </p>
           {lastRefresh && (
-            <p className="text-xs" style={{ color: '#444' }}>
+            <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
               Last check {lastRefresh.toLocaleTimeString('en-US', { hour12: false })}
             </p>
           )}
@@ -186,7 +186,7 @@ export default function AdminHealthPage() {
             onClick={() => fetchHealth()}
             disabled={refreshing}
             className="flex items-center gap-1.5 border px-3 py-1.5 text-[10px] uppercase tracking-widest transition-colors hover:border-white/20 disabled:opacity-40 ml-auto"
-            style={{ borderColor: '#222', color: '#555', fontFamily: 'monospace' }}
+            style={{ borderColor: 'var(--border)', color: 'var(--text-muted)', fontFamily: 'monospace' }}
           >
             <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} /> Re-check
           </button>
@@ -194,14 +194,14 @@ export default function AdminHealthPage() {
       </div>
 
       {/* Live infra checks */}
-      <p className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: '#555' }}>Live infrastructure</p>
+      <p className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>Live infrastructure</p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
         {infraItems.map(({ key, label, icon: Icon }) => {
           const c = data.checks[key]
           const st = (c?.status || 'unknown') as Status
           const color = statusColor[st]
           return (
-            <div key={key} className="border p-4 transition-colors duration-200 hover:border-opacity-40" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
+            <div key={key} className="border p-4 transition-colors duration-200 hover:border-opacity-40" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2.5">
                   <div className="flex items-center justify-center w-7 h-7 rounded-lg" style={{ backgroundColor: color.bg }}>
@@ -213,7 +213,7 @@ export default function AdminHealthPage() {
                   {statusLabel[st]}
                 </span>
               </div>
-              <p className="text-[11px] leading-relaxed truncate" style={{ color: '#666' }} title={c?.detail}>
+              <p className="text-[11px] leading-relaxed truncate" style={{ color: 'var(--text-dim)' }} title={c?.detail}>
                 {c?.detail || 'no detail'}
               </p>
             </div>
@@ -222,15 +222,15 @@ export default function AdminHealthPage() {
       </div>
 
       {/* WAF */}
-      <p className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: '#555' }}>Edge protection (WAF)</p>
-      <div className="border mb-8 p-4 sm:p-5" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
+      <p className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>Edge protection (WAF)</p>
+      <div className="border mb-8 p-4 sm:p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-9 h-9 rounded-lg" style={{ backgroundColor: statusColor[data.waf.status as Status]?.bg || statusColor.unknown.bg }}>
             <Shield size={16} style={{ color: statusColor[data.waf.status as Status]?.text || statusColor.unknown.text }} />
           </div>
           <div className="min-w-0">
             <p className="text-sm font-medium text-white capitalize">{data.waf.status.replace('_', ' ')}</p>
-            <p className="text-[11px] leading-relaxed" style={{ color: '#666' }}>{data.waf.detail}</p>
+            <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-dim)' }}>{data.waf.detail}</p>
           </div>
           <span className="ml-auto text-[10px] font-bold tracking-widest px-2 py-0.5 rounded flex-shrink-0"
             style={(() => { const c = statusColor[data.waf.status as Status] || statusColor.unknown; return { color: c.text, backgroundColor: c.bg } })()}>
@@ -238,11 +238,11 @@ export default function AdminHealthPage() {
           </span>
         </div>
         {data.waf.headers && Object.keys(data.waf.headers).length > 0 && (
-          <div className="mt-3 pt-3 border-t" style={{ borderColor: '#1a1a1a' }}>
+          <div className="mt-3 pt-3 border-t" style={{ borderColor: 'var(--divider)' }}>
             <div className="flex flex-wrap gap-2">
               {Object.entries(data.waf.headers).map(([k, v]) => (
-                <span key={k} className="px-2 py-1 text-[10px]" style={{ backgroundColor: '#080808', color: '#666' }}>
-                  <span style={{ color: '#888' }}>{k}:</span> {v.slice(0, 60)}
+                <span key={k} className="px-2 py-1 text-[10px]" style={{ backgroundColor: 'var(--bg-raised)', color: 'var(--text-dim)' }}>
+                  <span style={{ color: 'var(--text-soft)' }}>{k}:</span> {v.slice(0, 60)}
                 </span>
               ))}
             </div>
@@ -251,14 +251,14 @@ export default function AdminHealthPage() {
       </div>
 
       {/* Security posture */}
-      <p className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: '#555' }}>Security posture</p>
-      <div className="border mb-8" style={{ borderColor: '#222' }}>
+      <p className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>Security posture</p>
+      <div className="border mb-8" style={{ borderColor: 'var(--border)' }}>
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b" style={{ borderColor: '#222' }}>
-              <th className="px-4 sm:px-5 py-3 text-left text-xs font-medium" style={{ color: '#555' }}>Check</th>
-              <th className="px-4 py-3 text-left text-xs font-medium" style={{ color: '#555' }}>Status</th>
-              <th className="hidden sm:table-cell px-4 sm:px-5 py-3 text-left text-xs font-medium" style={{ color: '#555' }}>Detail</th>
+            <tr className="border-b" style={{ borderColor: 'var(--border)' }}>
+              <th className="px-4 sm:px-5 py-3 text-left text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Check</th>
+              <th className="px-4 py-3 text-left text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Status</th>
+              <th className="hidden sm:table-cell px-4 sm:px-5 py-3 text-left text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Detail</th>
             </tr>
           </thead>
           <tbody>
@@ -266,7 +266,7 @@ export default function AdminHealthPage() {
               const st = p.status as Status
               const c = statusColor[st] || statusColor.unknown
               return (
-                <tr key={p.check} className="border-b" style={{ borderColor: '#1a1a1a' }}>
+                <tr key={p.check} className="border-b" style={{ borderColor: 'var(--divider)' }}>
                   <td className="px-4 sm:px-5 py-3">
                     <span className="flex items-center gap-2 text-xs text-white">
                       {st === 'pass' || st === 'ok'
@@ -283,7 +283,7 @@ export default function AdminHealthPage() {
                     </span>
                   </td>
                   <td className="hidden sm:table-cell px-4 sm:px-5 py-3">
-                    <span className="text-[11px]" style={{ color: '#666' }}>{p.detail}</span>
+                    <span className="text-[11px]" style={{ color: 'var(--text-dim)' }}>{p.detail}</span>
                   </td>
                 </tr>
               )
@@ -294,51 +294,51 @@ export default function AdminHealthPage() {
 
       {/* Security events feed */}
       <div className="flex items-center justify-between mb-3">
-        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555' }}>
+        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
           <span className="flex items-center gap-2">
             <Eye size={12} /> Recent security events
-            <span className="font-normal" style={{ color: '#444' }}>(last 50 · in-memory)</span>
+            <span className="font-normal" style={{ color: 'var(--text-faint)' }}>(last 50 · in-memory)</span>
           </span>
         </p>
       </div>
-      <div className="border" style={{ borderColor: '#222' }}>
+      <div className="border" style={{ borderColor: 'var(--border)' }}>
         {data.events.length === 0 ? (
           <div className="px-5 py-12 text-center">
             <div className="flex flex-col items-center gap-2">
-              <ShieldCheck size={18} style={{ color: '#333' }} />
-              <p className="text-xs" style={{ color: '#555' }}>No security events recorded since the last restart</p>
+              <ShieldCheck size={18} style={{ color: 'var(--border-strong)' }} />
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No security events recorded since the last restart</p>
             </div>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b" style={{ borderColor: '#222' }}>
-                  <th className="px-4 sm:px-5 py-3 text-left text-xs font-medium" style={{ color: '#555' }}>Time</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium" style={{ color: '#555' }}>Event</th>
-                  <th className="hidden md:table-cell px-4 py-3 text-left text-xs font-medium" style={{ color: '#555' }}>Detail</th>
-                  <th className="px-4 sm:px-5 py-3 text-left text-xs font-medium" style={{ color: '#555' }}>IP</th>
+                <tr className="border-b" style={{ borderColor: 'var(--border)' }}>
+                  <th className="px-4 sm:px-5 py-3 text-left text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Time</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Event</th>
+                  <th className="hidden md:table-cell px-4 py-3 text-left text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Detail</th>
+                  <th className="px-4 sm:px-5 py-3 text-left text-xs font-medium" style={{ color: 'var(--text-muted)' }}>IP</th>
                 </tr>
               </thead>
               <tbody>
                 {data.events.map((e, i) => (
-                  <tr key={i} className="border-b transition-colors hover:bg-white/[0.02]" style={{ borderColor: '#1a1a1a' }}>
+                  <tr key={i} className="border-b transition-colors hover:bg-white/[0.02]" style={{ borderColor: 'var(--divider)' }}>
                     <td className="px-4 sm:px-5 py-2.5 whitespace-nowrap">
-                      <span className="text-[11px] font-mono" style={{ color: '#666' }} title={fmtTime(e.ts)}>
+                      <span className="text-[11px] font-mono" style={{ color: 'var(--text-dim)' }} title={fmtTime(e.ts)}>
                         {fmtAgo(e.ts)}
                       </span>
                     </td>
                     <td className="px-4 py-2.5">
-                      <span className="flex items-center gap-2 text-[11px]" style={{ color: eventColor[e.type] || '#888' }}>
+                      <span className="flex items-center gap-2 text-[11px]" style={{ color: eventColor[e.type] || 'var(--text-soft)' }}>
                         <MinusCircle size={10} />
                         {eventLabels[e.type] || e.type}
                       </span>
                     </td>
                     <td className="hidden md:table-cell px-4 py-2.5">
-                      <span className="text-[11px] font-mono" style={{ color: '#666' }}>{e.detail || '—'}</span>
+                      <span className="text-[11px] font-mono" style={{ color: 'var(--text-dim)' }}>{e.detail || '—'}</span>
                     </td>
                     <td className="px-4 sm:px-5 py-2.5">
-                      <span className="text-[11px] font-mono" style={{ color: e.ip ? '#888' : '#444' }}>{e.ip || '—'}</span>
+                      <span className="text-[11px] font-mono" style={{ color: e.ip ? 'var(--text-soft)' : 'var(--text-faint)' }}>{e.ip || '—'}</span>
                     </td>
                   </tr>
                 ))}

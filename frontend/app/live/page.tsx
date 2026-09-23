@@ -74,26 +74,26 @@ export default function LiveIndexPage() {
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-bold tracking-[-0.02em] text-white">
-            <Radio size={18} style={{ color: '#555' }} /> Live Streaming
+            <Radio size={18} style={{ color: 'var(--text-muted)' }} /> Live Streaming
             <span className="border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest"
                   style={{ borderColor: '#fbbf24', color: '#fbbf24' }}>Beta</span>
           </h1>
-          <p className="mt-1 text-sm" style={{ color: '#555' }}>
+          <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>
             P2P-assisted live channels — publish from OBS, deliver over WebTorrent, fall back to origin automatically.
           </p>
         </div>
         <button
           onClick={() => setShowCreate((s) => !s)}
           className="flex items-center gap-2 border px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80"
-          style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000' }}
+          style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)' }}
         >
           <Plus size={14} /> New channel
         </button>
       </div>
 
       {showCreate && (
-        <div className="mb-8 border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
-          <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>
+        <div className="mb-8 border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+          <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
             Create a live channel
           </p>
           <div className="mt-3 grid gap-3">
@@ -103,7 +103,7 @@ export default function LiveIndexPage() {
               placeholder="Channel name (e.g. Sunday Service)"
               maxLength={120}
               className="border px-3 py-2 text-sm text-white"
-              style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}
+              style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
             />
             <input
               value={newDesc}
@@ -111,18 +111,18 @@ export default function LiveIndexPage() {
               placeholder="Description (optional)"
               maxLength={500}
               className="border px-3 py-2 text-sm text-white"
-              style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}
+              style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
             />
             <div className="flex items-center gap-3">
               <button
                 onClick={handleCreate}
                 disabled={creating || !newName.trim()}
                 className="border px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
-                style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000' }}
+                style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)' }}
               >
                 {creating ? <Loader2 size={12} className="animate-spin" /> : 'Create channel'}
               </button>
-              <button onClick={() => setShowCreate(false)} className="text-xs" style={{ color: '#555' }}>
+              <button onClick={() => setShowCreate(false)} className="text-xs" style={{ color: 'var(--text-muted)' }}>
                 Cancel
               </button>
             </div>
@@ -131,30 +131,30 @@ export default function LiveIndexPage() {
       )}
 
       {error && (
-        <div className="mb-6 flex items-center gap-3 border px-4 py-3" style={{ borderColor: '#331111', backgroundColor: '#1a0d0d' }}>
+        <div className="mb-6 flex items-center gap-3 border px-4 py-3" style={{ borderColor: 'var(--err-chip-border)', backgroundColor: 'var(--err-chip-bg)' }}>
           <AlertTriangle size={16} style={{ color: '#ef4444' }} />
           <p className="flex-1 text-xs" style={{ color: '#fca5a5' }}>{error}</p>
-          <button onClick={load} className="border px-3 py-1 text-xs" style={{ borderColor: '#7f1d1d', color: '#fff' }}>
+          <button onClick={load} className="border px-3 py-1 text-xs" style={{ borderColor: 'var(--danger-bg)', color: '#fff' }}>
             Refresh
           </button>
         </div>
       )}
 
       {loading ? (
-        <div className="flex h-40 items-center justify-center border" style={{ borderColor: '#222' }}>
-          <Loader2 size={20} className="animate-spin" style={{ color: '#555' }} />
+        <div className="flex h-40 items-center justify-center border" style={{ borderColor: 'var(--border)' }}>
+          <Loader2 size={20} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
         </div>
       ) : !error && channels.length === 0 ? (
-        <div className="border p-16 text-center" style={{ borderColor: '#222', backgroundColor: '#111' }}>
-          <Radio size={24} className="mx-auto mb-3" style={{ color: '#555' }} />
+        <div className="border p-16 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+          <Radio size={24} className="mx-auto mb-3" style={{ color: 'var(--text-muted)' }} />
           <p className="text-sm text-white">No live channels yet.</p>
-          <p className="mt-1 text-xs" style={{ color: '#555' }}>
+          <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
             Create one, copy the RTMP settings into OBS, and go live.
           </p>
           <button
             onClick={() => setShowCreate(true)}
             className="mt-4 inline-block border px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80"
-            style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000' }}
+            style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)' }}
           >
             Create your first channel &rarr;
           </button>
@@ -163,7 +163,7 @@ export default function LiveIndexPage() {
         <div>
           <div
             className="flex items-center gap-4 border-b px-4 py-2 text-xs font-bold uppercase tracking-widest"
-            style={{ borderColor: '#222', color: '#555', fontFamily: 'monospace' }}
+            style={{ borderColor: 'var(--border)', color: 'var(--text-muted)', fontFamily: 'monospace' }}
           >
             <div className="flex-1">Channel</div>
             <div className="w-20">Status</div>
@@ -177,11 +177,11 @@ export default function LiveIndexPage() {
               key={ch.id}
               href={`/live/channels/${ch.id}`}
               className="flex items-center gap-4 border-b px-4 py-3 text-sm transition-colors hover:bg-white/[0.02]"
-              style={{ borderColor: '#222' }}
+              style={{ borderColor: 'var(--border)' }}
             >
               <div className="flex-1">
                 <p className="font-medium text-white">{ch.name}</p>
-                <p className="font-mono text-xs" style={{ color: '#555' }}>/{ch.slug}</p>
+                <p className="font-mono text-xs" style={{ color: 'var(--text-muted)' }}>/{ch.slug}</p>
               </div>
               <div className="w-20">
                 <span className="flex items-center gap-1.5 font-mono text-xs" style={{ color: statusColor(ch.status) }}>
@@ -189,10 +189,10 @@ export default function LiveIndexPage() {
                   {ch.status}
                 </span>
               </div>
-              <div className="w-16 text-right font-mono text-xs" style={{ color: '#555' }}>{ch.current_viewers}</div>
-              <div className="w-16 text-right font-mono text-xs" style={{ color: '#555' }}>{ch.current_peers}</div>
-              <div className="w-24 text-right font-mono text-xs" style={{ color: '#555' }}>{formatBitrate(ch.bitrate_kbps)}</div>
-              <div className="w-20 text-right font-mono text-xs" style={{ color: '#555' }}>{formatUptime(ch.uptime_seconds)}</div>
+              <div className="w-16 text-right font-mono text-xs" style={{ color: 'var(--text-muted)' }}>{ch.current_viewers}</div>
+              <div className="w-16 text-right font-mono text-xs" style={{ color: 'var(--text-muted)' }}>{ch.current_peers}</div>
+              <div className="w-24 text-right font-mono text-xs" style={{ color: 'var(--text-muted)' }}>{formatBitrate(ch.bitrate_kbps)}</div>
+              <div className="w-20 text-right font-mono text-xs" style={{ color: 'var(--text-muted)' }}>{formatUptime(ch.uptime_seconds)}</div>
             </Link>
           ))}
         </div>

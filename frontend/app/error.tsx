@@ -39,7 +39,7 @@ export default function Error({
         <h1 style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.02em', margin: '0 0 8px' }}>
           Something went wrong
         </h1>
-        <p style={{ fontSize: 13, color: '#555555', lineHeight: 1.6, margin: '0 0 22px' }}>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 22px' }}>
           This page hit a temporary error. Try again — your files and account are
           safe.
         </p>
@@ -47,8 +47,8 @@ export default function Error({
           <button
             onClick={reset}
             style={{
-              backgroundColor: '#fff',
-              color: '#000',
+              backgroundColor: 'var(--inverse-bg)',
+              color: 'var(--bg-primary)',
               border: 'none',
               borderRadius: '8px',
               padding: '10px 20px',
@@ -64,7 +64,7 @@ export default function Error({
             onClick={() => (window.location.href = '/')}
             style={{
               backgroundColor: 'transparent',
-              color: '#888888',
+              color: 'var(--text-soft)',
               border: '1px solid #222222',
               borderRadius: '8px',
               padding: '10px 20px',

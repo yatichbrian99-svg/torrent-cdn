@@ -45,19 +45,19 @@ export default function LiveWatchPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: '#000' }}>
-        <Loader2 size={22} className="animate-spin" style={{ color: '#555' }} />
+      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: 'var(--bg-primary)' }}>
+        <Loader2 size={22} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
       </div>
     )
   }
 
   if (error || !playback) {
     return (
-      <div className="flex min-h-screen items-center justify-center px-6" style={{ backgroundColor: '#000' }}>
-        <div className="border p-10 text-center" style={{ borderColor: '#222', backgroundColor: '#111' }}>
+      <div className="flex min-h-screen items-center justify-center px-6" style={{ backgroundColor: 'var(--bg-primary)' }}>
+        <div className="border p-10 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
           <AlertTriangle size={22} className="mx-auto mb-3" style={{ color: '#ef4444' }} />
           <p className="text-sm text-white">{error || 'Channel not found'}</p>
-          <Link href="/live" className="mt-4 inline-block text-xs" style={{ color: '#555' }}>
+          <Link href="/live" className="mt-4 inline-block text-xs" style={{ color: 'var(--text-muted)' }}>
             ← Back to channels
           </Link>
         </div>
@@ -68,14 +68,14 @@ export default function LiveWatchPage() {
   // Defensive: never hand a non-http(s) URL to the player.
   if (!isSafeHlsUrl(playback.hls_url)) {
     return (
-      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: '#000' }}>
+      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: 'var(--bg-primary)' }}>
         <p className="text-sm" style={{ color: '#ef4444' }}>Invalid playback URL</p>
       </div>
     )
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-8" style={{ backgroundColor: '#000' }}>
+    <div className="mx-auto max-w-4xl px-6 py-8" style={{ backgroundColor: 'var(--bg-primary)' }}>
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Radio size={14} style={{ color: statusColor(playback.status) }} />
@@ -86,12 +86,12 @@ export default function LiveWatchPage() {
           <span className="border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest"
                 style={{ borderColor: '#fbbf24', color: '#fbbf24' }}>Beta</span>
         </div>
-        <Link href="/live" className="text-xs transition-colors hover:text-white" style={{ color: '#555' }}>
+        <Link href="/live" className="text-xs transition-colors hover:text-white" style={{ color: 'var(--text-muted)' }}>
           Dashboard →
         </Link>
       </div>
       <LivePlayer playback={playback} />
-      <p className="mt-3 font-mono text-[11px]" style={{ color: '#444' }}>
+      <p className="mt-3 font-mono text-[11px]" style={{ color: 'var(--text-faint)' }}>
         Delivery: peer-assisted (WebTorrent) with automatic origin fallback · target latency ≈ {playback.latency_target_seconds}s ·
         swarm {playback.swarm_base}
       </p>

@@ -154,19 +154,19 @@ export default function LiveChannelDetailPage() {
   if (loading) {
     return (
       <div className="mx-auto flex h-64 max-w-5xl items-center justify-center px-6">
-        <Loader2 size={20} className="animate-spin" style={{ color: '#555' }} />
+        <Loader2 size={20} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
       </div>
     )
   }
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-10 select-none">
-      <Link href="/live" className="mb-6 inline-flex items-center gap-1.5 text-sm transition-colors hover:text-white" style={{ color: '#555' }}>
+      <Link href="/live" className="mb-6 inline-flex items-center gap-1.5 text-sm transition-colors hover:text-white" style={{ color: 'var(--text-muted)' }}>
         <ArrowLeft size={14} /> All channels
       </Link>
 
       {error && (
-        <div className="mb-6 flex items-center gap-3 border px-4 py-3" style={{ borderColor: '#331111', backgroundColor: '#1a0d0d' }}>
+        <div className="mb-6 flex items-center gap-3 border px-4 py-3" style={{ borderColor: 'var(--err-chip-border)', backgroundColor: 'var(--err-chip-bg)' }}>
           <AlertTriangle size={16} style={{ color: '#ef4444' }} />
           <p className="flex-1 text-xs" style={{ color: '#fca5a5' }}>{error}</p>
         </div>
@@ -184,20 +184,20 @@ export default function LiveChannelDetailPage() {
             <span className="border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest"
                   style={{ borderColor: '#fbbf24', color: '#fbbf24' }}>Beta</span>
           </h1>
-          <p className="mt-1 font-mono text-xs" style={{ color: '#555' }}>/{channel?.slug}</p>
+          <p className="mt-1 font-mono text-xs" style={{ color: 'var(--text-muted)' }}>/{channel?.slug}</p>
         </div>
         <div className="flex items-center gap-2">
           <Link
             href={`/live/channels/${id}/analytics`}
             className="flex items-center gap-2 border px-4 py-2 text-sm transition-opacity hover:opacity-80"
-            style={{ borderColor: '#222', color: '#fff' }}
+            style={{ borderColor: 'var(--border)', color: '#fff' }}
           >
             <BarChart3 size={14} /> Analytics
           </Link>
           <Link
             href={`/live/watch/${channel?.slug || ''}`}
             className="flex items-center gap-2 border px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80"
-            style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000' }}
+            style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)' }}
           >
             <Play size={14} /> Open player
           </Link>
@@ -208,12 +208,12 @@ export default function LiveChannelDetailPage() {
       {(diag?.status_reason || status?.status_reason) && (
         <div className="mb-6 flex items-center gap-3 border px-4 py-3"
              style={{
-               borderColor: status?.status === 'ERROR' ? '#331111' : status?.status === 'LIVE' ? '#113311' : '#332a11',
-               backgroundColor: status?.status === 'ERROR' ? '#1a0d0d' : status?.status === 'LIVE' ? '#0d1a0d' : '#1a170d',
+               borderColor: status?.status === 'ERROR' ? 'var(--err-chip-border)' : status?.status === 'LIVE' ? 'var(--ok-chip-border)' : 'var(--warn-chip-border)',
+               backgroundColor: status?.status === 'ERROR' ? 'var(--err-chip-bg)' : status?.status === 'LIVE' ? 'var(--ok-chip-bg)' : 'var(--warn-chip-bg)',
              }}>
           {status?.status === 'ERROR' && <AlertTriangle size={16} style={{ color: '#ef4444' }} />}
           {status?.status === 'LIVE' && <Check size={16} style={{ color: '#4ade80' }} />}
-          <p className="flex-1 text-xs" style={{ color: '#ddd' }}>
+          <p className="flex-1 text-xs" style={{ color: 'var(--text-bright)' }}>
             {diag?.status_reason || status?.status_reason}
           </p>
         </div>
@@ -229,8 +229,8 @@ export default function LiveChannelDetailPage() {
           { label: 'Segment', value: status?.latest_segment_sequence != null ? `#${status.latest_segment_sequence}` : '—', icon: <Activity size={12} /> },
           { label: 'Health', value: channel?.enabled ? 'enabled' : 'disabled', icon: <Check size={12} /> },
         ].map((s) => (
-          <div key={s.label} className="border p-4" style={{ borderColor: '#222', backgroundColor: '#111' }}>
-            <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>
+          <div key={s.label} className="border p-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+            <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
               {s.icon} {s.label}
             </p>
             <p className="mt-1 text-lg font-bold text-white">{s.value}</p>
@@ -239,33 +239,33 @@ export default function LiveChannelDetailPage() {
       </div>
 
       {/* Ingest diagnostics — where the RTMP → MediaMTX → HLS chain stands. */}
-      <div className="mb-8 border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
-        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>
+      <div className="mb-8 border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
           Ingest diagnostics
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {([
             ['Publisher', diag ? (diag.publisher_connected ? `Connected${diag.publisher_uptime_seconds ? ` · ${formatUptime(diag.publisher_uptime_seconds)}` : ''}` : 'Disconnected') : '—',
-              diag?.publisher_connected ? '#4ade80' : '#555'],
-            ['Auth', diag ? diag.auth_status : '—', diag?.auth_status === 'accepted' ? '#4ade80' : diag?.auth_status === 'denied' ? '#ef4444' : '#555'],
+              diag?.publisher_connected ? '#4ade80' : 'var(--text-muted)'],
+            ['Auth', diag ? diag.auth_status : '—', diag?.auth_status === 'accepted' ? '#4ade80' : diag?.auth_status === 'denied' ? '#ef4444' : 'var(--text-muted)'],
             ['HLS playlist', diag ? (diag.hls_playlist_available == null ? 'unknown' : diag.hls_playlist_available ? 'Available' : 'Not available') : '—',
-              diag?.hls_playlist_available ? '#4ade80' : '#555'],
-            ['Reconnects', diag ? String(diag.reconnect_count) : '—', '#ddd'],
+              diag?.hls_playlist_available ? '#4ade80' : 'var(--text-muted)'],
+            ['Reconnects', diag ? String(diag.reconnect_count) : '—', 'var(--text-bright)'],
           ] as [string, string, string][]).map(([label, value, color]) => (
-            <div key={label} className="border p-3" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
-              <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>{label}</p>
+            <div key={label} className="border p-3" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
+              <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>{label}</p>
               <p className="mt-1 text-sm font-bold" style={{ color }}>{value}</p>
             </div>
           ))}
           {diag?.ingest_bitrate_kbps ? (
-            <div className="border p-3" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
-              <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Ingest bitrate</p>
+            <div className="border p-3" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
+              <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Ingest bitrate</p>
               <p className="mt-1 text-sm font-bold text-white">{formatBitrate(diag.ingest_bitrate_kbps)}</p>
             </div>
           ) : null}
           {diag?.resolution || diag?.codec || diag?.fps ? (
-            <div className="border p-3" style={{ borderColor: '#222', backgroundColor: '#0c0c0c' }}>
-              <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>Stream</p>
+            <div className="border p-3" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
+              <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Stream</p>
               <p className="mt-1 text-sm font-bold text-white">
                 {[diag?.resolution, diag?.codec, diag?.fps ? `${Math.round(diag.fps)} fps` : null].filter(Boolean).join(' · ')}
               </p>
@@ -275,18 +275,18 @@ export default function LiveChannelDetailPage() {
       </div>
 
       {/* Ingest configuration */}
-      <div className="mb-8 border p-5" style={{ borderColor: '#222', backgroundColor: '#111' }}>
-        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#555', fontFamily: 'monospace' }}>
+      <div className="mb-8 border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
           OBS / Encoder settings
         </p>
-        <p className="mt-1 text-sm" style={{ color: '#555' }}>
+        <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>
           In OBS → Settings → Stream, choose Custom…, and paste:
         </p>
         {(() => {
           const rtmpUrl = setup?.server || ingest?.rtmp_url || ''
           if (rtmpUrl && isLocalRtmpUrl(rtmpUrl)) {
             return (
-              <div className="mt-3 flex items-center gap-3 border px-4 py-3" style={{ borderColor: '#332a11', backgroundColor: '#1a170d' }}>
+              <div className="mt-3 flex items-center gap-3 border px-4 py-3" style={{ borderColor: 'var(--warn-chip-border)', backgroundColor: 'var(--warn-chip-bg)' }}>
                 <AlertTriangle size={16} style={{ color: '#fbbf24' }} />
                 <p className="flex-1 text-xs" style={{ color: '#fbbf24' }}>
                   This is a <strong>LOCAL DEVELOPMENT RTMP URL</strong> — it only works for an encoder on this same machine.
@@ -308,15 +308,15 @@ export default function LiveChannelDetailPage() {
             <FieldRow label="Stream key (OBS)" value={`${channel?.slug ?? ''}?pass=${setup.key}`} copied={copied === 'key'} onCopy={() => copy('key', `${channel?.slug ?? ''}?pass=${setup.key}`)} />
           ) : (
             <div className="flex items-center gap-2">
-              <p className="w-32 shrink-0 text-xs uppercase tracking-widest" style={{ color: '#555' }}>Stream key (OBS)</p>
-              <code className="flex-1 border px-3 py-2 font-mono text-xs" style={{ backgroundColor: '#0c0c0c', borderColor: '#333', color: '#555' }}>
+              <p className="w-32 shrink-0 text-xs uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Stream key (OBS)</p>
+              <code className="flex-1 border px-3 py-2 font-mono text-xs" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)', color: 'var(--text-muted)' }}>
                 •••••••••••••••••••• hidden — stored hashed, shown once per key
               </code>
               <button
                 onClick={handleReveal}
                 disabled={busy === 'rotate'}
                 className="flex items-center gap-2 border px-4 py-2 text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-50"
-                style={{ borderColor: confirmRotate ? '#ef4444' : '#fff', backgroundColor: confirmRotate ? '#7f1d1d' : 'transparent', color: confirmRotate ? '#fff' : '#fff' }}
+                style={{ borderColor: confirmRotate ? '#ef4444' : '#fff', backgroundColor: confirmRotate ? 'var(--danger-bg)' : 'transparent', color: confirmRotate ? '#fff' : '#fff' }}
               >
                 {busy === 'rotate' ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />}
                 {confirmRotate ? 'Click again — old key stops working' : 'Reveal stream key'}
@@ -330,26 +330,26 @@ export default function LiveChannelDetailPage() {
             Stored hashed server-side; regenerate anytime with Reveal.
           </p>
         )}
-        <div className="mt-5 flex flex-wrap items-center gap-3 border-t pt-4" style={{ borderColor: '#222' }}>
+        <div className="mt-5 flex flex-wrap items-center gap-3 border-t pt-4" style={{ borderColor: 'var(--border)' }}>
           {!setup && (
             <button onClick={handleReveal} disabled={busy === 'rotate'}
                     className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
-                    style={{ borderColor: confirmRotate ? '#ef4444' : '#553333', color: '#ef4444' }}>
+                    style={{ borderColor: confirmRotate ? '#ef4444' : 'var(--danger-border)', color: '#ef4444' }}>
               {busy === 'rotate' ? <Loader2 size={12} className="animate-spin" /> : confirmRotate ? 'Click again — old key stops working' : 'Rotate stream key'}
             </button>
           )}
           <button onClick={handleToggleEnable} disabled={busy === 'enable'}
                   className="border px-4 py-2 text-xs transition-opacity hover:opacity-80 disabled:opacity-50"
-                  style={{ borderColor: '#333', color: channel?.enabled ? '#fbbf24' : '#4ade80' }}>
+                  style={{ borderColor: 'var(--border-strong)', color: channel?.enabled ? '#fbbf24' : '#4ade80' }}>
             {channel?.enabled ? 'Disable channel' : 'Enable channel'}
           </button>
           <button onClick={handleDelete} disabled={busy === 'delete'}
                   className="border px-4 py-2 text-xs transition-opacity hover:opacity-80 disabled:opacity-50"
-                  style={{ borderColor: confirmDelete ? '#ef4444' : '#553333', backgroundColor: confirmDelete ? '#7f1d1d' : 'transparent', color: '#ef4444' }}>
+                  style={{ borderColor: confirmDelete ? '#ef4444' : 'var(--danger-border)', backgroundColor: confirmDelete ? 'var(--danger-bg)' : 'transparent', color: '#ef4444' }}>
             {busy === 'delete' ? 'Deleting…' : confirmDelete ? 'Click again to confirm' : (<><Trash2 size={11} className="inline" /> Delete</>)}
           </button>
           <a href={ingest?.hls_url || '#'} target="_blank" rel="noopener noreferrer"
-             className="ml-auto flex items-center gap-1 text-xs transition-colors hover:text-white" style={{ color: '#555' }}>
+             className="ml-auto flex items-center gap-1 text-xs transition-colors hover:text-white" style={{ color: 'var(--text-muted)' }}>
             HLS URL <ExternalLink size={11} />
           </a>
         </div>
@@ -357,7 +357,7 @@ export default function LiveChannelDetailPage() {
 
       {/* Stream key prefix (safe) */}
       {channel?.stream_key_prefix && !setup && (
-        <p className="mb-8 text-xs" style={{ color: '#555' }}>
+        <p className="mb-8 text-xs" style={{ color: 'var(--text-muted)' }}>
           Current key: <code className="font-mono text-white">{channel.stream_key_prefix}…</code>
           {' '}(use Reveal to generate a fresh one — the old key stops working immediately)
         </p>
@@ -375,14 +375,14 @@ function FieldRow({ label, value, copied, onCopy, secret }: {
 }) {
   return (
     <div className="flex items-center gap-2">
-      <p className="w-32 shrink-0 text-xs uppercase tracking-widest" style={{ color: '#555' }}>{label}</p>
+      <p className="w-32 shrink-0 text-xs uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>{label}</p>
       <code className="flex-1 truncate border px-3 py-2 font-mono text-xs text-white"
-            style={{ backgroundColor: '#0c0c0c', borderColor: '#333' }}>
+            style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}>
         {value}
       </code>
       <button onClick={onCopy} disabled={secret}
               className="border px-3 py-2 text-xs transition-opacity hover:opacity-80 disabled:opacity-40"
-              style={{ borderColor: '#333', color: '#555' }}>
+              style={{ borderColor: 'var(--border-strong)', color: 'var(--text-muted)' }}>
         {copied ? <><Check size={12} className="inline" style={{ color: '#4ade80' }} /> Copied</> : <><Copy size={12} className="inline" /> Copy</>}
       </button>
     </div>

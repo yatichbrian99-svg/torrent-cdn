@@ -49,21 +49,21 @@ export default function PricingTable({ currentPlan }: { currentPlan?: string }) 
         {TIERS.map((tier) => {
           const isCurrent = currentPlan === tier.plan
           return (
-            <div key={tier.plan} className="relative border p-6" style={{ borderColor: tier.popular ? '#fff' : '#222', backgroundColor: '#111' }}>
+            <div key={tier.plan} className="relative border p-6" style={{ borderColor: tier.popular ? '#fff' : 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
               {tier.popular && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 border px-3 py-0.5 text-[10px] font-bold uppercase tracking-widest" style={{ backgroundColor: '#fff', borderColor: '#fff', color: '#000', fontFamily: 'monospace' }}>
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 border px-3 py-0.5 text-[10px] font-bold uppercase tracking-widest" style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)', fontFamily: 'monospace' }}>
                   Most popular
                 </div>
               )}
               <h3 className="text-sm font-bold uppercase tracking-wide text-white">{tier.name}</h3>
               <div className="my-4">
                 <span className="text-3xl font-bold text-white">{tier.price}</span>
-                <span className="text-sm" style={{ color: '#555' }}>{tier.period}</span>
+                <span className="text-sm" style={{ color: 'var(--text-muted)' }}>{tier.period}</span>
               </div>
-              <p className="mb-4 text-sm" style={{ color: '#555' }}>{tier.limit}</p>
+              <p className="mb-4 text-sm" style={{ color: 'var(--text-muted)' }}>{tier.limit}</p>
               <ul className="mb-6 space-y-2">
                 {tier.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-sm" style={{ color: '#555' }}><span className="text-white">&ndash;</span> {f}</li>
+                  <li key={f} className="flex items-start gap-2 text-sm" style={{ color: 'var(--text-muted)' }}><span className="text-white">&ndash;</span> {f}</li>
                 ))}
               </ul>
               <button
@@ -71,9 +71,9 @@ export default function PricingTable({ currentPlan }: { currentPlan?: string }) 
                 disabled={isCurrent || loading === tier.plan}
                 className="w-full border py-2 text-sm font-medium transition-opacity hover:opacity-80 disabled:opacity-40"
                 style={{
-                  borderColor: isCurrent ? '#333' : '#fff',
+                  borderColor: isCurrent ? 'var(--border-strong)' : '#fff',
                   backgroundColor: isCurrent ? 'transparent' : tier.popular ? '#fff' : 'transparent',
-                  color: isCurrent ? '#555' : tier.popular ? '#000' : '#fff',
+                  color: isCurrent ? 'var(--text-muted)' : tier.popular ? 'var(--bg-primary)' : '#fff',
                 }}
               >
                 {loading === tier.plan ? <Loader2 size={14} className="mx-auto animate-spin" /> : isCurrent ? 'Current plan' : 'Get started'}

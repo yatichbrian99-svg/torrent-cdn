@@ -10,6 +10,16 @@ export const dynamic = 'force-dynamic'
 
 const inter = Inter({ subsets: ['latin'], weight: ['400', '500', '600', '700'] })
 
+// Pre-paint theme resolution — MUST stay inline (it runs before first paint,
+// so it cannot wait for the bundle) and unblocking (CSP: script-src allows
+// 'self' static files, but a SYNC network fetch here would delay every page).
+// Mirrors lib/theme.ts — the storage key/values are duplicated here on
+// purpose; a test asserts the two stay in agreement.
+const THEME_SCRIPT = `
+(function(){try{var t=localStorage.getItem('tcdn_theme')==='light'?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();
+document.documentElement.setAttribute('data-theme-resolved','1');
+`
+
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.torrentcdn.store'),
   title: {
@@ -110,6 +120,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
       <body className={inter.className}>
+        {/* Pre-paint theme: resolves the persisted theme before first paint. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
         <Navbar />
         <main className="min-h-screen pt-12">{children}</main>
       </body>

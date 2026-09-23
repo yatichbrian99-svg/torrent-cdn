@@ -355,17 +355,17 @@ export default function LivePlayer({ playback, onPeersChange, className }: Props
 
   if (phase === 'error' && !videoRef.current) {
     return (
-      <div className={`flex aspect-video items-center justify-center border ${className || ''}`} style={{ borderColor: '#222', backgroundColor: '#111' }}>
+      <div className={`flex aspect-video items-center justify-center border ${className || ''}`} style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
         <div className="text-center">
           <AlertTriangle size={20} className="mx-auto mb-2" style={{ color: '#ef4444' }} />
-          <p className="text-sm" style={{ color: '#555' }}>{errorMsg || 'Live stream unavailable'}</p>
+          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{errorMsg || 'Live stream unavailable'}</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div ref={containerRef} className={`relative border ${className || ''}`} style={{ borderColor: '#222', backgroundColor: '#111' }}>
+    <div ref={containerRef} className={`relative border ${className || ''}`} style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
       <video
         ref={videoRef}
         className="aspect-video w-full"
@@ -376,43 +376,43 @@ export default function LivePlayer({ playback, onPeersChange, className }: Props
       />
       {phase === 'loading' && (
         <div className="absolute inset-0 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}>
-          <Loader2 size={22} className="animate-spin" style={{ color: '#666' }} />
+          <Loader2 size={22} className="animate-spin" style={{ color: 'var(--text-dim)' }} />
         </div>
       )}
       {buffering && phase === 'ready' && (
         <div className="absolute inset-0 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <Loader2 size={22} className="animate-spin" style={{ color: '#888' }} />
+          <Loader2 size={22} className="animate-spin" style={{ color: 'var(--text-soft)' }} />
         </div>
       )}
       {/* LIVE badge */}
       <div className="absolute left-3 top-3 flex items-center gap-2">
         <span className="flex items-center gap-1.5 border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest"
-              style={{ borderColor: live ? '#1a3a1a' : '#222', backgroundColor: live ? '#0d1f0d' : '#0c0c0c', color: statusColor(live ? 'LIVE' : 'OFFLINE') }}>
+              style={{ borderColor: live ? 'var(--ok-chip-border)' : 'var(--border)', backgroundColor: live ? 'var(--ok-chip-bg)' : 'var(--bg-secondary)', color: statusColor(live ? 'LIVE' : 'OFFLINE') }}>
           <Radio size={10} /> {live ? 'LIVE' : 'OFFLINE'}
         </span>
         {!atLiveEdge && (
           <button onClick={backToLive}
                   className="border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest"
-                  style={{ borderColor: '#333', color: '#fbbf24', backgroundColor: '#0c0c0c' }}>
+                  style={{ borderColor: 'var(--border-strong)', color: '#fbbf24', backgroundColor: 'var(--bg-secondary)' }}>
             go to live edge →
           </button>
         )}
       </div>
       {/* Custom controls: play/pause, mute, fullscreen + peer counter */}
       <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between border-t px-3 py-2"
-           style={{ borderColor: '#222', backgroundColor: 'rgba(0,0,0,0.85)' }}>
+           style={{ borderColor: 'var(--border)', backgroundColor: 'rgba(0,0,0,0.85)' }}>
         <div className="flex items-center gap-3">
           <button onClick={() => { const v = videoRef.current; if (v) (paused ? v.play() : v.pause()) }}
                   className="text-sm text-white transition-opacity hover:opacity-80">
             {paused ? '▶' : '❚❚'}
           </button>
-          <button onClick={toggleMute} className="transition-opacity hover:opacity-80" style={{ color: '#555' }} aria-label={muted ? 'Unmute' : 'Mute'}>
+          <button onClick={toggleMute} className="transition-opacity hover:opacity-80" style={{ color: 'var(--text-muted)' }} aria-label={muted ? 'Unmute' : 'Mute'}>
             {muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
           </button>
         </div>
-        <div className="flex items-center gap-3 font-mono text-xs" style={{ color: '#555' }}>
+        <div className="flex items-center gap-3 font-mono text-xs" style={{ color: 'var(--text-muted)' }}>
           <span className="flex items-center gap-1">
-            <span className="h-2 w-2" style={{ backgroundColor: peers > 0 ? '#4ade80' : '#333' }} />
+            <span className="h-2 w-2" style={{ backgroundColor: peers > 0 ? '#4ade80' : 'var(--border-strong)' }} />
             <Users size={11} /> {peers} {peers === 1 ? 'peer' : 'peers'}
           </span>
           <button onClick={toggleFullscreen} className="transition-opacity hover:opacity-80" aria-label="Fullscreen">

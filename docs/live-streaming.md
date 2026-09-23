@@ -238,6 +238,7 @@ Viewer (playback token):
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/live/play/{slug}` | public playback info (enabled channels) |
+| GET | `/api/live/segments/{slug}/{seq}/identity` | per-segment infohash+size (swarm join) |
 | POST | `/api/live/token` | API-key exchange for a viewer token |
 | POST | `/api/live/session` | join swarm (creates `live_sessions` row) |
 | POST | `/api/live/heartbeat` | presence + counters |
@@ -249,6 +250,7 @@ Internal (never public):
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/api/internal/mediamtx/auth` | MediaMTX external auth (publish/read) |
+| POST | `/api/internal/mediamtx/onReady` / `onNotReady` | publisher up/down hook (`X-Hook-Secret`) |
 | POST | `/api/internal/mediamtx/ingest` | segment-registration webhook (`X-Hook-Secret`) |
 | POST | `/api/internal/mediamtx/shutdown` | stream-end cleanup |
 | GET | `/api/internal/mediamtx/channels/{slug}/peers` | diagnostics (peer ids only) |
@@ -260,7 +262,9 @@ See `.env.example` — `MEDIAMTX_API_URL`, `MEDIAMTX_RTMP_URL`, `MEDIAMTX_HLS_UR
 
 ## 11. Known limitations (MVP)
 
-- **Segment-level P2P is seeded from viewers that already buffered a segment**; the infohash registry (backend-derived per-segment swarms) is wired through `LiveSwarm`, but peers currently discover each other via the shared WSS trackers with the backend as the infohash authority — a production rollout should add a small `/api/live/segment/{slug}/{seq}/info` endpoint serving the derived infohash+size so the swarm's `tryPeer` path can resolve infohashes just-in-time (the plumbing in `swarm.ts` accepts it).
+- **P2P swarm identity is content-derived** (backend fetches each segment once from MediaMTX, computes the infohash with the same recipe as VOD, Redis-caches it ≤300s, serves it via the token-gated identity endpoint). A peer serving poisoned bytes computes a different infohash and is never introduced into the real swarm. Verified byte-for-byte across the Python backend, the frontend TS recipe, and create-torrent on real MediaMTX segment bytes.
+- Peers discover each other via the shared WSS trackers with the backend as the infohash authority; seeding starts from origin-fetched bytes (serve-while-watch).
+- Live is flagged **BETA** in the dashboard while ingest still runs on the local media edge (no public VM yet).
 - WebRTC playback (WHEP) and SRT/RTSP ingest are disabled by default; architecture supports them via MediaMTX config.
 - End-to-end latency is *not yet measured* in production — the design targets ~2s segments; do not promise numbers until measured (spec §14).
 - Offload percentages are measured delivery metrics only; no "dollars saved" claims (no pricing configured).
@@ -269,8 +273,7 @@ See `.env.example` — `MEDIAMTX_API_URL`, `MEDIAMTX_RTMP_URL`, `MEDIAMTX_HLS_UR
 
 ## 12. Recommended next improvements
 
-1. Infohash resolution endpoint + WebTorrent `infoHash`-pinned joining for full cross-viewer swarm formation.
-2. LL-HLS parts over the same pipeline (MediaMTX `hlsVariant: lowLatency` already on).
+1. LL-HLS parts over the same pipeline (MediaMTX `hlsVariant: lowLatency` already on).
 3. Prometheus scrape of MediaMTX `:9998` into the admin health dashboard (CPU/RAM/bandwidth per publish).
 4. Signed playback *URLs* (query-param HMAC) for CDN-friendly private channels.
 5. Geo/locality preference in `peer_scores` once a geo source exists.

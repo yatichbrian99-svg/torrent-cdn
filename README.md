@@ -8,7 +8,7 @@ P2P-assisted video delivery: viewers become peers, so bandwidth costs drop as yo
 
 | Layer | Tech | Location |
 |---|---|---|
-| Frontend | Next.js 14 (App Router) + TypeScript + Tailwind | `frontend/` |
+| Frontend | Next.js 14 (App Router) + TypeScript + Tailwind (light/dark theme via CSS vars) | `frontend/` |
 | Backend | FastAPI + SQLAlchemy + Redis + PostgreSQL | `backend/` |
 | Storage | S3-compatible (R2 / Supabase Storage), presigned URLs | — |
 | P2P | WebTorrent; magnet links via torrentool; embed SDK (`/sdk.js`) | `frontend/public/` |
@@ -77,7 +77,7 @@ npm run test:coverage # one-shot WITH the coverage gate — exactly what CI runs
 npm run test:watch   # watch mode during development
 ```
 
-21 tests across 6 files cover real behavior, not just types: the auth token store (`lib/auth.ts`), the API client interceptors — Bearer-header attachment and the 401 logout/redirect (`lib/api.ts`), UsageBar percentage math (incl. the unlimited plan), EmbedCode snippet generation, PricingTable checkout flow (incl. the error path), and FileCard's delete-confirm + copy interactions.
+175 tests across 19 files cover real behavior, not just types: the auth token store incl. remember-me expiry handling (`lib/auth.ts`), the theme store (`lib/theme.ts`) — persistence, pre-paint resolution, and the inline pre-paint script parity check (`scripts/verify-theme-script.mjs`), the live streaming client + P2P swarm (`lib/liveClient.ts`, `lib/live/*`), the API client interceptors — Bearer-header attachment and the 401 logout/redirect (`lib/api.ts`), UsageBar percentage math (incl. the unlimited plan), EmbedCode snippet generation, PricingTable checkout flow (incl. the error path), AuthModal incl. the MFA + remember-me flow, and FileCard's delete-confirm + copy interactions. The inline pre-paint theme script in `app/layout.tsx` (which cannot import modules) is kept in lockstep with `lib/theme.ts` by `scripts/theme-script-parity.test.ts`, so a future storage-key change fails CI if the two drift.
 
 **Coverage gate (v8 provider):** `test:coverage` counts every file under `lib/` and `components/` — tested or not — and fails the build if totals drop below the configured thresholds (`statements 25`, `branches 33`, `functions 14`, `lines 32` — the measured baseline, raise them as coverage grows). Removing a test, breaking a covered path, or adding a new untested file all fail CI. `VideoPlayer.tsx` is excluded (WebRTC/webtorrent glue — covered by `next build` + the embed e2e, not meaningfully unit-testable in jsdom).
 
