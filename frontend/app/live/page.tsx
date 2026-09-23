@@ -75,6 +75,8 @@ export default function LiveIndexPage() {
         <div>
           <h1 className="flex items-center gap-2 text-xl font-bold tracking-[-0.02em] text-white">
             <Radio size={18} style={{ color: '#555' }} /> Live Streaming
+            <span className="border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest"
+                  style={{ borderColor: '#fbbf24', color: '#fbbf24' }}>Beta</span>
           </h1>
           <p className="mt-1 text-sm" style={{ color: '#555' }}>
             P2P-assisted live channels — publish from OBS, deliver over WebTorrent, fall back to origin automatically.

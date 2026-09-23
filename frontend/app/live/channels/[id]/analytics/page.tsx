@@ -82,6 +82,8 @@ export default function LiveChannelAnalyticsPage() {
       <div className="mb-6 flex items-center justify-between">
         <h1 className="flex items-center gap-2 text-xl font-bold tracking-[-0.02em] text-white">
           <BarChart3 size={18} style={{ color: '#555' }} /> Live analytics
+          <span className="border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest"
+                style={{ borderColor: '#fbbf24', color: '#fbbf24' }}>Beta</span>
         </h1>
         <select
           value={windowHours}

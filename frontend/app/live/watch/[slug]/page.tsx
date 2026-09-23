@@ -83,6 +83,8 @@ export default function LiveWatchPage() {
           <span className="font-mono text-[10px] uppercase tracking-widest" style={{ color: statusColor(playback.status) }}>
             {playback.status}
           </span>
+          <span className="border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest"
+                style={{ borderColor: '#fbbf24', color: '#fbbf24' }}>Beta</span>
         </div>
         <Link href="/live" className="text-xs transition-colors hover:text-white" style={{ color: '#555' }}>
           Dashboard →

@@ -181,6 +181,8 @@ export default function LiveChannelDetailPage() {
               {status?.status || channel?.status || '…'}
             </span>
             {channel?.name}
+            <span className="border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest"
+                  style={{ borderColor: '#fbbf24', color: '#fbbf24' }}>Beta</span>
           </h1>
           <p className="mt-1 font-mono text-xs" style={{ color: '#555' }}>/{channel?.slug}</p>
         </div>
