@@ -167,7 +167,7 @@ export default function AdminHealthPage() {
           <div className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ backgroundColor: 'rgba(74,222,128,0.1)' }}>
             <Activity size={16} style={{ color: '#4ade80' }} />
           </div>
-          <h1 className="text-lg sm:text-xl font-bold tracking-[-0.02em] text-white">Security & Health</h1>
+          <h1 className="text-lg sm:text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">Security & Health</h1>
           <span className="ml-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest rounded"
             style={{ backgroundColor: 'rgba(74,222,128,0.12)', color: '#4ade80' }}>
             {warnCount === 0 ? 'All systems nominal' : `${warnCount} attention${warnCount === 1 ? '' : 's'}`}
@@ -207,7 +207,7 @@ export default function AdminHealthPage() {
                   <div className="flex items-center justify-center w-7 h-7 rounded-lg" style={{ backgroundColor: color.bg }}>
                     <Icon size={13} style={{ color: color.text }} />
                   </div>
-                  <span className="text-xs font-medium text-white">{label}</span>
+                  <span className="text-xs font-medium text-[color:var(--text-primary)]">{label}</span>
                 </div>
                 <span className="text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: color.text, backgroundColor: color.bg }}>
                   {statusLabel[st]}
@@ -229,7 +229,7 @@ export default function AdminHealthPage() {
             <Shield size={16} style={{ color: statusColor[data.waf.status as Status]?.text || statusColor.unknown.text }} />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-medium text-white capitalize">{data.waf.status.replace('_', ' ')}</p>
+            <p className="text-sm font-medium text-[color:var(--text-primary)] capitalize">{data.waf.status.replace('_', ' ')}</p>
             <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-dim)' }}>{data.waf.detail}</p>
           </div>
           <span className="ml-auto text-[10px] font-bold tracking-widest px-2 py-0.5 rounded flex-shrink-0"
@@ -268,7 +268,7 @@ export default function AdminHealthPage() {
               return (
                 <tr key={p.check} className="border-b" style={{ borderColor: 'var(--divider)' }}>
                   <td className="px-4 sm:px-5 py-3">
-                    <span className="flex items-center gap-2 text-xs text-white">
+                    <span className="flex items-center gap-2 text-xs text-[color:var(--text-primary)]">
                       {st === 'pass' || st === 'ok'
                         ? <CheckCircle2 size={12} style={{ color: c.text }} />
                         : st === 'warn'
@@ -322,7 +322,7 @@ export default function AdminHealthPage() {
               </thead>
               <tbody>
                 {data.events.map((e, i) => (
-                  <tr key={i} className="border-b transition-colors hover:bg-white/[0.02]" style={{ borderColor: 'var(--divider)' }}>
+                  <tr key={i} className="border-b transition-colors hover:bg-[color:var(--hover-overlay)]" style={{ borderColor: 'var(--divider)' }}>
                     <td className="px-4 sm:px-5 py-2.5 whitespace-nowrap">
                       <span className="text-[11px] font-mono" style={{ color: 'var(--text-dim)' }} title={fmtTime(e.ts)}>
                         {fmtAgo(e.ts)}

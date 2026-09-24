@@ -9,7 +9,7 @@ import type { ReactNode } from 'react'
 export function LegalSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section>
-      <h2 className="mb-3 text-base font-semibold text-white">{title}</h2>
+      <h2 className="mb-3 text-base font-semibold text-[color:var(--text-primary)]">{title}</h2>
       {children}
     </section>
   )
@@ -20,7 +20,7 @@ export function LegalList({ items }: { items: ReactNode[] }) {
     <ul className="mt-2 space-y-2">
       {items.map((item, i) => (
         <li key={i} className="flex items-start gap-2">
-          <span className="mt-0.5 text-white">&ndash;</span>
+          <span className="mt-0.5 text-[color:var(--text-primary)]">&ndash;</span>
           <span>{item}</span>
         </li>
       ))}
@@ -39,7 +39,7 @@ export default function LegalPage({
 }) {
   return (
     <div className="mx-auto max-w-3xl px-6 py-16">
-      <h1 className="text-2xl font-bold tracking-[-0.02em] text-white">{title}</h1>
+      <h1 className="text-2xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">{title}</h1>
       <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>Last updated: {updated}</p>
       <div className="mt-10 space-y-8 text-sm leading-relaxed" style={{ color: 'var(--text-soft)' }}>
         {children}

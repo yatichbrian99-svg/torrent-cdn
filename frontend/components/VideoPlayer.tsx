@@ -268,7 +268,7 @@ export default function VideoPlayer({ fileId, onPeers }: { fileId: string; onPee
       <div className="border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
         <div className="flex aspect-video items-center justify-center">
           <div className="text-center">
-            <p className="text-sm font-medium text-white">Demo Player</p>
+            <p className="text-sm font-medium text-[color:var(--text-primary)]">Demo Player</p>
             <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>Upload a file to see the real P2P player</p>
           </div>
         </div>
@@ -286,7 +286,7 @@ export default function VideoPlayer({ fileId, onPeers }: { fileId: string; onPee
         <video ref={videoRef} className="aspect-video w-full" controls playsInline crossOrigin="anonymous" />
         {status === 'connecting' && (
           <div className="absolute inset-0 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}>
-            <p className="font-mono text-sm text-white">connecting to peers...</p>
+            <p className="font-mono text-sm text-[color:var(--text-primary)]">connecting to peers...</p>
           </div>
         )}
       </div>

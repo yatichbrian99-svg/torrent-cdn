@@ -75,12 +75,12 @@ export default function LiveChannelAnalyticsPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-10 select-none">
-      <Link href={`/live/channels/${id}`} className="mb-6 inline-flex items-center gap-1.5 text-sm transition-colors hover:text-white" style={{ color: 'var(--text-muted)' }}>
+      <Link href={`/live/channels/${id}`} className="mb-6 inline-flex items-center gap-1.5 text-sm transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-muted)' }}>
         <ArrowLeft size={14} /> {channel?.name || 'Channel'}
       </Link>
 
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="flex items-center gap-2 text-xl font-bold tracking-[-0.02em] text-white">
+        <h1 className="flex items-center gap-2 text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">
           <BarChart3 size={18} style={{ color: 'var(--text-muted)' }} /> Live analytics
           <span className="border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest"
                 style={{ borderColor: '#fbbf24', color: '#fbbf24' }}>Beta</span>
@@ -88,7 +88,7 @@ export default function LiveChannelAnalyticsPage() {
         <select
           value={windowHours}
           onChange={(e) => setWindowHours(Number(e.target.value))}
-          className="border px-3 py-1.5 text-xs text-white"
+          className="border px-3 py-1.5 text-xs text-[color:var(--text-primary)]"
           style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
         >
           <option value={1}>Last hour</option>
@@ -102,7 +102,7 @@ export default function LiveChannelAnalyticsPage() {
         <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
           Measured P2P offload
         </p>
-        <p className="mt-2 text-4xl font-bold text-white">{a.p2p_offload_percent.toFixed(1)}%</p>
+        <p className="mt-2 text-4xl font-bold text-[color:var(--text-primary)]">{a.p2p_offload_percent.toFixed(1)}%</p>
         <div className="mt-4 flex h-3 overflow-hidden" style={{ backgroundColor: 'var(--bg-secondary)' }}>
           <div style={{ width: `${a.p2p_offload_percent}%`, backgroundColor: 'var(--inverse-bg)' }} />
           <div style={{ width: `${100 - a.p2p_offload_percent}%`, backgroundColor: 'var(--danger-bg)' }} />
@@ -130,7 +130,7 @@ export default function LiveChannelAnalyticsPage() {
         ].map((s) => (
           <div key={s.label} className="border p-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
             <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>{s.label}</p>
-            <p className="mt-1 text-lg font-bold text-white">{s.value}</p>
+            <p className="mt-1 text-lg font-bold text-[color:var(--text-primary)]">{s.value}</p>
           </div>
         ))}
       </div>
@@ -140,19 +140,19 @@ export default function LiveChannelAnalyticsPage() {
           <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
             <Users size={12} /> Viewers now
           </p>
-          <p className="mt-1 text-lg font-bold text-white">{a.current.viewers}</p>
+          <p className="mt-1 text-lg font-bold text-[color:var(--text-primary)]">{a.current.viewers}</p>
         </div>
         <div className="border p-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
           <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
             <Wifi size={12} /> Peers now
           </p>
-          <p className="mt-1 text-lg font-bold text-white">{a.current.peers}</p>
+          <p className="mt-1 text-lg font-bold text-[color:var(--text-primary)]">{a.current.peers}</p>
         </div>
         <div className="border p-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
           <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
             <Activity size={12} /> Segments served / failed
           </p>
-          <p className="mt-1 text-lg font-bold text-white">{a.segments_served} / {a.segments_failed}</p>
+          <p className="mt-1 text-lg font-bold text-[color:var(--text-primary)]">{a.segments_served} / {a.segments_failed}</p>
         </div>
       </div>
     </div>

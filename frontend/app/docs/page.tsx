@@ -26,7 +26,7 @@ function CodeBlock({ code }: { code: string }) {
           {copied ? 'copied' : 'copy'}
         </button>
       </div>
-      <pre className="overflow-x-auto text-sm leading-relaxed text-white" style={{ fontFamily: 'monospace' }}>
+      <pre className="overflow-x-auto text-sm leading-relaxed text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>
         <code>{code}</code>
       </pre>
     </div>
@@ -60,7 +60,7 @@ function Endpoint({
     <div id={url.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()} className="border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <MethodBadge method={method} />
-        <code className="text-sm text-white" style={{ fontFamily: 'monospace' }}>{url}</code>
+        <code className="text-sm text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>{url}</code>
       </div>
       <p className="mb-4 text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>{desc}</p>
       {request && (
@@ -80,13 +80,13 @@ function Endpoint({
 }
 
 function SectionTitle({ children }: { children: ReactNode }) {
-  return <h2 className="mb-4 text-lg font-bold tracking-[-0.02em] text-white">{children}</h2>
+  return <h2 className="mb-4 text-lg font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">{children}</h2>
 }
 
 export default function DocsPage() {
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
-      <h1 className="text-xl font-bold tracking-[-0.02em] text-white">API Reference</h1>
+      <h1 className="text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">API Reference</h1>
       <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>
         Programmatic access to upload, manage, and analyze your media.
       </p>
@@ -98,9 +98,9 @@ export default function DocsPage() {
           <p className="mb-3 text-sm" style={{ color: 'var(--text-muted)' }}>All endpoints use the following base URL:</p>
           <CodeBlock code={`${BASE_URL}`} />
           <div className="mt-4 space-y-2 text-sm" style={{ color: 'var(--text-muted)' }}>
-            <p><span className="font-bold text-white">Authentication:</span> Bearer token <em>or</em> API key in the <code className="text-white" style={{ fontFamily: 'monospace' }}>Authorization</code> header.</p>
-            <p><span className="font-bold text-white">Format:</span> All requests and responses are JSON.</p>
-            <p>Two credential types work: a short-lived token from <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /auth/login</code> (or <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /auth/register</code>) — issued after you pass the two-factor step (see section 2) — or an <span className="font-bold text-white">API key</span> created in your dashboard (<code className="text-white" style={{ fontFamily: 'monospace' }}>tcdn_…</code>). Keys are shown once at creation, stored only as a hash, and sent exactly like a token: <code className="text-white" style={{ fontFamily: 'monospace' }}>Authorization: Bearer tcdn_…</code>. Revoke or rotate them any time from the dashboard.</p>
+            <p><span className="font-bold text-[color:var(--text-primary)]">Authentication:</span> Bearer token <em>or</em> API key in the <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>Authorization</code> header.</p>
+            <p><span className="font-bold text-[color:var(--text-primary)]">Format:</span> All requests and responses are JSON.</p>
+            <p>Two credential types work: a short-lived token from <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>POST /auth/login</code> (or <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>POST /auth/register</code>) — issued after you pass the two-factor step (see section 2) — or an <span className="font-bold text-[color:var(--text-primary)]">API key</span> created in your dashboard (<code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>tcdn_…</code>). Keys are shown once at creation, stored only as a hash, and sent exactly like a token: <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>Authorization: Bearer tcdn_…</code>. Revoke or rotate them any time from the dashboard.</p>
           </div>
         </div>
       </section>
@@ -140,11 +140,11 @@ export default function DocsPage() {
 }`}
           />
           <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-            <code className="text-white" style={{ fontFamily: 'monospace' }}>needs_setup</code> is{' '}
-            <code className="text-white" style={{ fontFamily: 'monospace' }}>false</code> when the account already has 2FA
-            (the code step only), and <code className="text-white" style={{ fontFamily: 'monospace' }}>true</code> when the
+            <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>needs_setup</code> is{' '}
+            <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>false</code> when the account already has 2FA
+            (the code step only), and <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>true</code> when the
             account still must enroll. On deployments where 2FA is not enforced (e.g. local development),
-            these endpoints return <code className="text-white" style={{ fontFamily: 'monospace' }}>{`{"access_token", "token_type"}`}</code>{' '}
+            these endpoints return <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>{`{"access_token", "token_type"}`}</code>{' '}
 as before.
           </p>
           <p className="mb-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Start login — returns the second-factor step (complete it via /auth/mfa/confirm)</p>
@@ -155,41 +155,41 @@ as before.
 
           {/* Mandatory two-factor authentication */}
           <div className="border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
-            <h3 className="mb-3 text-sm font-bold uppercase tracking-widest text-white">Mandatory two-factor authentication</h3>
+            <h3 className="mb-3 text-sm font-bold uppercase tracking-widest text-[color:var(--text-primary)]">Mandatory two-factor authentication</h3>
             <div className="space-y-3 text-sm leading-relaxed" style={{ color: 'var(--text-soft)' }}>
               <p>
-                Two-factor authentication (2FA) is <span className="font-bold text-white">required for every account</span>.
+                Two-factor authentication (2FA) is <span className="font-bold text-[color:var(--text-primary)]">required for every account</span>.
                 You enroll an authenticator app (Google Authenticator, Authy, 1Password, …) once, and every sign-in asks for a
                 6-digit code after your password. There is no way to sign up or log in without it.
               </p>
               <p>
-                <span className="font-bold text-white">At signup</span>, enrollment happens immediately: after your account is
+                <span className="font-bold text-[color:var(--text-primary)]">At signup</span>, enrollment happens immediately: after your account is
                 created, the signup flow walks you through scanning the QR code, saving your backup codes, and entering a code —{' '}
                 <em>before</em> you receive a session. Your account is born with 2FA on.
               </p>
               <p>
-                <span className="font-bold text-white">At login</span>, the password is only the first half. The API never mints
+                <span className="font-bold text-[color:var(--text-primary)]">At login</span>, the password is only the first half. The API never mints
                 a session for a password alone — it returns a short-lived{' '}
-                <code className="text-white" style={{ fontFamily: 'monospace' }}>mfa_token</code> that must be exchanged for your
-                real session at <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /auth/mfa/confirm</code>{' '}
+                <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>mfa_token</code> that must be exchanged for your
+                real session at <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>POST /auth/mfa/confirm</code>{' '}
                 with a code. The token expires in ~5 minutes.
               </p>
               <p>The three-step API flow is:</p>
               <ol className="list-decimal space-y-1 pl-5" style={{ color: 'var(--text-soft)' }}>
                 <li>
-                  <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /auth/register</code> (or{' '}
-                  <code className="text-white" style={{ fontFamily: 'monospace' }}>/auth/login</code>) →{' '}
-                  <code className="text-white" style={{ fontFamily: 'monospace' }}>mfa_required</code> +{' '}
-                  <code className="text-white" style={{ fontFamily: 'monospace' }}>mfa_token</code>, no session.
+                  <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>POST /auth/register</code> (or{' '}
+                  <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>/auth/login</code>) →{' '}
+                  <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>mfa_required</code> +{' '}
+                  <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>mfa_token</code>, no session.
                 </li>
                 <li>
-                  <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /auth/mfa/setup</code> with the{' '}
-                  <code className="text-white" style={{ fontFamily: 'monospace' }}>mfa_token</code> → secret, otpauth URI, and 10
+                  <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>POST /auth/mfa/setup</code> with the{' '}
+                  <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>mfa_token</code> → secret, otpauth URI, and 10
                   single-use backup codes (shown exactly once).
                 </li>
                 <li>
-                  <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /auth/mfa/confirm</code> with the{' '}
-                  <code className="text-white" style={{ fontFamily: 'monospace' }}>mfa_token</code> + a valid code → your session
+                  <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>POST /auth/mfa/confirm</code> with the{' '}
+                  <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>mfa_token</code> + a valid code → your session
                   token. If the account had no 2FA yet, this also enrolls it.
                 </li>
               </ol>
@@ -237,10 +237,10 @@ curl -X POST ${BASE_URL}/auth/mfa/confirm \\
   -H "Content-Type: application/json" \\
   -d '{"mfa_token":"<mfa>","code":"123456"}'`} />
           <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-            Already enrolled? Login returns <code className="text-white" style={{ fontFamily: 'monospace' }}>needs_setup: false</code>{' '}
+            Already enrolled? Login returns <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>needs_setup: false</code>{' '}
             and you skip straight to the code step. Manage 2FA from the dashboard:{' '}
-            <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /auth/mfa/enable</code> after setup, or{' '}
-            <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /auth/mfa/disable</code> with a current code
+            <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>POST /auth/mfa/enable</code> after setup, or{' '}
+            <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>POST /auth/mfa/disable</code> with a current code
             (you will be asked to re-enroll at your next sign-in). Losing your authenticator is what the backup codes are for
             — each is single-use and can never be shown again.
           </p>
@@ -265,7 +265,7 @@ curl -X POST ${BASE_URL}/auth/mfa/confirm \\
         <SectionTitle>3. Upload File</SectionTitle>
         <div className="mb-4 border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
           <p className="text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-            Two ways to upload. <code className="text-white" style={{ fontFamily: 'monospace' }}>POST /upload</code> sends the file through the API proxy — simple, but the proxy caps request bodies at ~4.5MB, so it only suits small files. For anything real (video), use the <span className="font-bold text-white">presigned flow</span>: <code className="text-white" style={{ fontFamily: 'monospace' }}>presign</code> → PUT the file bytes <span className="font-bold text-white">directly to storage</span> (never through the proxy) → <code className="text-white" style={{ fontFamily: 'monospace' }}>finalize</code>.
+            Two ways to upload. <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>POST /upload</code> sends the file through the API proxy — simple, but the proxy caps request bodies at ~4.5MB, so it only suits small files. For anything real (video), use the <span className="font-bold text-[color:var(--text-primary)]">presigned flow</span>: <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>presign</code> → PUT the file bytes <span className="font-bold text-[color:var(--text-primary)]">directly to storage</span> (never through the proxy) → <code className="text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>finalize</code>.
           </p>
         </div>
         <Endpoint

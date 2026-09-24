@@ -55,15 +55,15 @@ export default function PricingTable({ currentPlan }: { currentPlan?: string }) 
                   Most popular
                 </div>
               )}
-              <h3 className="text-sm font-bold uppercase tracking-wide text-white">{tier.name}</h3>
+              <h3 className="text-sm font-bold uppercase tracking-wide text-[color:var(--text-primary)]">{tier.name}</h3>
               <div className="my-4">
-                <span className="text-3xl font-bold text-white">{tier.price}</span>
+                <span className="text-3xl font-bold text-[color:var(--text-primary)]">{tier.price}</span>
                 <span className="text-sm" style={{ color: 'var(--text-muted)' }}>{tier.period}</span>
               </div>
               <p className="mb-4 text-sm" style={{ color: 'var(--text-muted)' }}>{tier.limit}</p>
               <ul className="mb-6 space-y-2">
                 {tier.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-sm" style={{ color: 'var(--text-muted)' }}><span className="text-white">&ndash;</span> {f}</li>
+                  <li key={f} className="flex items-start gap-2 text-sm" style={{ color: 'var(--text-muted)' }}><span className="text-[color:var(--text-primary)]">&ndash;</span> {f}</li>
                 ))}
               </ul>
               <button

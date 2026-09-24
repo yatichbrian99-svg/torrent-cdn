@@ -21,7 +21,7 @@ export default function EmbedCode({ fileId }: { fileId: string }) {
           {copied ? 'copied' : 'copy'}
         </button>
       </div>
-      <pre className="overflow-x-auto text-sm leading-relaxed text-white" style={{ fontFamily: 'monospace' }}>
+      <pre className="overflow-x-auto text-sm leading-relaxed text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>
         <code>{code}</code>
       </pre>
     </div>

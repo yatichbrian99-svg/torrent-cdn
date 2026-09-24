@@ -161,7 +161,7 @@ export default function LiveChannelDetailPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-10 select-none">
-      <Link href="/live" className="mb-6 inline-flex items-center gap-1.5 text-sm transition-colors hover:text-white" style={{ color: 'var(--text-muted)' }}>
+      <Link href="/live" className="mb-6 inline-flex items-center gap-1.5 text-sm transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-muted)' }}>
         <ArrowLeft size={14} /> All channels
       </Link>
 
@@ -174,7 +174,7 @@ export default function LiveChannelDetailPage() {
 
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="flex items-center gap-3 text-xl font-bold tracking-[-0.02em] text-white">
+          <h1 className="flex items-center gap-3 text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">
             <span className="flex items-center gap-1.5 border px-2 py-1 font-mono text-[10px] uppercase tracking-widest"
                   style={{ borderColor: statusColor(status?.status || 'OFFLINE'), color: statusColor(status?.status || 'OFFLINE') }}>
               <span className="h-2 w-2" style={{ backgroundColor: statusColor(status?.status || 'OFFLINE') }} />
@@ -233,7 +233,7 @@ export default function LiveChannelDetailPage() {
             <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
               {s.icon} {s.label}
             </p>
-            <p className="mt-1 text-lg font-bold text-white">{s.value}</p>
+            <p className="mt-1 text-lg font-bold text-[color:var(--text-primary)]">{s.value}</p>
           </div>
         ))}
       </div>
@@ -260,13 +260,13 @@ export default function LiveChannelDetailPage() {
           {diag?.ingest_bitrate_kbps ? (
             <div className="border p-3" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
               <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Ingest bitrate</p>
-              <p className="mt-1 text-sm font-bold text-white">{formatBitrate(diag.ingest_bitrate_kbps)}</p>
+              <p className="mt-1 text-sm font-bold text-[color:var(--text-primary)]">{formatBitrate(diag.ingest_bitrate_kbps)}</p>
             </div>
           ) : null}
           {diag?.resolution || diag?.codec || diag?.fps ? (
             <div className="border p-3" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
               <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Stream</p>
-              <p className="mt-1 text-sm font-bold text-white">
+              <p className="mt-1 text-sm font-bold text-[color:var(--text-primary)]">
                 {[diag?.resolution, diag?.codec, diag?.fps ? `${Math.round(diag.fps)} fps` : null].filter(Boolean).join(' · ')}
               </p>
             </div>
@@ -349,7 +349,7 @@ export default function LiveChannelDetailPage() {
             {busy === 'delete' ? 'Deleting…' : confirmDelete ? 'Click again to confirm' : (<><Trash2 size={11} className="inline" /> Delete</>)}
           </button>
           <a href={ingest?.hls_url || '#'} target="_blank" rel="noopener noreferrer"
-             className="ml-auto flex items-center gap-1 text-xs transition-colors hover:text-white" style={{ color: 'var(--text-muted)' }}>
+             className="ml-auto flex items-center gap-1 text-xs transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-muted)' }}>
             HLS URL <ExternalLink size={11} />
           </a>
         </div>
@@ -358,7 +358,7 @@ export default function LiveChannelDetailPage() {
       {/* Stream key prefix (safe) */}
       {channel?.stream_key_prefix && !setup && (
         <p className="mb-8 text-xs" style={{ color: 'var(--text-muted)' }}>
-          Current key: <code className="font-mono text-white">{channel.stream_key_prefix}…</code>
+          Current key: <code className="font-mono text-[color:var(--text-primary)]">{channel.stream_key_prefix}…</code>
           {' '}(use Reveal to generate a fresh one — the old key stops working immediately)
         </p>
       )}
@@ -376,7 +376,7 @@ function FieldRow({ label, value, copied, onCopy, secret }: {
   return (
     <div className="flex items-center gap-2">
       <p className="w-32 shrink-0 text-xs uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>{label}</p>
-      <code className="flex-1 truncate border px-3 py-2 font-mono text-xs text-white"
+      <code className="flex-1 truncate border px-3 py-2 font-mono text-xs text-[color:var(--text-primary)]"
             style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}>
         {value}
       </code>

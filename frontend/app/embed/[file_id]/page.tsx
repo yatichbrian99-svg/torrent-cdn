@@ -14,7 +14,7 @@ export default function EmbedPage() {
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)' }}>
       <div className="mx-auto max-w-5xl px-6 py-4">
-        <a href="/" className="font-mono text-sm font-medium text-white">TorrentCDN</a>
+        <a href="/" className="font-mono text-sm font-medium text-[color:var(--text-primary)]">TorrentCDN</a>
       </div>
       <div className="mx-auto max-w-[900px] px-6">
         <Suspense

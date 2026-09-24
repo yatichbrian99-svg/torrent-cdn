@@ -53,7 +53,7 @@ export default function FileCard({ file, onDelete }: { file: FileItem; onDelete:
               </div>
             )}
           </div>
-          <div className="min-w-0 flex-1"><p className="truncate font-medium text-white">{file.filename}</p></div>
+          <div className="min-w-0 flex-1"><p className="truncate font-medium text-[color:var(--text-primary)]">{file.filename}</p></div>
           <span className="w-16 shrink-0" style={{ color: 'var(--text-muted)' }}>{file.file_size_mb.toFixed(1)} MB</span>
           <span className="w-12 shrink-0" style={{ color: 'var(--text-muted)' }}>{file.views}</span>
           <div className="w-24 shrink-0">
@@ -90,7 +90,7 @@ export default function FileCard({ file, onDelete }: { file: FileItem; onDelete:
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.8)' }}>
           <div className="w-full max-w-lg border p-6" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-strong)' }}>
             <div className="mb-6 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-white">Embed Code</h3>
+              <h3 className="text-sm font-semibold text-[color:var(--text-primary)]">Embed Code</h3>
               <button onClick={() => setShowEmbed(false)} className="text-sm" style={{ color: 'var(--text-muted)' }}>&times;</button>
             </div>
             <EmbedCode fileId={file.id} />

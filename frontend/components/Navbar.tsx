@@ -80,11 +80,11 @@ export default function Navbar() {
     <>
       <nav className="fixed top-0 z-50 flex h-12 w-full items-center border-b" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-primary)' }}>
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4">
-          <a href="/" className="font-mono text-sm font-medium text-white">TorrentCDN</a>
+          <a href="/" className="font-mono text-sm font-medium text-[color:var(--text-primary)]">TorrentCDN</a>
 
           <div className="flex items-center gap-4">
             <ThemeToggle />
-            <a href="/docs" className="text-sm transition-colors hover:text-white" style={{ color: 'var(--text-muted)' }}>Docs</a>
+            <a href="/docs" className="text-sm transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-muted)' }}>Docs</a>
             {loggedIn && (
               <>
                 <a href="/dashboard" className="text-sm" style={{ color: 'var(--text-muted)' }}>Dashboard</a>
@@ -110,16 +110,16 @@ export default function Navbar() {
                       ) : (
                         notifications.map((n) => (
                           <div key={n.id} className="border-b px-4 py-3" style={{ borderColor: 'var(--border)' }}>
-                            <p className={`text-xs leading-relaxed ${n.read ? '' : 'font-medium text-white'}`} style={n.read ? { color: 'var(--text-dim)' } : {}}>
+                            <p className={`text-xs leading-relaxed ${n.read ? '' : 'font-medium text-[color:var(--text-primary)]'}`} style={n.read ? { color: 'var(--text-dim)' } : {}}>
                               {n.message}
                             </p>
                             <div className="mt-2 flex items-center gap-3">
                               {!n.read && (
-                                <button onClick={() => handleMarkRead(n.id)} className="text-[10px] uppercase tracking-widest transition-colors hover:text-white" style={{ color: 'var(--text-soft)', fontFamily: 'monospace' }}>
+                                <button onClick={() => handleMarkRead(n.id)} className="text-[10px] uppercase tracking-widest transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-soft)', fontFamily: 'monospace' }}>
                                   Mark read
                                 </button>
                               )}
-                              <a href="/billing" className="text-[10px] uppercase tracking-widest transition-colors hover:text-white" style={{ color: '#4ade80', fontFamily: 'monospace' }}>
+                              <a href="/billing" className="text-[10px] uppercase tracking-widest transition-colors hover:text-[color:var(--text-primary)]" style={{ color: '#4ade80', fontFamily: 'monospace' }}>
                                 Upgrade →
                               </a>
                             </div>

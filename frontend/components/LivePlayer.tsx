@@ -403,7 +403,7 @@ export default function LivePlayer({ playback, onPeersChange, className }: Props
            style={{ borderColor: 'var(--border)', backgroundColor: 'rgba(0,0,0,0.85)' }}>
         <div className="flex items-center gap-3">
           <button onClick={() => { const v = videoRef.current; if (v) (paused ? v.play() : v.pause()) }}
-                  className="text-sm text-white transition-opacity hover:opacity-80">
+                  className="text-sm text-[color:var(--text-primary)] transition-opacity hover:opacity-80">
             {paused ? '▶' : '❚❚'}
           </button>
           <button onClick={toggleMute} className="transition-opacity hover:opacity-80" style={{ color: 'var(--text-muted)' }} aria-label={muted ? 'Unmute' : 'Mute'}>

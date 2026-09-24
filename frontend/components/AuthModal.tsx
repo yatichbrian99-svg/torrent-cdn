@@ -174,7 +174,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.8)' }}>
       <div className="w-full max-w-sm border p-8" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-strong)' }}>
         <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-white">
+          <h2 className="text-sm font-semibold text-[color:var(--text-primary)]">
             {mfaToken && mfaNeedsSetup ? 'Set up two-factor authentication' : mfaToken ? 'Two-factor verification' : (isLogin ? 'Login' : 'Create account')}
           </h2>
           <button
@@ -228,7 +228,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
                   )}
                   <div className="w-full">
                     <div className="flex items-center gap-2">
-                      <code className="flex-1 border px-2 py-1 font-mono text-[11px] text-white"
+                      <code className="flex-1 border px-2 py-1 font-mono text-[11px] text-[color:var(--text-primary)]"
                         style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)', wordBreak: 'break-all' }}>
                         {mfaSetupData.secret}
                       </code>
@@ -273,12 +273,12 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
                 required
                 maxLength={12}
                 disabled={!mfaSetupData}
-                className="w-full border px-3 py-2 text-sm text-white disabled:opacity-50"
+                className="w-full border px-3 py-2 text-sm text-[color:var(--text-primary)] disabled:opacity-50"
                 style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
                 placeholder="000000"
               />
             </div>
-            {error && <p className="text-xs text-white">{error}</p>}
+            {error && <p className="text-xs text-[color:var(--text-primary)]">{error}</p>}
             <button type="submit" disabled={loading || !mfaSetupData}
               className="w-full border py-2 text-sm font-medium disabled:opacity-50"
               style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)' }}>
@@ -287,7 +287,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
             <button
               type="button"
               onClick={() => bailToLogin()}
-              className="text-center text-xs transition-colors hover:text-white"
+              className="text-center text-xs transition-colors hover:text-[color:var(--text-primary)]"
               style={{ color: 'var(--text-muted)' }}
             >
               Back to login
@@ -332,7 +332,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
                 onChange={(e) => setMfaCode(e.target.value)}
                 required
                 maxLength={12}
-                className="w-full border px-3 py-2 text-sm text-white"
+                className="w-full border px-3 py-2 text-sm text-[color:var(--text-primary)]"
                 style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
                 placeholder="000000"
               />
@@ -350,7 +350,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
               />
               Keep me logged in for 2 weeks
             </label>
-            {error && <p className="text-xs text-white">{error}</p>}
+            {error && <p className="text-xs text-[color:var(--text-primary)]">{error}</p>}
             <button type="submit" disabled={loading}
               className="w-full border py-2 text-sm font-medium disabled:opacity-50"
               style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)' }}>
@@ -359,7 +359,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
             <button
               type="button"
               onClick={() => bailToLogin()}
-              className="text-center text-xs transition-colors hover:text-white"
+              className="text-center text-xs transition-colors hover:text-[color:var(--text-primary)]"
               style={{ color: 'var(--text-muted)' }}
             >
               Back to login
@@ -371,7 +371,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
           <div>
             <label className="mb-1 block text-xs uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Email</label>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required
-              className="w-full border px-3 py-2 text-sm text-white" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
+              className="w-full border px-3 py-2 text-sm text-[color:var(--text-primary)]" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
               placeholder="you@example.com" />
           </div>
           <div>
@@ -383,7 +383,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 minLength={8}
-                className="w-full border px-3 py-2 pr-9 text-sm text-white"
+                className="w-full border px-3 py-2 pr-9 text-sm text-[color:var(--text-primary)]"
                 style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
                 placeholder="password"
               />
@@ -391,7 +391,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
-                className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors hover:text-white"
+                className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors hover:text-[color:var(--text-primary)]"
                 style={{ color: 'var(--text-muted)' }}
                 tabIndex={-1}
               >
@@ -401,7 +401,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
             {isLogin && (
               <a
                 href="/auth/forgot-password"
-                className="mt-1 inline-block text-[11px] transition-colors hover:text-white"
+                className="mt-1 inline-block text-[11px] transition-colors hover:text-[color:var(--text-primary)]"
                 style={{ color: 'var(--text-muted)' }}
               >
                 Forgot password?
@@ -409,7 +409,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
             )}
           </div>
 
-          {error && <p className="text-xs text-white">{error}</p>}
+          {error && <p className="text-xs text-[color:var(--text-primary)]">{error}</p>}
 
           {!isLogin && (
             <label className="flex items-start gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
@@ -423,11 +423,11 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
               />
               <span>
                 I accept the{' '}
-                <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline transition-colors hover:text-white" style={{ color: 'var(--text-soft)' }}>
+                <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-soft)' }}>
                   Terms of Service
                 </a>
                 {' '}and{' '}
-                <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline transition-colors hover:text-white" style={{ color: 'var(--text-soft)' }}>
+                <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-soft)' }}>
                   Privacy Policy
                 </a>
               </span>
@@ -442,7 +442,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
 
           <p className="text-center text-xs" style={{ color: 'var(--text-muted)' }}>
             {isLogin ? "Don't have an account?" : 'Already have an account?'}{' '}
-            <button type="button" onClick={() => { setIsLogin(!isLogin); resetMfa() }} className="font-medium text-white hover:underline">
+            <button type="button" onClick={() => { setIsLogin(!isLogin); resetMfa() }} className="font-medium text-[color:var(--text-primary)] hover:underline">
               {isLogin ? 'Sign up' : 'Login'}
             </button>
           </p>

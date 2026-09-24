@@ -6,7 +6,7 @@ export default function CookiesPage() {
       <LegalSection title="1. The Short Version">
         <p>
           TorrentCDN does not use tracking cookies, advertising cookies, or third-party analytics cookies. We use
-          your browser&rsquo;s <span className="font-bold text-white">session storage</span> (not cookies) for the
+          your browser&rsquo;s <span className="font-bold text-[color:var(--text-primary)]">session storage</span> (not cookies) for the
           minimum needed to keep you signed in and to carry referral codes between pages. Nothing we store is used
           to track you across the web.
         </p>
@@ -16,8 +16,8 @@ export default function CookiesPage() {
         <p>We use session storage for the following purposes:</p>
         <LegalList
           items={[
-            <><span className="font-mono text-white">torrent_cdn_token</span> — keeps you signed in. Set on login, cleared on logout or when you close the tab.</>,
-            <><span className="font-mono text-white">torrent_cdn_ref</span> — carries a referral code from a link you clicked to your registration, so the person who referred you gets credit. Cleared after registration.</>,
+            <><span className="font-mono text-[color:var(--text-primary)]">torrent_cdn_token</span> — keeps you signed in. Set on login, cleared on logout or when you close the tab.</>,
+            <><span className="font-mono text-[color:var(--text-primary)]">torrent_cdn_ref</span> — carries a referral code from a link you clicked to your registration, so the person who referred you gets credit. Cleared after registration.</>,
           ]}
         />
         <p className="mt-3">
@@ -49,7 +49,7 @@ export default function CookiesPage() {
       <LegalSection title="5. Changes and Contact">
         <p>
           We will update this policy if our use of storage changes. Questions may be directed to{' '}
-          <a href="mailto:privacy@torrentcdn.store" className="font-mono underline transition-colors hover:text-white">privacy@torrentcdn.store</a>.
+          <a href="mailto:privacy@torrentcdn.store" className="font-mono underline transition-colors hover:text-[color:var(--text-primary)]">privacy@torrentcdn.store</a>.
         </p>
       </LegalSection>
     </LegalPage>

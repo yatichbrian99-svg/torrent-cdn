@@ -14,7 +14,7 @@ export default function DmcaPage() {
       <LegalSection title="2. Filing a Takedown Notice">
         <p>
           If you believe content hosted on TorrentCDN infringes your copyright, send a written notice to our
-          designated agent at <a href="mailto:dmca@torrentcdn.store" className="font-mono underline transition-colors hover:text-white">dmca@torrentcdn.store</a> with the
+          designated agent at <a href="mailto:dmca@torrentcdn.store" className="font-mono underline transition-colors hover:text-[color:var(--text-primary)]">dmca@torrentcdn.store</a> with the
           following information:
         </p>
         <LegalList
@@ -45,7 +45,7 @@ export default function DmcaPage() {
       <LegalSection title="4. Counter-Notice">
         <p>
           If you believe your content was removed by mistake or misidentification, you may send a counter-notice
-          to <a href="mailto:dmca@torrentcdn.store" className="font-mono underline transition-colors hover:text-white">dmca@torrentcdn.store</a> including:
+          to <a href="mailto:dmca@torrentcdn.store" className="font-mono underline transition-colors hover:text-[color:var(--text-primary)]">dmca@torrentcdn.store</a> including:
         </p>
         <LegalList
           items={[
@@ -81,7 +81,7 @@ export default function DmcaPage() {
       <LegalSection title="7. Contact">
         <p>
           All takedown and counter-notice correspondence:{' '}
-          <a href="mailto:dmca@torrentcdn.store" className="font-mono underline transition-colors hover:text-white">dmca@torrentcdn.store</a>.
+          <a href="mailto:dmca@torrentcdn.store" className="font-mono underline transition-colors hover:text-[color:var(--text-primary)]">dmca@torrentcdn.store</a>.
         </p>
       </LegalSection>
     </LegalPage>

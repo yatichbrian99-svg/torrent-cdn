@@ -38,9 +38,9 @@ export default function TermsPage() {
         <LegalList
           items={[
             <>Keeping your password strong and not sharing it with anyone.</>,
-            <>Treating your API keys (format: <span className="font-mono text-white">tcdn_&hellip;</span>) as credentials — they are shown once at creation and can access your account programmatically.</>,
+            <>Treating your API keys (format: <span className="font-mono text-[color:var(--text-primary)]">tcdn_&hellip;</span>) as credentials — they are shown once at creation and can access your account programmatically.</>,
             <>Enabling two-factor authentication (TOTP) where you want additional protection for your account.</>,
-            <>Notifying us promptly at <a href="mailto:support@torrentcdn.store" className="font-mono underline transition-colors hover:text-white">support@torrentcdn.store</a> if you suspect unauthorized use of your account.</>,
+            <>Notifying us promptly at <a href="mailto:support@torrentcdn.store" className="font-mono underline transition-colors hover:text-[color:var(--text-primary)]">support@torrentcdn.store</a> if you suspect unauthorized use of your account.</>,
           ]}
         />
         <p className="mt-3">
@@ -67,7 +67,7 @@ export default function TermsPage() {
 
       <LegalSection title="6. Acceptable Use">
         <p>
-          You agree to comply with our <a href="/aup" className="underline transition-colors hover:text-white">Acceptable Use Policy</a>, incorporated into these Terms by
+          You agree to comply with our <a href="/aup" className="underline transition-colors hover:text-[color:var(--text-primary)]">Acceptable Use Policy</a>, incorporated into these Terms by
           reference. In summary, you may not use the Service to store or distribute content that is illegal,
           infringes the intellectual property or other rights of others, contains malware, or violates
           applicable law. We may remove content and suspend or terminate accounts that violate these Terms.
@@ -84,8 +84,8 @@ export default function TermsPage() {
         <p>
           We respect the intellectual property of others and expect our users to do the same. If you believe
           content hosted on the Service infringes your copyright, you may submit a takedown notice to
-          <a href="mailto:dmca@torrentcdn.store" className="font-mono underline transition-colors hover:text-white">dmca@torrentcdn.store</a> as described in our{' '}
-          <a href="/dmca" className="underline transition-colors hover:text-white">DMCA/Copyright Policy</a>. We will respond to valid notices and may remove infringing content
+          <a href="mailto:dmca@torrentcdn.store" className="font-mono underline transition-colors hover:text-[color:var(--text-primary)]">dmca@torrentcdn.store</a> as described in our{' '}
+          <a href="/dmca" className="underline transition-colors hover:text-[color:var(--text-primary)]">DMCA/Copyright Policy</a>. We will respond to valid notices and may remove infringing content
           and terminate repeat infringers.
         </p>
       </LegalSection>
@@ -94,9 +94,9 @@ export default function TermsPage() {
         <p>Paid plans are billed monthly in advance through Paystack. Current plans and prices are shown on the pricing page:</p>
         <LegalList
           items={[
-            <><span className="font-bold text-white">Free</span> — KES 0/month, 100GB of origin bandwidth per month.</>,
-            <><span className="font-bold text-white">Pro</span> — KES 4,000/month, 1TB of origin bandwidth per month.</>,
-            <><span className="font-bold text-white">Business</span> — KES 12,000/month, unlimited origin bandwidth.</>,
+            <><span className="font-bold text-[color:var(--text-primary)]">Free</span> — KES 0/month, 100GB of origin bandwidth per month.</>,
+            <><span className="font-bold text-[color:var(--text-primary)]">Pro</span> — KES 4,000/month, 1TB of origin bandwidth per month.</>,
+            <><span className="font-bold text-[color:var(--text-primary)]">Business</span> — KES 12,000/month, unlimited origin bandwidth.</>,
           ]}
         />
         <p className="mt-3">
@@ -200,8 +200,8 @@ export default function TermsPage() {
       <LegalSection title="18. Contact">
         <p>
           Questions about these Terms may be directed to us at{' '}
-          <a href="mailto:legal@torrentcdn.store" className="font-mono underline transition-colors hover:text-white">legal@torrentcdn.store</a>. For support, contact{' '}
-          <a href="mailto:support@torrentcdn.store" className="font-mono underline transition-colors hover:text-white">support@torrentcdn.store</a>.
+          <a href="mailto:legal@torrentcdn.store" className="font-mono underline transition-colors hover:text-[color:var(--text-primary)]">legal@torrentcdn.store</a>. For support, contact{' '}
+          <a href="mailto:support@torrentcdn.store" className="font-mono underline transition-colors hover:text-[color:var(--text-primary)]">support@torrentcdn.store</a>.
         </p>
       </LegalSection>
     </LegalPage>

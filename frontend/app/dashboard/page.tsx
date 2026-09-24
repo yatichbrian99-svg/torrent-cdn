@@ -272,7 +272,7 @@ export default function DashboardPage() {
 
       <div className="mb-10 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold tracking-[-0.02em] text-white">Your Files</h1>
+          <h1 className="text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">Your Files</h1>
         </div>
         <a href="/dashboard/upload" className="border px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80" style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)' }}>
           Upload file &rarr;
@@ -339,7 +339,7 @@ export default function DashboardPage() {
         {apiKey?.api_key ? (
           <>
             <div className="mt-3 flex items-center gap-2">
-              <code className="flex-1 border px-3 py-2 font-mono text-xs text-white" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}>
+              <code className="flex-1 border px-3 py-2 font-mono text-xs text-[color:var(--text-primary)]" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}>
                 {apiKey.api_key}
               </code>
               <button
@@ -356,7 +356,7 @@ export default function DashboardPage() {
           </>
         ) : apiKey?.prefix ? (
           <p className="mt-3 text-xs" style={{ color: 'var(--text-muted)' }}>
-            Current key: <code className="font-mono text-white">{apiKey.prefix}</code>
+            Current key: <code className="font-mono text-[color:var(--text-primary)]">{apiKey.prefix}</code>
             {apiKey.created_at ? ` (created ${new Date(apiKey.created_at).toLocaleDateString()})` : ''}.
             Generating a new key revokes the old one.
           </p>
@@ -427,7 +427,7 @@ export default function DashboardPage() {
               )}
               <div className="flex-1">
                 <p className="text-[11px] uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Secret</p>
-                <code className="block font-mono text-xs text-white" style={{ wordBreak: 'break-all' }}>
+                <code className="block font-mono text-xs text-[color:var(--text-primary)]" style={{ wordBreak: 'break-all' }}>
                   {mfaSetup.secret}
                 </code>
                 <button
@@ -461,7 +461,7 @@ export default function DashboardPage() {
                 value={mfaCode}
                 onChange={(e) => setMfaCode(e.target.value)}
                 placeholder="6-digit code"
-                className="w-40 border px-3 py-2 text-sm text-white"
+                className="w-40 border px-3 py-2 text-sm text-[color:var(--text-primary)]"
                 style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
               />
               <button
@@ -488,7 +488,7 @@ export default function DashboardPage() {
                 value={mfaCode}
                 onChange={(e) => setMfaCode(e.target.value)}
                 placeholder="Current code"
-                className="w-40 border px-3 py-2 text-sm text-white"
+                className="w-40 border px-3 py-2 text-sm text-[color:var(--text-primary)]"
                 style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
               />
               <button
@@ -516,11 +516,11 @@ export default function DashboardPage() {
           <Users size={16} style={{ color: 'var(--text-muted)' }} />
           <div>
             <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Refer a friend</p>
-            <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>You earn <span className="font-medium text-white">10GB</span> for each friend who signs up. They get <span className="font-medium text-white">5GB</span> free.</p>
+            <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>You earn <span className="font-medium text-[color:var(--text-primary)]">10GB</span> for each friend who signs up. They get <span className="font-medium text-[color:var(--text-primary)]">5GB</span> free.</p>
           </div>
         </div>
         <div className="mt-3 flex items-center gap-2">
-          <code className="flex-1 border px-3 py-2 font-mono text-xs text-white" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}>
+          <code className="flex-1 border px-3 py-2 font-mono text-xs text-[color:var(--text-primary)]" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}>
             {referralUrl || 'Loading...'}
           </code>
           <button
@@ -541,13 +541,13 @@ export default function DashboardPage() {
             <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
               <Users size={12} /> Friends referred
             </p>
-            <p className="mt-1 text-lg font-bold text-white">{referral?.total_referrals ?? 0}</p>
+            <p className="mt-1 text-lg font-bold text-[color:var(--text-primary)]">{referral?.total_referrals ?? 0}</p>
           </div>
           <div className="border p-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
             <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
               <Gift size={12} /> Bonus earned
             </p>
-            <p className="mt-1 text-lg font-bold text-white">{referral?.bonus_gb_earned ?? 0} GB</p>
+            <p className="mt-1 text-lg font-bold text-[color:var(--text-primary)]">{referral?.bonus_gb_earned ?? 0} GB</p>
           </div>
         </div>
       </div>
@@ -581,7 +581,7 @@ export default function DashboardPage() {
         ].map((s) => (
           <div key={s.label} className="border p-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
             <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>{s.label}</p>
-            <p className="mt-1 text-lg font-bold text-white">{s.value}</p>
+            <p className="mt-1 text-lg font-bold text-[color:var(--text-primary)]">{s.value}</p>
           </div>
         ))}
       </div>
@@ -596,7 +596,7 @@ export default function DashboardPage() {
             </p>
           </div>
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            Total (last 7 days): <span className="font-medium text-white">{totalBandwidth7d.toFixed(2)} GB</span>
+            Total (last 7 days): <span className="font-medium text-[color:var(--text-primary)]">{totalBandwidth7d.toFixed(2)} GB</span>
           </p>
         </div>
         {allZero || bandwidth.length === 0 ? (
@@ -634,7 +634,7 @@ export default function DashboardPage() {
       ) : !error && files.length === 0 ? (
         <div className="border p-16 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
           <Upload size={24} className="mx-auto mb-3" style={{ color: 'var(--text-muted)' }} />
-          <p className="text-sm text-white">No files yet.</p>
+          <p className="text-sm text-[color:var(--text-primary)]">No files yet.</p>
           <a href="/dashboard/upload" className="mt-4 inline-block border px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80" style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)' }}>
             Upload your first file &rarr;
           </a>

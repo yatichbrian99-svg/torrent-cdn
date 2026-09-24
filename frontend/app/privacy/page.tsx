@@ -14,30 +14,30 @@ export default function PrivacyPage() {
       </LegalSection>
 
       <LegalSection title="2. Information We Collect">
-        <p className="font-semibold text-white">Account information</p>
+        <p className="font-semibold text-[color:var(--text-primary)]">Account information</p>
         <p>
           When you register, we collect your email address and a hashed password. If you choose to enable
           two-factor authentication, we store a TOTP secret and hashes of your one-time backup codes. We also
           store your plan, verification status, referral code, and bandwidth usage so we can provide the Service.
         </p>
-        <p className="mt-3 font-semibold text-white">Content you upload</p>
+        <p className="mt-3 font-semibold text-[color:var(--text-primary)]">Content you upload</p>
         <p>
           We store the files you upload (or their storage references), filenames, sizes, and the magnet links we
           generate for them. Uploaded files are scanned for known malware; files up to 32&nbsp;MB may be submitted
           to VirusTotal for scanning.
         </p>
-        <p className="mt-3 font-semibold text-white">Usage and analytics data</p>
+        <p className="mt-3 font-semibold text-[color:var(--text-primary)]">Usage and analytics data</p>
         <p>
           We collect data about how your content is delivered: view counts, bytes transferred from our origin,
           bytes exchanged between peers (P2P), and delivery performance. This powers the analytics shown in your
           dashboard and is used to operate and improve the Service.
         </p>
-        <p className="mt-3 font-semibold text-white">Technical data</p>
+        <p className="mt-3 font-semibold text-[color:var(--text-primary)]">Technical data</p>
         <p>
           We collect IP addresses, browser type, and device information for security, rate limiting, and abuse
           prevention. We do not use this data to identify or profile you for advertising.
         </p>
-        <p className="mt-3 font-semibold text-white">Payment data</p>
+        <p className="mt-3 font-semibold text-[color:var(--text-primary)]">Payment data</p>
         <p>
           When you subscribe to a paid plan, payment is processed by Paystack. We do not receive or store your
           card details; Paystack handles them in accordance with its own privacy policy.
@@ -62,10 +62,10 @@ export default function PrivacyPage() {
         <p>We process personal data on the following bases:</p>
         <LegalList
           items={[
-            <><span className="font-bold text-white">Performance of a contract</span> — providing the Service you requested, including storage, delivery, and billing.</>,
-            <><span className="font-bold text-white">Legitimate interests</span> — security, abuse prevention, and service improvement, balanced against your rights.</>,
-            <><span className="font-bold text-white">Legal obligation</span> — compliance with applicable law, such as lawful requests from authorities.</>,
-            <><span className="font-bold text-white">Consent</span> — where we ask for it (for example, optional marketing), which you may withdraw at any time.</>,
+            <><span className="font-bold text-[color:var(--text-primary)]">Performance of a contract</span> — providing the Service you requested, including storage, delivery, and billing.</>,
+            <><span className="font-bold text-[color:var(--text-primary)]">Legitimate interests</span> — security, abuse prevention, and service improvement, balanced against your rights.</>,
+            <><span className="font-bold text-[color:var(--text-primary)]">Legal obligation</span> — compliance with applicable law, such as lawful requests from authorities.</>,
+            <><span className="font-bold text-[color:var(--text-primary)]">Consent</span> — where we ask for it (for example, optional marketing), which you may withdraw at any time.</>,
           ]}
         />
       </LegalSection>
@@ -74,12 +74,12 @@ export default function PrivacyPage() {
         <p>We share personal data only with the processors needed to operate the Service, and never sell your data. Current processors include:</p>
         <LegalList
           items={[
-            <><span className="font-bold text-white">Cloudflare R2</span> — object storage for uploaded files.</>,
-            <><span className="font-bold text-white">Supabase</span> — PostgreSQL database for account and usage records.</>,
-            <><span className="font-bold text-white">Paystack</span> — payment processing for subscriptions (and transfers where payouts apply).</>,
-            <><span className="font-bold text-white">Resend</span> — transactional email delivery.</>,
-            <><span className="font-bold text-white">VirusTotal</span> — malware scanning of uploads (hash lookups and, for files up to 32&nbsp;MB, file submission).</>,
-            <><span className="font-bold text-white">Render and Vercel</span> — hosting of the backend API, Redis, and frontend.</>,
+            <><span className="font-bold text-[color:var(--text-primary)]">Cloudflare R2</span> — object storage for uploaded files.</>,
+            <><span className="font-bold text-[color:var(--text-primary)]">Supabase</span> — PostgreSQL database for account and usage records.</>,
+            <><span className="font-bold text-[color:var(--text-primary)]">Paystack</span> — payment processing for subscriptions (and transfers where payouts apply).</>,
+            <><span className="font-bold text-[color:var(--text-primary)]">Resend</span> — transactional email delivery.</>,
+            <><span className="font-bold text-[color:var(--text-primary)]">VirusTotal</span> — malware scanning of uploads (hash lookups and, for files up to 32&nbsp;MB, file submission).</>,
+            <><span className="font-bold text-[color:var(--text-primary)]">Render and Vercel</span> — hosting of the backend API, Redis, and frontend.</>,
           ]}
         />
         <p className="mt-3">
@@ -102,7 +102,7 @@ export default function PrivacyPage() {
         <p>
           We do not use tracking cookies or third-party advertising cookies. We use your browser&rsquo;s session
           storage to keep you logged in and to carry a referral code between pages. Session storage is cleared
-          when you close your browser tab. See our <a href="/cookies" className="underline transition-colors hover:text-white">Cookie Policy</a> for details.
+          when you close your browser tab. See our <a href="/cookies" className="underline transition-colors hover:text-[color:var(--text-primary)]">Cookie Policy</a> for details.
         </p>
       </LegalSection>
 
@@ -147,7 +147,7 @@ export default function PrivacyPage() {
           your personal data; to object to or restrict certain processing; and to data portability. Under the
           Kenya Data Protection Act, 2019, you may also lodge a complaint with the Office of the Data Protection
           Commissioner. You may delete your account and its data at any time from your dashboard. To exercise any
-          of these rights, contact us at <a href="mailto:privacy@torrentcdn.store" className="font-mono underline transition-colors hover:text-white">privacy@torrentcdn.store</a>.
+          of these rights, contact us at <a href="mailto:privacy@torrentcdn.store" className="font-mono underline transition-colors hover:text-[color:var(--text-primary)]">privacy@torrentcdn.store</a>.
         </p>
       </LegalSection>
 
@@ -155,7 +155,7 @@ export default function PrivacyPage() {
         <p>
           The Service is not directed to children under 16, and we do not knowingly collect personal data from
           children. If you believe a child has provided us personal data, contact us at{' '}
-          <a href="mailto:privacy@torrentcdn.store" className="font-mono underline transition-colors hover:text-white">privacy@torrentcdn.store</a> and we will delete it.
+          <a href="mailto:privacy@torrentcdn.store" className="font-mono underline transition-colors hover:text-[color:var(--text-primary)]">privacy@torrentcdn.store</a> and we will delete it.
         </p>
       </LegalSection>
 
@@ -170,7 +170,7 @@ export default function PrivacyPage() {
       <LegalSection title="14. Contact">
         <p>
           For privacy-related questions or requests, contact us at{' '}
-          <a href="mailto:privacy@torrentcdn.store" className="font-mono underline transition-colors hover:text-white">privacy@torrentcdn.store</a>. Our services are operated from
+          <a href="mailto:privacy@torrentcdn.store" className="font-mono underline transition-colors hover:text-[color:var(--text-primary)]">privacy@torrentcdn.store</a>. Our services are operated from
           Kenya.
         </p>
       </LegalSection>

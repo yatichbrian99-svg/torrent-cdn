@@ -100,9 +100,9 @@ export default function UploadForm() {
     return (
       <div className="border p-6" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border)' }}>
         <div className="mb-6 flex items-center gap-3">
-          <span className="text-white"><CheckCircle size={18} /></span>
+          <span className="text-[color:var(--text-primary)]"><CheckCircle size={18} /></span>
           <div>
-            <p className="text-sm font-medium text-white">Upload successful</p>
+            <p className="text-sm font-medium text-[color:var(--text-primary)]">Upload successful</p>
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{result.filename} &middot; {result.file_size_mb.toFixed(1)} MB</p>
           </div>
         </div>
@@ -113,7 +113,7 @@ export default function UploadForm() {
               <div className="terminal-dots"><span /><span /><span /></div>
               <span className="text-[10px] uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>embed code</span>
             </div>
-            <code className="block text-sm text-white" style={{ fontFamily: 'monospace' }}>&lt;div data-torrent-cdn=&quot;{result.file_id}&quot;&gt;&lt;/div&gt;</code>
+            <code className="block text-sm text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>&lt;div data-torrent-cdn=&quot;{result.file_id}&quot;&gt;&lt;/div&gt;</code>
           </div>
         </div>
         <div className="mb-6">
@@ -170,7 +170,7 @@ export default function UploadForm() {
             <div className="flex items-center justify-center gap-3">
               <File size={20} style={{ color: 'var(--text-muted)' }} />
               <div className="text-left">
-                <p className="text-sm font-medium text-white">{selectedFile.name}</p>
+                <p className="text-sm font-medium text-[color:var(--text-primary)]">{selectedFile.name}</p>
                 <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{fmt(selectedFile.size)}</p>
               </div>
             </div>
@@ -186,7 +186,7 @@ export default function UploadForm() {
             <div className="mx-auto mt-6 max-w-sm">
               <div className="mb-2 flex items-center justify-between text-sm">
                 <span style={{ color: retrying ? '#fff' : 'var(--text-muted)' }}>{retrying ? 'Connection lost — retrying…' : 'Uploading...'}</span>
-                <span className="text-white">{progress}%</span>
+                <span className="text-[color:var(--text-primary)]">{progress}%</span>
               </div>
               <div className="h-1 w-full" style={{ backgroundColor: 'var(--bg-primary)' }}>
                 <div className="h-full transition-all duration-300" style={{ width: `${progress}%`, backgroundColor: 'var(--inverse-bg)' }} />
@@ -199,7 +199,7 @@ export default function UploadForm() {
           <div className="mb-4 flex items-center gap-3">
             <Link2 size={18} style={{ color: 'var(--text-muted)' }} />
             <div>
-              <p className="text-sm font-medium text-white">Import a media file by URL</p>
+              <p className="text-sm font-medium text-[color:var(--text-primary)]">Import a media file by URL</p>
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                 The server fetches a copy and runs the same pipeline — identical content is stored once (dedup).
               </p>
@@ -214,7 +214,7 @@ export default function UploadForm() {
             onChange={(e) => setImportUrl(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !uploading && importUrl.trim()) handleImport() }}
             placeholder="https://example.com/video.mp4"
-            className="w-full border px-3 py-2 text-sm text-white"
+            className="w-full border px-3 py-2 text-sm text-[color:var(--text-primary)]"
             style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
           />
           <label className="mb-1 mt-4 block text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
@@ -225,7 +225,7 @@ export default function UploadForm() {
             value={importFilename}
             onChange={(e) => setImportFilename(e.target.value)}
             placeholder="my-video.mp4 — inferred from the URL if left blank"
-            className="w-full border px-3 py-2 text-sm text-white"
+            className="w-full border px-3 py-2 text-sm text-[color:var(--text-primary)]"
             style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
           />
           <button
@@ -254,8 +254,8 @@ export default function UploadForm() {
 
       {error && (
         <div className="mt-3 flex items-center gap-2 border px-4 py-3 text-sm" style={{ borderColor: 'var(--inverse-bg)', backgroundColor: 'var(--bg-secondary)' }}>
-          <AlertCircle size={14} className="text-white" />
-          <span className="text-white">{error}</span>
+          <AlertCircle size={14} className="text-[color:var(--text-primary)]" />
+          <span className="text-[color:var(--text-primary)]">{error}</span>
         </div>
       )}
     </div>

@@ -263,7 +263,7 @@ export default function AdminPage() {
                 <AlertTriangle size={18} style={{ color: '#ff6b6b' }} />
               </div>
               <div>
-                <p className="text-sm font-medium text-white">Delete User</p>
+                <p className="text-sm font-medium text-[color:var(--text-primary)]">Delete User</p>
                 <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{deleteTarget.email}</p>
               </div>
             </div>
@@ -278,7 +278,7 @@ export default function AdminPage() {
             <div className="flex items-center gap-3 justify-end">
               <button
                 onClick={() => setDeleteTarget(null)}
-                className="px-4 py-2 text-xs transition-colors hover:text-white"
+                className="px-4 py-2 text-xs transition-colors hover:text-[color:var(--text-primary)]"
                 style={{ color: 'var(--text-muted)' }}
                 disabled={deleting}
               >
@@ -286,7 +286,7 @@ export default function AdminPage() {
               </button>
               <button
                 onClick={deleteUser}
-                className="px-4 py-2 text-xs font-medium text-white transition-opacity hover:opacity-80 disabled:opacity-50"
+                className="px-4 py-2 text-xs font-medium text-[color:var(--text-primary)] transition-opacity hover:opacity-80 disabled:opacity-50"
                 style={{ backgroundColor: '#dc2626' }}
                 disabled={deleting || deleteTarget.is_admin}
               >
@@ -307,7 +307,7 @@ export default function AdminPage() {
           <div className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ backgroundColor: 'rgba(168,85,247,0.12)' }}>
             <ShieldCheck size={16} style={{ color: '#a78bfa' }} />
           </div>
-          <h1 className="text-lg sm:text-xl font-bold tracking-[-0.02em] text-white">Admin Dashboard</h1>
+          <h1 className="text-lg sm:text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">Admin Dashboard</h1>
           <span
             className="ml-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest rounded"
             style={{ backgroundColor: 'rgba(168,85,247,0.15)', color: '#a78bfa' }}
@@ -385,7 +385,7 @@ export default function AdminPage() {
                       View
                     </span>
                   </div>
-                  <p className="text-2xl font-bold text-white tracking-tight">{card.value}</p>
+                  <p className="text-2xl font-bold text-[color:var(--text-primary)] tracking-tight">{card.value}</p>
                   <p className="mt-1 text-[11px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>{card.sub}</p>
                 </div>
                 {/* Hover accent line */}
@@ -577,7 +577,7 @@ export default function AdminPage() {
                   return (
                     <tr
                       key={user.id}
-                      className="group border-b transition-colors duration-150 hover:bg-white/[0.02]"
+                      className="group border-b transition-colors duration-150 hover:bg-[color:var(--hover-overlay)]"
                       style={{ borderColor: 'var(--border)' }}
                     >
                       <td className="px-4 sm:px-5 py-3">
@@ -593,17 +593,17 @@ export default function AdminPage() {
                           )}
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
-                              <span className="text-sm text-white truncate max-w-[160px] sm:max-w-[220px] block">{user.email}</span>
+                              <span className="text-sm text-[color:var(--text-primary)] truncate max-w-[160px] sm:max-w-[220px] block">{user.email}</span>
                               <button
                                 onClick={() => copyEmail(user.id, user.email)}
-                                className="p-1 rounded transition-all duration-150 opacity-0 group-hover:opacity-100 hover:bg-white/10"
+                                className="p-1 rounded transition-all duration-150 opacity-0 group-hover:opacity-100 hover:bg-[color:var(--hover-overlay)]"
                                 style={{ color: 'var(--text-muted)' }}
                                 title="Copy email"
                                 aria-label={`Copy ${user.email}`}
                               >
                                 {copiedEmailId === user.id
                                   ? <Check size={12} style={{ color: '#4ade80' }} />
-                                  : <Copy size={12} className="transition-colors hover:text-white" />}
+                                  : <Copy size={12} className="transition-colors hover:text-[color:var(--text-primary)]" />}
                               </button>
                               {user.is_admin && (
                                 <span
@@ -625,7 +625,7 @@ export default function AdminPage() {
                             <select
                               value={user.plan}
                               onChange={(e) => updatePlan(user.id, e.target.value)}
-                              className="border px-2 py-1 text-[11px] text-white outline-none cursor-pointer transition-colors hover:border-white/20"
+                              className="border px-2 py-1 text-[11px] text-[color:var(--text-primary)] outline-none cursor-pointer transition-colors hover:border-white/20"
                               style={{
                                 backgroundColor: planColor.bg,
                                 borderColor: planColor.border || 'transparent',
@@ -730,7 +730,7 @@ export default function AdminPage() {
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="text-[10px] transition-colors hover:text-white"
+                  className="text-[10px] transition-colors hover:text-[color:var(--text-primary)]"
                   style={{ color: 'var(--text-muted)' }}
                 >
                   Clear filter
@@ -740,7 +740,7 @@ export default function AdminPage() {
                 <button
                   onClick={() => fetchData(page - 1)}
                   disabled={page <= 1}
-                  className="border px-3 py-1 text-[10px] uppercase tracking-widest transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  className="border px-3 py-1 text-[10px] uppercase tracking-widest transition-colors hover:text-[color:var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
                   style={{ borderColor: 'var(--border)', color: 'var(--text-muted)', fontFamily: 'monospace' }}
                 >
                   Previous
@@ -749,7 +749,7 @@ export default function AdminPage() {
                 <button
                   onClick={() => fetchData(page + 1)}
                   disabled={page >= pages}
-                  className="border px-3 py-1 text-[10px] uppercase tracking-widest transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  className="border px-3 py-1 text-[10px] uppercase tracking-widest transition-colors hover:text-[color:var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
                   style={{ borderColor: 'var(--border)', color: 'var(--text-muted)', fontFamily: 'monospace' }}
                 >
                   Next

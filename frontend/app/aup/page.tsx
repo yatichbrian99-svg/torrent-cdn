@@ -59,7 +59,7 @@ export default function AupPage() {
         </p>
         <p className="mt-3">
           If you believe content on the Service violates this policy, report it to{' '}
-          <a href="mailto:abuse@torrentcdn.store" className="font-mono underline transition-colors hover:text-white">abuse@torrentcdn.store</a>.
+          <a href="mailto:abuse@torrentcdn.store" className="font-mono underline transition-colors hover:text-[color:var(--text-primary)]">abuse@torrentcdn.store</a>.
         </p>
       </LegalSection>
 

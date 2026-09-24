@@ -56,7 +56,7 @@ export default function LiveWatchPage() {
       <div className="flex min-h-screen items-center justify-center px-6" style={{ backgroundColor: 'var(--bg-primary)' }}>
         <div className="border p-10 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
           <AlertTriangle size={22} className="mx-auto mb-3" style={{ color: '#ef4444' }} />
-          <p className="text-sm text-white">{error || 'Channel not found'}</p>
+          <p className="text-sm text-[color:var(--text-primary)]">{error || 'Channel not found'}</p>
           <Link href="/live" className="mt-4 inline-block text-xs" style={{ color: 'var(--text-muted)' }}>
             ← Back to channels
           </Link>
@@ -79,14 +79,14 @@ export default function LiveWatchPage() {
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Radio size={14} style={{ color: statusColor(playback.status) }} />
-          <h1 className="text-sm font-bold text-white">{playback.channel_name}</h1>
+          <h1 className="text-sm font-bold text-[color:var(--text-primary)]">{playback.channel_name}</h1>
           <span className="font-mono text-[10px] uppercase tracking-widest" style={{ color: statusColor(playback.status) }}>
             {playback.status}
           </span>
           <span className="border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest"
                 style={{ borderColor: '#fbbf24', color: '#fbbf24' }}>Beta</span>
         </div>
-        <Link href="/live" className="text-xs transition-colors hover:text-white" style={{ color: 'var(--text-muted)' }}>
+        <Link href="/live" className="text-xs transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-muted)' }}>
           Dashboard →
         </Link>
       </div>

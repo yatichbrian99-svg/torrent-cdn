@@ -35,7 +35,7 @@ export default function ForgotPasswordPage() {
         {/* Back link */}
         <Link
           href="/"
-          className="mb-6 inline-flex items-center gap-1.5 text-xs transition-colors hover:text-white"
+          className="mb-6 inline-flex items-center gap-1.5 text-xs transition-colors hover:text-[color:var(--text-primary)]"
           style={{ color: 'var(--text-muted)' }}
         >
           <ArrowLeft size={12} />
@@ -48,7 +48,7 @@ export default function ForgotPasswordPage() {
             <div className="mx-auto mb-4 flex items-center justify-center w-12 h-12 rounded-full" style={{ backgroundColor: 'rgba(74,222,128,0.1)' }}>
               <CheckCircle size={24} style={{ color: '#4ade80' }} />
             </div>
-            <h2 className="mb-2 text-lg font-bold text-white">Check your email</h2>
+            <h2 className="mb-2 text-lg font-bold text-[color:var(--text-primary)]">Check your email</h2>
             <p className="mb-2 text-sm" style={{ color: 'var(--text-soft)' }}>
               If an account with that email exists, we've sent a password reset link.
             </p>
@@ -73,7 +73,7 @@ export default function ForgotPasswordPage() {
                 <Mail size={15} style={{ color: '#60a5fa' }} />
               </div>
               <div>
-                <h2 className="text-sm font-semibold text-white">Forgot password</h2>
+                <h2 className="text-sm font-semibold text-[color:var(--text-primary)]">Forgot password</h2>
                 <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                   Enter your email and we'll send you a reset link
                 </p>
@@ -91,7 +91,7 @@ export default function ForgotPasswordPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   autoFocus
-                  className="w-full border px-3 py-2 text-sm text-white outline-none transition-colors focus:border-white/20"
+                  className="w-full border px-3 py-2 text-sm text-[color:var(--text-primary)] outline-none transition-colors focus:border-white/20"
                   style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
                   placeholder="you@example.com"
                 />

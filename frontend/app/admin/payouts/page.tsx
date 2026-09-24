@@ -277,7 +277,7 @@ export default function AdminPayoutsPage() {
                 <AlertTriangle size={18} style={{ color: '#ff6b6b' }} />
               </div>
               <div>
-                <p className="text-sm font-medium text-white">Deactivate Recipient</p>
+                <p className="text-sm font-medium text-[color:var(--text-primary)]">Deactivate Recipient</p>
                 <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{deactivateTarget.name}</p>
               </div>
             </div>
@@ -288,7 +288,7 @@ export default function AdminPayoutsPage() {
             <div className="flex items-center gap-3 justify-end">
               <button
                 onClick={() => setDeactivateTarget(null)}
-                className="px-4 py-2 text-xs transition-colors hover:text-white"
+                className="px-4 py-2 text-xs transition-colors hover:text-[color:var(--text-primary)]"
                 style={{ color: 'var(--text-muted)' }}
                 disabled={deactivating}
               >
@@ -296,7 +296,7 @@ export default function AdminPayoutsPage() {
               </button>
               <button
                 onClick={confirmDeactivate}
-                className="px-4 py-2 text-xs font-medium text-white transition-opacity hover:opacity-80 disabled:opacity-50"
+                className="px-4 py-2 text-xs font-medium text-[color:var(--text-primary)] transition-opacity hover:opacity-80 disabled:opacity-50"
                 style={{ backgroundColor: '#dc2626' }}
                 disabled={deactivating}
               >
@@ -320,21 +320,21 @@ export default function AdminPayoutsPage() {
                 <Send size={18} style={{ color: '#fbbf24' }} />
               </div>
               <div>
-                <p className="text-sm font-medium text-white">Confirm Transfer</p>
+                <p className="text-sm font-medium text-[color:var(--text-primary)]">Confirm Transfer</p>
                 <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Funds leave your Paystack balance</p>
               </div>
             </div>
             <div className="space-y-2 mb-5 text-xs">
-              <div className="flex justify-between"><span style={{ color: 'var(--text-dim)' }}>Recipient</span><span className="text-white">{confirmTarget.recipient_name}</span></div>
-              <div className="flex justify-between"><span style={{ color: 'var(--text-dim)' }}>Amount</span><span className="text-white font-semibold">{kes(confirmTarget.amount_kes)}</span></div>
+              <div className="flex justify-between"><span style={{ color: 'var(--text-dim)' }}>Recipient</span><span className="text-[color:var(--text-primary)]">{confirmTarget.recipient_name}</span></div>
+              <div className="flex justify-between"><span style={{ color: 'var(--text-dim)' }}>Amount</span><span className="text-[color:var(--text-primary)] font-semibold">{kes(confirmTarget.amount_kes)}</span></div>
               {confirmTarget.reason && (
-                <div className="flex justify-between gap-4"><span style={{ color: 'var(--text-dim)' }}>Reason</span><span className="text-white text-right">{confirmTarget.reason}</span></div>
+                <div className="flex justify-between gap-4"><span style={{ color: 'var(--text-dim)' }}>Reason</span><span className="text-[color:var(--text-primary)] text-right">{confirmTarget.reason}</span></div>
               )}
             </div>
             <div className="flex items-center gap-3 justify-end">
               <button
                 onClick={() => setConfirmTarget(null)}
-                className="px-4 py-2 text-xs transition-colors hover:text-white"
+                className="px-4 py-2 text-xs transition-colors hover:text-[color:var(--text-primary)]"
                 style={{ color: 'var(--text-muted)' }}
                 disabled={transferring}
               >
@@ -342,7 +342,7 @@ export default function AdminPayoutsPage() {
               </button>
               <button
                 onClick={confirmTransfer}
-                className="px-4 py-2 text-xs font-medium text-black transition-opacity hover:opacity-80 disabled:opacity-50"
+                className="px-4 py-2 text-xs font-medium text-[color:var(--text-primary)] transition-opacity hover:opacity-80 disabled:opacity-50"
                 style={{ backgroundColor: '#fbbf24' }}
                 disabled={transferring}
               >
@@ -363,7 +363,7 @@ export default function AdminPayoutsPage() {
           <div className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ backgroundColor: 'rgba(251,191,36,0.12)' }}>
             <Wallet size={16} style={{ color: '#fbbf24' }} />
           </div>
-          <h1 className="text-lg sm:text-xl font-bold tracking-[-0.02em] text-white">Payouts</h1>
+          <h1 className="text-lg sm:text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">Payouts</h1>
           <span className="ml-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest rounded" style={{ backgroundColor: 'rgba(251,191,36,0.15)', color: '#fbbf24' }}>
             M-PESA
           </span>
@@ -405,7 +405,7 @@ export default function AdminPayoutsPage() {
             <RefreshCw size={12} style={{ color: 'var(--text-muted)' }} />
           </button>
         </div>
-        <p className="text-3xl font-bold text-white tracking-tight">
+        <p className="text-3xl font-bold text-[color:var(--text-primary)] tracking-tight">
           {balance ? kes(balance.balance_kes) : '—'}
         </p>
         <p className="mt-2 text-[11px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
@@ -478,7 +478,7 @@ export default function AdminPayoutsPage() {
             <button
               onClick={openConfirm}
               disabled={!selRecipient || !amount || activeRecipients.length === 0}
-              className="w-full px-4 py-2.5 text-xs font-semibold text-black transition-opacity hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-full px-4 py-2.5 text-xs font-semibold text-[color:var(--text-primary)] transition-opacity hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ backgroundColor: '#fbbf24' }}
             >
               Review transfer
@@ -539,7 +539,7 @@ export default function AdminPayoutsPage() {
             <button
               onClick={createRecipient}
               disabled={creatingRcp}
-              className="w-full px-4 py-2.5 text-xs font-semibold text-white transition-opacity hover:opacity-80 disabled:opacity-50"
+              className="w-full px-4 py-2.5 text-xs font-semibold text-[color:var(--text-primary)] transition-opacity hover:opacity-80 disabled:opacity-50"
               style={{ backgroundColor: '#8b5cf6' }}
             >
               {creatingRcp ? (
@@ -577,7 +577,7 @@ export default function AdminPayoutsPage() {
               <tbody>
                 {recipients.map((r) => (
                   <tr key={r.recipient_code} className="border-t" style={{ borderColor: 'var(--divider)' }}>
-                    <td className="px-4 sm:px-5 py-3 text-xs text-white">{r.name}</td>
+                    <td className="px-4 sm:px-5 py-3 text-xs text-[color:var(--text-primary)]">{r.name}</td>
                     <td className="px-4 py-3 text-xs" style={{ color: 'var(--text-soft)' }}>{r.account_number}</td>
                     <td className="px-4 py-3 text-[11px]" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>{r.recipient_code}</td>
                     <td className="px-4 py-3">
@@ -651,11 +651,11 @@ export default function AdminPayoutsPage() {
                   return (
                     <tr key={p.transfer_code} className="border-t" style={{ borderColor: 'var(--divider)' }}>
                       <td className="px-4 sm:px-5 py-3 text-xs whitespace-nowrap" style={{ color: 'var(--text-soft)' }}>{fmtDate(p.created_at)}</td>
-                      <td className="px-4 py-3 text-xs text-white">
+                      <td className="px-4 py-3 text-xs text-[color:var(--text-primary)]">
                         {p.recipient_name || p.recipient_code}
                         <span className="block text-[10px]" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>{p.transfer_code}</span>
                       </td>
-                      <td className="px-4 py-3 text-xs font-semibold text-white whitespace-nowrap">{kes(p.amount_kes)}</td>
+                      <td className="px-4 py-3 text-xs font-semibold text-[color:var(--text-primary)] whitespace-nowrap">{kes(p.amount_kes)}</td>
                       <td className="px-4 py-3 text-xs max-w-[180px] truncate" style={{ color: 'var(--text-soft)' }}>{p.reason || '—'}</td>
                       <td className="px-4 py-3">
                         <span
@@ -669,7 +669,7 @@ export default function AdminPayoutsPage() {
                         <button
                           onClick={() => refreshPayout(p.transfer_code)}
                           disabled={refreshing === p.transfer_code}
-                          className="inline-flex items-center gap-1 text-[11px] transition-colors hover:text-white"
+                          className="inline-flex items-center gap-1 text-[11px] transition-colors hover:text-[color:var(--text-primary)]"
                           style={{ color: 'var(--text-muted)' }}
                           title="Fetch latest status from Paystack"
                         >

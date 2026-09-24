@@ -48,13 +48,13 @@ function VerifyEmailContent() {
         {status === 'loading' && (
           <>
             <Loader2 size={32} className="mx-auto mb-4 animate-spin" style={{ color: 'var(--text-muted)' }} />
-            <p className="text-sm text-white">Verifying your email...</p>
+            <p className="text-sm text-[color:var(--text-primary)]">Verifying your email...</p>
           </>
         )}
         {status === 'success' && (
           <>
             <CheckCircle size={32} className="mx-auto mb-4" style={{ color: '#4ade80' }} />
-            <h2 className="mb-2 text-lg font-bold text-white">Email Verified</h2>
+            <h2 className="mb-2 text-lg font-bold text-[color:var(--text-primary)]">Email Verified</h2>
             <p className="mb-6 text-sm" style={{ color: 'var(--text-soft)' }}>{message}</p>
             <button
               onClick={() => router.push('/dashboard')}
@@ -68,7 +68,7 @@ function VerifyEmailContent() {
         {status === 'error' && (
           <>
             <XCircle size={32} className="mx-auto mb-4" style={{ color: '#ef4444' }} />
-            <h2 className="mb-2 text-lg font-bold text-white">Verification Failed</h2>
+            <h2 className="mb-2 text-lg font-bold text-[color:var(--text-primary)]">Verification Failed</h2>
             <p className="mb-6 text-sm" style={{ color: 'var(--text-soft)' }}>{message}</p>
             <button
               onClick={() => router.push('/dashboard')}

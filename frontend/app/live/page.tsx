@@ -73,7 +73,7 @@ export default function LiveIndexPage() {
     <div className="mx-auto max-w-5xl px-6 py-10 select-none">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="flex items-center gap-2 text-xl font-bold tracking-[-0.02em] text-white">
+          <h1 className="flex items-center gap-2 text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">
             <Radio size={18} style={{ color: 'var(--text-muted)' }} /> Live Streaming
             <span className="border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest"
                   style={{ borderColor: '#fbbf24', color: '#fbbf24' }}>Beta</span>
@@ -102,7 +102,7 @@ export default function LiveIndexPage() {
               onChange={(e) => setNewName(e.target.value)}
               placeholder="Channel name (e.g. Sunday Service)"
               maxLength={120}
-              className="border px-3 py-2 text-sm text-white"
+              className="border px-3 py-2 text-sm text-[color:var(--text-primary)]"
               style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
             />
             <input
@@ -110,7 +110,7 @@ export default function LiveIndexPage() {
               onChange={(e) => setNewDesc(e.target.value)}
               placeholder="Description (optional)"
               maxLength={500}
-              className="border px-3 py-2 text-sm text-white"
+              className="border px-3 py-2 text-sm text-[color:var(--text-primary)]"
               style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}
             />
             <div className="flex items-center gap-3">
@@ -147,7 +147,7 @@ export default function LiveIndexPage() {
       ) : !error && channels.length === 0 ? (
         <div className="border p-16 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
           <Radio size={24} className="mx-auto mb-3" style={{ color: 'var(--text-muted)' }} />
-          <p className="text-sm text-white">No live channels yet.</p>
+          <p className="text-sm text-[color:var(--text-primary)]">No live channels yet.</p>
           <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
             Create one, copy the RTMP settings into OBS, and go live.
           </p>
@@ -176,11 +176,11 @@ export default function LiveIndexPage() {
             <Link
               key={ch.id}
               href={`/live/channels/${ch.id}`}
-              className="flex items-center gap-4 border-b px-4 py-3 text-sm transition-colors hover:bg-white/[0.02]"
+              className="flex items-center gap-4 border-b px-4 py-3 text-sm transition-colors hover:bg-[color:var(--hover-overlay)]"
               style={{ borderColor: 'var(--border)' }}
             >
               <div className="flex-1">
-                <p className="font-medium text-white">{ch.name}</p>
+                <p className="font-medium text-[color:var(--text-primary)]">{ch.name}</p>
                 <p className="font-mono text-xs" style={{ color: 'var(--text-muted)' }}>/{ch.slug}</p>
               </div>
               <div className="w-20">

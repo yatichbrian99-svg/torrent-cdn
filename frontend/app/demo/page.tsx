@@ -312,7 +312,7 @@ export default function DemoPage() {
     <div className="mx-auto max-w-5xl px-6 py-10">
       {/* Header */}
       <div className="mb-10">
-        <h1 className="text-3xl font-bold tracking-[-0.02em] text-white sm:text-4xl">Live P2P Demo</h1>
+        <h1 className="text-3xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)] sm:text-4xl">Live P2P Demo</h1>
         <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>
           Watch how viewers become peers in real time.
         </p>
@@ -345,7 +345,7 @@ export default function DemoPage() {
           </p>
           <p className="font-mono text-xs" style={{ color: 'var(--text-soft)' }}>
             P2P offload:{' '}
-            <span className="font-bold text-white">{stats ? `${stats.p2p_offload_percent.toFixed(1)}%` : '—'}</span>
+            <span className="font-bold text-[color:var(--text-primary)]">{stats ? `${stats.p2p_offload_percent.toFixed(1)}%` : '—'}</span>
           </p>
         </div>
         {/* Self-seed indicator — this tab is a peer in the swarm */}
@@ -361,7 +361,7 @@ export default function DemoPage() {
         )}
         {!isLive && (
           <p className="mt-2 font-mono text-[11px]" style={{ color: 'var(--text-dim)' }}>
-            &gt; Player goes live once a demo video is uploaded — replace <span className="text-white">DEMO_FILE_ID</span> at the top of <span className="text-white">frontend/app/demo/page.tsx</span>.
+            &gt; Player goes live once a demo video is uploaded — replace <span className="text-[color:var(--text-primary)]">DEMO_FILE_ID</span> at the top of <span className="text-[color:var(--text-primary)]">frontend/app/demo/page.tsx</span>.
           </p>
         )}
       </section>
@@ -380,7 +380,7 @@ export default function DemoPage() {
               <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
                 <s.icon size={12} /> {s.label}
               </p>
-              <p className="mt-2 font-mono text-2xl font-bold text-white">{s.value}</p>
+              <p className="mt-2 font-mono text-2xl font-bold text-[color:var(--text-primary)]">{s.value}</p>
             </div>
           ))}
         </div>
@@ -472,7 +472,7 @@ export default function DemoPage() {
             <h2 className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Cost calculator — your scenario</h2>
             <button
               onClick={handleCopyPermalink}
-              className="flex items-center gap-1.5 font-mono text-[11px] transition-colors hover:text-white"
+              className="flex items-center gap-1.5 font-mono text-[11px] transition-colors hover:text-[color:var(--text-primary)]"
               style={{ color: 'var(--text-muted)' }}
               title="Copy a link to this exact scenario"
             >
@@ -487,7 +487,7 @@ export default function DemoPage() {
               <div>
                 <div className="flex items-center justify-between font-mono text-xs">
                   <span className="font-bold uppercase tracking-widest" style={{ color: 'var(--text-soft)' }}>Viewers</span>
-                  <span className="flex items-center gap-1 text-white">
+                  <span className="flex items-center gap-1 text-[color:var(--text-primary)]">
                     <input
                       type="number"
                       value={draftOrValue(scenarioViewersDraft, scenarioViewers)}
@@ -496,7 +496,7 @@ export default function DemoPage() {
                       step={SCENARIO_VIEWERS_RANGE.step}
                       onChange={(e) => setScenarioViewersDraft(e.target.value)}
                       onBlur={() => { clampCommit(scenarioViewersDraft ?? '', SCENARIO_VIEWERS_RANGE.min, SCENARIO_VIEWERS_RANGE.max, SCENARIO_DEFAULT_VIEWERS, setScenarioViewers); setScenarioViewersDraft(null) }}
-                      className="w-24 border bg-transparent px-2 py-1 text-right font-mono text-sm text-white"
+                      className="w-24 border bg-transparent px-2 py-1 text-right font-mono text-sm text-[color:var(--text-primary)]"
                       style={{ borderColor: 'var(--border-strong)' }}
                     />
                   </span>
@@ -519,7 +519,7 @@ export default function DemoPage() {
               <div>
                 <div className="flex items-center justify-between font-mono text-xs">
                   <span className="font-bold uppercase tracking-widest" style={{ color: 'var(--text-soft)' }}>Video size</span>
-                  <span className="flex items-center gap-1 text-white">
+                  <span className="flex items-center gap-1 text-[color:var(--text-primary)]">
                     <input
                       type="number"
                       value={draftOrValue(scenarioVideoMbDraft, scenarioVideoMb)}
@@ -528,7 +528,7 @@ export default function DemoPage() {
                       step={SCENARIO_VIDEO_MB_RANGE.step}
                       onChange={(e) => setScenarioVideoMbDraft(e.target.value)}
                       onBlur={() => { clampCommit(scenarioVideoMbDraft ?? '', SCENARIO_VIDEO_MB_RANGE.min, SCENARIO_VIDEO_MB_RANGE.max, SCENARIO_DEFAULT_VIDEO_MB, setScenarioVideoMb); setScenarioVideoMbDraft(null) }}
-                      className="w-24 border bg-transparent px-2 py-1 text-right font-mono text-sm text-white"
+                      className="w-24 border bg-transparent px-2 py-1 text-right font-mono text-sm text-[color:var(--text-primary)]"
                       style={{ borderColor: 'var(--border-strong)' }}
                     />
                     <span style={{ color: 'var(--text-muted)' }}>MB</span>
@@ -552,7 +552,7 @@ export default function DemoPage() {
               <div>
                 <div className="flex items-center justify-between font-mono text-xs">
                   <span className="font-bold uppercase tracking-widest" style={{ color: 'var(--text-soft)' }}>Average watch</span>
-                  <span className="flex items-center gap-1 text-white">
+                  <span className="flex items-center gap-1 text-[color:var(--text-primary)]">
                     <input
                       type="number"
                       value={draftOrValue(scenarioWatchPctDraft, scenarioWatchPct)}
@@ -561,7 +561,7 @@ export default function DemoPage() {
                       step={SCENARIO_WATCH_RANGE.step}
                       onChange={(e) => setScenarioWatchPctDraft(e.target.value)}
                       onBlur={() => { clampCommit(scenarioWatchPctDraft ?? '', SCENARIO_WATCH_RANGE.min, SCENARIO_WATCH_RANGE.max, SCENARIO_DEFAULT_WATCH_PCT, setScenarioWatchPct); setScenarioWatchPctDraft(null) }}
-                      className="w-24 border bg-transparent px-2 py-1 text-right font-mono text-sm text-white"
+                      className="w-24 border bg-transparent px-2 py-1 text-right font-mono text-sm text-[color:var(--text-primary)]"
                       style={{ borderColor: 'var(--border-strong)' }}
                     />
                     <span style={{ color: 'var(--text-muted)' }}>%</span>
@@ -585,7 +585,7 @@ export default function DemoPage() {
               <div className="border-t pt-4" style={{ borderColor: 'var(--border)' }}>
                 <div className="flex items-center justify-between font-mono text-xs">
                   <span className="font-bold uppercase tracking-widest" style={{ color: '#4ade80' }}>P2P offload</span>
-                  <span className="flex items-center gap-1 text-white">
+                  <span className="flex items-center gap-1 text-[color:var(--text-primary)]">
                     <input
                       type="number"
                       value={draftOrValue(scenarioP2pDraft, scenarioP2pPct)}
@@ -594,7 +594,7 @@ export default function DemoPage() {
                       step={SCENARIO_P2P_RANGE.step}
                       onChange={(e) => { setScenarioP2pDraft(e.target.value); p2pTouchedRef.current = true }}
                       onBlur={() => { clampCommit(scenarioP2pDraft ?? '', SCENARIO_P2P_RANGE.min, SCENARIO_P2P_RANGE.max, SCENARIO_DEFAULT_P2P_PCT, (n) => setScenarioP2pPct(snapToStep(n, SCENARIO_P2P_RANGE))); setScenarioP2pDraft(null) }}
-                      className="w-20 border bg-transparent px-2 py-1 text-right font-mono text-sm text-white"
+                      className="w-20 border bg-transparent px-2 py-1 text-right font-mono text-sm text-[color:var(--text-primary)]"
                       style={{ borderColor: 'var(--border-strong)' }}
                     />
                     <span style={{ color: 'var(--text-muted)' }}>%</span>
@@ -605,7 +605,7 @@ export default function DemoPage() {
                         else setScenarioP2pPct(SCENARIO_DEFAULT_P2P_PCT)
                         setScenarioP2pDraft(null)
                       }}
-                      className="border px-2 py-1 font-mono text-[10px] uppercase tracking-widest transition-colors hover:text-white"
+                      className="border px-2 py-1 font-mono text-[10px] uppercase tracking-widest transition-colors hover:text-[color:var(--text-primary)]"
                       style={{ borderColor: 'var(--border-strong)', color: '#4ade80' }}
                       title={liveP2pPct !== null ? `Reset to the live swarm rate (${liveP2pPct.toFixed(1)}%)` : 'Reset to the default rate'}
                     >
@@ -634,9 +634,9 @@ export default function DemoPage() {
             {/* Results */}
             <div className="border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
               {/* The clearly-labeled scenario headline */}
-              <p className="font-mono text-sm text-white">
+              <p className="font-mono text-sm text-[color:var(--text-primary)]">
                 {scenarioViewers.toLocaleString()} viewers × {scenarioVideoMb.toLocaleString()} MB × {scenarioWatchPct}% avg watch ={' '}
-                <span className="font-bold text-white">{scenarioGbDelivered.toFixed(1)} GB delivered</span>
+                <span className="font-bold text-[color:var(--text-primary)]">{scenarioGbDelivered.toFixed(1)} GB delivered</span>
               </p>
               <p className="mt-3 font-mono text-[10px] uppercase tracking-widest" style={{ color: '#4ade80' }}>
                 at {scenarioP2pPct}% P2P offload
@@ -718,7 +718,7 @@ export default function DemoPage() {
             <div className="terminal-dots"><span /><span /><span /></div>
             <button
               onClick={handleCopy}
-              className="flex items-center gap-1.5 text-xs transition-colors hover:text-white"
+              className="flex items-center gap-1.5 text-xs transition-colors hover:text-[color:var(--text-primary)]"
               style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}
             >
               {copied ? <Check size={12} style={{ color: '#4ade80' }} /> : <Copy size={12} />}
@@ -726,7 +726,7 @@ export default function DemoPage() {
             </button>
           </div>
           <pre
-            className="cursor-pointer overflow-x-auto font-mono text-sm text-white select-all"
+            className="cursor-pointer overflow-x-auto font-mono text-sm text-[color:var(--text-primary)] select-all"
             style={{ userSelect: 'all' }}
             onClick={(e) => {
               const range = document.createRange()
@@ -741,7 +741,7 @@ export default function DemoPage() {
 
       {/* CTA */}
       <section className="border p-10 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
-        <h2 className="text-xl font-bold tracking-[-0.02em] text-white">Want this for your platform?</h2>
+        <h2 className="text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">Want this for your platform?</h2>
         <p className="mx-auto mt-2 max-w-md text-sm" style={{ color: 'var(--text-muted)' }}>
           Upload a video, paste one line of code, and your viewers start sharing bandwidth immediately.
         </p>
