@@ -6,6 +6,12 @@
  * logic as a literal string. This test keeps the two in lockstep: change the
  * key or the resolution rule in lib/theme.ts without updating layout.tsx (or
  * vice versa) and CI fails.
+ *
+ * It also pins a production incident: under the nonce-based CSP (middleware.ts)
+ * a RAW inline <script> is blocked by the browser. The script must be rendered
+ * via next/script so Next.js stamps the per-request nonce onto it — the raw
+ * form once left data-theme-resolved unset and, with the visibility:hidden
+ * theme guard in globals.css, blacked out the entire deployed site.
  */
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -13,6 +19,7 @@ import { join } from 'node:path'
 import { THEME_KEY, readStoredTheme } from '../theme'
 
 const layoutSource = readFileSync(join(__dirname, '..', '..', 'app', 'layout.tsx'), 'utf8')
+const globalsSource = readFileSync(join(__dirname, '..', '..', 'app', 'globals.css'), 'utf8')
 
 /** Pull the inline script text out of layout.tsx. */
 function extractInitScript(): string {
@@ -41,5 +48,18 @@ describe('pre-paint theme script parity', () => {
   it('sets data-theme on documentElement before resolving', () => {
     const script = extractInitScript()
     expect(script).toContain(`document.documentElement.setAttribute('data-theme',t)`)
+  })
+
+  it('is rendered via next/script so the CSP nonce is stamped on it (incident pin)', () => {
+    // The theme script must be inside a <Script> (next/script), which receives
+    // the CSP nonce from middleware — a raw <script dangerouslySetInnerHTML>
+    // is blocked by script-src 'nonce-…' and the page would never resolve.
+    expect(layoutSource).toMatch(/<Script[\s\S]*?THEME_SCRIPT[\s\S]*?\/>/)
+    // No raw non-JSON-LD inline <script> remains in the layout.
+    expect(layoutSource).not.toMatch(/<script(?![^>]*ld\+json)[\s\S]*?dangerouslySetInnerHTML/)
+    // CSS failsafe: the visibility guard must self-release via animation even
+    // if the script is ever blocked again (0.3s delay ≤ any perceivable flash).
+    expect(globalsSource).toMatch(/html:not\(\[data-theme-resolved\]\) body \{[\s\S]*?visibility: hidden;[\s\S]*?animation:[^;]*theme-guard-release/)
+    expect(globalsSource).toContain('@keyframes theme-guard-release')
   })
 })

@@ -182,7 +182,16 @@ body {
 }
 
 /* While the pre-paint script resolves the stored theme, keep the page neutral
-   to avoid a light flash on dark (or vice versa). Removed by the script. */
+   to avoid a light flash on dark (or vice versa). Removed by the script — and,
+   as a failsafe, self-released by CSS 300ms later even if the script never
+   runs (a blocked inline script once left the whole site permanently black;
+   this animation guarantees that can never happen again). */
+@keyframes theme-guard-release {
+  to {
+    visibility: visible;
+  }
+}
 html:not([data-theme-resolved]) body {
   visibility: hidden;
+  animation: theme-guard-release 0s 0.3s forwards;
 }

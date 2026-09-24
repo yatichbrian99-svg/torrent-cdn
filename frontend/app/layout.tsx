@@ -1,4 +1,6 @@
 import type { Metadata } from 'next'
+import Script from 'next/script'
+import { headers } from 'next/headers'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import Navbar from '@/components/Navbar'
@@ -105,11 +107,18 @@ const jsonLd = {
   },
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Explicit nonce pass-through (the Next.js CSP-guide pattern): middleware
+  // puts the full CSP on the request headers; extract our nonce so the theme
+  // script executes even if framework auto-stamping ever misses this tag.
+  const csp = (await headers()).get('content-security-policy') ?? ''
+  const nonce = csp.match(/nonce-([0-9a-zA-Z]+)/)?.[1] ?? ''
+
   return (
     <html lang="en">
       <head>
-        <script
+        <Script
+          id="jsonld-org"
           type="application/ld+json"
           dangerouslySetInnerHTML={{
             __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c'),
@@ -120,8 +129,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
       <body className={inter.className}>
-        {/* Pre-paint theme: resolves the persisted theme before first paint. */}
-        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+        {/* Pre-paint theme: resolves the persisted theme before first paint.
+            next/script (beforeInteractive) is REQUIRED here — middleware sets
+            a nonce-based CSP, so only nonce-stamped inline scripts execute.
+            The raw-tag form rendered without a nonce, the browser blocked it,
+            and combined with the old visibility:hidden theme guard that
+            blacked out the entire deployed site. The parity test pins this. */}
+        <Script
+          id="theme-init"
+          strategy="beforeInteractive"
+          nonce={nonce}
+          dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }}
+        />
         <Navbar />
         <main className="min-h-screen pt-12">{children}</main>
       </body>
