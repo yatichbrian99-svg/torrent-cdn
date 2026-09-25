@@ -167,8 +167,8 @@ export default function LiveChannelDetailPage() {
 
       {error && (
         <div className="mb-6 flex items-center gap-3 border px-4 py-3" style={{ borderColor: 'var(--err-chip-border)', backgroundColor: 'var(--err-chip-bg)' }}>
-          <AlertTriangle size={16} style={{ color: '#ef4444' }} />
-          <p className="flex-1 text-xs" style={{ color: '#fca5a5' }}>{error}</p>
+          <AlertTriangle size={16} style={{ color: 'var(--err)' }} />
+          <p className="flex-1 text-xs" style={{ color: 'var(--err-soft)' }}>{error}</p>
         </div>
       )}
 
@@ -182,7 +182,7 @@ export default function LiveChannelDetailPage() {
             </span>
             {channel?.name}
             <span className="border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest"
-                  style={{ borderColor: '#fbbf24', color: '#fbbf24' }}>Beta</span>
+                  style={{ borderColor: 'var(--warn)', color: 'var(--warn)' }}>Beta</span>
           </h1>
           <p className="mt-1 font-mono text-xs" style={{ color: 'var(--text-muted)' }}>/{channel?.slug}</p>
         </div>
@@ -190,7 +190,7 @@ export default function LiveChannelDetailPage() {
           <Link
             href={`/live/channels/${id}/analytics`}
             className="flex items-center gap-2 border px-4 py-2 text-sm transition-opacity hover:opacity-80"
-            style={{ borderColor: 'var(--border)', color: '#fff' }}
+            style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
           >
             <BarChart3 size={14} /> Analytics
           </Link>
@@ -211,8 +211,8 @@ export default function LiveChannelDetailPage() {
                borderColor: status?.status === 'ERROR' ? 'var(--err-chip-border)' : status?.status === 'LIVE' ? 'var(--ok-chip-border)' : 'var(--warn-chip-border)',
                backgroundColor: status?.status === 'ERROR' ? 'var(--err-chip-bg)' : status?.status === 'LIVE' ? 'var(--ok-chip-bg)' : 'var(--warn-chip-bg)',
              }}>
-          {status?.status === 'ERROR' && <AlertTriangle size={16} style={{ color: '#ef4444' }} />}
-          {status?.status === 'LIVE' && <Check size={16} style={{ color: '#4ade80' }} />}
+          {status?.status === 'ERROR' && <AlertTriangle size={16} style={{ color: 'var(--err)' }} />}
+          {status?.status === 'LIVE' && <Check size={16} style={{ color: 'var(--ok)' }} />}
           <p className="flex-1 text-xs" style={{ color: 'var(--text-bright)' }}>
             {diag?.status_reason || status?.status_reason}
           </p>
@@ -246,10 +246,10 @@ export default function LiveChannelDetailPage() {
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {([
             ['Publisher', diag ? (diag.publisher_connected ? `Connected${diag.publisher_uptime_seconds ? ` · ${formatUptime(diag.publisher_uptime_seconds)}` : ''}` : 'Disconnected') : '—',
-              diag?.publisher_connected ? '#4ade80' : 'var(--text-muted)'],
-            ['Auth', diag ? diag.auth_status : '—', diag?.auth_status === 'accepted' ? '#4ade80' : diag?.auth_status === 'denied' ? '#ef4444' : 'var(--text-muted)'],
+              diag?.publisher_connected ? 'var(--ok)' : 'var(--text-muted)'],
+            ['Auth', diag ? diag.auth_status : '—', diag?.auth_status === 'accepted' ? 'var(--ok)' : diag?.auth_status === 'denied' ? 'var(--err)' : 'var(--text-muted)'],
             ['HLS playlist', diag ? (diag.hls_playlist_available == null ? 'unknown' : diag.hls_playlist_available ? 'Available' : 'Not available') : '—',
-              diag?.hls_playlist_available ? '#4ade80' : 'var(--text-muted)'],
+              diag?.hls_playlist_available ? 'var(--ok)' : 'var(--text-muted)'],
             ['Reconnects', diag ? String(diag.reconnect_count) : '—', 'var(--text-bright)'],
           ] as [string, string, string][]).map(([label, value, color]) => (
             <div key={label} className="border p-3" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
@@ -287,8 +287,8 @@ export default function LiveChannelDetailPage() {
           if (rtmpUrl && isLocalRtmpUrl(rtmpUrl)) {
             return (
               <div className="mt-3 flex items-center gap-3 border px-4 py-3" style={{ borderColor: 'var(--warn-chip-border)', backgroundColor: 'var(--warn-chip-bg)' }}>
-                <AlertTriangle size={16} style={{ color: '#fbbf24' }} />
-                <p className="flex-1 text-xs" style={{ color: '#fbbf24' }}>
+                <AlertTriangle size={16} style={{ color: 'var(--warn)' }} />
+                <p className="flex-1 text-xs" style={{ color: 'var(--warn)' }}>
                   This is a <strong>LOCAL DEVELOPMENT RTMP URL</strong> — it only works for an encoder on this same machine.
                   An external broadcaster (OBS/Wirecast on another device/network) needs the PUBLIC RTMP URL:
                   set <code className="font-mono">MEDIAMTX_RTMP_URL</code> to the public host (e.g. <code className="font-mono">rtmp://live.yourdomain.com:1935</code>)
@@ -316,7 +316,7 @@ export default function LiveChannelDetailPage() {
                 onClick={handleReveal}
                 disabled={busy === 'rotate'}
                 className="flex items-center gap-2 border px-4 py-2 text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-50"
-                style={{ borderColor: confirmRotate ? '#ef4444' : '#fff', backgroundColor: confirmRotate ? 'var(--danger-bg)' : 'transparent', color: confirmRotate ? '#fff' : '#fff' }}
+                style={{ borderColor: confirmRotate ? 'var(--err)' : 'var(--text-primary)', backgroundColor: confirmRotate ? 'var(--danger-bg)' : 'transparent', color: confirmRotate ? '#fff' : 'var(--text-primary)' }}
               >
                 {busy === 'rotate' ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />}
                 {confirmRotate ? 'Click again — old key stops working' : 'Reveal stream key'}
@@ -325,7 +325,7 @@ export default function LiveChannelDetailPage() {
           )}
         </div>
         {setup && (
-          <p className="mt-3 text-xs" style={{ color: '#fbbf24' }}>
+          <p className="mt-3 text-xs" style={{ color: 'var(--warn)' }}>
             Shown only for this visit — paste the full Stream key (it carries the channel) into OBS now.
             Stored hashed server-side; regenerate anytime with Reveal.
           </p>
@@ -334,18 +334,18 @@ export default function LiveChannelDetailPage() {
           {!setup && (
             <button onClick={handleReveal} disabled={busy === 'rotate'}
                     className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
-                    style={{ borderColor: confirmRotate ? '#ef4444' : 'var(--danger-border)', color: '#ef4444' }}>
+                    style={{ borderColor: confirmRotate ? 'var(--err)' : 'var(--danger-border)', color: 'var(--err)' }}>
               {busy === 'rotate' ? <Loader2 size={12} className="animate-spin" /> : confirmRotate ? 'Click again — old key stops working' : 'Rotate stream key'}
             </button>
           )}
           <button onClick={handleToggleEnable} disabled={busy === 'enable'}
                   className="border px-4 py-2 text-xs transition-opacity hover:opacity-80 disabled:opacity-50"
-                  style={{ borderColor: 'var(--border-strong)', color: channel?.enabled ? '#fbbf24' : '#4ade80' }}>
+                  style={{ borderColor: 'var(--border-strong)', color: channel?.enabled ? 'var(--warn)' : 'var(--ok)' }}>
             {channel?.enabled ? 'Disable channel' : 'Enable channel'}
           </button>
           <button onClick={handleDelete} disabled={busy === 'delete'}
                   className="border px-4 py-2 text-xs transition-opacity hover:opacity-80 disabled:opacity-50"
-                  style={{ borderColor: confirmDelete ? '#ef4444' : 'var(--danger-border)', backgroundColor: confirmDelete ? 'var(--danger-bg)' : 'transparent', color: '#ef4444' }}>
+                  style={{ borderColor: confirmDelete ? 'var(--err)' : 'var(--danger-border)', backgroundColor: confirmDelete ? 'var(--danger-bg)' : 'transparent', color: 'var(--err)' }}>
             {busy === 'delete' ? 'Deleting…' : confirmDelete ? 'Click again to confirm' : (<><Trash2 size={11} className="inline" /> Delete</>)}
           </button>
           <a href={ingest?.hls_url || '#'} target="_blank" rel="noopener noreferrer"
@@ -383,7 +383,7 @@ function FieldRow({ label, value, copied, onCopy, secret }: {
       <button onClick={onCopy} disabled={secret}
               className="border px-3 py-2 text-xs transition-opacity hover:opacity-80 disabled:opacity-40"
               style={{ borderColor: 'var(--border-strong)', color: 'var(--text-muted)' }}>
-        {copied ? <><Check size={12} className="inline" style={{ color: '#4ade80' }} /> Copied</> : <><Copy size={12} className="inline" /> Copy</>}
+        {copied ? <><Check size={12} className="inline" style={{ color: 'var(--ok)' }} /> Copied</> : <><Copy size={12} className="inline" /> Copy</>}
       </button>
     </div>
   )

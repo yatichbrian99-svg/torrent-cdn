@@ -41,12 +41,12 @@ interface Payout {
 }
 
 const STATUS_STYLES: Record<string, { color: string; bg: string; label: string }> = {
-  pending: { color: '#fbbf24', bg: 'rgba(251,191,36,0.08)', label: 'Pending' },
-  otp: { color: '#fb923c', bg: 'rgba(251,146,60,0.08)', label: 'OTP required' },
-  in_transit: { color: '#60a5fa', bg: 'rgba(96,165,250,0.08)', label: 'In transit' },
-  success: { color: '#4ade80', bg: 'rgba(74,222,128,0.08)', label: 'Success' },
-  failed: { color: '#ff6b6b', bg: 'rgba(255,107,107,0.08)', label: 'Failed' },
-  reversed: { color: '#a78bfa', bg: 'rgba(167,139,250,0.08)', label: 'Reversed' },
+  pending: { color: 'var(--warn)', bg: 'rgba(251,191,36,0.08)', label: 'Pending' },
+  otp: { color: 'var(--orange)', bg: 'rgba(251,146,60,0.08)', label: 'OTP required' },
+  in_transit: { color: 'var(--info)', bg: 'rgba(96,165,250,0.08)', label: 'In transit' },
+  success: { color: 'var(--ok)', bg: 'rgba(74,222,128,0.08)', label: 'Success' },
+  failed: { color: 'var(--err-bright)', bg: 'rgba(255,107,107,0.08)', label: 'Failed' },
+  reversed: { color: 'var(--purple)', bg: 'rgba(167,139,250,0.08)', label: 'Reversed' },
 }
 
 const kes = (n: number) => `KES ${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`
@@ -238,9 +238,9 @@ export default function AdminPayoutsPage() {
   if (error) return (
     <div className="mx-auto max-w-4xl px-6 py-24 text-center select-none">
       <div className="inline-flex items-center justify-center w-12 h-12 rounded-full mb-4" style={{ backgroundColor: 'rgba(255,107,107,0.1)' }}>
-        <ShieldCheck size={20} style={{ color: '#ff6b6b' }} />
+        <ShieldCheck size={20} style={{ color: 'var(--err-bright)' }} />
       </div>
-      <p className="text-sm mb-1" style={{ color: '#ff6b6b' }}>{error}</p>
+      <p className="text-sm mb-1" style={{ color: 'var(--err-bright)' }}>{error}</p>
       <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
         {adminDenied ? 'You need admin privileges to access this page.' : 'Could not load payout data. Please try again.'}
       </p>
@@ -258,7 +258,7 @@ export default function AdminPayoutsPage() {
           style={{
             backgroundColor: toast.type === 'success' ? 'var(--ok-chip-bg)' : 'var(--err-chip-bg)',
             borderColor: toast.type === 'success' ? 'var(--ok-chip-bg)' : 'var(--err-chip-border)',
-            color: toast.type === 'success' ? '#4ade80' : '#ff6b6b',
+            color: toast.type === 'success' ? 'var(--ok)' : 'var(--err-bright)',
           }}
         >
           <div className="flex items-center gap-2">
@@ -274,7 +274,7 @@ export default function AdminPayoutsPage() {
           <div className="w-full max-w-sm border p-6 shadow-2xl" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
             <div className="flex items-center gap-3 mb-4">
               <div className="flex items-center justify-center w-10 h-10 rounded-full" style={{ backgroundColor: 'rgba(255,107,107,0.1)' }}>
-                <AlertTriangle size={18} style={{ color: '#ff6b6b' }} />
+                <AlertTriangle size={18} style={{ color: 'var(--err-bright)' }} />
               </div>
               <div>
                 <p className="text-sm font-medium text-[color:var(--text-primary)]">Deactivate Recipient</p>
@@ -296,7 +296,7 @@ export default function AdminPayoutsPage() {
               </button>
               <button
                 onClick={confirmDeactivate}
-                className="px-4 py-2 text-xs font-medium text-[color:var(--text-primary)] transition-opacity hover:opacity-80 disabled:opacity-50"
+                className="px-4 py-2 text-xs font-medium text-white transition-opacity hover:opacity-80 disabled:opacity-50"
                 style={{ backgroundColor: '#dc2626' }}
                 disabled={deactivating}
               >
@@ -317,7 +317,7 @@ export default function AdminPayoutsPage() {
           <div className="w-full max-w-sm border p-6 shadow-2xl" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
             <div className="flex items-center gap-3 mb-4">
               <div className="flex items-center justify-center w-10 h-10 rounded-full" style={{ backgroundColor: 'rgba(251,191,36,0.1)' }}>
-                <Send size={18} style={{ color: '#fbbf24' }} />
+                <Send size={18} style={{ color: 'var(--warn)' }} />
               </div>
               <div>
                 <p className="text-sm font-medium text-[color:var(--text-primary)]">Confirm Transfer</p>
@@ -342,8 +342,8 @@ export default function AdminPayoutsPage() {
               </button>
               <button
                 onClick={confirmTransfer}
-                className="px-4 py-2 text-xs font-medium text-[color:var(--text-primary)] transition-opacity hover:opacity-80 disabled:opacity-50"
-                style={{ backgroundColor: '#fbbf24' }}
+                className="px-4 py-2 text-xs font-medium text-white transition-opacity hover:opacity-80 disabled:opacity-50"
+                style={{ backgroundColor: 'var(--warn)' }}
                 disabled={transferring}
               >
                 {transferring ? (
@@ -361,10 +361,10 @@ export default function AdminPayoutsPage() {
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-1">
           <div className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ backgroundColor: 'rgba(251,191,36,0.12)' }}>
-            <Wallet size={16} style={{ color: '#fbbf24' }} />
+            <Wallet size={16} style={{ color: 'var(--warn)' }} />
           </div>
           <h1 className="text-lg sm:text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">Payouts</h1>
-          <span className="ml-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest rounded" style={{ backgroundColor: 'rgba(251,191,36,0.15)', color: '#fbbf24' }}>
+          <span className="ml-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest rounded" style={{ backgroundColor: 'rgba(251,191,36,0.15)', color: 'var(--warn)' }}>
             M-PESA
           </span>
         </div>
@@ -374,14 +374,14 @@ export default function AdminPayoutsPage() {
             <Link
               href="/admin/health"
               className="flex items-center gap-1.5 border px-3 py-1.5 text-[10px] uppercase tracking-widest transition-colors hover:border-white/20"
-              style={{ borderColor: 'var(--border)', color: '#4ade80', fontFamily: 'monospace' }}
+              style={{ borderColor: 'var(--border)', color: 'var(--ok)', fontFamily: 'monospace' }}
             >
               <Activity size={11} /> Health
             </Link>
             <Link
               href="/admin"
               className="flex items-center gap-1.5 border px-3 py-1.5 text-[10px] uppercase tracking-widest transition-colors hover:border-white/20"
-              style={{ borderColor: 'var(--border)', color: '#a78bfa', fontFamily: 'monospace' }}
+              style={{ borderColor: 'var(--border)', color: 'var(--purple)', fontFamily: 'monospace' }}
             >
               <ArrowLeft size={11} /> Dashboard
             </Link>
@@ -393,7 +393,7 @@ export default function AdminPayoutsPage() {
       <div className="mb-8 border p-5 sm:p-6 overflow-hidden relative" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <Wallet size={14} style={{ color: '#fbbf24' }} />
+            <Wallet size={14} style={{ color: 'var(--warn)' }} />
             <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Available balance</p>
           </div>
           <button
@@ -409,7 +409,7 @@ export default function AdminPayoutsPage() {
           {balance ? kes(balance.balance_kes) : '—'}
         </p>
         <p className="mt-2 text-[11px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-          Transfers draw from this balance. If a transfer returns <span style={{ color: '#fb923c' }}>OTP required</span>,
+          Transfers draw from this balance. If a transfer returns <span style={{ color: 'var(--orange)' }}>OTP required</span>,
           complete it in the Paystack dashboard (Settings → Preferences) or approve via the OTP sent to your business phone.
         </p>
       </div>
@@ -418,7 +418,7 @@ export default function AdminPayoutsPage() {
         {/* Initiate transfer */}
         <div className="border p-4 sm:p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
           <div className="flex items-center gap-2 mb-4">
-            <Send size={14} style={{ color: '#fbbf24' }} />
+            <Send size={14} style={{ color: 'var(--warn)' }} />
             <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Initiate transfer</p>
           </div>
           <div className="space-y-3">
@@ -430,7 +430,7 @@ export default function AdminPayoutsPage() {
                   value={selRecipient}
                   onChange={(e) => setSelRecipient(e.target.value)}
                   className="w-full border px-8 py-2 text-xs outline-none transition-colors focus:border-white/20 appearance-none"
-                  style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: '#fff' }}
+                  style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                 >
                   <option value="">Select recipient…</option>
                   {activeRecipients.map((r) => (
@@ -441,7 +441,7 @@ export default function AdminPayoutsPage() {
                 </select>
               </div>
               {activeRecipients.length === 0 && (
-                <p className="mt-1.5 text-[11px] flex items-center gap-1" style={{ color: '#fb923c' }}>
+                <p className="mt-1.5 text-[11px] flex items-center gap-1" style={{ color: 'var(--orange)' }}>
                   <AlertTriangle size={10} /> No active recipients — create one on the right first.
                 </p>
               )}
@@ -456,7 +456,7 @@ export default function AdminPayoutsPage() {
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="e.g. 500"
                 className="w-full border px-3 py-2 text-xs outline-none transition-colors focus:border-white/20"
-                style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: '#fff' }}
+                style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
               />
               <p className="mt-1.5 text-[11px]" style={{ color: 'var(--text-faint)' }}>Minimum KES 10 · sent to Paystack as {amount ? `${Number(amount) * 100} cents` : 'cents'}</p>
             </div>
@@ -471,7 +471,7 @@ export default function AdminPayoutsPage() {
                   placeholder="e.g. Creator payout — July"
                   maxLength={255}
                   className="w-full border px-8 py-2 text-xs outline-none transition-colors focus:border-white/20"
-                  style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: '#fff' }}
+                  style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                 />
               </div>
             </div>
@@ -479,7 +479,7 @@ export default function AdminPayoutsPage() {
               onClick={openConfirm}
               disabled={!selRecipient || !amount || activeRecipients.length === 0}
               className="w-full px-4 py-2.5 text-xs font-semibold text-[color:var(--text-primary)] transition-opacity hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ backgroundColor: '#fbbf24' }}
+              style={{ backgroundColor: 'var(--warn)' }}
             >
               Review transfer
             </button>
@@ -489,7 +489,7 @@ export default function AdminPayoutsPage() {
         {/* Create recipient */}
         <div className="border p-4 sm:p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
           <div className="flex items-center gap-2 mb-4">
-            <UserPlus size={14} style={{ color: '#a78bfa' }} />
+            <UserPlus size={14} style={{ color: 'var(--purple)' }} />
             <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Add recipient</p>
           </div>
           <div className="space-y-3">
@@ -504,7 +504,7 @@ export default function AdminPayoutsPage() {
                   placeholder="e.g. Jane M"
                   maxLength={255}
                   className="w-full border px-8 py-2 text-xs outline-none transition-colors focus:border-white/20"
-                  style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: '#fff' }}
+                  style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                 />
               </div>
             </div>
@@ -519,7 +519,7 @@ export default function AdminPayoutsPage() {
                   placeholder="254712345678 or 0712345678"
                   maxLength={20}
                   className="w-full border px-8 py-2 text-xs outline-none transition-colors focus:border-white/20"
-                  style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: '#fff' }}
+                  style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                 />
               </div>
               <p className="mt-1.5 text-[11px]" style={{ color: 'var(--text-faint)' }}>Sent to Paystack as a <span style={{ color: 'var(--text-dim)' }}>mobile_money</span> recipient (MPESA).</p>
@@ -533,14 +533,14 @@ export default function AdminPayoutsPage() {
                 placeholder="e.g. Creator on Business plan"
                 maxLength={255}
                 className="w-full border px-3 py-2 text-xs outline-none transition-colors focus:border-white/20"
-                style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: '#fff' }}
+                style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
               />
             </div>
             <button
               onClick={createRecipient}
               disabled={creatingRcp}
               className="w-full px-4 py-2.5 text-xs font-semibold text-[color:var(--text-primary)] transition-opacity hover:opacity-80 disabled:opacity-50"
-              style={{ backgroundColor: '#8b5cf6' }}
+              style={{ backgroundColor: 'var(--purple)' }}
             >
               {creatingRcp ? (
                 <span className="flex items-center justify-center gap-2"><Loader2 size={12} className="animate-spin" /> Creating…</span>
@@ -585,7 +585,7 @@ export default function AdminPayoutsPage() {
                         className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest rounded"
                         style={{
                           backgroundColor: r.active ? 'rgba(74,222,128,0.08)' : 'rgba(255,107,107,0.08)',
-                          color: r.active ? '#4ade80' : '#ff6b6b',
+                          color: r.active ? 'var(--ok)' : 'var(--err-bright)',
                         }}
                       >
                         {r.active ? 'Active' : 'Inactive'}

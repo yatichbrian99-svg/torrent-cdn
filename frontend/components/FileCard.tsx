@@ -70,7 +70,7 @@ export default function FileCard({ file, onDelete }: { file: FileItem; onDelete:
             <button onClick={() => setShowEmbed(true)} className="border px-2 py-1 text-xs" style={{ borderColor: 'var(--border-strong)', color: 'var(--text-muted)' }}>Embed</button>
             {confirmDelete ? (
               <div className="flex items-center gap-1">
-                <button onClick={handleConfirmDelete} disabled={deleting} aria-label="Confirm delete" className="border px-2 py-1 text-xs disabled:opacity-50" style={{ borderColor: 'var(--inverse-bg)', color: '#fff' }}>
+                <button onClick={handleConfirmDelete} disabled={deleting} aria-label="Confirm delete" className="border px-2 py-1 text-xs disabled:opacity-50" style={{ borderColor: 'var(--inverse-bg)', color: 'var(--text-primary)' }}>
                   {deleting ? <Loader2 size={12} className="animate-spin" /> : 'Confirm'}
                 </button>
                 {!deleting && (

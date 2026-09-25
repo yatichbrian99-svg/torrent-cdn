@@ -53,7 +53,7 @@ function VerifyEmailContent() {
         )}
         {status === 'success' && (
           <>
-            <CheckCircle size={32} className="mx-auto mb-4" style={{ color: '#4ade80' }} />
+            <CheckCircle size={32} className="mx-auto mb-4" style={{ color: 'var(--ok)' }} />
             <h2 className="mb-2 text-lg font-bold text-[color:var(--text-primary)]">Email Verified</h2>
             <p className="mb-6 text-sm" style={{ color: 'var(--text-soft)' }}>{message}</p>
             <button
@@ -67,13 +67,13 @@ function VerifyEmailContent() {
         )}
         {status === 'error' && (
           <>
-            <XCircle size={32} className="mx-auto mb-4" style={{ color: '#ef4444' }} />
+            <XCircle size={32} className="mx-auto mb-4" style={{ color: 'var(--err)' }} />
             <h2 className="mb-2 text-lg font-bold text-[color:var(--text-primary)]">Verification Failed</h2>
             <p className="mb-6 text-sm" style={{ color: 'var(--text-soft)' }}>{message}</p>
             <button
               onClick={() => router.push('/dashboard')}
               className="border px-4 py-2 text-sm font-medium"
-              style={{ borderColor: 'var(--inverse-bg)', color: '#fff' }}
+              style={{ borderColor: 'var(--inverse-bg)', color: 'var(--text-primary)' }}
             >
               Back to Dashboard
             </button>

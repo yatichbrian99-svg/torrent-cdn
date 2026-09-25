@@ -293,7 +293,7 @@ export default function VideoPlayer({ fileId, onPeers }: { fileId: string; onPee
       <div className="flex items-center justify-between border-t px-4 py-2" style={{ borderColor: 'var(--border)' }}>
         <span className="text-sm" style={{ color: 'var(--text-muted)' }}>{fileData.filename}</span>
         <span className="flex items-center gap-1 font-mono text-sm" style={{ color: 'var(--text-muted)' }}>
-          <span className="h-2 w-2" style={{ backgroundColor: peers > 0 ? '#fff' : 'var(--border-strong)' }} />
+          <span className="h-2 w-2" style={{ backgroundColor: peers > 0 ? 'var(--text-primary)' : 'var(--border-strong)' }} />
           {peers} {peers === 1 ? 'peer' : 'peers'} {status === 'p2p' ? 'connected' : status === 'direct' ? '(direct)' : ''}
         </span>
       </div>

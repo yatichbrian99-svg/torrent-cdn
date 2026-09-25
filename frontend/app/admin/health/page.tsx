@@ -22,12 +22,12 @@ interface HealthPayload {
 type Status = 'pass' | 'warn' | 'ok' | 'absent' | 'error' | 'unknown'
 
 const statusColor: Record<Status, { text: string; bg: string; border: string }> = {
-  pass: { text: '#4ade80', bg: 'rgba(74,222,128,0.08)', border: 'rgba(74,222,128,0.25)' },
-  ok: { text: '#4ade80', bg: 'rgba(74,222,128,0.08)', border: 'rgba(74,222,128,0.25)' },
-  warn: { text: '#fbbf24', bg: 'rgba(251,191,36,0.08)', border: 'rgba(251,191,36,0.25)' },
-  absent: { text: '#94a3b8', bg: 'rgba(148,163,184,0.08)', border: 'rgba(148,163,184,0.25)' },
-  error: { text: '#ff6b6b', bg: 'rgba(255,107,107,0.08)', border: 'rgba(255,107,107,0.25)' },
-  unknown: { text: '#94a3b8', bg: 'rgba(148,163,184,0.08)', border: 'rgba(148,163,184,0.25)' },
+  pass: { text: 'var(--ok)', bg: 'rgba(74,222,128,0.08)', border: 'rgba(74,222,128,0.25)' },
+  ok: { text: 'var(--ok)', bg: 'rgba(74,222,128,0.08)', border: 'rgba(74,222,128,0.25)' },
+  warn: { text: 'var(--warn)', bg: 'rgba(251,191,36,0.08)', border: 'rgba(251,191,36,0.25)' },
+  absent: { text: 'var(--text-faint)', bg: 'rgba(148,163,184,0.08)', border: 'rgba(148,163,184,0.25)' },
+  error: { text: 'var(--err-bright)', bg: 'rgba(255,107,107,0.08)', border: 'rgba(255,107,107,0.25)' },
+  unknown: { text: 'var(--text-faint)', bg: 'rgba(148,163,184,0.08)', border: 'rgba(148,163,184,0.25)' },
 }
 
 const statusLabel: Record<Status, string> = {
@@ -48,16 +48,16 @@ const eventLabels: Record<string, string> = {
 }
 
 const eventColor: Record<string, string> = {
-  login_failure: '#ff6b6b',
-  mfa_failure: '#ff6b6b',
-  register_throttled: '#fbbf24',
-  admin_delete: '#ff6b6b',
-  admin_toggle: '#a78bfa',
-  admin_plan_change: '#a78bfa',
-  admin_verify: '#60a5fa',
-  password_reset: '#60a5fa',
-  mfa_enabled: '#4ade80',
-  mfa_disabled: '#4ade80',
+  login_failure: 'var(--err-bright)',
+  mfa_failure: 'var(--err-bright)',
+  register_throttled: 'var(--warn)',
+  admin_delete: 'var(--err-bright)',
+  admin_toggle: 'var(--purple)',
+  admin_plan_change: 'var(--purple)',
+  admin_verify: 'var(--info)',
+  password_reset: 'var(--info)',
+  mfa_enabled: 'var(--ok)',
+  mfa_disabled: 'var(--ok)',
 }
 
 export default function AdminHealthPage() {
@@ -125,9 +125,9 @@ export default function AdminHealthPage() {
   if (error && !data) return (
     <div className="mx-auto max-w-4xl px-6 py-24 text-center select-none">
       <div className="inline-flex items-center justify-center w-12 h-12 rounded-full mb-4" style={{ backgroundColor: 'rgba(255,107,107,0.1)' }}>
-        <ShieldAlert size={20} style={{ color: '#ff6b6b' }} />
+        <ShieldAlert size={20} style={{ color: 'var(--err-bright)' }} />
       </div>
-      <p className="text-sm mb-1" style={{ color: '#ff6b6b' }}>{error}</p>
+      <p className="text-sm mb-1" style={{ color: 'var(--err-bright)' }}>{error}</p>
       <p className="text-xs" style={{ color: 'var(--text-muted)' }}>You need admin privileges to access this page.</p>
     </div>
   )
@@ -165,11 +165,11 @@ export default function AdminHealthPage() {
             <ArrowLeft size={14} style={{ color: 'var(--text-muted)' }} />
           </button>
           <div className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ backgroundColor: 'rgba(74,222,128,0.1)' }}>
-            <Activity size={16} style={{ color: '#4ade80' }} />
+            <Activity size={16} style={{ color: 'var(--ok)' }} />
           </div>
           <h1 className="text-lg sm:text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">Security & Health</h1>
           <span className="ml-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest rounded"
-            style={{ backgroundColor: 'rgba(74,222,128,0.12)', color: '#4ade80' }}>
+            style={{ backgroundColor: 'rgba(74,222,128,0.12)', color: 'var(--ok)' }}>
             {warnCount === 0 ? 'All systems nominal' : `${warnCount} attention${warnCount === 1 ? '' : 's'}`}
           </span>
         </div>

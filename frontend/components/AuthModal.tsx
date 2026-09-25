@@ -213,7 +213,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
           // --- Mandatory enrollment: scan → save backup codes → verify ---
           <form onSubmit={handleMfaSubmit} className="flex flex-col gap-4">
             <p className="text-xs leading-relaxed" style={{ color: 'var(--text-soft)' }}>
-              <ShieldCheck size={14} className="mr-1 inline" style={{ color: '#fbbf24' }} />
+              <ShieldCheck size={14} className="mr-1 inline" style={{ color: 'var(--warn)' }} />
               Two-factor authentication is required for all accounts. Scan this QR
               code with your authenticator app (Google Authenticator, Authy, 1Password…)
               or copy the otpauth link to add it manually.
@@ -235,14 +235,14 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
                       <button type="button" onClick={copyOtpUri}
                         className="border px-2 py-1 text-[11px] transition-opacity hover:opacity-80"
                         style={{ borderColor: 'var(--border-strong)', color: 'var(--text-muted)' }}>
-                        {copiedUri ? <><Check size={12} className="inline" style={{ color: '#4ade80' }} /> Copied</> : 'Copy link'}
+                        {copiedUri ? <><Check size={12} className="inline" style={{ color: 'var(--ok)' }} /> Copied</> : 'Copy link'}
                       </button>
                     </div>
                   </div>
                 </div>
 
                 <div>
-                  <p className="text-[11px] leading-relaxed" style={{ color: '#fbbf24' }}>
+                  <p className="text-[11px] leading-relaxed" style={{ color: 'var(--warn)' }}>
                     Save these backup codes somewhere safe. Each is single-use and
                     shown only once — they are your only way in if you lose the app.
                   </p>
@@ -301,8 +301,8 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
             // lands in the dashboard: zero codes left means a lost
             // authenticator app is a locked-out account.
             <div className="flex flex-col gap-4">
-              <div className="border p-4" style={{ borderColor: '#7c2d12', backgroundColor: 'var(--warn-chip-bg)' }}>
-                <p className="text-sm font-medium" style={{ color: '#fbbf24' }}>
+              <div className="border p-4" style={{ borderColor: 'var(--warn-chip-border)', backgroundColor: 'var(--warn-chip-bg)' }}>
+                <p className="text-sm font-medium" style={{ color: 'var(--warn)' }}>
                   You've used your last backup code
                 </p>
                 <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--text-soft)' }}>
@@ -419,7 +419,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
                 onChange={(e) => setTermsAccepted(e.target.checked)}
                 required
                 className="mt-0.5"
-                style={{ accentColor: '#fff' }}
+                style={{ accentColor: 'var(--text-primary)' }}
               />
               <span>
                 I accept the{' '}

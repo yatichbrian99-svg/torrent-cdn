@@ -304,7 +304,7 @@ export default function DemoPage() {
   const costRow = (label: string, value: string, color?: string) => (
     <div className="flex items-center justify-between gap-4">
       <span style={{ color: 'var(--text-muted)' }}>{label}</span>
-      <span className="font-bold" style={{ color: color || '#fff' }}>{value}</span>
+      <span className="font-bold" style={{ color: color || 'var(--text-primary)' }}>{value}</span>
     </div>
   )
 
@@ -322,15 +322,15 @@ export default function DemoPage() {
       <section className="mb-10">
         <VideoPlayer fileId={DEMO_FILE_ID} onPeers={setPeers} />
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="flex items-center gap-1.5 border px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.2em]" style={{ borderColor: 'var(--border-strong)', color: '#4ade80' }}>
+          <span className="flex items-center gap-1.5 border px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.2em]" style={{ borderColor: 'var(--border-strong)', color: 'var(--ok)' }}>
             <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inline-flex h-full w-full animate-ping opacity-75" style={{ backgroundColor: '#4ade80' }} />
-              <span className="relative inline-flex h-1.5 w-1.5" style={{ backgroundColor: '#4ade80' }} />
+              <span className="absolute inline-flex h-full w-full animate-ping opacity-75" style={{ backgroundColor: 'var(--ok)' }} />
+              <span className="relative inline-flex h-1.5 w-1.5" style={{ backgroundColor: 'var(--ok)' }} />
             </span>
             Live
           </span>
           {!isLive && (
-            <span className="border px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.2em]" style={{ borderColor: 'var(--danger-border)', color: '#ef4444' }}>
+            <span className="border px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.2em]" style={{ borderColor: 'var(--danger-border)', color: 'var(--err)' }}>
               Demo file pending
             </span>
           )}
@@ -338,8 +338,8 @@ export default function DemoPage() {
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <p className="flex items-center gap-2 font-mono text-xs" style={{ color: 'var(--text-soft)' }}>
             <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping opacity-60" style={{ backgroundColor: peers > 0 ? '#4ade80' : 'var(--border-strong)' }} />
-              <span className="relative inline-flex h-2 w-2" style={{ backgroundColor: peers > 0 ? '#4ade80' : 'var(--border-strong)' }} />
+              <span className="absolute inline-flex h-full w-full animate-ping opacity-60" style={{ backgroundColor: peers > 0 ? 'var(--ok)' : 'var(--border-strong)' }} />
+              <span className="relative inline-flex h-2 w-2" style={{ backgroundColor: peers > 0 ? 'var(--ok)' : 'var(--border-strong)' }} />
             </span>
             {peers} {peers === 1 ? 'peer' : 'peers'} connected right now
           </p>
@@ -351,7 +351,7 @@ export default function DemoPage() {
         {/* Self-seed indicator — this tab is a peer in the swarm */}
         {isLive && seeding && (
           <div className="mt-3 flex items-center gap-2 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
-            <span className="h-2 w-2 animate-pulse rounded-full" style={{ backgroundColor: seedPeers > 0 ? '#4ade80' : 'var(--text-faint)' }} />
+            <span className="h-2 w-2 animate-pulse rounded-full" style={{ backgroundColor: seedPeers > 0 ? 'var(--ok)' : 'var(--text-faint)' }} />
             <span className="font-mono text-[11px]" style={{ color: 'var(--text-dim)' }}>
               {seedPeers > 0
                 ? `your browser is a peer — seeding to ${seedPeers} ${seedPeers === 1 ? 'viewer' : 'viewers'}`
@@ -421,9 +421,9 @@ export default function DemoPage() {
                 />
                 <ReferenceLine y={0} stroke='var(--border)' />
                 <Tooltip
-                  contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid #222', color: '#fff' }}
+                  contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
                   labelStyle={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}
-                  itemStyle={{ color: '#fff' }}
+                  itemStyle={{ color: 'var(--text-primary)' }}
                   labelFormatter={(v) => new Date(Number(v)).toLocaleTimeString()}
                   formatter={(value: unknown) => [`${Number(value ?? 0).toFixed(1)}%`, 'P2P offload']}
                 />
@@ -438,7 +438,7 @@ export default function DemoPage() {
             </div>
           )}
           <p className="mt-3 flex items-center gap-2 font-mono text-[11px]" style={{ color: 'var(--text-faint)' }}>
-            <span className="inline-block h-1 w-4" style={{ backgroundColor: '#4ade80' }} />
+            <span className="inline-block h-1 w-4" style={{ backgroundColor: 'var(--ok)' }} />
             share of bandwidth delivered peer-to-peer, live from the {isLive ? `${DEMO_FILE_ID.slice(0, 8)}…` : ''}swarm
           </p>
         </div>
@@ -456,7 +456,7 @@ export default function DemoPage() {
             {costRow(
               'Saved by P2P',
               stats ? money(Math.max(0, cloudfrontCost - torrentcdnCost)) : '—',
-              '#4ade80'
+              'var(--ok)'
             )}
           </div>
           <p className="mt-3 font-mono text-[11px]" style={{ color: 'var(--text-faint)' }}>
@@ -476,7 +476,7 @@ export default function DemoPage() {
               style={{ color: 'var(--text-muted)' }}
               title="Copy a link to this exact scenario"
             >
-              {permalinkCopied ? <Check size={12} style={{ color: '#4ade80' }} /> : <Link2 size={12} />}
+              {permalinkCopied ? <Check size={12} style={{ color: 'var(--ok)' }} /> : <Link2 size={12} />}
               {permalinkCopied ? 'permalink copied' : 'copy permalink'}
             </button>
           </div>
@@ -509,7 +509,7 @@ export default function DemoPage() {
                   value={scenarioViewers}
                   onChange={(e) => { setScenarioViewers(Number(e.target.value)); setScenarioViewersDraft(null) }}
                   className="mt-2 w-full cursor-pointer"
-                  style={{ accentColor: '#fff' }}
+                  style={{ accentColor: 'var(--text-primary)' }}
                 />
                 <p className="mt-1 font-mono text-[10px]" style={{ color: 'var(--text-faint)' }}>
                   {SCENARIO_VIEWERS_RANGE.min.toLocaleString()} – {SCENARIO_VIEWERS_RANGE.max.toLocaleString()}
@@ -542,7 +542,7 @@ export default function DemoPage() {
                   value={scenarioVideoMb}
                   onChange={(e) => { setScenarioVideoMb(Number(e.target.value)); setScenarioVideoMbDraft(null) }}
                   className="mt-2 w-full cursor-pointer"
-                  style={{ accentColor: '#fff' }}
+                  style={{ accentColor: 'var(--text-primary)' }}
                 />
                 <p className="mt-1 font-mono text-[10px]" style={{ color: 'var(--text-faint)' }}>
                   {SCENARIO_VIDEO_MB_RANGE.min} – {SCENARIO_VIDEO_MB_RANGE.max.toLocaleString()} MB
@@ -575,7 +575,7 @@ export default function DemoPage() {
                   value={scenarioWatchPct}
                   onChange={(e) => { setScenarioWatchPct(Number(e.target.value)); setScenarioWatchPctDraft(null) }}
                   className="mt-2 w-full cursor-pointer"
-                  style={{ accentColor: '#fff' }}
+                  style={{ accentColor: 'var(--text-primary)' }}
                 />
                 <p className="mt-1 font-mono text-[10px]" style={{ color: 'var(--text-faint)' }}>
                   {SCENARIO_WATCH_RANGE.min} – {SCENARIO_WATCH_RANGE.max}%
@@ -584,7 +584,7 @@ export default function DemoPage() {
 
               <div className="border-t pt-4" style={{ borderColor: 'var(--border)' }}>
                 <div className="flex items-center justify-between font-mono text-xs">
-                  <span className="font-bold uppercase tracking-widest" style={{ color: '#4ade80' }}>P2P offload</span>
+                  <span className="font-bold uppercase tracking-widest" style={{ color: 'var(--ok)' }}>P2P offload</span>
                   <span className="flex items-center gap-1 text-[color:var(--text-primary)]">
                     <input
                       type="number"
@@ -606,7 +606,7 @@ export default function DemoPage() {
                         setScenarioP2pDraft(null)
                       }}
                       className="border px-2 py-1 font-mono text-[10px] uppercase tracking-widest transition-colors hover:text-[color:var(--text-primary)]"
-                      style={{ borderColor: 'var(--border-strong)', color: '#4ade80' }}
+                      style={{ borderColor: 'var(--border-strong)', color: 'var(--ok)' }}
                       title={liveP2pPct !== null ? `Reset to the live swarm rate (${liveP2pPct.toFixed(1)}%)` : 'Reset to the default rate'}
                     >
                       use live
@@ -621,7 +621,7 @@ export default function DemoPage() {
                   value={scenarioP2pPct}
                   onChange={(e) => { p2pTouchedRef.current = true; setScenarioP2pPct(Number(e.target.value)); setScenarioP2pDraft(null) }}
                   className="mt-2 w-full cursor-pointer"
-                  style={{ accentColor: '#4ade80' }}
+                  style={{ accentColor: 'var(--ok)' }}
                 />
 
                 <p className="mt-1 font-mono text-[10px]" style={{ color: 'var(--text-faint)' }}>
@@ -638,7 +638,7 @@ export default function DemoPage() {
                 {scenarioViewers.toLocaleString()} viewers × {scenarioVideoMb.toLocaleString()} MB × {scenarioWatchPct}% avg watch ={' '}
                 <span className="font-bold text-[color:var(--text-primary)]">{scenarioGbDelivered.toFixed(1)} GB delivered</span>
               </p>
-              <p className="mt-3 font-mono text-[10px] uppercase tracking-widest" style={{ color: '#4ade80' }}>
+              <p className="mt-3 font-mono text-[10px] uppercase tracking-widest" style={{ color: 'var(--ok)' }}>
                 at {scenarioP2pPct}% P2P offload
               </p>
 
@@ -662,7 +662,7 @@ export default function DemoPage() {
                   >
                     <span
                       className="bandwidth-label truncate px-1 font-mono text-[9px]"
-                      style={{ color: '#fca5a5', opacity: scenarioGbOrigin / scenarioGbDelivered >= 0.12 ? 1 : 0 }}
+                      style={{ color: 'var(--err-soft)', opacity: scenarioGbOrigin / scenarioGbDelivered >= 0.12 ? 1 : 0 }}
                     >
                       {scenarioGbOrigin.toFixed(0)} GB origin
                     </span>
@@ -690,7 +690,7 @@ export default function DemoPage() {
                   </span>
                   <span className="flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
                     peers · {scenarioGbSaved.toFixed(1)} GB ({scenarioGbDelivered > 0 ? ((scenarioGbSaved / scenarioGbDelivered) * 100).toFixed(0) : 0}%) — free
-                    <span className="inline-block h-2 w-2" style={{ backgroundColor: '#4ade80' }} />
+                    <span className="inline-block h-2 w-2" style={{ backgroundColor: 'var(--ok)' }} />
                   </span>
                 </div>
               </div>
@@ -698,8 +698,8 @@ export default function DemoPage() {
               <div className="mt-4 space-y-3 font-mono text-sm">
                 {costRow('CloudFront would cost', money(scenarioCloudfront))}
                 {costRow('TorrentCDN origin cost', money(scenarioTorrentcdn))}
-                {costRow('Bandwidth saved by P2P', `${scenarioGbSaved.toFixed(1)} GB`, '#4ade80')}
-                {costRow('Money saved by P2P', money(scenarioMoneySaved), '#4ade80')}
+                {costRow('Bandwidth saved by P2P', `${scenarioGbSaved.toFixed(1)} GB`, 'var(--ok)')}
+                {costRow('Money saved by P2P', money(scenarioMoneySaved), 'var(--ok)')}
               </div>
               <p className="mt-4 border-t pt-3 font-mono text-[11px]" style={{ borderColor: 'var(--border)', color: 'var(--text-faint)' }}>
                 {scenarioGbOrigin.toFixed(1)} GB still leaves your origin at ${TORRENTCDN_ORIGIN_RATE_PER_GB}/GB — the other {scenarioGbSaved.toFixed(1)} GB
@@ -721,7 +721,7 @@ export default function DemoPage() {
               className="flex items-center gap-1.5 text-xs transition-colors hover:text-[color:var(--text-primary)]"
               style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}
             >
-              {copied ? <Check size={12} style={{ color: '#4ade80' }} /> : <Copy size={12} />}
+              {copied ? <Check size={12} style={{ color: 'var(--ok)' }} /> : <Copy size={12} />}
               {copied ? 'copied ✓' : 'copy'}
             </button>
           </div>

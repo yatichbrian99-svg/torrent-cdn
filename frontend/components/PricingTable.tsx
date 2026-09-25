@@ -43,13 +43,13 @@ export default function PricingTable({ currentPlan }: { currentPlan?: string }) 
   return (
     <div>
       {error && (
-        <p className="mb-4 text-center text-sm" style={{ color: '#ff6b6b' }}>{error}</p>
+        <p className="mb-4 text-center text-sm" style={{ color: 'var(--err-bright)' }}>{error}</p>
       )}
       <div className="grid gap-4 md:grid-cols-3">
         {TIERS.map((tier) => {
           const isCurrent = currentPlan === tier.plan
           return (
-            <div key={tier.plan} className="relative border p-6" style={{ borderColor: tier.popular ? '#fff' : 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+            <div key={tier.plan} className="relative border p-6" style={{ borderColor: tier.popular ? 'var(--text-primary)' : 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
               {tier.popular && (
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 border px-3 py-0.5 text-[10px] font-bold uppercase tracking-widest" style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)', fontFamily: 'monospace' }}>
                   Most popular
@@ -71,9 +71,9 @@ export default function PricingTable({ currentPlan }: { currentPlan?: string }) 
                 disabled={isCurrent || loading === tier.plan}
                 className="w-full border py-2 text-sm font-medium transition-opacity hover:opacity-80 disabled:opacity-40"
                 style={{
-                  borderColor: isCurrent ? 'var(--border-strong)' : '#fff',
-                  backgroundColor: isCurrent ? 'transparent' : tier.popular ? '#fff' : 'transparent',
-                  color: isCurrent ? 'var(--text-muted)' : tier.popular ? 'var(--bg-primary)' : '#fff',
+                  borderColor: isCurrent ? 'var(--border-strong)' : 'var(--text-primary)',
+                  backgroundColor: isCurrent ? 'transparent' : tier.popular ? 'var(--inverse-bg)' : 'transparent',
+                  color: isCurrent ? 'var(--text-muted)' : tier.popular ? 'var(--bg-primary)' : 'var(--text-primary)',
                 }}
               >
                 {loading === tier.plan ? <Loader2 size={14} className="mx-auto animate-spin" /> : isCurrent ? 'Current plan' : 'Get started'}

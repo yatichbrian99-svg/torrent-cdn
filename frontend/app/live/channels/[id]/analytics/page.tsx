@@ -63,8 +63,8 @@ export default function LiveChannelAnalyticsPage() {
           <ArrowLeft size={14} /> All channels
         </Link>
         <div className="flex items-center gap-3 border px-4 py-3" style={{ borderColor: 'var(--err-chip-border)', backgroundColor: 'var(--err-chip-bg)' }}>
-          <AlertTriangle size={16} style={{ color: '#ef4444' }} />
-          <p className="text-xs" style={{ color: '#fca5a5' }}>{error || 'Not found'}</p>
+          <AlertTriangle size={16} style={{ color: 'var(--err)' }} />
+          <p className="text-xs" style={{ color: 'var(--err-soft)' }}>{error || 'Not found'}</p>
         </div>
       </div>
     )
@@ -83,7 +83,7 @@ export default function LiveChannelAnalyticsPage() {
         <h1 className="flex items-center gap-2 text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">
           <BarChart3 size={18} style={{ color: 'var(--text-muted)' }} /> Live analytics
           <span className="border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest"
-                style={{ borderColor: '#fbbf24', color: '#fbbf24' }}>Beta</span>
+                style={{ borderColor: 'var(--warn)', color: 'var(--warn)' }}>Beta</span>
         </h1>
         <select
           value={windowHours}

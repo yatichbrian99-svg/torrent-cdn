@@ -99,7 +99,7 @@ function ResetPasswordForm() {
         {status === 'success' && (
           <div className="border p-8 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
             <div className="mx-auto mb-4 flex items-center justify-center w-12 h-12 rounded-full" style={{ backgroundColor: 'rgba(74,222,128,0.1)' }}>
-              <CheckCircle size={24} style={{ color: '#4ade80' }} />
+              <CheckCircle size={24} style={{ color: 'var(--ok)' }} />
             </div>
             <h2 className="mb-2 text-lg font-bold text-[color:var(--text-primary)]">Password Reset</h2>
             <p className="mb-2 text-sm" style={{ color: 'var(--text-soft)' }}>{message}</p>
@@ -118,14 +118,14 @@ function ResetPasswordForm() {
         {status === 'error' && (
           <div className="border p-8 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
             <div className="mx-auto mb-4 flex items-center justify-center w-12 h-12 rounded-full" style={{ backgroundColor: 'rgba(239,68,68,0.1)' }}>
-              <XCircle size={24} style={{ color: '#ef4444' }} />
+              <XCircle size={24} style={{ color: 'var(--err)' }} />
             </div>
             <h2 className="mb-2 text-lg font-bold text-[color:var(--text-primary)]">Invalid Link</h2>
             <p className="mb-6 text-sm" style={{ color: 'var(--text-soft)' }}>{message}</p>
             <button
               onClick={() => router.push('/')}
               className="border px-5 py-2.5 text-sm font-medium transition-opacity hover:opacity-80"
-              style={{ borderColor: 'var(--inverse-bg)', color: '#fff' }}
+              style={{ borderColor: 'var(--inverse-bg)', color: 'var(--text-primary)' }}
             >
               Back to login
             </button>
@@ -137,7 +137,7 @@ function ResetPasswordForm() {
           <div className="border p-8" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
             <div className="mb-6 flex items-center gap-3">
               <div className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ backgroundColor: 'rgba(59,130,246,0.1)' }}>
-                <Lock size={15} style={{ color: '#60a5fa' }} />
+                <Lock size={15} style={{ color: 'var(--info)' }} />
               </div>
               <div>
                 <h2 className="text-sm font-semibold text-[color:var(--text-primary)]">Reset your password</h2>
@@ -206,7 +206,7 @@ function ResetPasswordForm() {
                 {confirmPassword.length > 0 && (
                   <p
                     className="mt-1 flex items-center gap-1 text-[10px]"
-                    style={{ color: password === confirmPassword ? '#4ade80' : '#ef4444' }}
+                    style={{ color: password === confirmPassword ? 'var(--ok)' : 'var(--err)' }}
                   >
                     {password === confirmPassword ? (
                       <><CheckCircle size={10} /> Passwords match</>
@@ -224,7 +224,7 @@ function ResetPasswordForm() {
                   style={{
                     backgroundColor: 'rgba(239,68,68,0.05)',
                     borderColor: 'rgba(239,68,68,0.2)',
-                    color: '#ef4444',
+                    color: 'var(--err)',
                   }}
                 >
                   {message}

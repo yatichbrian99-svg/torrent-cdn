@@ -206,9 +206,9 @@ export default function AdminPage() {
   // Plan badge styling per spec:
   // free — plain white text on #111; pro — white text, #222 border; business — white text, #fff border
   const planColors: Record<string, { bg: string; text: string; border?: string }> = {
-    free: { bg: 'var(--bg-card)', text: '#fff' },
-    pro: { bg: 'var(--bg-card)', text: '#fff', border: 'var(--border)' },
-    business: { bg: 'var(--bg-card)', text: '#fff', border: '#fff' },
+    free: { bg: 'var(--bg-card)', text: 'var(--text-primary)' },
+    pro: { bg: 'var(--bg-card)', text: 'var(--text-primary)', border: 'var(--border)' },
+    business: { bg: 'var(--bg-card)', text: 'var(--text-primary)', border: 'var(--text-primary)' },
   }
 
   // Loading state
@@ -225,9 +225,9 @@ export default function AdminPage() {
   if (error) return (
     <div className="mx-auto max-w-4xl px-6 py-24 text-center select-none">
       <div className="inline-flex items-center justify-center w-12 h-12 rounded-full mb-4" style={{ backgroundColor: 'rgba(255,107,107,0.1)' }}>
-        <ShieldCheck size={20} style={{ color: '#ff6b6b' }} />
+        <ShieldCheck size={20} style={{ color: 'var(--err-bright)' }} />
       </div>
-      <p className="text-sm mb-1" style={{ color: '#ff6b6b' }}>{error}</p>
+      <p className="text-sm mb-1" style={{ color: 'var(--err-bright)' }}>{error}</p>
       <p className="text-xs" style={{ color: 'var(--text-muted)' }}>You need admin privileges to access this page.</p>
     </div>
   )
@@ -241,7 +241,7 @@ export default function AdminPage() {
           style={{
             backgroundColor: toast.type === 'success' ? 'var(--ok-chip-bg)' : 'var(--err-chip-bg)',
             borderColor: toast.type === 'success' ? 'var(--ok-chip-bg)' : 'var(--err-chip-border)',
-            color: toast.type === 'success' ? '#4ade80' : '#ff6b6b',
+            color: toast.type === 'success' ? 'var(--ok)' : 'var(--err-bright)',
           }}
         >
           <div className="flex items-center gap-2">
@@ -260,7 +260,7 @@ export default function AdminPage() {
           >
             <div className="flex items-center gap-3 mb-4">
               <div className="flex items-center justify-center w-10 h-10 rounded-full" style={{ backgroundColor: 'rgba(255,107,107,0.1)' }}>
-                <AlertTriangle size={18} style={{ color: '#ff6b6b' }} />
+                <AlertTriangle size={18} style={{ color: 'var(--err-bright)' }} />
               </div>
               <div>
                 <p className="text-sm font-medium text-[color:var(--text-primary)]">Delete User</p>
@@ -271,7 +271,7 @@ export default function AdminPage() {
               This will permanently delete this user and all their files, analytics, and usage records. This action cannot be undone.
             </p>
             {deleteTarget.is_admin && (
-              <p className="text-xs mb-4 px-3 py-2 border" style={{ color: '#fbbf24', borderColor: 'rgba(251,191,36,0.2)', backgroundColor: 'rgba(251,191,36,0.05)' }}>
+              <p className="text-xs mb-4 px-3 py-2 border" style={{ color: 'var(--warn)', borderColor: 'rgba(251,191,36,0.2)', backgroundColor: 'rgba(251,191,36,0.05)' }}>
                 Admin accounts cannot be deleted. Demote the user first.
               </p>
             )}
@@ -286,7 +286,7 @@ export default function AdminPage() {
               </button>
               <button
                 onClick={deleteUser}
-                className="px-4 py-2 text-xs font-medium text-[color:var(--text-primary)] transition-opacity hover:opacity-80 disabled:opacity-50"
+                className="px-4 py-2 text-xs font-medium text-white transition-opacity hover:opacity-80 disabled:opacity-50"
                 style={{ backgroundColor: '#dc2626' }}
                 disabled={deleting || deleteTarget.is_admin}
               >
@@ -305,12 +305,12 @@ export default function AdminPage() {
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-1">
           <div className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ backgroundColor: 'rgba(168,85,247,0.12)' }}>
-            <ShieldCheck size={16} style={{ color: '#a78bfa' }} />
+            <ShieldCheck size={16} style={{ color: 'var(--purple)' }} />
           </div>
           <h1 className="text-lg sm:text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">Admin Dashboard</h1>
           <span
             className="ml-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest rounded"
-            style={{ backgroundColor: 'rgba(168,85,247,0.15)', color: '#a78bfa' }}
+            style={{ backgroundColor: 'rgba(168,85,247,0.15)', color: 'var(--purple)' }}
           >
             Admin
           </span>
@@ -320,14 +320,14 @@ export default function AdminPage() {
           <Link
             href="/admin/payouts"
             className="flex items-center gap-1.5 border px-3 py-1.5 text-[10px] uppercase tracking-widest transition-colors hover:border-white/20"
-            style={{ borderColor: 'var(--border)', color: '#fbbf24', fontFamily: 'monospace' }}
+            style={{ borderColor: 'var(--border)', color: 'var(--warn)', fontFamily: 'monospace' }}
           >
             <DollarSign size={11} /> Payouts
           </Link>
           <Link
             href="/admin/health"
             className="flex items-center gap-1.5 border px-3 py-1.5 text-[10px] uppercase tracking-widest transition-colors hover:border-white/20"
-            style={{ borderColor: 'var(--border)', color: '#4ade80', fontFamily: 'monospace' }}
+            style={{ borderColor: 'var(--border)', color: 'var(--ok)', fontFamily: 'monospace' }}
           >
             <Activity size={11} /> Security & Health
           </Link>
@@ -342,27 +342,27 @@ export default function AdminPage() {
               {
                 icon: Users, label: 'Total Users', value: analytics.total_users,
                 sub: `${analytics.users_by_plan.free} free · ${analytics.users_by_plan.pro} pro · ${analytics.users_by_plan.business} business`,
-                color: '#60a5fa', bg: 'rgba(59,130,246,0.08)',
+                color: 'var(--info)', bg: 'rgba(59,130,246,0.08)',
               },
               {
                 icon: Film, label: 'Total Files', value: analytics.total_files,
                 sub: `${analytics.new_files_today} new today`,
-                color: '#34d399', bg: 'rgba(52,211,153,0.08)',
+                color: 'var(--ok)', bg: 'rgba(52,211,153,0.08)',
               },
               {
                 icon: HardDrive, label: 'Bandwidth Used', value: `${analytics.total_bandwidth_gb} GB`,
                 sub: 'Origin bandwidth delivered',
-                color: '#fbbf24', bg: 'rgba(251,191,36,0.08)',
+                color: 'var(--warn)', bg: 'rgba(251,191,36,0.08)',
               },
               {
                 icon: Crown, label: 'P2P Saved', value: `${analytics.total_p2p_saved_gb} GB`,
                 sub: `${analytics.new_users_today} new users today`,
-                color: '#a78bfa', bg: 'rgba(168,85,247,0.08)',
+                color: 'var(--purple)', bg: 'rgba(168,85,247,0.08)',
               },
               {
                 icon: DollarSign, label: 'Est. Revenue', value: `$${analytics.revenue_estimate.toLocaleString()}`,
                 sub: 'Pro × $29 · Business × $99',
-                color: '#4ade80', bg: 'rgba(74,222,128,0.08)',
+                color: 'var(--ok)', bg: 'rgba(74,222,128,0.08)',
               },
             ].map((card, i) => (
               <div
@@ -422,7 +422,7 @@ export default function AdminPage() {
                   className="h-full transition-all duration-500"
                   style={{
                     width: `${(analytics.users_by_plan.pro / analytics.total_users) * 100}%`,
-                    backgroundColor: '#3b82f6',
+                    backgroundColor: 'var(--info)',
                   }}
                   title={`Pro: ${analytics.users_by_plan.pro}`}
                 />
@@ -432,7 +432,7 @@ export default function AdminPage() {
                   className="h-full transition-all duration-500"
                   style={{
                     width: `${(analytics.users_by_plan.business / analytics.total_users) * 100}%`,
-                    backgroundColor: '#8b5cf6',
+                    backgroundColor: 'var(--purple)',
                   }}
                   title={`Business: ${analytics.users_by_plan.business}`}
                 />
@@ -443,10 +443,10 @@ export default function AdminPage() {
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--border-strong)' }} /> Free ({analytics.users_by_plan.free})
               </span>
               <span className="flex items-center gap-1.5 text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#3b82f6' }} /> Pro ({analytics.users_by_plan.pro})
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--info)' }} /> Pro ({analytics.users_by_plan.pro})
               </span>
               <span className="flex items-center gap-1.5 text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#8b5cf6' }} /> Business ({analytics.users_by_plan.business})
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--purple)' }} /> Business ({analytics.users_by_plan.business})
               </span>
             </div>
           </div>
@@ -475,7 +475,7 @@ export default function AdminPage() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full sm:w-56 border px-8 py-1.5 text-xs outline-none transition-colors focus:border-white/20"
-                  style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: '#fff' }}
+                  style={{ backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                 />
                 {searchQuery && (
                   <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -584,7 +584,7 @@ export default function AdminPage() {
                         <div className="flex items-center gap-2.5">
                           {user.is_admin ? (
                             <div className="flex items-center justify-center w-6 h-6 rounded-full flex-shrink-0" style={{ backgroundColor: 'rgba(168,85,247,0.12)' }}>
-                              <ShieldCheck size={12} style={{ color: '#a78bfa' }} />
+                              <ShieldCheck size={12} style={{ color: 'var(--purple)' }} />
                             </div>
                           ) : (
                             <div className="flex items-center justify-center w-6 h-6 rounded-full flex-shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.04)' }}>
@@ -602,13 +602,13 @@ export default function AdminPage() {
                                 aria-label={`Copy ${user.email}`}
                               >
                                 {copiedEmailId === user.id
-                                  ? <Check size={12} style={{ color: '#4ade80' }} />
+                                  ? <Check size={12} style={{ color: 'var(--ok)' }} />
                                   : <Copy size={12} className="transition-colors hover:text-[color:var(--text-primary)]" />}
                               </button>
                               {user.is_admin && (
                                 <span
                                   className="px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider rounded flex-shrink-0"
-                                  style={{ backgroundColor: 'rgba(168,85,247,0.15)', color: '#a78bfa' }}
+                                  style={{ backgroundColor: 'rgba(168,85,247,0.15)', color: 'var(--purple)' }}
                                 >
                                   Admin
                                 </span>
@@ -634,8 +634,8 @@ export default function AdminPage() {
                               }}
                             >
                               <option value="free" style={{ backgroundColor: 'var(--bg-card)', color: 'var(--text-soft)' }}>Free</option>
-                              <option value="pro" style={{ backgroundColor: 'var(--bg-card)', color: '#60a5fa' }}>Pro</option>
-                              <option value="business" style={{ backgroundColor: 'var(--bg-card)', color: '#a78bfa' }}>Business</option>
+                              <option value="pro" style={{ backgroundColor: 'var(--bg-card)', color: 'var(--info)' }}>Pro</option>
+                              <option value="business" style={{ backgroundColor: 'var(--bg-card)', color: 'var(--purple)' }}>Business</option>
                             </select>
                           )}
                         </div>
@@ -643,7 +643,7 @@ export default function AdminPage() {
                       <td className="hidden sm:table-cell px-4 sm:px-5 py-3">
                         <span
                           className="inline-flex items-center gap-1.5 text-[11px]"
-                          style={{ color: user.verified ? '#4ade80' : 'var(--text-muted)' }}
+                          style={{ color: user.verified ? 'var(--ok)' : 'var(--text-muted)' }}
                         >
                           {user.verified ? (
                             <><CheckCircle size={12} /> Verified</>

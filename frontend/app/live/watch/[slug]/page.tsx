@@ -55,7 +55,7 @@ export default function LiveWatchPage() {
     return (
       <div className="flex min-h-screen items-center justify-center px-6" style={{ backgroundColor: 'var(--bg-primary)' }}>
         <div className="border p-10 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
-          <AlertTriangle size={22} className="mx-auto mb-3" style={{ color: '#ef4444' }} />
+          <AlertTriangle size={22} className="mx-auto mb-3" style={{ color: 'var(--err)' }} />
           <p className="text-sm text-[color:var(--text-primary)]">{error || 'Channel not found'}</p>
           <Link href="/live" className="mt-4 inline-block text-xs" style={{ color: 'var(--text-muted)' }}>
             ← Back to channels
@@ -69,7 +69,7 @@ export default function LiveWatchPage() {
   if (!isSafeHlsUrl(playback.hls_url)) {
     return (
       <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: 'var(--bg-primary)' }}>
-        <p className="text-sm" style={{ color: '#ef4444' }}>Invalid playback URL</p>
+        <p className="text-sm" style={{ color: 'var(--err)' }}>Invalid playback URL</p>
       </div>
     )
   }
@@ -84,7 +84,7 @@ export default function LiveWatchPage() {
             {playback.status}
           </span>
           <span className="border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest"
-                style={{ borderColor: '#fbbf24', color: '#fbbf24' }}>Beta</span>
+                style={{ borderColor: 'var(--warn)', color: 'var(--warn)' }}>Beta</span>
         </div>
         <Link href="/live" className="text-xs transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-muted)' }}>
           Dashboard →

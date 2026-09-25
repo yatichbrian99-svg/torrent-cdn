@@ -357,7 +357,7 @@ export default function LivePlayer({ playback, onPeersChange, className }: Props
     return (
       <div className={`flex aspect-video items-center justify-center border ${className || ''}`} style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
         <div className="text-center">
-          <AlertTriangle size={20} className="mx-auto mb-2" style={{ color: '#ef4444' }} />
+          <AlertTriangle size={20} className="mx-auto mb-2" style={{ color: 'var(--err)' }} />
           <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{errorMsg || 'Live stream unavailable'}</p>
         </div>
       </div>
@@ -393,7 +393,7 @@ export default function LivePlayer({ playback, onPeersChange, className }: Props
         {!atLiveEdge && (
           <button onClick={backToLive}
                   className="border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest"
-                  style={{ borderColor: 'var(--border-strong)', color: '#fbbf24', backgroundColor: 'var(--bg-secondary)' }}>
+                  style={{ borderColor: 'var(--border-strong)', color: 'var(--warn)', backgroundColor: 'var(--bg-secondary)' }}>
             go to live edge →
           </button>
         )}
@@ -412,7 +412,7 @@ export default function LivePlayer({ playback, onPeersChange, className }: Props
         </div>
         <div className="flex items-center gap-3 font-mono text-xs" style={{ color: 'var(--text-muted)' }}>
           <span className="flex items-center gap-1">
-            <span className="h-2 w-2" style={{ backgroundColor: peers > 0 ? '#4ade80' : 'var(--border-strong)' }} />
+            <span className="h-2 w-2" style={{ backgroundColor: peers > 0 ? 'var(--ok)' : 'var(--border-strong)' }} />
             <Users size={11} /> {peers} {peers === 1 ? 'peer' : 'peers'}
           </span>
           <button onClick={toggleFullscreen} className="transition-opacity hover:opacity-80" aria-label="Fullscreen">

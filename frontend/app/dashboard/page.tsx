@@ -229,7 +229,7 @@ export default function DashboardPage() {
       {/* Email verification banner */}
       {verified === false && (
         <div className="mb-6 flex items-center gap-3 border px-4 py-3" style={{ borderColor: 'var(--border-strong)', backgroundColor: 'var(--bg-hover)' }}>
-          <Mail size={16} style={{ color: '#fbbf24' }} />
+          <Mail size={16} style={{ color: 'var(--warn)' }} />
           <p className="flex-1 text-xs" style={{ color: 'var(--text-soft)' }}>
             Please verify your email address to unlock all features.
           </p>
@@ -237,18 +237,18 @@ export default function DashboardPage() {
             onClick={handleResend}
             disabled={resending}
             className="border px-3 py-1 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
-            style={{ borderColor: 'var(--text-muted)', color: '#fff' }}
+            style={{ borderColor: 'var(--text-muted)', color: 'var(--text-primary)' }}
           >
             {resending ? 'Sending...' : 'Resend email'}
           </button>
           {resendMsg && (
-            <span className="text-xs" style={{ color: '#4ade80' }}>{resendMsg}</span>
+            <span className="text-xs" style={{ color: 'var(--ok)' }}>{resendMsg}</span>
           )}
         </div>
       )}
       {verified === true && (
         <div className="mb-6 flex items-center gap-3 border px-4 py-3" style={{ borderColor: 'var(--ok-chip-border)', backgroundColor: 'var(--ok-chip-bg)' }}>
-          <ShieldCheck size={16} style={{ color: '#4ade80' }} />
+          <ShieldCheck size={16} style={{ color: 'var(--ok)' }} />
           <p className="flex-1 text-xs" style={{ color: 'var(--ok-chip-text)' }}>
             Email verified
           </p>
@@ -258,12 +258,12 @@ export default function DashboardPage() {
       {/* Files load error banner */}
       {error && (
         <div className="mb-6 flex items-center gap-3 border px-4 py-3" style={{ borderColor: 'var(--err-chip-border)', backgroundColor: 'var(--err-chip-bg)' }}>
-          <AlertTriangle size={16} style={{ color: '#ef4444' }} />
-          <p className="flex-1 text-xs" style={{ color: '#fca5a5' }}>{error}</p>
+          <AlertTriangle size={16} style={{ color: 'var(--err)' }} />
+          <p className="flex-1 text-xs" style={{ color: 'var(--err-soft)' }}>{error}</p>
           <button
             onClick={loadFiles}
             className="border px-3 py-1 text-xs font-medium transition-opacity hover:opacity-80"
-            style={{ borderColor: 'var(--danger-bg)', color: '#fff' }}
+            style={{ borderColor: 'var(--danger-bg)', color: 'var(--text-primary)' }}
           >
             Refresh
           </button>
@@ -296,7 +296,7 @@ export default function DashboardPage() {
           <a
             href="/live"
             className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80"
-            style={{ borderColor: 'var(--inverse-bg)', color: '#fff' }}
+            style={{ borderColor: 'var(--inverse-bg)', color: 'var(--text-primary)' }}
           >
             Manage channels &rarr;
           </a>
@@ -320,7 +320,7 @@ export default function DashboardPage() {
               onClick={handleRevokeKey}
               disabled={revokingKey}
               className="border px-4 py-2 text-xs transition-opacity hover:opacity-80 disabled:opacity-50"
-              style={{ borderColor: 'var(--danger-border)', color: '#ef4444' }}
+              style={{ borderColor: 'var(--danger-border)', color: 'var(--err)' }}
             >
               {revokingKey ? <Loader2 size={12} className="animate-spin" /> : 'Revoke'}
             </button>
@@ -329,7 +329,7 @@ export default function DashboardPage() {
               onClick={handleGenerateKey}
               disabled={generatingKey}
               className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
-              style={{ borderColor: 'var(--inverse-bg)', color: '#fff' }}
+              style={{ borderColor: 'var(--inverse-bg)', color: 'var(--text-primary)' }}
             >
               {generatingKey ? <Loader2 size={12} className="animate-spin" /> : 'Generate API key'}
             </button>
@@ -347,10 +347,10 @@ export default function DashboardPage() {
                 className="border px-3 py-2 text-xs transition-opacity hover:opacity-80"
                 style={{ borderColor: 'var(--border-strong)', color: 'var(--text-muted)' }}
               >
-                {copiedKey ? <><Check size={12} className="inline" style={{ color: '#4ade80' }} /> Copied</> : 'Copy'}
+                {copiedKey ? <><Check size={12} className="inline" style={{ color: 'var(--ok)' }} /> Copied</> : 'Copy'}
               </button>
             </div>
-            <p className="mt-2 text-xs" style={{ color: '#fbbf24' }}>
+            <p className="mt-2 text-xs" style={{ color: 'var(--warn)' }}>
               This is the only time the full key is shown — copy it now. It is stored hashed and cannot be recovered.
             </p>
           </>
@@ -383,7 +383,7 @@ export default function DashboardPage() {
               onClick={handleMfaSetup}
               disabled={mfaBusy}
               className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
-              style={{ borderColor: 'var(--inverse-bg)', color: '#fff' }}
+              style={{ borderColor: 'var(--inverse-bg)', color: 'var(--text-primary)' }}
             >
               {mfaBusy ? <Loader2 size={12} className="animate-spin" /> : 'Set up'}
             </button>
@@ -391,13 +391,13 @@ export default function DashboardPage() {
         </div>
 
         {mfa && !mfa.enabled && (
-          <p className="mt-3 text-xs" style={{ color: '#fbbf24' }}>
+          <p className="mt-3 text-xs" style={{ color: 'var(--warn)' }}>
             Required: two-factor authentication is mandatory for every account. If you signed
             in through the registration session, you'll be asked to set it up at your next sign-in.
           </p>
         )}
         {mfa?.enabled && (
-          <p className="mt-2 flex items-center gap-2 text-xs" style={{ color: '#4ade80' }}>
+          <p className="mt-2 flex items-center gap-2 text-xs" style={{ color: 'var(--ok)' }}>
             <ShieldCheck size={14} /> Enabled
           </p>
         )}
@@ -407,7 +407,7 @@ export default function DashboardPage() {
             reminding until the user mints a fresh set. */}
         {mfa?.enabled && !mfa.backup_codes_remaining && (
           <p className="mt-2 flex items-start gap-2 border px-3 py-2 text-xs leading-relaxed"
-            style={{ borderColor: '#7c2d12', backgroundColor: 'var(--warn-chip-bg)', color: '#fbbf24' }}>
+            style={{ borderColor: 'var(--warn-chip-border)', backgroundColor: 'var(--warn-chip-bg)', color: 'var(--warn)' }}>
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
             You've used all your backup codes. If you lose your authenticator app, you won't be
             able to sign in. Disable and re-enable two-factor authentication to generate a fresh set.
@@ -439,11 +439,11 @@ export default function DashboardPage() {
                   className="mt-2 border px-2 py-1 text-[11px] transition-opacity hover:opacity-80"
                   style={{ borderColor: 'var(--border-strong)', color: 'var(--text-muted)' }}
                 >
-                  {copiedUri ? <><Check size={12} className="inline" style={{ color: '#4ade80' }} /> Copied</> : 'Copy otpauth link'}
+                  {copiedUri ? <><Check size={12} className="inline" style={{ color: 'var(--ok)' }} /> Copied</> : 'Copy otpauth link'}
                 </button>
               </div>
             </div>
-            <p className="mt-3 text-xs" style={{ color: '#fbbf24' }}>
+            <p className="mt-3 text-xs" style={{ color: 'var(--warn)' }}>
               2. Save these backup codes somewhere safe. Each is single-use and they are shown only once:
             </p>
             <div className="mt-2 grid grid-cols-2 gap-1 sm:grid-cols-5">
@@ -468,7 +468,7 @@ export default function DashboardPage() {
                 onClick={handleMfaEnable}
                 disabled={mfaBusy}
                 className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
-                style={{ borderColor: 'var(--inverse-bg)', color: '#fff' }}
+                style={{ borderColor: 'var(--inverse-bg)', color: 'var(--text-primary)' }}
               >
                 {mfaBusy ? <Loader2 size={12} className="animate-spin" /> : 'Enable'}
               </button>
@@ -495,19 +495,19 @@ export default function DashboardPage() {
                 onClick={handleMfaDisable}
                 disabled={mfaBusy}
                 className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
-                style={{ borderColor: 'var(--danger-border)', color: '#ef4444' }}
+                style={{ borderColor: 'var(--danger-border)', color: 'var(--err)' }}
               >
                 {mfaBusy ? <Loader2 size={12} className="animate-spin" /> : 'Disable'}
               </button>
             </div>
-            <p className="mt-2 text-[11px]" style={{ color: '#fbbf24' }}>
+            <p className="mt-2 text-[11px]" style={{ color: 'var(--warn)' }}>
               Note: two-factor authentication is required for all accounts — you'll be
               asked to set it up again at your next sign-in.
             </p>
           </div>
         )}
 
-        {mfaMsg && <p className="mt-3 text-xs" style={{ color: '#fca5a5' }}>{mfaMsg}</p>}
+        {mfaMsg && <p className="mt-3 text-xs" style={{ color: 'var(--err-soft)' }}>{mfaMsg}</p>}
       </div>
 
       {/* Referral */}
@@ -533,7 +533,7 @@ export default function DashboardPage() {
             className="border px-3 py-2 text-xs transition-opacity hover:opacity-80"
             style={{ borderColor: 'var(--border-strong)', color: 'var(--text-muted)' }}
           >
-            {copiedRef ? <><Copy size={12} className="inline" style={{ color: '#4ade80' }} /> Copied</> : 'Copy'}
+            {copiedRef ? <><Copy size={12} className="inline" style={{ color: 'var(--ok)' }} /> Copied</> : 'Copy'}
           </button>
         </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -556,9 +556,9 @@ export default function DashboardPage() {
       <div className="mb-8 border p-5" style={{ borderColor: 'var(--err-chip-border)', backgroundColor: 'var(--err-chip-bg)' }}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <AlertTriangle size={16} style={{ color: '#ef4444' }} />
+            <AlertTriangle size={16} style={{ color: 'var(--err)' }} />
             <div>
-              <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#ef4444', fontFamily: 'monospace' }}>Danger Zone</p>
+              <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--err)', fontFamily: 'monospace' }}>Danger Zone</p>
               <p className="mt-1 text-sm" style={{ color: 'var(--text-soft)' }}>Permanently delete your account and all associated data. This cannot be undone.</p>
             </div>
           </div>
@@ -566,7 +566,7 @@ export default function DashboardPage() {
             onClick={handleDeleteAccount}
             disabled={deletingAccount}
             className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
-            style={{ borderColor: deleteAccountConfirm ? '#ef4444' : 'var(--danger-border)', backgroundColor: deleteAccountConfirm ? 'var(--danger-bg)' : 'transparent', color: '#ef4444' }}
+            style={{ borderColor: deleteAccountConfirm ? 'var(--err)' : 'var(--danger-border)', backgroundColor: deleteAccountConfirm ? 'var(--danger-bg)' : 'transparent', color: 'var(--err)' }}
           >
             {deletingAccount ? 'Deleting...' : deleteAccountConfirm ? 'Click again to confirm' : 'Delete account'}
           </button>
@@ -615,9 +615,9 @@ export default function DashboardPage() {
               />
               <YAxis stroke='var(--border)' tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={(v: number) => `${v} GB`} />
               <Tooltip
-                contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid #222', color: '#fff' }}
-                labelStyle={{ color: '#fff' }}
-                itemStyle={{ color: '#fff' }}
+                contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+                labelStyle={{ color: 'var(--text-primary)' }}
+                itemStyle={{ color: 'var(--text-primary)' }}
                 // recharts 3 types: value can be undefined/unknown — coerce safely.
                 formatter={(value: unknown) => [`${Number(value ?? 0).toFixed(2)} GB`, 'Bandwidth']}
               />

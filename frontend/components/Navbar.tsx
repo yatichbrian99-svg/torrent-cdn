@@ -97,7 +97,7 @@ export default function Navbar() {
                   <button onClick={() => setShowNotifs((s) => !s)} className="relative p-1 transition-opacity hover:opacity-80" aria-label="Notifications">
                     <Bell size={16} style={{ color: 'var(--text-muted)' }} />
                     {unreadCount > 0 && (
-                      <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full" style={{ backgroundColor: '#ef4444' }} />
+                      <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full" style={{ backgroundColor: 'var(--err)' }} />
                     )}
                   </button>
                   {showNotifs && (
@@ -119,7 +119,7 @@ export default function Navbar() {
                                   Mark read
                                 </button>
                               )}
-                              <a href="/billing" className="text-[10px] uppercase tracking-widest transition-colors hover:text-[color:var(--text-primary)]" style={{ color: '#4ade80', fontFamily: 'monospace' }}>
+                              <a href="/billing" className="text-[10px] uppercase tracking-widest transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--ok)', fontFamily: 'monospace' }}>
                                 Upgrade →
                               </a>
                             </div>

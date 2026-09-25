@@ -35,9 +35,9 @@ function CodeBlock({ code }: { code: string }) {
 
 function MethodBadge({ method }: { method: 'GET' | 'POST' | 'DELETE' }) {
   const colors: Record<string, { color: string; border: string }> = {
-    GET: { color: '#4ade80', border: 'var(--ok-chip-border)' },
-    POST: { color: '#60a5fa', border: 'var(--info-chip-border)' },
-    DELETE: { color: '#f87171', border: 'var(--err-chip-border)' },
+    GET: { color: 'var(--ok)', border: 'var(--ok-chip-border)' },
+    POST: { color: 'var(--info)', border: 'var(--info-chip-border)' },
+    DELETE: { color: 'var(--err-bright)', border: 'var(--err-chip-border)' },
   }
   const c = colors[method]
   return (
@@ -245,10 +245,10 @@ curl -X POST ${BASE_URL}/auth/mfa/confirm \\
             — each is single-use and can never be shown again.
           </p>
           <div className="border p-5" style={{ borderColor: 'var(--danger-border)', backgroundColor: 'var(--err-chip-bg)' }}>
-            <h4 className="mb-2 text-[10px] font-bold uppercase tracking-widest" style={{ color: '#f87171' }}>
+            <h4 className="mb-2 text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--err-bright)' }}>
               Lost your authenticator?
             </h4>
-            <p className="text-xs leading-relaxed" style={{ color: '#fca5a5' }}>
+            <p className="text-xs leading-relaxed" style={{ color: 'var(--err-soft)' }}>
               The single-use backup codes shown at enrollment are your recovery path — each can be
               entered at login exactly once. If you lose both the app and every backup code, the
               account cannot sign in: two-factor authentication is enforced for every account and

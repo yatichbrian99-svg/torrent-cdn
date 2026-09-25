@@ -45,7 +45,7 @@ export default function LandingPage() {
             <a
               href="/embed/demo"
               className="border px-6 py-3 text-sm font-medium transition-opacity hover:opacity-80"
-              style={{ borderColor: 'var(--inverse-bg)', color: '#fff' }}
+              style={{ borderColor: 'var(--inverse-bg)', color: 'var(--text-primary)' }}
             >
               Watch demo
             </a>

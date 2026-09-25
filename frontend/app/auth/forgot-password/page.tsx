@@ -46,7 +46,7 @@ export default function ForgotPasswordPage() {
         {status === 'success' && (
           <div className="border p-8 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
             <div className="mx-auto mb-4 flex items-center justify-center w-12 h-12 rounded-full" style={{ backgroundColor: 'rgba(74,222,128,0.1)' }}>
-              <CheckCircle size={24} style={{ color: '#4ade80' }} />
+              <CheckCircle size={24} style={{ color: 'var(--ok)' }} />
             </div>
             <h2 className="mb-2 text-lg font-bold text-[color:var(--text-primary)]">Check your email</h2>
             <p className="mb-2 text-sm" style={{ color: 'var(--text-soft)' }}>
@@ -70,7 +70,7 @@ export default function ForgotPasswordPage() {
           <div className="border p-8" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
             <div className="mb-6 flex items-center gap-3">
               <div className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ backgroundColor: 'rgba(59,130,246,0.1)' }}>
-                <Mail size={15} style={{ color: '#60a5fa' }} />
+                <Mail size={15} style={{ color: 'var(--info)' }} />
               </div>
               <div>
                 <h2 className="text-sm font-semibold text-[color:var(--text-primary)]">Forgot password</h2>
@@ -103,7 +103,7 @@ export default function ForgotPasswordPage() {
                   style={{
                     backgroundColor: 'rgba(239,68,68,0.05)',
                     borderColor: 'rgba(239,68,68,0.2)',
-                    color: '#ef4444',
+                    color: 'var(--err)',
                   }}
                 >
                   {error}

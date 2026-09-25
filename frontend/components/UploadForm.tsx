@@ -120,12 +120,12 @@ export default function UploadForm() {
           <p className="mb-2 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Magnet Link</p>
           <div className="flex gap-2">
             <input readOnly value={result.magnet_link} className="flex-1 border px-3 py-2 text-sm" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)', color: 'var(--text-muted)' }} />
-            <button onClick={() => navigator.clipboard.writeText(result.magnet_link)} className="border px-4 py-2 text-sm" style={{ borderColor: 'var(--border-strong)', color: '#fff' }}>Copy</button>
+            <button onClick={() => navigator.clipboard.writeText(result.magnet_link)} className="border px-4 py-2 text-sm" style={{ borderColor: 'var(--border-strong)', color: 'var(--text-primary)' }}>Copy</button>
           </div>
         </div>
         {seeding && (
           <div className="mb-6 flex items-center gap-2 border-t pt-4" style={{ borderColor: 'var(--border)' }}>
-            <span className="h-2 w-2 animate-pulse rounded-full" style={{ backgroundColor: seedPeers > 0 ? '#fff' : 'var(--text-faint)' }} />
+            <span className="h-2 w-2 animate-pulse rounded-full" style={{ backgroundColor: seedPeers > 0 ? 'var(--text-primary)' : 'var(--text-faint)' }} />
             <span className="text-xs" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
               {seedPeers > 0 ? `seeding to ${seedPeers} peer${seedPeers === 1 ? '' : 's'}` : 'seeding this file to peers…'}
             </span>
@@ -146,7 +146,7 @@ export default function UploadForm() {
         <button onClick={() => setMode('file')}
           className="flex flex-1 items-center justify-center gap-2 px-4 py-2 text-sm font-medium transition-colors"
           style={{
-            backgroundColor: mode === 'file' ? '#fff' : 'transparent',
+            backgroundColor: mode === 'file' ? 'var(--inverse-bg)' : 'transparent',
             color: mode === 'file' ? 'var(--bg-primary)' : 'var(--text-muted)',
           }}>
           <Upload size={14} /> Upload file
@@ -154,7 +154,7 @@ export default function UploadForm() {
         <button onClick={() => setMode('link')}
           className="flex flex-1 items-center justify-center gap-2 px-4 py-2 text-sm font-medium transition-colors"
           style={{
-            backgroundColor: mode === 'link' ? '#fff' : 'transparent',
+            backgroundColor: mode === 'link' ? 'var(--inverse-bg)' : 'transparent',
             color: mode === 'link' ? 'var(--bg-primary)' : 'var(--text-muted)',
           }}>
           <Link2 size={14} /> Import from link
@@ -164,7 +164,7 @@ export default function UploadForm() {
       {mode === 'file' ? (
         <div onDragOver={(e) => { e.preventDefault(); setDragOver(true) }} onDragLeave={() => setDragOver(false)} onDrop={onDrop}
           className="relative cursor-pointer border-2 border-dashed p-16 text-center transition-colors"
-          style={{ borderColor: dragOver ? '#fff' : 'var(--border-strong)', backgroundColor: dragOver ? 'var(--bg-secondary)' : 'var(--bg-card)' }}>
+          style={{ borderColor: dragOver ? 'var(--text-primary)' : 'var(--border-strong)', backgroundColor: dragOver ? 'var(--bg-secondary)' : 'var(--bg-card)' }}>
           <input type="file" accept="video/*,audio/*" onChange={handleInputChange} className="absolute inset-0 cursor-pointer opacity-0" />
           {selectedFile && !uploading ? (
             <div className="flex items-center justify-center gap-3">
@@ -185,7 +185,7 @@ export default function UploadForm() {
           {uploading && (
             <div className="mx-auto mt-6 max-w-sm">
               <div className="mb-2 flex items-center justify-between text-sm">
-                <span style={{ color: retrying ? '#fff' : 'var(--text-muted)' }}>{retrying ? 'Connection lost — retrying…' : 'Uploading...'}</span>
+                <span style={{ color: retrying ? 'var(--err-bright)' : 'var(--text-muted)' }}>{retrying ? 'Connection lost — retrying…' : 'Uploading...'}</span>
                 <span className="text-[color:var(--text-primary)]">{progress}%</span>
               </div>
               <div className="h-1 w-full" style={{ backgroundColor: 'var(--bg-primary)' }}>

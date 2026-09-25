@@ -14,7 +14,7 @@ export default function GlobalError({
 }) {
   return (
     <html lang="en">
-      <body style={{ backgroundColor: 'var(--bg-primary)', color: '#fff', minHeight: '100vh', margin: 0, fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', WebkitFontSmoothing: 'antialiased' }}>
+      <body style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)', minHeight: '100vh', margin: 0, fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', WebkitFontSmoothing: 'antialiased' }}>
         <div
           style={{
             minHeight: '100vh',
