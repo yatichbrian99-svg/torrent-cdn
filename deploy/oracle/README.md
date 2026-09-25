@@ -95,10 +95,17 @@ Render dashboard → `torrentcdn-backend` → Environment:
 ```
 MEDIAMTX_RTMP_URL = rtmp://rtmp.torrentcdn.store
 MEDIAMTX_HLS_URL  = https://hls.torrentcdn.store
-MEDIAMTX_HOOK_SECRET = <the value bootstrap.sh printed>
+MEDIAMTX_HOOK_SECRET = <see note below>
 MEDIAMTX_API_USER    = <the value bootstrap.sh printed>
 MEDIAMTX_API_PASS    = <the value bootstrap.sh printed>
 ```
+
+> **Which MEDIAMTX_HOOK_SECRET?** Exactly ONE value must exist on both sides.
+> If you apply the Render Blueprint, `render.yaml` auto-generates the secret
+> (`generateValue: true`) — copy **Render's** value from the dashboard's
+> Environment tab into the VM's `.env` and restart the edge. Otherwise use
+> **bootstrap.sh's** printed value in both places. A mismatch = every publish
+> rejected with 401/403. Never commit the value anywhere.
 
 Save → backend redeploys. The dashboard's OBS card and player URLs are built
 from these, so every channel instantly shows the permanent public endpoints.
