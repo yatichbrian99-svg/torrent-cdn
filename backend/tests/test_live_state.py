@@ -469,3 +469,44 @@ class TestPeakSamplingAndRollup:
             assert c.get("bytes_p2p", 0) == 0
             assert c.get("peak_viewers", 0) == 0
         run(go())
+
+    def test_delete_channel_meta_removes_only_named_fields(self):
+        async def go():
+            await live_state.set_channel_meta(
+                "delmeta", publish_seen="123", stream_peak_viewers="9", keepme="x"
+            )
+            await live_state.delete_channel_meta("delmeta", "stream_peak_viewers")
+            m = await live_state.get_channel_meta("delmeta")
+            assert "stream_peak_viewers" not in m
+            assert m.get("publish_seen") == "123"
+            assert m.get("keepme") == "x"
+        run(go())
+
+    def test_rollup_falls_back_to_stream_lifetime_peak(self):
+        """Rollup rows must not under-report: when the per-window counter is
+        zero (short stream / late rollup), the stream-lifetime peak sampled by
+        monitor_channel_status is used instead."""
+        async def go():
+            from unittest.mock import patch
+            await live_state.bump_counters("pkfb", bytes_origin=500)  # data, no peaks
+            await live_state.set_channel_meta(
+                "pkfb",
+                last_seg_ts=str(time.time() - 999),
+                stream_peak_viewers="7",
+                stream_peak_peers="5",
+            )
+            conn = AsyncMock()
+            conn.fetchrow = AsyncMock(return_value={"id": "ch-id"})
+            cm = type("C", (), {"__aenter__": AsyncMock(return_value=conn),
+                                "__aexit__": AsyncMock(return_value=False)})()
+            pool = type("P", (), {"acquire": lambda self: cm})()
+            with patch("app.routes.live.get_db_pool", new=AsyncMock(return_value=pool)), \
+                 patch("app.routes.live.pool_execute_insert_analytics", new=AsyncMock()) as ins:
+                from app.routes.live import rollup_channel_analytics
+                await rollup_channel_analytics("pkfb")
+            args = ins.call_args.args
+            counters = args[2]
+            assert counters.get("peak_viewers", 0) == 0  # window counter was zero
+            meta = args[3]
+            assert int(float(meta.get("stream_peak_viewers", 0))) == 7
+        run(go())

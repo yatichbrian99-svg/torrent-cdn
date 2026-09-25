@@ -207,6 +207,23 @@ async def get_channel_meta(slug: str) -> dict:
     return {k: v for k, v in (raw or {}).items()}
 
 
+async def delete_channel_meta(slug: str, *fields: str) -> None:
+    """Remove specific fields from a channel's ephemeral meta.
+
+    HDEL keeps sibling fields (publish_seen, last_seg_ts, …) intact — the
+    alternative, rewriting the whole hash, is exactly the lost-update race
+    set_channel_meta's docstring describes.
+    """
+    if not fields:
+        return
+    await _redis_call(lambda r: r.hdel(f"{KV}:chan:{slug}:meta", *fields))
+    mem_meta = _mem_get(slug, "meta", "data") or {}
+    if isinstance(mem_meta, dict):
+        for f in fields:
+            mem_meta.pop(f, None)
+        _mem_set(slug, "meta", "data", mem_meta, 60)
+
+
 async def clear_channel(slug: str) -> None:
     """Drop a channel's whole ephemeral state (stream end / channel delete)."""
     await _redis_call(lambda r: _delete_channel_keys(r, slug))

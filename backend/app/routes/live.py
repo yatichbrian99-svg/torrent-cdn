@@ -449,6 +449,36 @@ async def monitor_channel_status(slug: str) -> None:
                     "UPDATE live_channels SET last_seen_at = NOW() WHERE id = $1 AND (last_seen_at IS NULL OR last_seen_at < NOW() - INTERVAL '10 seconds')",
                     row["id"],
                 )
+                # Stream-lifetime audience peak, sampled every tick while LIVE.
+                # Sample_peaks only feeds the per-rollup-window counters, so a
+                # short stream (or viewers arriving just before a rollup reset)
+                # could write rows with peak_viewers = 0 even though the
+                # dashboard showed a real audience. The meta key survives
+                # across rollups for the whole stream and is cleared when the
+                # channel returns to OFFLINE (below).
+                from ..live_state import get_channel_meta, set_channel_meta
+                vw, pr = await _channel_presence_snapshot(slug)
+                meta = await get_channel_meta(slug)
+                prev_v = int(float(meta.get("stream_peak_viewers", 0) or 0))
+                prev_p = int(float(meta.get("stream_peak_peers", 0) or 0))
+                if vw > prev_v or pr > prev_p:
+                    await set_channel_meta(
+                        slug,
+                        stream_peak_viewers=max(vw, prev_v),
+                        stream_peak_peers=max(pr, prev_p),
+                    )
+            else:
+                # OFFLINE: clear the lifetime peak so the next stream starts
+                # from zero. Keyed to the LIVE→(not LIVE) transition, not a
+                # time window, so a brief reconnect keeps its peak only while
+                # the channel never dropped out of LIVE.
+                from ..live_state import get_channel_meta
+                meta = await get_channel_meta(slug)
+                if meta.get("stream_peak_viewers") or meta.get("stream_peak_peers"):
+                    from ..live_state import delete_channel_meta
+                    await delete_channel_meta(
+                        slug, "stream_peak_viewers", "stream_peak_peers"
+                    )
 
 
 async def rollup_channel_analytics(slug: str) -> None:
@@ -494,8 +524,14 @@ async def pool_execute_insert_analytics(pool, channel_id, counters, meta) -> Non
                VALUES ($1, NOW() - make_interval(secs => $2::int), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)""",
             channel_id,
             int(counters.get("interval_seconds", 0) or 0),
-            int(counters.get("peak_viewers", 0) or 0),
-            int(counters.get("peak_peers", 0) or 0),
+            # Per-window peak, but if the window's own sample is zero (short
+            # stream / viewers arrived before a reset), fall back to the
+            # stream-lifetime peak sampled by monitor_channel_status so no
+            # rollup row under-reports the audience the dashboard showed.
+            int(counters.get("peak_viewers", 0) or 0)
+            or int(float(meta.get("stream_peak_viewers", 0) or 0)),
+            int(counters.get("peak_peers", 0) or 0)
+            or int(float(meta.get("stream_peak_peers", 0) or 0)),
             int(counters.get("bytes_p2p", 0) or 0),
             int(counters.get("bytes_origin", 0) or 0),
             int(counters.get("segments_served", 0) or 0),
