@@ -1,14 +1,49 @@
 {
-  "generated_at": "2026-08-07T21:08:56+00:00",
+  "generated_at": "2026-10-03T06:40:00+00:00",
   "critical": 0,
-  "high": 0,
+  "high": 7,
   "moderate": 0,
   "low": 20,
   "info": 0,
   "pip": 20,
-  "npm": 0,
-  "total": 20,
+  "npm": 7,
+  "total": 27,
   "findings": [
+    [
+      "npm",
+      "braces",
+      "high"
+    ],
+    [
+      "npm",
+      "chokidar",
+      "high"
+    ],
+    [
+      "npm",
+      "fast-glob",
+      "high"
+    ],
+    [
+      "npm",
+      "find-yarn-workspace-root",
+      "high"
+    ],
+    [
+      "npm",
+      "micromatch",
+      "high"
+    ],
+    [
+      "npm",
+      "patch-package",
+      "high"
+    ],
+    [
+      "npm",
+      "tailwindcss",
+      "high"
+    ],
     [
       "pip",
       "aiohttp",

@@ -232,6 +232,18 @@ CI keeps the frontend fast: npm packages are cached via `setup-node`'s `cache: n
 
 A chronological record of security hardening work.
 
+### 2026-10-03 — Dependabot triage: undici + ip-address cleared, dev-only braces chain accepted
+
+GitHub reported **11 Dependabot alerts** on `main` (2 high, 6 moderate, 3 low) — all npm transitive dependencies, none in the backend. Triage + resolution:
+
+- **`undici` ×10 advisories (2 high, 5 medium, 3 low, all patched in 7.29.1)** — bumped 7.29.0 → 7.30.0 via in-range `npm audit fix`. Reachability: **none** — the only path into the tree is **jsdom** (vitest test tooling); undici is never bundled for the browser and never runs in production. Includes the two highs: TLS-cert-validation bypass via dropped connect options in BalancedPool (GHSA-w293-vg96-wgc3) and DoS via unrequested WebSocket subprotocol (GHSA-rfgv-xxqx-mfg5).
+- **`ip-address` (GHSA-2vr4-cq9g-pvrc, medium ReDoS, patched in 10.5.1)** — bumped 10.4.0 → 10.7.3 via the same in-range fix. Reachability: low — it parses tracker-supplied IP strings inside `webtorrent → load-ip-set → ip-set` (runtime path, browser bundle), so a hostile tracker could in principle stall a peer's IP parsing; tracker URLs are configured by us, not by viewers.
+- **`braces` chain (7 npm-audit findings, 1 advisory) — ACCEPTED, see Residual Risk #7 below.** `npm audit` (not Dependabot — its DB lagged at triage time) flags GHSA-vfj7-8cjw-p6xm whose range is now `<= 3.0.3`: every published braces release, **no patched version exists**; npm's only proposed fix is the breaking Tailwind v4 migration. All 7 packages (braces/chokidar/micromatch/fast-glob/find-yarn-workspace-root/patch-package/tailwindcss) are dev-only build tooling.
+- The same `npm audit fix` also refreshed **axios 1.19.0 → 1.20.0** in-range (not advisory-driven).
+- Baseline regenerated to the merged accepted set: `pip=20` (unchanged) + `npm=7` (the braces chain). `dependency_audit_report.py` exits OK with `new=0`.
+
+Verified: **179/179 frontend tests pass**, `npm audit` reports nothing beyond the accepted baseline, Dependabot's 11 alerts auto-resolve on the next lockfile re-scan.
+
 ### 2026-08-08 — Full-scope security audit: admin-bootstrap token + infra hardening
 
 Full attack-surface re-audit (auth, authorization/IDOR, input validation, XSS, SSRF/CSRF, file security, API, business logic, rate limiting, headers/CORS, cloud/containers/CI-CD, secrets, dependencies, DoS, race conditions, privacy, logging). Baseline is strong — every DB call parameterized (SQL-injection gate + 459-test suite), HMAC-verified webhooks, DNS-pinned SSRF guard on import, magic-byte/blocked-signature/compression-bomb upload validation, nonce-CSP + `strict-dynamic`, JWT fail-closed config, per-IP lockouts with Redis + in-memory fallbacks, session revocation (DB `security_stamp` authoritative), refcount-aware storage deletion, loopback-bound datastores, non-root backend container, `secret-scan` + gitleaks clean, **npm audit 0 vulnerabilities**, pip baseline 0 critical/0 high (20 low accepted). Fixes from this pass:
@@ -489,6 +501,10 @@ App-level controls (rate limiting per endpoint, lockouts, body caps, request tim
 #### 6. Backup encryption + restore drills — **provider-managed; runbook shipped**
 
 Render's managed Postgres performs automated daily backups; encryption at rest and retention are provider-controlled. **`backend/scripts/RESTORE_RUNBOOK.md`** documents the quarterly drill (verify backup exists → download → restore into a scratch DB → verify row counts + MFA columns → clean up → log), and **`backend/scripts/restore_drill.sh`** runs the read-only pre-flight (tooling, connectivity, table counts, schema sanity). The encryption/restore *execution* still requires Render dashboard access — the quarterly drill is now a 30-minute checklist instead of an unimplemented recommendation.
+
+#### 7. `braces` glob chain (dev-only build tooling) — **ACCEPTED, no patched release**
+
+GHSA-vfj7-8cjw-p6xm (stack-exhaustion DoS via deeply nested glob patterns) has range `<= 3.0.3` — **every published braces version is affected and no fix exists**; npm's only escape is `tailwindcss@4` (breaking major). The affected packages — `braces`, `chokidar`, `micromatch`, `fast-glob`, `find-yarn-workspace-root`, `patch-package`, `tailwindcss` — are all **dev-only build tooling** pulled in by Tailwind 3 and patch-package: nothing ships in the browser bundle, and no attacker-controlled glob pattern reaches them in production or CI (the DoS requires an attacker to already control build inputs). Accepted in the baseline (`npm=7`, recorded 2026-10-03). **Revisit when:** migrating to Tailwind v4 (its oxide toolchain drops this chain entirely), or a patched braces release ships. Note for future triage: Dependabot had NOT flagged this chain when npm audit did — if new Dependabot alerts appear for these packages, dismiss them referencing this entry.
 
 ---
 
