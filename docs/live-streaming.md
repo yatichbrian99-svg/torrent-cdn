@@ -64,6 +64,7 @@ Every channel carries `tenant_id`/`owner_id`; all queries scope by owner and cro
 - Publishing: MediaMTX POSTs `{action:"publish", path:"live/<slug>", password:<key>, …}` to the backend; the backend hashes + constant-time compares and answers 2xx/403.
 - Playback: enabled channels serve public HLS; viewer *APIs* (sessions/heartbeats) require a short-lived playback token (`Authorization: Bearer <token>`), minted via `/api/live/channels/{id}/playback` (owner) or `/api/live/play/{slug}` (public, enabled channels only). A guessed slug cannot open a session on a disabled channel (404).
 - The stream key is never logged; the auth hook records only the slug + outcome in the security-event feed.
+- **Internal hooks fail closed in production.** Every internal MediaMTX hook requires `X-Hook-Secret` to match `MEDIAMTX_HOOK_SECRET`. If the secret is unset, dev/docker hooks stay open (compose-internal network), but with `APP_ENV=production` they return **503 "hook not configured"** — an unauthenticated auth hook on the public internet would be a free stream-key oracle, and an unauthenticated `/onNotReady` a DoS. **Consequence: if `MEDIAMTX_HOOK_SECRET` is missing on the Render backend (and the media edge), live ingest is down in production by design** — publishes are denied at the auth hook until both sides are configured with the same secret (`render.yaml` ships `generateValue: true`; when setting it manually, use the identical value on the backend and the media edge).
 
 ## 4. Status lifecycle (derived, never manual)
 
@@ -82,6 +83,8 @@ produce HLS segments...", "Publisher connected but the HLS playlist is not
 available — ingest or muxing failed."). The dashboard shows it verbatim.
 
 The monitor loop (default every 5s) polls MediaMTX, expires segment/peer state, and folds Redis counters into durable `live_analytics_events` rows (historical analytics are preserved; only ephemeral state expires). One broken channel never blocks another — every tick isolates per-channel failures.
+
+**Peak viewers/peers are stream-lifetime values.** While a channel is LIVE, each monitor tick samples current viewers/peers into channel meta (`stream_peak_viewers` / `stream_peak_peers`) so the dashboard shows the peak since the stream started, not since the last Redis restart. When a rollup window closes with a per-window peak of 0 (common for very short windows), the rollup falls back to the lifetime meta peak so historical analytics don't under-report the audience the dashboard showed. The lifetime peaks are cleared on the LIVE→OFFLINE transition (`delete_channel_meta`), so each new stream starts from zero.
 
 ## 5. Delivery & fallback (client)
 
@@ -186,7 +189,7 @@ cannot proxy arbitrary TCP without Spectrum (paid).
 ```bash
 # backend unit tests (live + full VOD suite)
 cd backend && python -m pytest tests/test_live.py tests/test_live_state.py
-cd backend && python -m pytest                    # full suite (595 tests)
+cd backend && python -m pytest                    # full suite (636 tests)
 
 # frontend unit tests + coverage gate
 cd frontend && npm test && npm run test:coverage
@@ -212,6 +215,7 @@ How to test origin fallback: stop MediaMTX mid-playback (or publish nothing afte
 - Never expose MediaMTX `9997`/`9998` (bind loopback / private network; the Caddyfile does not route them).
 - HLS is served same-origin through Caddy (`/hls/*` → `mediamtx:8888`): playlist `Cache-Control: no-store, must-revalidate`; segments short cache (`max-age=2`). Never cache `index.m3u8`.
 - Set in the environment: `MEDIAMTX_API_URL`, `MEDIAMTX_RTMP_URL` (public `rtmp://stream.example.com:1935`), `MEDIAMTX_HLS_URL` (public `https://stream.example.com/hls`), `MEDIAMTX_HOOK_SECRET`, `PLAYBACK_TOKEN_SECRET`, `PUBLIC_PLAYBACK_DOMAIN` (+ existing DB/Redis/JWT vars). See `.env.example`.
+- **`MEDIAMTX_HOOK_SECRET` must be set on BOTH sides with the same value** — the Render backend (or ingest returns 503 fail-closed; see §3) and the media edge running MediaMTX (its hook requests carry `X-Hook-Secret`). Until it is set on Render **and** a public media edge is standing, live ingest is down in production; local end-to-end ingest (ffmpeg publish → auth accept → STARTING→LIVE → segments registered) is verified working against the docker stack. VM setup steps: `deploy/oracle/README.md`.
 - `/api/health/live` distinguishes **application** health (`monitor_running`, redis) from **media-pipeline** health (`mediamtx_reachable`, `segment_discovery_active`) — an operator can tell "backend broken" from "ingest broken" at a glance (unauthenticated, detail-free). Component-level checks live on the admin health dashboard.
 - **RTMP is NOT reverse-proxied by Caddy.** HTTP proxies do not carry RTMP; port 1935 must terminate directly at MediaMTX on a public host (firewall-opened TCP), while HLS alone is proxied over HTTPS. A reachable `https://stream.example.com` says nothing about RTMP availability — verify with `nc -vz host 1935`.
 
@@ -264,17 +268,19 @@ See `.env.example` — `MEDIAMTX_API_URL`, `MEDIAMTX_RTMP_URL`, `MEDIAMTX_HLS_UR
 
 - **P2P swarm identity is content-derived** (backend fetches each segment once from MediaMTX, computes the infohash with the same recipe as VOD, Redis-caches it ≤300s, serves it via the token-gated identity endpoint). A peer serving poisoned bytes computes a different infohash and is never introduced into the real swarm. Verified byte-for-byte across the Python backend, the frontend TS recipe, and create-torrent on real MediaMTX segment bytes.
 - Peers discover each other via the shared WSS trackers with the backend as the infohash authority; seeding starts from origin-fetched bytes (serve-while-watch).
-- Live is flagged **BETA** in the dashboard while ingest still runs on the local media edge (no public VM yet).
+- Live is flagged **BETA** in the dashboard. The removal criteria: production ingest verified end-to-end on a public media edge (which first requires `MEDIAMTX_HOOK_SECRET` set on Render + edge — see §3/§8 — and a reachable `rtmp://PUBLIC_HOST:1935`).
 - WebRTC playback (WHEP) and SRT/RTSP ingest are disabled by default; architecture supports them via MediaMTX config.
 - End-to-end latency is *not yet measured* in production — the design targets ~2s segments; do not promise numbers until measured (spec §14).
 - Offload percentages are measured delivery metrics only; no "dollars saved" claims (no pricing configured).
-- `live_analytics_events` rollups are interval-based from Redis counters; very short streams (< rollup window) may record a single consolidated row.
+- `live_analytics_events` rollups are interval-based from Redis counters; very short streams (< rollup window) may record a single consolidated row. Rollup peaks fall back to the stream-lifetime meta peaks (see §4), so a 0-peak window no longer under-reports the audience.
+- `live_analytics_events` currently has no time-based index or retention policy — fine at MVP volume, revisit if the table grows.
 - Geographic peer preference is not yet applied live (VOD has no geo layer either); reliability-first selection (health + served-volume) is used.
 
 ## 12. Recommended next improvements
 
 1. LL-HLS parts over the same pipeline (MediaMTX `hlsVariant: lowLatency` already on).
-3. Prometheus scrape of MediaMTX `:9998` into the admin health dashboard (CPU/RAM/bandwidth per publish).
-4. Signed playback *URLs* (query-param HMAC) for CDN-friendly private channels.
-5. Geo/locality preference in `peer_scores` once a geo source exists.
-6. Replace the segment webhook with an inotify watcher on MediaMTX's HLS directory for zero-latency registration.
+2. Prometheus scrape of MediaMTX `:9998` into the admin health dashboard (CPU/RAM/bandwidth per publish).
+3. Signed playback *URLs* (query-param HMAC) for CDN-friendly private channels.
+4. Geo/locality preference in `peer_scores` once a geo source exists.
+5. Replace the segment webhook with an inotify watcher on MediaMTX's HLS directory for zero-latency registration.
+6. Time-based index + retention policy for `live_analytics_events` (see §11).

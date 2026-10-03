@@ -8,7 +8,7 @@ P2P-assisted video delivery: viewers become peers, so bandwidth costs drop as yo
 
 | Layer | Tech | Location |
 |---|---|---|
-| Frontend | Next.js 14 (App Router) + TypeScript + Tailwind (light/dark theme via CSS vars) | `frontend/` |
+| Frontend | Next.js 15 (App Router) + TypeScript + Tailwind (light/dark theme toggle, CSS-var tokens) | `frontend/` |
 | Backend | FastAPI + SQLAlchemy + Redis + PostgreSQL | `backend/` |
 | Storage | S3-compatible (R2 / Supabase Storage), presigned URLs | — |
 | P2P | WebTorrent; magnet links via torrentool; embed SDK (`/sdk.js`) | `frontend/public/` |
@@ -54,6 +54,12 @@ npm ci
 npm run dev
 ```
 
+## Theming (light/dark)
+
+The default palette is dark; the navbar toggle switches to light. Theming is pure CSS variables: `:root` in `frontend/app/globals.css` holds the dark palette and `[data-theme='light']` remaps neutrals and darkens status tokens for contrast. The choice persists in `localStorage` (`tcdn_theme`) via `lib/theme.ts`.
+
+**CSP nonce rule (do not break):** the pre-paint theme script (`THEME_SCRIPT` in `app/layout.tsx`) must be rendered via `next/script` with a nonce (`<Script id="theme-init" strategy="beforeInteractive" nonce={nonce}>`). A raw inline `<script>` gets no nonce, the nonce-CSP blocks it, and the anti-flash guard (`html:not([data-theme-resolved]) body { visibility: hidden }`) then hides the whole site. The nonce comes from `frontend/middleware.ts` (read in the async layout via `await headers()`), and a CSS animation failsafe releases the guard after 0.3s if anything goes wrong. `lib/__tests__/theme-parity.test.ts` pins the inline script ↔ `lib/theme.ts` agreement so they cannot drift.
+
 ## Testing & pre-merge CI gates
 
 Every push/PR to `main` runs `.github/workflows/security.yml` — **all jobs must be green before merging**. On a leak, gitleaks posts an inline PR comment pointing at the offending line and the build fails.
@@ -77,9 +83,9 @@ npm run test:coverage # one-shot WITH the coverage gate — exactly what CI runs
 npm run test:watch   # watch mode during development
 ```
 
-175 tests across 19 files cover real behavior, not just types: the auth token store incl. remember-me expiry handling (`lib/auth.ts`), the theme store (`lib/theme.ts`) — persistence, pre-paint resolution, and the inline pre-paint script parity check (`scripts/verify-theme-script.mjs`), the live streaming client + P2P swarm (`lib/liveClient.ts`, `lib/live/*`), the API client interceptors — Bearer-header attachment and the 401 logout/redirect (`lib/api.ts`), UsageBar percentage math (incl. the unlimited plan), EmbedCode snippet generation, PricingTable checkout flow (incl. the error path), AuthModal incl. the MFA + remember-me flow, and FileCard's delete-confirm + copy interactions. The inline pre-paint theme script in `app/layout.tsx` (which cannot import modules) is kept in lockstep with `lib/theme.ts` by `scripts/theme-script-parity.test.ts`, so a future storage-key change fails CI if the two drift.
+179 tests across 20 files cover real behavior, not just types: the auth token store incl. remember-me expiry handling (`lib/auth.ts`), the theme store (`lib/theme.ts`) — persistence, pre-paint resolution, and the inline pre-paint script parity check (`lib/__tests__/theme-parity.test.ts`), the live streaming client + P2P swarm (`lib/liveClient.ts`, `lib/live/*`), the API client interceptors — Bearer-header attachment and the 401 logout/redirect (`lib/api.ts`), UsageBar percentage math (incl. the unlimited plan), EmbedCode snippet generation, PricingTable checkout flow (incl. the error path), AuthModal incl. the MFA + remember-me flow, and FileCard's delete-confirm + copy interactions. The inline pre-paint theme script in `app/layout.tsx` (which cannot import modules) is kept in lockstep with `lib/theme.ts` by `lib/__tests__/theme-parity.test.ts`, so a future storage-key change fails CI if the two drift.
 
-**Coverage gate (v8 provider):** `test:coverage` counts every file under `lib/` and `components/` — tested or not — and fails the build if totals drop below the configured thresholds (`statements 25`, `branches 33`, `functions 14`, `lines 32` — the measured baseline, raise them as coverage grows). Removing a test, breaking a covered path, or adding a new untested file all fail CI. `VideoPlayer.tsx` is excluded (WebRTC/webtorrent glue — covered by `next build` + the embed e2e, not meaningfully unit-testable in jsdom).
+**Coverage gate (v8 provider):** `test:coverage` counts every file under `lib/` and `components/` — tested or not — and fails the build if totals drop below the configured thresholds (`statements 42`, `branches 45`, `functions 30`, `lines 48` — the measured baseline, raise them as coverage grows). Removing a test, breaking a covered path, or adding a new untested file all fail CI. `VideoPlayer.tsx` and `LivePlayer.tsx` are excluded (WebRTC/webtorrent/hls.js glue — covered by `next build` + the embed e2e, not meaningfully unit-testable in jsdom).
 
 ### Frontend build + OG image guard
 
