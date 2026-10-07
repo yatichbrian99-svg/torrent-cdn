@@ -64,6 +64,11 @@ jobs:
           JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
           POSTGRES_PASSWORD: ci-test-password
           MINIO_ROOT_PASSWORD: ci-test-minio-password
+          # Compose interpolates the WHOLE file, so the mediamtx service's
+          # fail-closed ${MEDIAMTX_HOOK_SECRET:?} breaks even `up postgres redis
+          # minio` without a value. CI-only dummy — the mediamtx service is not
+          # started by this job.
+          MEDIAMTX_HOOK_SECRET: "ci-test-hook-secret"
         run: |
           docker compose up -d postgres redis minio
           echo "Waiting for services to be healthy..."
@@ -86,6 +91,11 @@ jobs:
           JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
           POSTGRES_PASSWORD: ci-test-password
           MINIO_ROOT_PASSWORD: ci-test-minio-password
+          # Compose interpolates the WHOLE file, so the mediamtx service's
+          # fail-closed ${MEDIAMTX_HOOK_SECRET:?} breaks even `up postgres redis
+          # minio` without a value. CI-only dummy — the mediamtx service is not
+          # started by this job.
+          MEDIAMTX_HOOK_SECRET: "ci-test-hook-secret"
         run: |
           docker compose build backend
           APP_ENV="production" \
@@ -118,4 +128,9 @@ jobs:
           JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
           POSTGRES_PASSWORD: ci-test-password
           MINIO_ROOT_PASSWORD: ci-test-minio-password
+          # Compose interpolates the WHOLE file, so the mediamtx service's
+          # fail-closed ${MEDIAMTX_HOOK_SECRET:?} breaks even `up postgres redis
+          # minio` without a value. CI-only dummy — the mediamtx service is not
+          # started by this job.
+          MEDIAMTX_HOOK_SECRET: "ci-test-hook-secret"
         run: docker compose down -v
