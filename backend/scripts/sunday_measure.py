@@ -6,11 +6,12 @@ delivery splits; the numbers printed below are the BACKEND'S measured
 aggregation (Redis presence + analytics rollups), not invented here.
 The publish itself is a real RTMP stream already running.
 """
-import httpx
 import random
 import sys
 import threading
 import time
+
+import httpx
 
 B = "http://localhost:8000"
 SLUG = "sunday-servise"
@@ -100,7 +101,7 @@ def monitor() -> None:
                 latest = s.get("latest_segment_sequence") or "-"
                 print(f"  {time.strftime('%H:%M:%S'):<8}{s.get('current_viewers', 0):>8}"
                       f"{s.get('current_peers', 0):>7}"
-                      f"{fmt(p2p):>11}{fmt(org):>11}{off:>8.1f}%{str(latest):>8}",
+                      f"{fmt(p2p):>11}{fmt(org):>11}{off:>8.1f}%{latest!s:>8}",
                       flush=True)
             else:
                 pub = httpx.get(f"{B}/api/live/play/{SLUG}", timeout=15).json()

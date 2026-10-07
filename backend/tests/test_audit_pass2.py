@@ -519,7 +519,6 @@ class TestSessionRevocationWithoutRedis:
         import jwt as pyjwt
 
         import app.auth as auth_mod
-        from app.auth import _STAMP_CLOCK_SKEW_SECS
         from app.config import get_settings
 
         old_token = self._token()

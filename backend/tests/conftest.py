@@ -182,7 +182,7 @@ def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
     # import get_redis at call time via .database, but routes/live.py and
     # live_internal.py hold local bindings — patched above). The live monitor
     # must NEVER run inside tests (it would touch real MediaMTX over HTTP).
-    import app.live_state as live_state
+    from app import live_state
     monkeypatch.setattr(live_state, "get_redis", AsyncMock(return_value=mock_redis))
     monkeypatch.setattr(live_state, "start_live_monitor", lambda: None)
 

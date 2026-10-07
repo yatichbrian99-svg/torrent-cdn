@@ -30,7 +30,6 @@ import hashlib
 import json
 import logging
 import re
-import time
 
 import httpx
 
@@ -42,7 +41,7 @@ logger = logging.getLogger(__name__)
 _VARIANT_RE = re.compile(r"([A-Za-z0-9_]+_stream\.m3u8)")
 # MediaMTX names full segments `<hex>_<stream>_seg<N>.mp4` (parts are
 # `_part<k>.mp4` and are never valid swarm objects).
-_SEGMENT_RE = re.compile(r"^[0-9a-f]+_video\d+_seg(\d+)\.mp4$", re.I)
+_SEGMENT_RE = re.compile(r"^[0-9a-f]+_video\d+_seg(\d+)\.mp4$", re.IGNORECASE)
 
 
 def segment_filename(slug: str, seq: int) -> str:
@@ -78,7 +77,7 @@ async def _resolve_variant(client: httpx.AsyncClient, base: str, path: str, slug
         variant = next((v for v in variants if "_video1_" in v or v == "video1_stream.m3u8"), variants[0])
         await set_channel_meta(slug, hls_variant=variant)
         return variant
-    except Exception:  # noqa: BLE001 — identity is best-effort
+    except Exception:
         return None
 
 
@@ -88,7 +87,6 @@ async def _fetch_segment_bytes(slug: str, seq: int) -> bytes | None:
     In docker-compose MEDIAMTX_HLS_URL is the internal address (fast); on
     Render it is the public edge URL — the same bytes either way, fetched once
     per segment and then Redis-cached."""
-    from .live_settings import get_live_settings
     from .mediamtx import mediamtx_path
 
     s = get_live_settings()
@@ -119,7 +117,7 @@ async def _fetch_segment_bytes(slug: str, seq: int) -> bytes | None:
             if seg.status_code != 200 or not seg.content:
                 return None
             return seg.content
-    except Exception as e:  # noqa: BLE001 — identity is best-effort
+    except Exception as e:
         logger.debug("segment fetch failed slug=%s seq=%s: %s", slug, seq, e)
         return None
 
@@ -150,7 +148,9 @@ async def get_segment_identity(slug: str, seq: int) -> dict | None:
         "size": len(data),
     }
     payload = json.dumps(ident)
-    await _redis_call(lambda r: r.setex(key, min(s.segment_retention, 300), payload))
+    await _redis_call(
+        lambda r: r.setex(key, min(get_live_settings().segment_retention, 300), payload)
+    )
     return ident
 
 

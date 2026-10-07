@@ -92,7 +92,7 @@ ORIGIN_RATE_PER_GB = 0.045
 
 
 class Viewer:
-    __slots__ = ("arrive", "leave", "progress", "done")
+    __slots__ = ("arrive", "done", "leave", "progress")
 
     def __init__(self, arrive: float, leave: float):
         self.arrive = arrive
@@ -234,8 +234,7 @@ def simulate(viewers: list[Viewer], file_bytes: float, tick: float,
                     else:
                         stall_bytes += take
                         v.progress += take
-                    if frontier < v.progress:
-                        frontier = v.progress
+                    frontier = max(frontier, v.progress)
             else:
                 # Bounded aggregate peer upload: every active peer (seeder or
                 # partial holder) contributes upload to a shared pool; viewers

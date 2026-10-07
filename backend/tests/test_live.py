@@ -3,10 +3,11 @@ rotation, ownership scoping, and derived status."""
 import asyncio
 import hashlib
 import inspect
-import pytest
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
+
+import pytest
 
 from app.live_models import hash_stream_key, new_slug, new_stream_key, stream_key_prefix
 from app.mediamtx import mint_playback_token, verify_playback_token
@@ -201,14 +202,16 @@ class TestDerivedStatus:
 
     def test_mediamtx_down_falls_back_to_registry(self):
         # MediaMTX unreachable (authoritative=False) → segment registry decides
-        import asyncio, time as t
+        import asyncio
+        import time as t
         meta = {"last_seg_ts": str(t.time() - 1)}
         assert asyncio.run(self._derive(self._row(), meta=meta)) == "LIVE"
 
     def test_mediamtx_says_gone_is_offline_even_with_fresh_segments(self):
         # Regression: an authoritative "no such path" must be OFFLINE —
         # stale segment freshness must not pin a dead stream in STARTING.
-        import asyncio, time as t
+        import asyncio
+        import time as t
         meta = {"last_seg_ts": str(t.time() - 1)}
         assert asyncio.run(
             self._derive(self._row(), authoritative=True, meta=meta)) == "OFFLINE"
@@ -222,8 +225,9 @@ class TestSchemaMatchesQueries:
 
     def _ddl_columns(self, table: str) -> set[str]:
         import re
+
         from app.database import LIVE_TABLES_DDL
-        m = re.search(rf"CREATE TABLE IF NOT EXISTS {table} \((.*?)\);", LIVE_TABLES_DDL, re.S)
+        m = re.search(rf"CREATE TABLE IF NOT EXISTS {table} \((.*?)\);", LIVE_TABLES_DDL, re.DOTALL)
         assert m, f"{table} DDL not found"
         cols = set()
         for line in m.group(1).splitlines():
@@ -238,9 +242,10 @@ class TestSchemaMatchesQueries:
 
     def _statements(self) -> list[str]:
         import re
+
         from app.routes import live as live_routes
         src = inspect.getsource(live_routes)
-        return [m.group(1) for m in re.finditer(r'"""(SELECT|INSERT|UPDATE|DELETE)[^"]*"""', src, re.I)]
+        return [m.group(1) for m in re.finditer(r'"""(SELECT|INSERT|UPDATE|DELETE)[^"]*"""', src, re.IGNORECASE)]
 
     def test_every_quoted_live_channels_column_exists_in_ddl(self):
         import re
@@ -249,18 +254,18 @@ class TestSchemaMatchesQueries:
             if "live_channels" not in stmt:
                 continue
             # SELECT lists: capture column tokens between SELECT and FROM
-            for sel in re.finditer(r"SELECT(.*?)FROM", stmt, re.S | re.I):
+            for sel in re.finditer(r"SELECT(.*?)FROM", stmt, re.DOTALL | re.IGNORECASE):
                 for tok in re.finditer(r"[A-Za-z_][A-Za-z0-9_]*", sel.group(1)):
                     name = tok.group(0)
                     if name.upper() in {"SELECT", "DISTINCT", "AS", "COUNT", "NOW", "NOW()", "FROM"}:
                         continue
                     assert name in cols, f"live_channels query references unknown column {name!r} in: {stmt[:120]}"
             # INSERT column lists
-            for ins in re.finditer(r"INSERT INTO live_channels \((.*?)\)", stmt, re.S | re.I):
+            for ins in re.finditer(r"INSERT INTO live_channels \((.*?)\)", stmt, re.DOTALL | re.IGNORECASE):
                 for tok in re.finditer(r"[A-Za-z_][A-Za-z0-9_]*", ins.group(1)):
                     assert tok.group(0) in cols, f"INSERT references unknown column {tok.group(0)!r}"
             # UPDATE SET lists
-            for upd in re.finditer(r"UPDATE live_channels SET(.*?)(?:WHERE|$)", stmt, re.S | re.I):
+            for upd in re.finditer(r"UPDATE live_channels SET(.*?)(?:WHERE|$)", stmt, re.DOTALL | re.IGNORECASE):
                 for tok in re.finditer(r"SET\s*,?\s*|([A-Za-z_][A-Za-z0-9_]*)\s*=", upd.group(1)):
                     if tok.group(1):
                         assert tok.group(1) in cols, f"UPDATE references unknown column {tok.group(1)!r}"
@@ -276,16 +281,19 @@ class TestSlugUniquenessGuard:
 
     def test_ddl_enforces_global_unique_slug(self):
         import re
+
         from app.database import LIVE_TABLES_DDL
-        m = re.search(r"CREATE TABLE IF NOT EXISTS live_channels \((.*?)\);", LIVE_TABLES_DDL, re.S)
+        m = re.search(r"CREATE TABLE IF NOT EXISTS live_channels \((.*?)\);", LIVE_TABLES_DDL, re.DOTALL)
         assert m, "live_channels DDL not found"
         assert re.search(r"UNIQUE\s*\(\s*slug\s*\)", m.group(1)), \
             "live_channels must declare UNIQUE(slug) — per-tenant scope lets slugs shadow each other"
 
     def test_startup_migration_creates_unique_slug_index(self):
         import re
+
         import app.main as main_mod
-        src = open(main_mod.__file__).read()
+        with open(main_mod.__file__) as f:
+            src = f.read()
         assert re.search(r"CREATE UNIQUE INDEX IF NOT EXISTS idx_live_channels_slug ON live_channels\(slug\)", src), \
             "startup migration must add the global slug unique index for pre-existing databases"
 
@@ -321,7 +329,8 @@ class TestViewerRateLimit:
         default must absorb the full minute without tripping; only beyond it."""
         import pytest as _pytest
         from fastapi import HTTPException
-        import app.routes.live as live
+
+        from app.routes import live
 
         self._set_limit(monkeypatch, 240)
         monkeypatch.setattr(live, "get_redis", AsyncMock(return_value=None))
@@ -343,7 +352,7 @@ class TestViewerRateLimit:
     def test_budget_is_per_channel(self, monkeypatch):
         """A drained budget on channel A must never 429 channel B on the same IP
         (channel isolation extends to rate-limit state)."""
-        import app.routes.live as live
+        from app.routes import live
 
         self._set_limit(monkeypatch, 240)
         monkeypatch.setattr(live, "get_redis", AsyncMock(return_value=None))
@@ -364,7 +373,8 @@ class TestViewerRateLimit:
         """Redis-backed limiter: 429 at the configured cap, and the counter key
         carries the channel slug (never a shared global bucket)."""
         from fastapi import HTTPException
-        import app.routes.live as live
+
+        from app.routes import live
 
         store = {}
         redis = AsyncMock()
@@ -403,7 +413,8 @@ class TestOffHostPublishLifecycle:
     def test_publish_seen_before_first_segment_is_starting(self):
         """Hook authorized a publish, segments not yet muxed → STARTING (the
         old code showed OFFLINE through the whole mux window in this topology)."""
-        import asyncio, time as t
+        import asyncio
+        import time as t
         assert asyncio.run(TestDerivedStatus()._derive(
             TestDerivedStatus()._row(),
             meta={"publish_seen": str(t.time() - 2)})) == "STARTING"
@@ -414,7 +425,8 @@ class TestOffHostPublishLifecycle:
         mux error) — it must surface ERROR, never a permanent STARTING and
         never a fake OFFLINE. A reconnecting encoder re-triggers the hook and
         refreshes publish_seen, so healthy retries stay STARTING."""
-        import asyncio, time as t
+        import asyncio
+        import time as t
         assert asyncio.run(TestDerivedStatus()._derive(
             TestDerivedStatus()._row(),
             meta={"publish_seen": str(t.time() - 300)})) == "ERROR"
@@ -423,7 +435,8 @@ class TestOffHostPublishLifecycle:
         """Monitor registers segments by fetching the PUBLIC playlist —
         master → variant → seq extraction — with redirects followed and
         no-cache sent (stale edge cache must not mask a live stream)."""
-        import asyncio, re
+        import asyncio
+
         import app.live_state as ls
 
         master = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2500000\nabc123_video1_stream.m3u8\n"
@@ -506,6 +519,7 @@ class TestIngestDiagnostics:
     def test_diagnostics_endpoint_reports_pipeline_stages(self, monkeypatch):
         import asyncio as aio
         import time as t
+
         from app.routes import live as live_routes
 
         row = self._channel()
@@ -538,6 +552,7 @@ class TestIngestDiagnostics:
         actionable reason (the stuck-STARTING failure mode, surfaced honestly)."""
         import asyncio as aio
         import time as t
+
         from app.routes import live as live_routes
 
         row = self._channel()
@@ -627,16 +642,18 @@ class TestSegmentIdentityEndpoint:
 
     def _auth(self, channel_id):
         """Save + restore limiter state and live settings touched by the call."""
-        import app.routes.live as live
+        from app.routes import live
         saved = dict(live._token_requests)
         live._token_requests.clear()
         return saved
 
     @pytest.mark.asyncio
     async def test_requires_playback_token(self, monkeypatch):
-        from fastapi import HTTPException
-        import app.routes.live as live
         from uuid import uuid4
+
+        from fastapi import HTTPException
+
+        from app.routes import live
         cid = uuid4()
         pool = AsyncMock()
         conn = AsyncMock()
@@ -649,8 +666,9 @@ class TestSegmentIdentityEndpoint:
 
     @pytest.mark.asyncio
     async def test_returns_identity_for_valid_token(self, monkeypatch):
-        import app.routes.live as live
         from uuid import uuid4
+
+        from app.routes import live
         cid = uuid4()
         pool = AsyncMock()
         conn = AsyncMock()
@@ -665,9 +683,11 @@ class TestSegmentIdentityEndpoint:
 
     @pytest.mark.asyncio
     async def test_gone_segment_404s_never_stale(self, monkeypatch):
-        from fastapi import HTTPException
-        import app.routes.live as live
         from uuid import uuid4
+
+        from fastapi import HTTPException
+
+        from app.routes import live
         cid = uuid4()
         pool = AsyncMock()
         conn = AsyncMock()

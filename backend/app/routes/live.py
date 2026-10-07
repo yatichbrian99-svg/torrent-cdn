@@ -25,6 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from ..auth import get_current_user_id
 from ..database import get_db_pool, get_redis
 from ..live_models import (
+    MAX_SLUG_LEN,
     LiveChannelCreate,
     LiveChannelOut,
     LiveChannelRotateResponse,
@@ -34,7 +35,6 @@ from ..live_models import (
     LiveSegmentAvailability,
     LiveSessionCreate,
     LiveSessionOut,
-    MAX_SLUG_LEN,
     hash_stream_key,
     new_slug,
     new_stream_key,
@@ -52,11 +52,11 @@ from ..live_state import (
     read_counters,
 )
 from ..mediamtx import (
-    resolve_ingress,
     hls_url,
-    rtmp_publish_url,
-    rtmp_ingress_path,
     mint_playback_token,
+    resolve_ingress,
+    rtmp_ingress_path,
+    rtmp_publish_url,
     verify_playback_token,
 )
 from ..security import get_client_ip
@@ -93,7 +93,7 @@ def get_live_ip(request: Request) -> str:
     """
     try:
         return get_client_ip(request)
-    except Exception:  # noqa: BLE001 — limiter must never 500 the hot path
+    except Exception:
         return "unknown"
 
 
@@ -290,7 +290,7 @@ async def _probe_hls_playlist(slug: str) -> bool:
         async with httpx.AsyncClient(timeout=4.0, follow_redirects=True) as client:
             resp = await client.get(hls_url(slug), headers={"Cache-Control": "no-cache"})
             ok = resp.status_code == 200 and "#EXTM3U" in resp.text[:64]
-    except Exception:  # noqa: BLE001 — unreachable HLS is a diagnostic result
+    except Exception:
         ok = False
     if len(_hls_probe_cache) > 200:
         _hls_probe_cache.clear()
@@ -383,11 +383,6 @@ async def channel_ingest_diagnostics(
     hls_ok: bool | None = None
     if publisher_connected or seg_age is not None:
         hls_ok = await _probe_hls_playlist(slug)
-
-    ingest_healthy = bool(
-        publisher_connected and latest is not None and seg_age is not None
-        and seg_age <= s.live_max_segment_age * 3
-    )
 
     try:
         ingest_bitrate = int(meta.get("ingest_bitrate_kbps", 0) or 0)
@@ -665,7 +660,7 @@ async def update_channel(
     data: LiveChannelUpdate,
     user_id: UUID = Depends(get_current_user_id),
 ):
-    row = await require_channel_owner(channel_id, user_id)
+    await require_channel_owner(channel_id, user_id)
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         updated = await conn.fetchrow(
@@ -846,14 +841,6 @@ async def channel_analytics(
                  COUNT(*)::int AS sessions
                FROM live_analytics_events
                WHERE channel_id = $1 AND created_at >= $2""",
-            channel_id, since,
-        )
-        recent = await conn.fetch(
-            """SELECT created_at, bytes_p2p, bytes_origin, peak_viewers, peak_peers,
-                      buffering_events, playback_errors, duration_seconds
-               FROM live_analytics_events
-               WHERE channel_id = $1 AND created_at >= $2
-               ORDER BY created_at DESC LIMIT 100""",
             channel_id, since,
         )
     counters = await read_counters(slug)

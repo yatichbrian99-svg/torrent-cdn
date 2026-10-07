@@ -1169,8 +1169,9 @@ class TestEdgeProxyAuth:
 
     @staticmethod
     def _make_request(xff, peer="198.51.100.10", auth=None):
-        from starlette.requests import Request
         from types import SimpleNamespace
+
+        from starlette.requests import Request
 
         headers = []
         if xff is not None:
@@ -1186,6 +1187,7 @@ class TestEdgeProxyAuth:
         """Point app.security's get_settings() at a per-test namespace
         (config.get_settings is lru_cached — env patches can't reach it)."""
         from types import SimpleNamespace
+
         from app import security
 
         ns = SimpleNamespace(edge_proxy_auth=auth_secret, trusted_proxies="")

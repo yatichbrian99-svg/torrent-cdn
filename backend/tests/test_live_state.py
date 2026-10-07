@@ -38,8 +38,8 @@ class TestLiveState:
         run(go())
 
     def test_segment_expiry(self, monkeypatch):
-        from unittest.mock import patch
         import time as _t
+        from unittest.mock import patch
         async def go():
             await live_state.register_segment("ch1", 1)
             assert await live_state.segment_exists("ch1", 1)
@@ -447,7 +447,7 @@ class TestPeakSamplingAndRollup:
 
     def test_rollup_consumes_peaks_and_resets(self):
         async def go():
-            from unittest.mock import patch, AsyncMock
+            from unittest.mock import AsyncMock, patch
             await live_state.sample_peaks("pk1", viewers=42, peers=30)
             await live_state.bump_counters("pk1", bytes_p2p=1000, segments_served=2)
             await live_state.set_channel_meta("pk1", last_seg_ts=str(time.time() - 999))

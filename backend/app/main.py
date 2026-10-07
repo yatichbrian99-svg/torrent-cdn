@@ -645,7 +645,7 @@ async def live_health():
     redis_ok = False
     try:
         redis_ok = (await get_redis()) is not None
-    except Exception:  # noqa: BLE001 — health never raises
+    except Exception:
         redis_ok = False
     mediamtx_ok = bool(h.get("mediamtx_reachable"))
     media_pipeline_ok = mediamtx_ok or bool(h.get("active_channels"))

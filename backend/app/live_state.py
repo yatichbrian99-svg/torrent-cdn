@@ -141,7 +141,7 @@ def _normalize_redis_result(result):
     if asyncio.iscoroutine(result):
         try:
             result = asyncio.get_event_loop().run_until_complete(result)
-        except Exception:  # noqa: BLE001
+        except Exception:
             return None
     if isinstance(result, _REDIS_OK_TYPES):
         return result
@@ -163,7 +163,7 @@ async def _redis_call(fn, *args, **kwargs):
         if isinstance(result, _REDIS_OK_TYPES):
             return result
         return None
-    except Exception as e:  # noqa: BLE001 — degrade, never crash a viewer request
+    except Exception as e:
         logger.debug("live_state redis error: %s", e)
         return None
 
@@ -577,8 +577,8 @@ async def reset_counters(slug: str) -> dict:
 async def _monitor_tick() -> None:
     """One monitor pass. All DB work lives in routes/live (import here to keep
     this module DB-free); failures per channel are isolated."""
-    from .routes.live import monitor_channel_status, rollup_channel_analytics
     from .live_settings import get_live_settings
+    from .routes.live import monitor_channel_status, rollup_channel_analytics
 
     interval = get_live_settings().monitor_interval
     slugs = set(_mem_last_seq.keys())
@@ -610,18 +610,18 @@ async def _monitor_tick() -> None:
         from .mediamtx import list_paths
         try:
             paths = await list_paths()
-        except Exception:  # noqa: BLE001 — never kill the tick
+        except Exception:
             paths = {}
         for name, p in paths.items():
             if not p.get("ready"):
                 continue
-            slug = name[len("live/"):] if name.startswith("live/") else name
+            slug = name.removeprefix("live/")
             if not slug:
                 continue
             slugs.add(slug)
             try:
                 await _register_segments_from_playlist(slug)
-            except Exception as e:  # noqa: BLE001 — per-channel isolation
+            except Exception as e:
                 logger.debug("segment discovery failed for %s: %s", slug, e)
     else:
         # (b) No control API: poll the public playlist for channels the hook
@@ -640,9 +640,9 @@ async def _monitor_tick() -> None:
                     if publish_seen and time.time() - publish_seen < 90:
                         try:
                             await _register_segments_from_playlist(slug)
-                        except Exception as e:  # noqa: BLE001 — per-channel isolation
+                        except Exception as e:
                             logger.debug("playlist discovery failed for %s: %s", slug, e)
-            except Exception as e:  # noqa: BLE001 — never kill the tick
+            except Exception as e:
                 logger.debug("ingress-hint discovery failed: %s", e)
     for slug in sorted(slugs):
         try:
@@ -653,7 +653,7 @@ async def _monitor_tick() -> None:
             vw, pr = await _channel_presence_snapshot(slug)
             await sample_peaks(slug, vw, pr)
             await rollup_channel_analytics(slug)
-        except Exception as e:  # noqa: BLE001 — per-channel isolation
+        except Exception as e:
             logger.warning("live monitor: channel %s failed: %s", slug, e)
     # Opportunistic per-channel segment expiry
     for slug in sorted(slugs):
@@ -668,8 +668,8 @@ _mediamtx_ok_at: float = 0.0
 # Full segments only — LL-HLS partial segments (`<hash>_video1_part<k>.mp4`)
 # are NOT swarm objects: registering them would poison the sequence registry
 # with thousands of sub-sequence numbers and split availability.
-_SEG_NAME_RE = re.compile(r"(\d+)\.(?:m4s|ts|mp4)$", re.I)
-_SEG_PART_RE = re.compile(r"_part\d+\.(?:m4s|ts|mp4)$", re.I)
+_SEG_NAME_RE = re.compile(r"(\d+)\.(?:m4s|ts|mp4)$", re.IGNORECASE)
+_SEG_PART_RE = re.compile(r"_part\d+\.(?:m4s|ts|mp4)$", re.IGNORECASE)
 _VARIANT_RE = re.compile(r"([A-Za-z0-9_]+_stream\.m3u8)")
 
 
@@ -726,7 +726,7 @@ async def _register_segments_from_playlist(slug: str) -> None:
                 for seq in sorted(set(seqs)):
                     if seq > known:
                         await register_segment(slug, seq, duration=s.hls_segment_duration)
-    except Exception as e:  # noqa: BLE001 — MediaMTX blips must not raise
+    except Exception as e:
         logger.debug("playlist fetch failed for %s: %s", slug, e)
 
 
@@ -756,7 +756,7 @@ def start_live_monitor() -> None:
             return
         _monitor_task = asyncio.get_event_loop().create_task(_monitor_loop())
         _monitor_started = True
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("live monitor failed to start: %s", e)
 
 
@@ -773,6 +773,6 @@ async def _monitor_loop() -> None:
             _monitor_last_error = None
         except asyncio.CancelledError:
             raise
-        except Exception as e:  # noqa: BLE001 — the monitor must never die
+        except Exception as e:
             _monitor_last_error = str(e)[:200]
             logger.warning("live monitor tick error: %s", e)

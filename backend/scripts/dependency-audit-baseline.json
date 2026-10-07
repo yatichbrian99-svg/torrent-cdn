@@ -1,14 +1,109 @@
 {
-  "generated_at": "2026-10-03T06:40:00+00:00",
+  "generated_at": "2026-10-07T11:21:08+00:00",
   "critical": 0,
   "high": 7,
-  "moderate": 0,
-  "low": 20,
+  "moderate": 2,
+  "low": 19,
   "info": 0,
-  "pip": 20,
-  "npm": 7,
-  "total": 27,
+  "pip": 19,
+  "npm": 9,
+  "total": 28,
   "findings": [
+    [
+      "pip",
+      "pip",
+      "PYSEC-2026-3721"
+    ],
+    [
+      "pip",
+      "pip",
+      "PYSEC-2026-3721"
+    ],
+    [
+      "pip",
+      "pyjwt",
+      "PYSEC-2026-4145"
+    ],
+    [
+      "pip",
+      "pyjwt",
+      "PYSEC-2026-4146"
+    ],
+    [
+      "pip",
+      "pyjwt",
+      "PYSEC-2026-4149"
+    ],
+    [
+      "pip",
+      "pyjwt",
+      "PYSEC-2026-4152"
+    ],
+    [
+      "pip",
+      "pyjwt",
+      "PYSEC-2026-4144"
+    ],
+    [
+      "pip",
+      "pyjwt",
+      "PYSEC-2026-4143"
+    ],
+    [
+      "pip",
+      "pyjwt",
+      "PYSEC-2026-4148"
+    ],
+    [
+      "pip",
+      "pyjwt",
+      "PYSEC-2026-4140"
+    ],
+    [
+      "pip",
+      "pyjwt",
+      "PYSEC-2026-4141"
+    ],
+    [
+      "pip",
+      "pyjwt",
+      "PYSEC-2026-4147"
+    ],
+    [
+      "pip",
+      "pyjwt",
+      "PYSEC-2026-4151"
+    ],
+    [
+      "pip",
+      "pyjwt",
+      "PYSEC-2026-4150"
+    ],
+    [
+      "pip",
+      "pyjwt",
+      "PYSEC-2026-4142"
+    ],
+    [
+      "pip",
+      "pyjwt",
+      "PYSEC-2026-4183"
+    ],
+    [
+      "pip",
+      "urllib3",
+      "PYSEC-2026-4177"
+    ],
+    [
+      "pip",
+      "urllib3",
+      "PYSEC-2026-4176"
+    ],
+    [
+      "pip",
+      "urllib3",
+      "PYSEC-2026-4175"
+    ],
     [
       "npm",
       "braces",
@@ -41,108 +136,18 @@
     ],
     [
       "npm",
+      "postcss-nested",
+      "moderate"
+    ],
+    [
+      "npm",
+      "postcss-selector-parser",
+      "moderate"
+    ],
+    [
+      "npm",
       "tailwindcss",
       "high"
-    ],
-    [
-      "pip",
-      "aiohttp",
-      "PYSEC-2026-237"
-    ],
-    [
-      "pip",
-      "aiohttp",
-      "PYSEC-2026-2104"
-    ],
-    [
-      "pip",
-      "aiohttp",
-      "PYSEC-2026-2112"
-    ],
-    [
-      "pip",
-      "aiohttp",
-      "PYSEC-2026-2111"
-    ],
-    [
-      "pip",
-      "aiohttp",
-      "PYSEC-2026-2113"
-    ],
-    [
-      "pip",
-      "aiohttp",
-      "PYSEC-2026-2109"
-    ],
-    [
-      "pip",
-      "aiohttp",
-      "PYSEC-2026-2110"
-    ],
-    [
-      "pip",
-      "aiohttp",
-      "PYSEC-2026-2108"
-    ],
-    [
-      "pip",
-      "aiohttp",
-      "PYSEC-2026-2105"
-    ],
-    [
-      "pip",
-      "aiohttp",
-      "PYSEC-2026-2106"
-    ],
-    [
-      "pip",
-      "aiohttp",
-      "PYSEC-2026-2107"
-    ],
-    [
-      "pip",
-      "aiohttp",
-      "PYSEC-2026-3545"
-    ],
-    [
-      "pip",
-      "aiohttp",
-      "PYSEC-2026-3546"
-    ],
-    [
-      "pip",
-      "aiohttp",
-      "PYSEC-2026-3547"
-    ],
-    [
-      "pip",
-      "ecdsa",
-      "PYSEC-2026-1325"
-    ],
-    [
-      "pip",
-      "gitpython",
-      "GHSA-9rj7-rf2p-w77r"
-    ],
-    [
-      "pip",
-      "gitpython",
-      "GHSA-4gmw-gg2m-w46p"
-    ],
-    [
-      "pip",
-      "gitpython",
-      "GHSA-hh9p-6wh2-4mfc"
-    ],
-    [
-      "pip",
-      "gitpython",
-      "GHSA-wvpp-8hx9-p66j"
-    ],
-    [
-      "pip",
-      "gitpython",
-      "GHSA-jm78-9fvv-mhgr"
     ]
   ]
 }

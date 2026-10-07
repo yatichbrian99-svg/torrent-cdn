@@ -22,9 +22,9 @@ from ..database import get_db_pool
 from ..live_models import hash_stream_key
 from ..live_state import (
     active_peers,
+    clear_channel,
     register_segment,
     set_channel_meta,
-    clear_channel,
 )
 from ..security_events import record as record_event
 
@@ -164,8 +164,7 @@ def _slug_from_path(path: str) -> str | None:
     if not path:
         return None
     path = path.strip("/")
-    if path.startswith("live/"):
-        path = path[len("live/"):]
+    path = path.removeprefix("live/")
     slug = path.split("/")[0]
     if re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", slug or ""):
         return slug
@@ -281,7 +280,7 @@ async def _touch_last_seen(channel_id) -> None:
                 "UPDATE live_channels SET last_seen_at = NOW(), status = 'STARTING' WHERE id = $1",
                 channel_id,
             )
-    except Exception as e:  # noqa: BLE001 — auth hook must stay fast/crash-free
+    except Exception as e:
         logger.warning("last_seen update failed: %s", e)
 
 
@@ -330,7 +329,7 @@ async def _touch_last_seen_live(channel_id) -> None:
                 "UPDATE live_channels SET last_seen_at = NOW(), status = 'LIVE' WHERE id = $1",
                 channel_id,
             )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("live last_seen update failed: %s", e)
 
 
@@ -366,7 +365,6 @@ async def channel_peer_dump(slug: str, request: Request):
     ONLY (never proxied publicly);    returns peer ids only, never IPs."""
     _reject_public(request)
     _check_hook_secret(request)
-    from ..live_state import peer_scores, peers_with_segment
     peers = await active_peers(slug)
     return {"slug": slug, "peers": peers}
 
@@ -423,7 +421,7 @@ async def mediamtx_ready(request: Request):
     from ..live_state import _register_segments_from_playlist
     try:
         await _register_segments_from_playlist(slug)
-    except Exception as e:  # noqa: BLE001 — the webhook must never fail the hook
+    except Exception as e:
         logger.debug("ready-hook playlist registration failed for %s: %s", slug, e)
     return {"ok": True, "slug": slug}
 
@@ -460,6 +458,6 @@ async def mediamtx_not_ready(request: Request):
             await conn.execute(
                 "UPDATE live_channels SET status = 'OFFLINE' WHERE slug = $1", slug
             )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("not-ready status update failed: %s", e)
     return {"ok": True}

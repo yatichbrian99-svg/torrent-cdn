@@ -26,7 +26,6 @@ Usage:
     #   SMOKE_API_URL SMOKE_EMAIL SMOKE_PASSWORD SMOKE_RTMP SMOKE_HLS
 """
 import argparse
-import json
 import os
 import shutil
 import subprocess
@@ -154,7 +153,7 @@ def main() -> None:
             try:
                 rr = httpx.get(playlist_url, timeout=5)
                 return rr.status_code == 200 and "#EXTM3U" in rr.text, rr.status_code
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 return False, str(e)[:80]
 
         wait_for(_hls_ready, f"HLS playlist at {playlist_url}")

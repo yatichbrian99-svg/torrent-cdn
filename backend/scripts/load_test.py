@@ -27,7 +27,6 @@ Usage:
 """
 
 import argparse
-import json
 import random
 import statistics
 import threading

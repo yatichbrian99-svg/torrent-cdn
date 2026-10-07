@@ -128,7 +128,10 @@ class TestStreamingTorrentBuilder:
         fork the swarm and peers could never find each other."""
         import urllib.parse
 
-        from app.torrent_builder import build_magnet, hash_pieces_from_stream, with_webseed
+        from app.torrent_builder import (
+            build_magnet,
+            with_webseed,
+        )
 
         pieces = bytes(range(256)) * 64  # 16 KiB of deterministic pieces
         magnet = build_magnet("clip.webm", pieces, len(pieces))
@@ -146,7 +149,10 @@ class TestStreamingTorrentBuilder:
         else at addWebSeed time — `!/^https?:\\/\\//`); anything else leaves
         the magnet untouched. A magnet that already carries ws= (e.g. a dedup'd
         copy's stored magnet) is not double-annotated."""
-        from app.torrent_builder import build_magnet, hash_pieces_from_stream, with_webseed
+        from app.torrent_builder import (
+            build_magnet,
+            with_webseed,
+        )
 
         pieces = bytes(range(256)) * 64
         magnet = build_magnet("clip.webm", pieces, len(pieces))

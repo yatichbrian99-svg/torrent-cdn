@@ -22,6 +22,7 @@ from fastapi import (
 from ..auth import (
     API_KEY_PREFIX,
     create_access_token,
+    decode_access_token,
     get_current_user_id,
     get_mfa_setup_user,
     hash_api_key,
@@ -967,7 +968,7 @@ async def logout(request: Request, user_id: UUID = Depends(get_current_user_id))
                     # Blocklist for the token's remaining lifetime (max 24h).
                     await redis.set(
                         f"token_block:{jti}", "1",
-                        ex=settings.jwt_expire_minutes * 60,
+                        ex=get_settings().jwt_expire_minutes * 60,
                     )
         except Exception:
             pass  # Best-effort — don't fail the logout on a blocklist error

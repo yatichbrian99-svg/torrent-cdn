@@ -35,7 +35,7 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import quote
 
 import httpx
@@ -84,8 +84,8 @@ class Demo:
     # ── setup ────────────────────────────────────────────────────────────
     def preflight(self) -> None:
         banner("0 · PREFLIGHT — stack health")
-        if not os.path.exists("/usr/bin/ffmpeg") and not subprocess.run(
-                ["which", "ffmpeg"], capture_output=True).returncode == 0:
+        if not os.path.exists("/usr/bin/ffmpeg") and subprocess.run(
+                ["which", "ffmpeg"], capture_output=True, check=False).returncode != 0:
             die("ffmpeg not found — required for the demo source")
         r = self.client.get(f"{self.base}/health")
         ok(f"backend /health → {r.status_code}")
@@ -184,7 +184,7 @@ class Demo:
             try:
                 if live_check()[0]:
                     break
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
             time.sleep(1.5)
         else:
@@ -227,7 +227,7 @@ class Demo:
                                    "served": True, "bytes": p2p}]}, headers={
                     "Authorization": f"Bearer {tok}"})
                 time.sleep(2.0 * jitter)
-        except Exception:  # noqa: BLE001 — a simulated viewer must never crash the demo
+        except Exception:
             pass
 
     def viewers(self) -> None:
@@ -259,11 +259,11 @@ class Demo:
                     headers=self.auth).json()
                 p2p, org = a.get("bytes_p2p", 0), a.get("bytes_origin", 0)
                 off = 100.0 * p2p / max(1, p2p + org)
-                print(f"  {datetime.now().strftime('%H:%M:%S'):<9}"
+                print(f"  {datetime.now(UTC).strftime('%H:%M:%S'):<9}"
                       f"{st.get('current_viewers', 0):>8}{st.get('current_peers', 0):>7}"
                       f"{fmt_bytes(p2p):>12}{fmt_bytes(org):>12}{off:>8.1f}%"
                       f"{st.get('latest_segment_sequence') or '-':>8}", flush=True)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 print(f"  (status poll failed: {e})", flush=True)
             self.stop.wait(10)
 
@@ -290,7 +290,7 @@ class Demo:
     P2P offload    {a.get('p2p_offload_percent', 0):>11.1f}%
     Transfers      {a.get('segments_served', 0)} served / {a.get('segments_failed', 0)} failed
 """)
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
         if self.args.cleanup and self.ch_id:
             r = self.client.delete(f"{self.base}/api/live/channels/{self.ch_id}",
@@ -310,7 +310,7 @@ class Demo:
         self.monitor()
         self.teardown()
 
-    def _sigint(self, *_):  # noqa: ANN002
+    def _sigint(self, *_):
         print("\n  (stopping — Ctrl+C again to force)")
         self.stop.set()
         self.monitor_stop = True

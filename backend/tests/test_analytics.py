@@ -154,10 +154,10 @@ class TestPublicAnalytics:
         mock_conn.fetchrow.side_effect = [
             {"id": self.FILE_ID},
             {
-                "total_views": Decimal("4"),
-                "total_leaves": Decimal("1"),
-                "total_p2p": Decimal("536870912"),  # 0.5 GiB
-                "total_origin": Decimal("536870912"),
+                "total_views": Decimal(4),
+                "total_leaves": Decimal(1),
+                "total_p2p": Decimal(536870912),  # 0.5 GiB
+                "total_origin": Decimal(536870912),
             },
         ]
         resp = client.get(self.URL)
@@ -416,7 +416,7 @@ class TestAnalyticsEventValidation:
         spinning up the TestClient app (which starts lifespan tasks) around a
         patched get_db_pool made this test hang on Python 3.14.
         """
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
 
         from app.routes import analytics as a
 

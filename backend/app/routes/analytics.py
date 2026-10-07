@@ -188,7 +188,6 @@ async def _enqueue_event(record: dict, redis) -> None:
     events are dropped (the buffer is already hours of drain time — more
     queueing only delays the DB collapse it exists to prevent).
     """
-    global _memory_event_buffer
     payload = json.dumps(record, separators=(",", ":"))
     if redis is not None:
         try:
@@ -513,7 +512,7 @@ async def get_public_analytics(file_id: UUID, request: Request):
     # aggregate query per file per 5s (12/min) no matter how many viewers
     # poll; a 5s-stale stat is indistinguishable in the UI.
     read_cache_key = f"analytics:public_agg:{file_id}"
-    cache_headers = {"Cache-Control": f"public, max-age=5, stale-while-revalidate=5"}
+    cache_headers = {"Cache-Control": "public, max-age=5, stale-while-revalidate=5"}
     if redis is not None:
         try:
             cached = await redis.get(read_cache_key)

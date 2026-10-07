@@ -4,9 +4,8 @@ import logging
 import time
 from uuid import UUID
 
-from fastapi.responses import JSONResponse
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 
 from ..auth import get_current_user_id
 from ..config import get_settings

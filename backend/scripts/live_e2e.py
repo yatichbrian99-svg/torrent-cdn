@@ -31,7 +31,6 @@ Usage:
     cd backend && .venv/bin/python scripts/live_e2e.py                # external
     E2E_BACKEND_URL="" .venv/bin/python scripts/live_e2e.py           # self-contained
 """
-import json
 import os
 import shutil
 import signal
@@ -76,7 +75,7 @@ def wait_for(fn, desc: str, timeout: float = 45.0, interval: float = 1.5):
     while time.time() < deadline:
         try:
             ok, last = fn()
-        except Exception as e:  # noqa: BLE001 — e.g. MediaMTX long-polls the
+        except Exception as e:
             ok, last = False, e  # playlist before the first segment: retry
         if ok:
             return last
@@ -87,7 +86,7 @@ def wait_for(fn, desc: str, timeout: float = 45.0, interval: float = 1.5):
 def _get(client: httpx.Client, url: str):
     try:
         return client.get(url)
-    except Exception:  # noqa: BLE001
+    except Exception:
         class _R:
             status_code = 0
         return _R()
@@ -373,7 +372,7 @@ def main() -> int:
 
     except AssertionError as e:
         check(str(e), False)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         check(f"unexpected: {type(e).__name__}: {e}", False)
     finally:
         if ff:
@@ -388,7 +387,7 @@ def main() -> int:
             try:
                 client.delete(f"{BASE}/api/live/channels/{ch_id}",
                               headers={"Authorization": f"Bearer {token}"})
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
         client.close()
         shutil.rmtree(tmp, ignore_errors=True)

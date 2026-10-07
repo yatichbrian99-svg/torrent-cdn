@@ -12,8 +12,8 @@ free-tier cron's 512MB/0.1CPU budget.
 
 import os
 import sys
-import urllib.request
 import urllib.error
+import urllib.request
 
 # The web service's URL. Render injects this automatically when you use
 # `fromService` in render.yaml, but the cron service needs the URL

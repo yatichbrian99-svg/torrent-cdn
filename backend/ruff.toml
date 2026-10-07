@@ -24,6 +24,13 @@ ignore = [
     "ASYNC230",
 ]
 
+[lint.per-file-ignores]
+# Ops/demo/e2e scripts: the wait_for(lambda: (lambda rr: ...)(call)) IIFE
+# shape, ffmpeg log file handles deliberately outliving the block (the child
+# process owns the fd), and hand-rolled loop counters are idiomatic in
+# throwaway tooling — rewriting them adds churn without value.
+"scripts/*" = ["SIM115", "PLC3002", "SIM113"]
+
 [lint.flake8-bugbear]
 # FastAPI idioms: Depends()/Security()/File() in argument defaults are the
 # framework's documented way to inject request-scoped values.

@@ -128,7 +128,7 @@ async def list_paths() -> dict[str, dict]:
                 return {}
             data = resp.json()
             return {item.get("name", ""): item for item in (data.get("items") or [])}
-    except Exception as e:  # noqa: BLE001 — MediaMTX down must not 500 the API
+    except Exception as e:
         logger.debug("mediamtx paths/list failed: %s", e)
         return {}
 
