@@ -346,9 +346,6 @@ class CSPMiddleware(BaseHTTPMiddleware):
         return response
 
 
-app.add_middleware(CSPMiddleware)
-
-
 # Rate limiting middleware (120 requests per 10 seconds per IP)
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
@@ -536,8 +533,12 @@ class MaxBodySizeMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+# CSPMiddleware must be OUTERMOST (added last in Starlette's prepend-order)
+# so 429 rate-limit and 413 body-size rejections — which short-circuit BELOW
+# it — still carry the full security-header set (CSP, no-store, X-XSS, …).
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(MaxBodySizeMiddleware)
+app.add_middleware(CSPMiddleware)
 
 
 @app.exception_handler(RequestValidationError)

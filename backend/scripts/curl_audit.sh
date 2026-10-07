@@ -47,9 +47,16 @@ echo "$BODY" | grep -q '"status":"healthy"' && check 0 "Response contains health
 # ── 2. SECURITY HEADERS ──
 echo ""
 echo "── 2. SECURITY HEADERS ──"
+# NOTE: x-xss-protection is deliberately NOT checked — the deprecated
+# X-XSS-Protection header was removed from CSPMiddleware in fe06dcc
+# (browsers disabled the legacy XSS auditor; modern guidance is to not
+# send it). CSP script-src is the real defense.
+# One retry: a burst-induced 429 (or cold-start hiccup) on this single probe
+# used to fail the whole audit on a header the next request carries.
 HEADERS=$(curl -sI "$API/health" 2>/dev/null || echo "")
+if ! echo "$HEADERS" | grep -qi "x-content-type-options"; then sleep 2; HEADERS=$(curl -sI "$API/health" 2>/dev/null || echo ""); fi
 for h in "content-security-policy" "x-content-type-options" "x-frame-options" \
-         "referrer-policy" "x-xss-protection" "permissions-policy" "reporting-endpoints"; do
+         "referrer-policy" "permissions-policy" "reporting-endpoints"; do
   echo "$HEADERS" | grep -qi "$h" && check 0 "$h" || check 1 "$h"
 done
 

@@ -66,11 +66,9 @@ Controls how much referrer information is sent with requests:
 - **Cross-origin (HTTPS→HTTPS):** Only the origin is sent
 - **Cross-origin (HTTPS→HTTP):** No referrer is sent
 
-### 6. X-XSS-Protection
+### 6. X-XSS-Protection — **REMOVED (fe06dcc, 2026-08-26)**
 
-**Header:** `X-XSS-Protection: 1; mode=block`
-
-Enables the browser's built-in reflected XSS filter and blocks the page if an attack is detected. This header is deprecated in modern browsers (CSP `script-src` is the modern defense) but provides backward compatibility with older browsers.
+The `X-XSS-Protection` header is **no longer sent**. Browsers (Chrome 78+, Firefox, Edge) disabled and then deleted the legacy XSS auditor the header controlled — it never fired in any current browser and could be abused for cross-site information leaks (the `X-XSS-Protection: 1; mode=block` block-page behavior was removed in Chromium). The modern defense is a strict CSP: this app sets `script-src 'self'` (nonce-based on the frontend), which subsumes what the header attempted. Header checks (`curl_audit.sh`, `security_audit.py`) must not expect it.
 
 ### 7. Permissions-Policy
 
@@ -244,6 +242,16 @@ GitHub reported **11 Dependabot alerts** on `main` (2 high, 6 moderate, 3 low) �
 - Baseline regenerated with **pip-audit installed locally** (the earlier npm-only regen had silently dropped the pip set — pip was missing from `backend/.venv`): accepted set is now `pip=19` (aiohttp/gitpython set shrank by one) + `npm=9`. `dependency_audit_report.py` exits OK with `new=0`.
 
 Verified: **179/179 frontend tests pass**, `npm audit` reports nothing beyond the accepted baseline, Dependabot's 11 alerts auto-resolve on the next lockfile re-scan.
+
+### 2026-10-07 — Header-middleware ordering: rejections now carry the security headers; XSS-header cleanup
+
+Three fixes surfaced when the Docker fullstack audit finally ran again (it had been red at compose interpolation since the `MEDIAMTX_HOOK_SECRET` fail-closed change, and then on the deleted `minio/minio` Docker Hub image — both fixed the same day):
+
+- **CSPMiddleware moved OUTERMOST** (`app/main.py`): the previous order ran MaxBodySize → RateLimit → CSP → routes, so a **429 rate-limit or 413 body-size rejection short-circuited BELOW the header middleware and shipped with NO security headers** (no CSP, no no-store). Now CSP wraps the limiter, so every response — including rejections — carries the full header set. This also explains a flaky single-header audit failure seen in CI.
+- **`X-XSS-Protection` was removed in `fe06dcc` (2026-08-26)** but SECURITY.md still documented it as active and `curl_audit.sh` still required it — the first ci-fullstack run to reach the audit exposed the drift. Doc updated (header marked REMOVED with rationale: browsers deleted the legacy XSS auditor; CSP `script-src 'self'` is the real defense) and the audit's required-header list aligned.
+- The audit's header probe now retries once, so a burst-induced 429 on a single probe can't fail the whole run.
+
+Verified: full Docker stack (Postgres 16/Redis 7/MinIO-fork) fresh-volume bring-up in **production mode**, `curl_audit.sh` → **36 OK / 0 FAIL**, 636/636 backend tests, security tests green.
 
 ### 2026-08-08 — Full-scope security audit: admin-bootstrap token + infra hardening
 
