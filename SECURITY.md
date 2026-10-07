@@ -361,7 +361,7 @@ A follow-up audit pass (zero-trust checklist: dead code, session lifecycle, paym
 | **Email templates interpolated the user-controlled email address unescaped** | A crafted email address (e.g. containing HTML) could inject markup into the email the user receives | `html.escape(email)` in both reset and verification templates. Tests: `TestEmailHtmlEscaping`. |
 | **Emails stored in arbitrary Unicode normalization forms** | Confusable-account vector (composed vs decomposed forms as distinct accounts) | NFC-normalize at the API boundary; login/forgot look up the raw form first (pre-existing accounts) then the NFC form (new accounts) — no lockout. Tests: `TestEmailNfcNormalization`. |
 | **Backend container ran as root** | A container compromise handed the attacker root | Non-root `appuser` (uid 1000, shell `/bin/false`) owns `/app` + `/tmp`; verified in `python:3.11-slim`. |
-| **`minio/minio:latest` unpinned in docker-compose** | Supply-chain drift / silent breaking changes | Pinned to `RELEASE.2025-09-07T16-13-09Z`. |
+| **`minio/minio:latest` unpinned in docker-compose** | Supply-chain drift / silent breaking changes | Pinned to `RELEASE.2025-09-07T16-13-09Z`. *Update 2026-10-07: MinIO deleted `minio/minio`/`minio/mc` from Docker Hub (2026-09-11) and closed quay anonymous pulls (2026-09-24); community edition is source-only. The compose stack now pins the maintained **`pgsty/silo:RELEASE.2026-09-16T00-00-00Z`** fork (same entrypoint contract, curl present for the healthcheck). Dev/CI only — production object storage is Supabase S3. |
 
 #### Verified clean (no changes needed)
 

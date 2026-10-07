@@ -30,9 +30,14 @@ services:
       retries: 5
 
   minio:
-    # Pinned to a specific release — :latest silently drifts (and has broken
-    # dev stacks before). Bump deliberately when a new MinIO release is wanted.
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # MinIO deleted minio/minio + minio/mc from Docker Hub (Sept 2026) and
+    # closed quay anonymous pulls; the community edition is source-only now.
+    # pgsty/silo is the maintained drop-in fork (same entrypoint contract,
+    # binary renamed silo, curl present for the healthcheck) — production
+    # does NOT use this image (object storage is Supabase S3 via presigned
+    # URLs). Pinned to a specific release: :latest silently drifts. Bump
+    # deliberately after reviewing the fork.
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
