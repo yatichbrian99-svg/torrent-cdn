@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Upload, Loader2, Mail, ShieldCheck, Copy, Check, AlertTriangle, Users, Gift, Activity, KeyRound, Radio } from 'lucide-react'
+import { Upload, Loader2, Mail, ShieldCheck, Copy, Check, AlertTriangle, Users, Gift, Activity, KeyRound, Radio, PlayCircle } from 'lucide-react'
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
 import QRCode from 'qrcode'
 import { isLoggedIn, removeToken } from '@/lib/auth'
@@ -299,6 +299,30 @@ export default function DashboardPage() {
             style={{ borderColor: 'var(--inverse-bg)', color: 'var(--text-primary)' }}
           >
             Manage channels &rarr;
+          </a>
+        </div>
+      </div>
+
+      {/* Live P2P demo — the pre-seeded demo file plays on /demo with real
+          swarm stats, an offload chart, and a cost calculator. Entry card here
+          so users can see the product working before uploading anything. */}
+      <div className="mb-8 border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <PlayCircle size={16} style={{ color: 'var(--text-muted)' }} />
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Live P2P Demo</p>
+              <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>
+                Watch the demo video play over P2P — live swarm stats and the cost math behind it.
+              </p>
+            </div>
+          </div>
+          <a
+            href="/demo"
+            className="border px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80"
+            style={{ borderColor: 'var(--inverse-bg)', color: 'var(--text-primary)' }}
+          >
+            View demo &rarr;
           </a>
         </div>
       </div>
