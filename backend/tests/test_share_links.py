@@ -109,6 +109,27 @@ class TestCreateShareLink:
         resp = client.post(f"{self.URL}/{test_file_id}/links", json={})
         assert resp.status_code == 401
 
+    def test_app_url_unusable_falls_back_to_origin(self, client, auth_headers, test_file_id, mock_conn, monkeypatch):
+        """When APP_URL is garbage/empty the URL is built from the caller's
+        Origin header — never a wrong-host link."""
+        import unittest.mock as um
+
+        from app.routes import files as files_mod
+        monkeypatch.setattr(files_mod.settings, "app_url", "")
+        mock_conn.fetchrow = um.AsyncMock(side_effect=[
+            {"id": test_file_id},
+            {"id": "88888888-8888-4888-8888-888888888888", "expires_at": None,
+             "max_downloads": None, "download_count": 0, "revoked_at": None,
+             "created_at": datetime.now(UTC)},
+        ])
+        resp = client.post(
+            f"{self.URL}/{test_file_id}/links",
+            json={},
+            headers={**auth_headers, "Origin": "https://www.torrentcdn.store"},
+        )
+        assert resp.status_code == 201
+        assert resp.json()["url"].startswith("https://www.torrentcdn.store/share/")
+
     def test_invalid_expiry_rejected(self, client, auth_headers, test_file_id):
         resp = client.post(
             f"{self.URL}/{test_file_id}/links",

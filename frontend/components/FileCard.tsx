@@ -67,7 +67,14 @@ export default function FileCard({ file, onDelete, onRenamed }: { file: FileItem
         expires_in_hours: opts.expires_in_hours,
         password: opts.password || null,
       })
-      setShareLink({ url: link.url, token: link.token })  // plaintext shown exactly once
+      // Defensive: the ONLY acceptable shape is {url, token}. Anything else
+      // (an unverified-email HTML/text body, a proxy notice, an error object)
+      // must NOT be rendered as a link — surface a clear error instead.
+      if (link && typeof link.url === 'string' && link.url.startsWith('http') && typeof link.token === 'string' && link.token) {
+        setShareLink({ url: link.url, token: link.token })  // plaintext shown exactly once
+      } else {
+        setShareError('Unexpected server response — the link could not be created. Try again or contact support.')
+      }
     } catch (e: unknown) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       setShareError(detail || 'Could not create link')

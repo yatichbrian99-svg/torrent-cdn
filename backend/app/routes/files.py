@@ -5,6 +5,7 @@ import logging
 import secrets
 import time
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlparse
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -556,10 +557,42 @@ def _prune_share_access(now: float) -> None:
     enforce_max_size(_share_access_requests)
 
 
-def _share_url(token: str) -> str:
-    # Frontend route (app/share/[token]); APP_URL from settings, no trailing slash.
+def _share_url(token: str, request: Request | None = None) -> str:
+    """Build the share URL for a link token.
+
+    Primary source: APP_URL (the canonical public frontend). Defensive
+    fallback: the caller's Origin/Referer scheme+host — a browser always sends
+    one on same-origin API calls, so a misconfigured/empty APP_URL can never
+    silently produce a wrong-host link (this is the same family of bug as an
+    email-verification link pointing at localhost).
+    """
     base = (settings.app_url or "").rstrip("/")
-    return f"{base}/share/{token}"
+    if base.startswith(("http://", "https://")):
+        parsed = urlparse(base)
+        if parsed.hostname:  # has a usable host beyond just a scheme
+            return f"{base}/share/{token}"
+    # Fallback: derive from the browser's own headers (same-origin API call).
+    if request is not None:
+        origin = request.headers.get("origin") or ""
+        if origin.startswith(("http://", "https://")):
+            return f"{origin.rstrip('/')}/share/{token}"
+        referer = request.headers.get("referer") or ""
+        if referer.startswith(("http://", "https://")):
+            try:
+                parsed = urlparse(referer)
+                if parsed.scheme and parsed.hostname:
+                    return f"{parsed.scheme}://{parsed.netloc}/share/{token}"
+            except Exception:
+                pass
+    # Last resort: opaque id-looking URL (still functional as a token — the
+    # share page reads the token from anywhere the owner pastes it) but log
+    # loudly: this should never happen because APP_URL is validated in prod.
+    logger.error(
+        "APP_URL unusable (%r) and no Origin/Referer header on share-link "
+        "creation — returning token-only share reference",
+        settings.app_url,
+    )
+    return f"/share/{token}"
 
 
 def _hash_share_token(token: str) -> str:
@@ -568,6 +601,7 @@ def _hash_share_token(token: str) -> str:
 
 @router.post("/{file_id}/links", response_model=ShareLinkCreated, status_code=201)
 async def create_share_link(
+    request: Request,
     file_id: UUID,
     data: ShareLinkCreate,
     user_id: UUID = Depends(get_current_user_id),
@@ -599,7 +633,7 @@ async def create_share_link(
 
     # best-effort cache warm of nothing; link responses are not cached.
     return ShareLinkCreated(
-        url=_share_url(token),
+        url=_share_url(token, request),
         token=token,
         expires_at=link_row["expires_at"],
         max_downloads=link_row["max_downloads"],
