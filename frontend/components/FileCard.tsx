@@ -67,17 +67,25 @@ export default function FileCard({ file, onDelete, onRenamed }: { file: FileItem
         expires_in_hours: opts.expires_in_hours,
         password: opts.password || null,
       })
-      // Defensive: the ONLY acceptable shape is {url, token}. Anything else
-      // (an unverified-email HTML/text body, a proxy notice, an error object)
-      // must NOT be rendered as a link — surface a clear error instead.
-      if (link && typeof link.url === 'string' && link.url.startsWith('http') && typeof link.token === 'string' && link.token) {
-        setShareLink({ url: link.url, token: link.token })  // plaintext shown exactly once
+      // Defensive + correct: build the URL CLIENT-SIDE from the page origin —
+      // the backend's APP_URL can be misconfigured (its value must never be
+      // trusted for display); the browser's own origin is by definition the
+      // right one. The token is the only server-authoritative piece here.
+      if (link && typeof link.token === 'string' && link.token) {
+        setShareLink({ url: `${window.location.origin}/share/${link.token}`, token: link.token })
       } else {
         setShareError('Unexpected server response — the link could not be created. Try again or contact support.')
       }
     } catch (e: unknown) {
-      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-      setShareError(detail || 'Could not create link')
+      const err = e as { response?: { data?: { detail?: string }; status?: number } }
+      // 403 = unverified email gate: browsers show a human instruction, not
+      // the raw backend detail ("Email not verified..." reads like the user's
+      // email being echoed back to them).
+      setShareError(
+        err.response?.status === 403
+          ? 'Verify your email to share — check your inbox for the verification link, then try again.'
+          : err.response?.data?.detail || 'Could not create link'
+      )
     } finally {
       setShareBusy(false)
     }
