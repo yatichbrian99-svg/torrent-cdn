@@ -279,6 +279,36 @@ export default function DashboardPage() {
         </a>
       </div>
 
+      {loading ? (
+        <div className="flex h-40 items-center justify-center border" style={{ borderColor: 'var(--border)' }}>
+          <Loader2 size={20} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
+        </div>
+      ) : !error && files.length === 0 ? (
+        <div className="border p-16 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+          <Upload size={24} className="mx-auto mb-3" style={{ color: 'var(--text-muted)' }} />
+          <p className="text-sm text-[color:var(--text-primary)]">No files yet.</p>
+          <a href="/dashboard/upload" className="mt-4 inline-block border px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80" style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)' }}>
+            Upload your first file &rarr;
+          </a>
+        </div>
+      ) : files.length > 0 ? (
+        <div>
+          <div className="flex items-center gap-6 border-b px-4 py-2 text-xs font-bold uppercase tracking-widest" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+            <div className="flex-1">Filename</div><div className="w-16">Size</div><div className="w-12">Views</div><div className="w-24">P2P%</div><div className="w-20">Saved</div><div className="w-28">Actions</div>
+          </div>
+          {files.map((file) => <FileCard key={file.id} file={file} onDelete={handleDelete} />)}
+        </div>
+      ) : null}
+
+      {/* Account section — keys, MFA, live, demo, referrals, danger zone.
+          The file listing lives ABOVE these so it is the first thing a user
+          sees — it used to sit last and looked like the dashboard had no
+          files section at all. */}
+      <div className="mb-4 mt-10 flex items-center gap-3">
+        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Account &amp; Features</p>
+        <div className="h-px flex-1" style={{ backgroundColor: 'var(--border)' }} />
+      </div>
+
       {/* Live Streaming — entry point to the live channel manager. The navbar
           has a small "Live" link, but this card makes the feature discoverable
           from the dashboard itself (it was previously invisible here). */}
@@ -650,27 +680,6 @@ export default function DashboardPage() {
           </ResponsiveContainer>
         )}
       </div>
-
-      {loading ? (
-        <div className="flex h-40 items-center justify-center border" style={{ borderColor: 'var(--border)' }}>
-          <Loader2 size={20} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
-        </div>
-      ) : !error && files.length === 0 ? (
-        <div className="border p-16 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
-          <Upload size={24} className="mx-auto mb-3" style={{ color: 'var(--text-muted)' }} />
-          <p className="text-sm text-[color:var(--text-primary)]">No files yet.</p>
-          <a href="/dashboard/upload" className="mt-4 inline-block border px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80" style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)' }}>
-            Upload your first file &rarr;
-          </a>
-        </div>
-      ) : files.length > 0 ? (
-        <div>
-          <div className="flex items-center gap-6 border-b px-4 py-2 text-xs font-bold uppercase tracking-widest" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-            <div className="flex-1">Filename</div><div className="w-16">Size</div><div className="w-12">Views</div><div className="w-24">P2P%</div><div className="w-20">Saved</div><div className="w-28">Actions</div>
-          </div>
-          {files.map((file) => <FileCard key={file.id} file={file} onDelete={handleDelete} />)}
-        </div>
-      ) : null}
     </div>
   )
 }
