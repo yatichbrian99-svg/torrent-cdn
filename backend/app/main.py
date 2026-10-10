@@ -78,6 +78,15 @@ async def run_startup_migrations():
                 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS thumbnail_url TEXT;
                 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
                 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS content_hash TEXT;
+                -- DFS M1: logical folders. NULL = root (every existing upload
+                -- stays at root — no data migration). Owner-scoped uniqueness
+                -- (user_id, folder_path, filename) prevents two files with the
+                -- same name in the same folder for the same owner; existing
+                -- duplicate rows are a pre-existing-data risk resolved lazily
+                -- (rename endpoints return 409 instead of relying on the index
+                -- to reject them, so legacy duplicates keep working).
+                ALTER TABLE uploads ADD COLUMN IF NOT EXISTS folder_path VARCHAR(512);
+                CREATE INDEX IF NOT EXISTS idx_uploads_user_folder ON uploads(user_id, folder_path);
                 -- Live fix: the initial CREATE TABLE IF NOT EXISTS ran in production
                 -- WITHOUT this column (tests mock the DB, so the mismatch slipped
                 -- through); every live_channels query selects/inserts it → 500s.

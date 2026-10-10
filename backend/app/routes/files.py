@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import time
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -10,7 +11,12 @@ from fastapi.responses import JSONResponse
 from ..auth import get_current_user_id
 from ..config import get_settings
 from ..database import get_db_pool, get_redis
-from ..models import FileDetail
+from ..models import (
+    MAX_FILENAME_LEN,
+    MAX_FOLDER_PATH_LEN,
+    FileDetail,
+    FileRenameRequest,
+)
 from ..security import enforce_max_size, get_client_ip
 
 logger = logging.getLogger(__name__)
@@ -139,7 +145,7 @@ async def list_files(
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            """SELECT id, filename, minio_url, torrent_magnet, file_size_mb, thumbnail_url, created_at
+            """SELECT id, filename, minio_url, torrent_magnet, file_size_mb, thumbnail_url, folder_path, created_at
                FROM uploads WHERE user_id = $1
                ORDER BY created_at DESC
                LIMIT $2 OFFSET $3""",
@@ -190,6 +196,7 @@ async def list_files(
                 bandwidth_saved_gb=round(bandwidth_saved, 3),
                 active_peers=0,
                 thumbnail_url=row.get("thumbnail_url"),
+                folder_path=row.get("folder_path"),
             ))
 
         return results
@@ -234,6 +241,7 @@ async def get_file(file_id: UUID, user_id: UUID = Depends(get_current_user_id)):
             bandwidth_saved_gb=round(bandwidth_saved, 3),
             active_peers=0,
             thumbnail_url=row.get("thumbnail_url"),
+            folder_path=row.get("folder_path"),
         )
 
 
@@ -375,6 +383,99 @@ async def get_public_file(file_id: UUID, request: Request = None):
             pass  # cache write is best-effort — the DB read already succeeded
 
     return JSONResponse(payload, headers={"Cache-Control": _cache_control_public(PUBLIC_FILE_CACHE_TTL)})
+
+
+# ── DFS M1: folders / rename ──────────────────────────────────────────────
+
+def _validate_folder_path(path: str | None) -> str | None:
+    """Validate a logical folder path BEFORE it reaches the DB.
+
+    Returns the normalized value (or None for root). A folder path is purely
+    label data — it names a virtual location, never a physical one — so this
+    validation keeps the label well-formed (no separators, no traversal-like
+    segments, no control chars, no padded whitespace) rather than guarding a
+    filesystem. Longest-legitimate-shape check first so messages stay useful.
+    """
+    if path is None:
+        return None
+    path = path.strip()
+    if path == "":
+        return None
+    if len(path) > MAX_FOLDER_PATH_LEN:
+        raise HTTPException(status_code=400, detail="Folder path too long (max 512 characters)")
+    if "/" in path or "\\" in path:
+        raise HTTPException(
+            status_code=400, detail="Invalid folder path: use a single folder name (nesting comes later)"
+        )
+    if path in (".", "..") or path.startswith("."):
+        raise HTTPException(status_code=400, detail="Invalid folder path")
+    if any(ord(c) < 32 or ord(c) == 127 for c in path):
+        raise HTTPException(status_code=400, detail="Invalid folder path: control characters are not allowed")
+    return path
+
+
+@router.patch("/{file_id}")
+async def rename_file(
+    file_id: UUID,
+    data: FileRenameRequest,
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """Rename and/or move a file (DFS M1).
+
+    Ownership is enforced by `AND user_id = $...` in every statement — a
+    cross-user id resolves to no row and 404s without leaking existence.
+    Target-conflict (same owner + folder + filename) is a 409, mirroring the
+    convention a filesystem UI expects. A no-op (moving to the current
+    location) is idempotent 200.
+    """
+    # Validate first — cheap rejection before touching the pool.
+    new_folder = _validate_folder_path(data.folder_path)
+    new_name = data.filename
+    if new_name is not None:
+        new_name = new_name.strip()
+        if not new_name or len(new_name) > MAX_FILENAME_LEN:
+            raise HTTPException(status_code=400, detail="Invalid filename")
+
+    pool = await get_db_pool()
+    async with pool.acquire() as conn, conn.transaction():
+        row = await conn.fetchrow(
+            "SELECT filename, folder_path FROM uploads WHERE id = $1 AND user_id = $2 FOR UPDATE",
+            file_id, user_id,
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="File not found")
+
+        final_name = new_name if new_name is not None else row["filename"]
+        final_folder = new_folder if data.folder_path is not None else row["folder_path"]
+
+        # Conflict check against DB state under the row lock.
+        if final_folder != row["folder_path"] or final_name != row["filename"]:
+            clash = await conn.fetchval(
+                """SELECT COUNT(*) FROM uploads
+                   WHERE user_id = $1 AND folder_path IS NOT DISTINCT FROM $2
+                     AND filename = $3 AND id <> $4""",
+                user_id, final_folder, final_name, file_id,
+            )
+            if clash:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A file with this name already exists in that folder",
+                )
+
+        await conn.execute(
+            "UPDATE uploads SET filename = $1, folder_path = $2 WHERE id = $3 AND user_id = $4",
+            final_name, final_folder, file_id, user_id,
+        )
+
+    return FileDetail(
+        id=file_id,
+        filename=final_name,
+        minio_url="",  # not re-fetched: rename never touches storage bytes
+        torrent_magnet="",
+        file_size_mb=0,
+        created_at=datetime.now(UTC),
+        folder_path=final_folder,
+    )
 
 
 @router.delete("/{file_id}")

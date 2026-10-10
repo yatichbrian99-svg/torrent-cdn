@@ -309,6 +309,7 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks, reques
                 thumbnail_url TEXT,
                 idempotency_key TEXT,
                 content_hash TEXT,
+                folder_path VARCHAR(512),
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             );
             CREATE TABLE IF NOT EXISTS analytics (

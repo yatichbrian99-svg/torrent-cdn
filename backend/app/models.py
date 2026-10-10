@@ -17,6 +17,7 @@ MAX_FILENAME_LEN = 255     # uploads.filename is VARCHAR(255)
 MAX_IDEMPOTENCY_KEY_LEN = 64
 MAX_REF_CODE_LEN = 20      # users.referral_code is VARCHAR(20)
 MAX_URL_LEN = 2048         # import-by-URL: a URL is a VARCHAR-free request field
+MAX_FOLDER_PATH_LEN = 512  # uploads.folder_path is VARCHAR(512)
 
 
 class UserInDB(BaseModel):
@@ -193,6 +194,9 @@ class FileDetail(BaseModel):
     bandwidth_saved_gb: float = 0
     active_peers: int = 0
     thumbnail_url: str | None = None
+    # DFS M1: logical folder (None = root). Additive — older clients that
+    # ignore the field keep working.
+    folder_path: str | None = None
 
 
 class BillingStatus(BaseModel):
@@ -264,7 +268,19 @@ class UploadImportRequest(BaseModel):
     idempotency_key: str | None = Field(default=None, max_length=MAX_IDEMPOTENCY_KEY_LEN)
 
 
-# Paystack Transfers API (admin payouts to M-PESA) — see routes/payouts.py.
+# ── DFS M1: folder/rename ──────────────────────────────────────────────
+
+class FileRenameRequest(BaseModel):
+    """DFS M1: rename and/or move a file to another logical folder.
+
+    `folder_path` None/"" = root. A folder path is purely label data (a virtual
+    location, never a physical one) — validated in routes/files.py before it
+    reaches the DB. Omitted fields are left unchanged (partial update).
+    """
+    folder_path: str | None = Field(default=None, max_length=MAX_FOLDER_PATH_LEN)
+    filename: str | None = Field(default=None, max_length=MAX_FILENAME_LEN)
+
+
 # Amounts are in the currency's smallest unit (KES cents), matching the
 # existing payment integration: KES 500 = amount 50000.
 
