@@ -87,6 +87,24 @@ async def run_startup_migrations():
                 -- to reject them, so legacy duplicates keep working).
                 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS folder_path VARCHAR(512);
                 CREATE INDEX IF NOT EXISTS idx_uploads_user_folder ON uploads(user_id, folder_path);
+                -- DFS M1 share links: capability URLs with expiry / password /
+                -- download cap / revocation. Only the SHA-256 of the random
+                -- token is stored (same pattern as api_keys.stream_key); the
+                -- plaintext token appears exactly once, in the create response.
+                CREATE TABLE IF NOT EXISTS share_links (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    file_id UUID NOT NULL REFERENCES uploads(id) ON DELETE CASCADE,
+                    owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    token_hash TEXT NOT NULL UNIQUE,
+                    password_hash TEXT,
+                    max_downloads INTEGER,
+                    download_count INTEGER NOT NULL DEFAULT 0,
+                    expires_at TIMESTAMP WITH TIME ZONE,
+                    revoked_at TIMESTAMP WITH TIME ZONE,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                );
+                CREATE INDEX IF NOT EXISTS idx_share_links_file ON share_links(file_id);
+                CREATE INDEX IF NOT EXISTS idx_share_links_owner ON share_links(owner_id);
                 -- Live fix: the initial CREATE TABLE IF NOT EXISTS ran in production
                 -- WITHOUT this column (tests mock the DB, so the mismatch slipped
                 -- through); every live_channels query selects/inserts it → 500s.

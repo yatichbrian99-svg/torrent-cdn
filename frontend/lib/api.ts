@@ -394,6 +394,13 @@ export default {
   },
 
   listFiles: () => api.get('/files').then((r) => r.data),
+  // DFS M1: rename/move (PATCH) + share-link management.
+  renameFile: (file_id: string, data: { filename?: string | null; folder_path?: string | null }) =>
+    api.patch(`/files/${file_id}`, data).then((r) => r.data),
+  createShareLink: (file_id: string, data: { expires_in_hours?: number | null; max_downloads?: number | null; password?: string | null }) =>
+    api.post(`/files/${file_id}/links`, data).then((r) => r.data),
+  listShareLinks: (file_id: string) => api.get(`/files/${file_id}/links`).then((r) => r.data),
+  revokeShareLink: (link_id: string) => api.delete(`/files/links/${link_id}`).then((r) => r.data),
 
   getFile: (file_id: string) => api.get(`/files/${file_id}`).then((r) => r.data),
 

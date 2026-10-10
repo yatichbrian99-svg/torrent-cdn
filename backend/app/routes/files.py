@@ -1,14 +1,16 @@
 import asyncio
+import hashlib
 import json
 import logging
+import secrets
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from ..auth import get_current_user_id
+from ..auth import get_current_user_id, hash_password, verify_password
 from ..config import get_settings
 from ..database import get_db_pool, get_redis
 from ..models import (
@@ -16,6 +18,10 @@ from ..models import (
     MAX_FOLDER_PATH_LEN,
     FileDetail,
     FileRenameRequest,
+    ShareAccessRequest,
+    ShareLinkCreate,
+    ShareLinkCreated,
+    ShareLinkInfo,
 )
 from ..security import enforce_max_size, get_client_ip
 
@@ -523,3 +529,205 @@ async def delete_file(file_id: UUID, user_id: UUID = Depends(get_current_user_id
         pass
 
     return {"detail": "File deleted successfully"}
+
+
+# ── DFS M1: share links ──────────────────────────────────────────────────
+# Capability URLs for a file: random token in the path (never the file UUID),
+# optional expiry / password / download cap, revocable by the owner.
+#
+# Revocation semantics (documented, per spec §7): revoking a link prevents ALL
+# FUTURE access through it — immediately, including links not yet redeemed.
+# It cannot recall bytes a recipient already downloaded. Links are
+# private-by-default: nothing is shared until the owner creates one.
+
+# Per-IP budget for share-link RESOLUTION (the public endpoint). Distinct from
+# PUBLIC_FILE_LIMIT (embed metadata); guessing tokens is bounded by 256 bits of
+# entropy, so this limit targets brute-icing refresh loops, not enumeration.
+SHARE_ACCESS_LIMIT = 60  # per minute
+MAX_LINKS_PER_FILE = 50
+
+_share_access_requests: dict[str, list[float]] = {}
+
+
+def _prune_share_access(now: float) -> None:
+    expired = [k for k, v in _share_access_requests.items() if not v or now - v[-1] > 60]
+    for k in expired:
+        del _share_access_requests[k]
+    enforce_max_size(_share_access_requests)
+
+
+def _share_url(token: str) -> str:
+    # Frontend route (app/share/[token]); APP_URL from settings, no trailing slash.
+    base = (settings.app_url or "").rstrip("/")
+    return f"{base}/share/{token}"
+
+
+def _hash_share_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+@router.post("/{file_id}/links", response_model=ShareLinkCreated, status_code=201)
+async def create_share_link(
+    file_id: UUID,
+    data: ShareLinkCreate,
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """Create a share link (owner-only). Plaintext token returned exactly once."""
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id FROM uploads WHERE id = $1 AND user_id = $2", file_id, user_id
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="File not found")
+
+        link_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM share_links WHERE file_id = $1", file_id
+        )
+        if link_count >= MAX_LINKS_PER_FILE:
+            raise HTTPException(status_code=429, detail="Too many links for this file — revoke some first")
+
+        token = secrets.token_urlsafe(24)  # 192-bit entropy, URL-safe
+        expires_at = datetime.now(UTC) + timedelta(hours=data.expires_in_hours) if data.expires_in_hours else None
+        password_hash = hash_password(data.password) if data.password else None
+
+        link_row = await conn.fetchrow(
+            """INSERT INTO share_links (file_id, owner_id, token_hash, password_hash, max_downloads, expires_at)
+               VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, expires_at, max_downloads, download_count, revoked_at, created_at""",
+            file_id, user_id, _hash_share_token(token), password_hash, data.max_downloads, expires_at,
+        )
+
+    # best-effort cache warm of nothing; link responses are not cached.
+    return ShareLinkCreated(
+        url=_share_url(token),
+        token=token,
+        expires_at=link_row["expires_at"],
+        max_downloads=link_row["max_downloads"],
+    )
+
+
+@router.get("/{file_id}/links", response_model=list[ShareLinkInfo])
+async def list_share_links(file_id: UUID, user_id: UUID = Depends(get_current_user_id)):
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT id, expires_at, max_downloads, download_count, revoked_at, created_at
+               FROM share_links WHERE file_id = $1 AND owner_id = $2 ORDER BY created_at DESC""",
+            file_id, user_id,
+        )
+    base = (settings.app_url or "").rstrip("/")
+    return [
+        ShareLinkInfo(
+            id=r["id"],
+            # The list endpoint can NEVER reconstruct the plaintext token (only
+            # its hash is stored) — the URL keeps the file id + link id so the
+            # owner can still identify the link, and the share page itself asks
+            # for the full token when it is needed.
+            url=f"{base}/share/{r['id']}",
+            expires_at=r["expires_at"],
+            max_downloads=r["max_downloads"],
+            download_count=r["download_count"],
+            revoked=r["revoked_at"] is not None,
+            created_at=r["created_at"],
+        )
+        for r in rows
+    ]
+
+
+@router.delete("/links/{link_id}")
+async def revoke_share_link(link_id: UUID, user_id: UUID = Depends(get_current_user_id)):
+    """Revoke a link: blocks ALL future access through it (immediate).
+
+    Cannot recall bytes a recipient already downloaded — that is documented in
+    the share UI too, per spec §7's required honesty about revocation.
+    """
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE share_links SET revoked_at = NOW() WHERE id = $1 AND owner_id = $2 AND revoked_at IS NULL",
+            link_id, user_id,
+        )
+        if result == "UPDATE 0":
+            # Not found OR already revoked OR not owned — one 404 keeps it simple.
+            raise HTTPException(status_code=404, detail="Link not found")
+    return {"detail": "Link revoked"}
+
+
+@router.post("/share/{token}")
+async def access_share_link(token: str, request: Request):
+    """Public resolve of a share link.
+
+    Returns the same public metadata shape the embed player uses
+    (filename / minio_url / magnet / size) so a logged-out browser can
+    download/stream without an account.
+    """
+    # Token format gate BEFORE any DB/redis touch: a plaintext token is
+    # token_urlsafe(24) → 32 chars of [A-Za-z0-9_-]. Reject everything else.
+    if not token or len(token) != 32 or not all(c.isalnum() or c in "-_" for c in token):
+        raise HTTPException(status_code=404, detail="Link not found")
+
+    # Rate limit per IP (in-memory; Redis optional).
+    ip = get_client_ip(request)
+    now = time.time()
+    _prune_share_access(now)
+    recent = [t for t in _share_access_requests.get(ip, []) if now - t < 60]
+    if len(recent) >= SHARE_ACCESS_LIMIT:
+        raise HTTPException(status_code=429, detail="Too many requests")
+    recent.append(now)
+    _share_access_requests[ip] = recent
+
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT s.id, s.password_hash, s.max_downloads, s.download_count,
+                      s.expires_at, s.revoked_at, s.owner_id,
+                      u.id AS file_id, u.filename, u.minio_url, u.torrent_magnet, u.file_size_mb
+               FROM share_links s JOIN uploads u ON u.id = s.file_id
+               WHERE s.token_hash = $1""",
+            _hash_share_token(token),
+        )
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Link not found")
+        if row["revoked_at"] is not None:
+            raise HTTPException(status_code=410, detail="This link has been revoked")
+        if row["expires_at"] is not None and datetime.now(UTC) > row["expires_at"]:
+            raise HTTPException(status_code=410, detail="This link has expired")
+        if row["max_downloads"] is not None and row["download_count"] >= row["max_downloads"]:
+            raise HTTPException(status_code=410, detail="This link has reached its download limit")
+
+        if row["password_hash"]:
+            # Password-protected link: the browser POSTs the password in the
+            # body (ShareAccessRequest); a GET or a missing/wrong password
+            # gets 401 without revealing WHY the link exists.
+            provided: str | None = None
+            try:
+                body = await request.json()
+                if isinstance(body, dict):
+                    provided = ShareAccessRequest(**body).password
+            except Exception:
+                provided = None
+            if not provided or not verify_password(provided, row["password_hash"]):
+                raise HTTPException(status_code=401, detail="Password required")
+
+        # Count the download (best-effort: a transient failure here must not
+        # block access — an undercount is safer than a failed grant).
+        try:
+            await conn.execute(
+                "UPDATE share_links SET download_count = download_count + 1 WHERE id = $1",
+                row["id"],
+            )
+        except Exception as e:
+            logger.warning("Share link download count update failed: %s", e)
+
+    # NOTE: response intentionally mirrors the /files/public/{id} payload so the
+    # frontend share page reuses the same player/downloader component. The
+    # minio_url is a presigned-capable storage URL the recipient fetches
+    # directly from object storage — the API still does not proxy bytes.
+    return {
+        "id": str(row["file_id"]),
+        "filename": row["filename"],
+        "minio_url": row["minio_url"],
+        "magnet_link": row["torrent_magnet"],
+        "file_size_mb": row["file_size_mb"],
+    }

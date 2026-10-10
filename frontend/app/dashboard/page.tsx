@@ -8,12 +8,17 @@ import QRCode from 'qrcode'
 import { isLoggedIn, removeToken } from '@/lib/auth'
 import api from '@/lib/api'
 import FileCard from '@/components/FileCard'
+import { Search } from 'lucide-react'
 
-interface FileItem { id: string; filename: string; minio_url: string; torrent_magnet: string; file_size_mb: number; created_at: string; views: number; p2p_offload_percent: number; bandwidth_saved_gb: number; active_peers: number; thumbnail_url?: string | null }
+interface FileItem { id: string; filename: string; minio_url: string; torrent_magnet: string; file_size_mb: number; created_at: string; views: number; p2p_offload_percent: number; bandwidth_saved_gb: number; active_peers: number; thumbnail_url?: string | null; folder_path?: string | null }
 
 export default function DashboardPage() {
   const router = useRouter()
   const [files, setFiles] = useState<FileItem[]>([])
+  // DFS M1: client-side search over filename + folder label. The server list
+  // is capped per user anyway; a full server-side search API is deferred until
+  // libraries get big enough to need pagination.
+  const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [verified, setVerified] = useState<boolean | null>(null)
@@ -279,6 +284,22 @@ export default function DashboardPage() {
         </a>
       </div>
 
+      {files.length > 0 && (
+      <div className="mb-6">
+        <div className="flex items-center gap-2 border px-3 py-2" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+          <Search size={14} style={{ color: 'var(--text-muted)' }} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search files and folders…"
+            className="w-full bg-transparent text-sm outline-none"
+            style={{ color: 'var(--text-primary)' }}
+            aria-label="Search files"
+          />
+        </div>
+      </div>
+      )}
+
       {loading ? (
         <div className="flex h-40 items-center justify-center border" style={{ borderColor: 'var(--border)' }}>
           <Loader2 size={20} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
@@ -296,7 +317,25 @@ export default function DashboardPage() {
           <div className="flex items-center gap-6 border-b px-4 py-2 text-xs font-bold uppercase tracking-widest" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
             <div className="flex-1">Filename</div><div className="w-16">Size</div><div className="w-12">Views</div><div className="w-24">P2P%</div><div className="w-20">Saved</div><div className="w-28">Actions</div>
           </div>
-          {files.map((file) => <FileCard key={file.id} file={file} onDelete={handleDelete} />)}
+          {files
+            .filter((f) => {
+              const q = search.trim().toLowerCase()
+              if (!q) return true
+              return (
+                f.filename.toLowerCase().includes(q) ||
+                (f.folder_path || '').toLowerCase().includes(q)
+              )
+            })
+            .map((file) => (
+              <FileCard
+                key={file.id}
+                file={file}
+                onDelete={handleDelete}
+                onRenamed={(id, filename, folder_path) =>
+                  setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, filename, folder_path } : f)))
+                }
+              />
+            ))}
         </div>
       ) : null}
 

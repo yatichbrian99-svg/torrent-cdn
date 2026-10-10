@@ -281,6 +281,41 @@ class FileRenameRequest(BaseModel):
     filename: str | None = Field(default=None, max_length=MAX_FILENAME_LEN)
 
 
+class ShareLinkCreate(BaseModel):
+    """DFS M1: create a share link for a file.
+
+    expires_in_hours / max_downloads are None = no limit (the owner's choice,
+    not a default). password optional; stored bcrypt-hashed. The plaintext
+    token is returned exactly once and never stored.
+    """
+    expires_in_hours: int | None = Field(default=None, ge=1, le=24 * 365)
+    max_downloads: int | None = Field(default=None, ge=1, le=1_000_000)
+    password: str | None = Field(default=None, max_length=MAX_PASSWORD_LEN)
+
+
+class ShareLinkCreated(BaseModel):
+    url: str
+    token: str  # plaintext, exactly-once
+    expires_at: datetime | None = None
+    max_downloads: int | None = None
+
+
+class ShareLinkInfo(BaseModel):
+    id: UUID
+    url: str
+    expires_at: datetime | None = None
+    max_downloads: int | None = None
+    download_count: int = 0
+    revoked: bool = False
+    created_at: datetime
+
+
+class ShareAccessRequest(BaseModel):
+    """DFS M1: resolve a share link (public endpoint). Only needed when the
+    link was created with a password; otherwise an empty body is sent."""
+    password: str | None = Field(default=None, max_length=MAX_PASSWORD_LEN)
+
+
 # Amounts are in the currency's smallest unit (KES cents), matching the
 # existing payment integration: KES 500 = amount 50000.
 
