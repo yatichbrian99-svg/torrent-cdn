@@ -90,6 +90,12 @@ export default function DocsPage() {
       <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>
         Programmatic access to upload, manage, and analyze your media.
       </p>
+      <p className="mt-3 text-sm" style={{ color: 'var(--text-muted)' }}>
+        Looking for how delivery works rather than the endpoints?{' '}
+        <a href="/architecture" className="underline transition-colors hover:text-[color:var(--text-primary)]">
+          Read the architecture overview &rarr;
+        </a>
+      </p>
 
       {/* 1. Introduction */}
       <section className="mt-10">

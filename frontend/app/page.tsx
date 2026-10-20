@@ -197,6 +197,7 @@ export default function LandingPage() {
             <a href="/aup" className="text-sm transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-faint)' }}>AUP</a>
             <a href="/dmca" className="text-sm transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-faint)' }}>DMCA</a>
             <a href="/docs" className="text-sm transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-faint)' }}>Docs</a>
+            <a href="/architecture" className="text-sm transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-faint)' }}>Architecture</a>
           </div>
         </div>
         <a href="https://maidensail.com/startup/torrentcdn" rel="dofollow"><img src="https://maidensail.com/badge/torrentcdn.svg" alt="Listed on Maidensail" height="36" /></a>
