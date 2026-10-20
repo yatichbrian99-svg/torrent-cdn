@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { Users, Loader2 } from 'lucide-react'
-import api from '@/lib/api'
+import api, { API_BASE } from '@/lib/api'
 import { isUuid } from '@/lib/security'
 
 interface FileData { id: string; filename: string; minio_url: string; magnet_link: string; file_size_mb: number }
@@ -88,6 +88,19 @@ export default function VideoPlayer({ fileId, onPeers }: { fileId: string; onPee
   const fallbackToDirect = useCallback(() => {
     if (!videoRef.current || !fileData?.minio_url) return
     const video = videoRef.current
+    // Re-entry: the fallback is reachable from four places (the 5s timer, the
+    // 15s wire timer, the torrent's error path and streamP2pFile's catch).
+    // Attaching a SECOND billing closure would restart its `billed` baseline at
+    // 0 and re-bill bytes origin already served — double-counted bandwidth in
+    // the exact metric the demo page displays. Billing is therefore attached
+    // once per file; a later call only re-points the element at origin, which
+    // a failed P2P attempt can leave stranded on a dead MediaSource blob.
+    if (originBillCleanupRef.current) {
+      if (activeSourceRef.current !== 'direct') { video.src = fileData.minio_url; video.play().catch(() => {}) }
+      setStatus('direct'); statusRef.current = 'direct'
+      activeSourceRef.current = 'direct'
+      return
+    }
     video.src = fileData.minio_url; video.play().catch(() => {})
     setStatus('direct'); statusRef.current = 'direct'
     activeSourceRef.current = 'direct'
@@ -104,10 +117,13 @@ export default function VideoPlayer({ fileId, onPeers }: { fileId: string; onPee
     // Direct-path origin billing batches at the same 5s cadence as the P2P
     // path below — one POST per 5s per viewer, not per progress event.
     const DIRECT_BILL_MS = 5000
-    const billOrigin = () => {
+    // `force` bypasses the 5s throttle on the events that mean "no more bytes
+    // are coming" (ended / teardown), so the last stretch of buffered video is
+    // billed instead of falling inside an open throttle window and being lost.
+    const billOrigin = (force = false) => {
       if (activeSourceRef.current !== 'direct') return
       const now = Date.now()
-      if (now - lastBill < DIRECT_BILL_MS) return
+      if (!force && now - lastBill < DIRECT_BILL_MS) return
       lastBill = now
       let bufferedEnd = 0
       try {
@@ -122,19 +138,82 @@ export default function VideoPlayer({ fileId, onPeers }: { fileId: string; onPee
         billed = bytes
       }
     }
-    video.addEventListener('progress', billOrigin)
+    // `progress` ALONE under-billed catastrophically: it only fires while the
+    // network is actively transferring, so a short clip that arrives in one
+    // burst fired it once — before any real data was buffered — and billed 68
+    // bytes for a 1.26 MB file (buffered.end was a few hundred microseconds, so
+    // bufferedEnd/duration ≈ 0.00005). The stats then sat frozen at "0.000 GB"
+    // for every viewer. timeupdate fires ~4x/sec during playback, re-evaluating
+    // the ratio against an ever-larger buffered range so the bill tracks what
+    // origin actually delivered; loadeddata covers a video the viewer never
+    // presses play on, and ended force-flushes the final window.
+    const onMediaEvent = () => billOrigin()
+    const onEnded = () => billOrigin(true)
+    video.addEventListener('progress', onMediaEvent)
+    video.addEventListener('timeupdate', onMediaEvent)
+    video.addEventListener('loadeddata', onMediaEvent)
+    video.addEventListener('ended', onEnded)
     const cleanup = () => {
-      video.removeEventListener('progress', billOrigin)
+      video.removeEventListener('progress', onMediaEvent)
+      video.removeEventListener('timeupdate', onMediaEvent)
+      video.removeEventListener('loadeddata', onMediaEvent)
+      video.removeEventListener('ended', onEnded)
       // Final flush: bill whatever buffered progress we have at teardown.
-      billOrigin()
+      billOrigin(true)
     }
     originBillCleanupRef.current = cleanup
-    finalFlushRef.current = billOrigin
+    // CHAIN, don't replace: the P2P path registers its own final flush before
+    // the fallback timer can fire, so assigning here used to clobber it and
+    // drop the last batch of peer bytes on teardown. Both flushers now run.
+    const previousFlush = finalFlushRef.current
+    finalFlushRef.current = () => {
+      try { previousFlush?.() } catch {}
+      billOrigin(true)
+    }
   }, [fileData])
 
   useEffect(() => {
     if (!fileData || fileId === 'demo' || !fileData.magnet_link) return
     let mounted = true
+
+    // A join must be balanced by a leave, or `active_peers` (= joins − leaves)
+    // only ever climbs. The cleanup-only peer_left below never ran in the case
+    // that actually matters — a viewer closing the tab or navigating away,
+    // where React cleanup does not execute — so every departed viewer leaked a
+    // permanent "active peer": the demo page showed 100+ peers with nobody
+    // watching. sendBeacon is the one transport the browser keeps alive past
+    // document teardown; the SPA-unmount path shares the same once-only guard so
+    // neither can double-count. Dev builds point at a cross-origin API where a
+    // JSON beacon would need a preflight (which beacons can't do), so they fall
+    // back to the normal request.
+    let leaveSent = false
+    const sendLeave = () => {
+      if (leaveSent || !fileData) return
+      leaveSent = true
+      const endpoint = `${API_BASE}/analytics/event`
+      try {
+        const beaconUrl = new URL(endpoint, window.location.href)
+        if (beaconUrl.origin === window.location.origin && navigator.sendBeacon) {
+          const blob = new Blob(
+            [JSON.stringify({ file_id: fileData.id, event_type: 'peer_left', bytes_p2p: 0, bytes_origin: 0 })],
+            { type: 'application/json' },
+          )
+          if (navigator.sendBeacon(beaconUrl.href, blob)) return
+        }
+      } catch { /* fall through to the regular request */ }
+      api.trackEvent(fileData.id, 'peer_left').catch(() => {})
+    }
+    window.addEventListener('pagehide', sendLeave)
+
+    // Count the view when the player MOUNTS, not after the WebTorrent chunk has
+    // downloaded and the client is constructed. On a cold production load that
+    // initialization took ~6s, so the demo's own view only showed up ~9.5s after
+    // the page opened — indistinguishable from a frozen counter to the person
+    // who just clicked, even though the server now reflects a join instantly.
+    // A visitor who opened the player IS a view; peer_left comes from this same
+    // effect's teardown/pagehide, so join/leave stay balanced even if P2P never
+    // initializes (the sendLeave above is registered first for that reason).
+    api.trackEvent(fileData.id, 'peer_joined').catch(() => {})
 
     const init = async () => {
       try {
@@ -142,7 +221,6 @@ export default function VideoPlayer({ fileId, onPeers }: { fileId: string; onPee
         if (!mounted) return
         const client = new WebTorrent(); clientRef.current = client
         setStatus('connecting'); statusRef.current = 'connecting'
-        api.trackEvent(fileData.id, 'peer_joined').catch(() => {})
 
         fallbackTimer.current = setTimeout(() => {
           if (mounted && statusRef.current === 'connecting') fallbackToDirect()
@@ -256,7 +334,8 @@ export default function VideoPlayer({ fileId, onPeers }: { fileId: string; onPee
         try { clientRef.current.destroy() } catch {}
         clientRef.current = null
       }
-      if (fileData) api.trackEvent(fileData.id, 'peer_left').catch(() => {})
+      window.removeEventListener('pagehide', sendLeave)
+      sendLeave()
     }
   }, [fileData, fallbackToDirect, fileId])
 

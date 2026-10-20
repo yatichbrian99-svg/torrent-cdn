@@ -24,7 +24,10 @@ import { getToken, removeToken } from './auth'
 // IGNORE the env var and stay same-origin. The env override is only honored in
 // local dev, where vercel.json rewrites don't exist.
 const isProduction = process.env.NODE_ENV === 'production'
-const API_BASE = isProduction ? '' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
+// Exported so non-axios transports (e.g. the player's pagehide leave beacon)
+// resolve the SAME base — duplicating the production/dev rule here is exactly
+// how a second copy of it drifts.
+export const API_BASE = isProduction ? '' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
 
 // /auth/forgot-password and /auth/reset-password have REAL Next.js pages at
 // those exact paths, which SHADOW the vercel.json /auth/* rewrite (afterFiles)
