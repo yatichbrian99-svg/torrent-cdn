@@ -161,7 +161,10 @@ export default function DemoPage() {
     if (window.location.search !== `?${qs}`) window.history.replaceState(null, '', `${window.location.pathname}?${qs}`)
   }, [scenarioViewers, scenarioVideoMb, scenarioWatchPct, scenarioP2pPct])
 
-  // Live stats — poll the public analytics endpoint every 5 seconds.
+  // Live stats — poll the public analytics endpoint every 2 seconds.
+  // The endpoint is no-store and join/leave events are written inline, so a
+  // viewer's own view shows up on the next tick (~2s) instead of after the
+  // old 5s poll + 5s server cache + 5s browser cache stack.
   useEffect(() => {
     if (!isLive) { setStats(null); return }
     let mounted = true
@@ -182,7 +185,7 @@ export default function DemoPage() {
         .catch(() => { /* 404 until the demo file exists — keep showing "—" */ })
     }
     poll()
-    const timer = setInterval(poll, 5000)
+    const timer = setInterval(poll, 2000)
     return () => { mounted = false; clearInterval(timer) }
   }, [isLive])
 

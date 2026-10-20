@@ -173,6 +173,22 @@ class TestPublicAnalytics:
         assert data["active_peers"] == 3
         assert data["bandwidth_saved_gb"] == 0.5
 
+    def test_stats_response_is_not_browser_cacheable(self, client, mock_conn):
+        """Live counters must not be frozen by the browser/edge cache.
+
+        The endpoint used to send `public, max-age=5`, which stacked a second
+        5s stale layer on top of the server-side aggregate cache — with the
+        page's own poll interval that made a new view take ~15s to appear.
+        Freshness comes from the server now; the response is not storeable.
+        """
+        mock_conn.fetchrow.side_effect = [
+            {"id": self.FILE_ID},
+            {"total_views": 1, "total_leaves": 0, "total_p2p": 0, "total_origin": 0},
+        ]
+        resp = client.get(self.URL)
+        assert resp.status_code == 200
+        assert resp.headers["cache-control"] == "no-store"
+
     def test_aggregate_sql_casts_sum_to_bigint(self, client, mock_conn):
         """The source fix: SUM() must be cast to ::bigint so Decimal never
         enters the Python layer (asyncpg maps numeric → Decimal)."""
@@ -389,6 +405,54 @@ class TestAnalyticsEventValidation:
         })
         assert resp.status_code == 200
         mock_conn.fetchrow.assert_not_awaited()  # cold-cache lookup skipped
+
+    def test_join_is_written_inline_and_drops_public_cache(self, client, mock_redis, mock_conn):
+        """A new viewer's view must land immediately, not on the drainer's tick.
+
+        peer_joined is low volume (one per session) and feeds the live counter,
+        so it is INSERTed on the request path and the cached public aggregate
+        for that file is dropped — otherwise the viewer waits for the 2s flush
+        AND up to 5s of cache TTL before their own view shows up.
+        """
+        mock_conn.fetchrow.return_value = {
+            "id": UUID(self.FILE_ID),
+            "file_size_mb": 1.0,
+        }
+        mock_redis.llen = AsyncMock(return_value=0)
+
+        resp = client.post(self.URL, json={
+            "file_id": self.FILE_ID,
+            "event_type": "peer_joined",
+            "bytes_p2p": 0,
+            "bytes_origin": 0,
+        })
+        assert resp.status_code == 200
+        insert_sql = mock_conn.execute.await_args.args[0]
+        assert "INSERT INTO analytics" in insert_sql
+        assert mock_conn.execute.await_args.args[2] == "peer_joined"
+        mock_redis.delete.assert_awaited_once_with(f"analytics:public_agg:{self.FILE_ID}")
+        # Never also enqueued — the drainer must not write it a second time.
+        mock_redis.lpush.assert_not_awaited()
+
+    def test_join_falls_back_to_buffer_when_inline_insert_fails(self, client, mock_redis, mock_conn):
+        """A DB hiccup must not lose the view — fall back to the batch buffer."""
+        mock_conn.fetchrow.return_value = {
+            "id": UUID(self.FILE_ID),
+            "file_size_mb": 1.0,
+        }
+        mock_conn.execute.side_effect = RuntimeError("db down")
+        mock_redis.llen = AsyncMock(return_value=0)
+
+        resp = client.post(self.URL, json={
+            "file_id": self.FILE_ID,
+            "event_type": "peer_joined",
+            "bytes_p2p": 0,
+            "bytes_origin": 0,
+        })
+        assert resp.status_code == 200
+        mock_redis.lpush.assert_awaited_once()
+        # Nothing new in the DB, so there is no cached aggregate to drop.
+        mock_redis.delete.assert_not_awaited()
 
     def test_drain_batch_inserts_and_clears_buffer(self, client, mock_redis, mock_conn):
         """_drain_analytics_buffer_once pops up to BATCH_SIZE events and writes

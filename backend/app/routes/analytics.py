@@ -57,6 +57,10 @@ ANALYTICS_BUFFER_KEY = "analytics:event_buffer"
 ANALYTICS_BATCH_SIZE = 500           # events per INSERT
 ANALYTICS_FLUSH_INTERVAL = 2.0       # seconds between drains
 ANALYTICS_BUFFER_MAX = 200_000       # hard cap: shed (don't queue) beyond this
+# Event types written inline instead of buffered: low volume (one per viewer
+# session), and they are exactly the counters the live UI polls for, so the
+# drainer's tick would make a fresh view look frozen. See _insert_event_now.
+ANALYTICS_INLINE_EVENTS = {"peer_joined", "peer_left"}
 # Sampling kicks in when the buffer exceeds this many PENDING events and
 # applies to chunk_downloaded only. peer_joined/peer_left always enqueue.
 ANALYTICS_SAMPLE_THRESHOLD = 50_000
@@ -74,10 +78,13 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 # In-memory fallback for public analytics rate limiting (used when Redis is down)
 _analytics_get_requests: dict[str, list[float]] = {}
 _ANALYTICS_GET_WINDOW = 60
-# Public/authed analytics GET budget per IP per minute. 120/min (~2/sec) is
-# generous for the demo page's 5s stats polling (12/min) while still stopping
-# scrapers from hammering the aggregate endpoint.
-ANALYTICS_GET_LIMIT = 120
+# Public/authed analytics GET budget per IP per minute. The demo page polls
+# every 2s (30/min per viewer), so 300/min covers ~10 viewers sharing one IP
+# (an office/NAT, or several tabs open during a demo) before any of them starves
+# — at 120/min the fourth viewer behind a NAT got 429s and a frozen stats card.
+# The aggregate itself is Redis-cached, so this still bounds DB work, and the
+# data is already public: the cap only stops scraper hammering.
+ANALYTICS_GET_LIMIT = 300
 # In-memory fallback for the public POST /analytics/event limiter (used when
 # Redis is down). This is a WRITE endpoint with no auth, so it MUST be rate
 # limited even without Redis — otherwise an attacker can flood the analytics
@@ -201,6 +208,61 @@ async def _enqueue_event(record: dict, redis) -> None:
     if len(_memory_event_buffer) >= ANALYTICS_BUFFER_MAX:
         return  # shed: buffer full
     _memory_event_buffer.append(payload)
+
+
+def _public_agg_key(file_id) -> str:
+    """Redis key for the public aggregate snapshot of one file."""
+    return f"analytics:public_agg:{file_id}"
+
+
+async def _insert_event_now(record: dict) -> bool:
+    """INSERT one exact-count event (join/leave) synchronously. Returns success.
+
+    Chunk events stay on the batched path below — those are the ones that arrive
+    ~1/s per viewer. peer_joined/peer_left are 1-2 per viewer SESSION, and they
+    feed the two numbers a live viewer watches move (total views, active peers).
+    Pushing them through the drainer meant they only became visible on its next
+    2s tick — plus a cache layer — so a new viewer's own view took ~15s to show
+    up. One small INSERT per session is a rounding error next to the chunk-event
+    stream and it makes the counter honest the moment it's clicked.
+
+    Returns False when the DB write fails so the caller can fall back to the
+    buffer instead of dropping the event.
+    """
+    try:
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO analytics (file_id, event_type, bytes_p2p, bytes_origin)
+                   VALUES ($1, $2, $3, $4)""",
+                UUID(record["file_id"]),
+                record["event_type"],
+                int(record["bytes_p2p"]),
+                int(record["bytes_origin"]),
+            )
+        return True
+    except Exception as e:
+        logger.warning(
+            "inline analytics INSERT failed (%s) — buffering %s event",
+            e, record["event_type"],
+        )
+        return False
+
+
+async def _invalidate_public_agg(file_id, redis) -> None:
+    """Drop the cached public aggregate so the next poll recomputes it.
+
+    Only join/leave invalidate. Those events are rare per file (one per viewer
+    session) and they are the only ones a viewer expects to see move instantly;
+    invalidating on every chunk event would put the aggregate query back on the
+    polling path and defeat the read cache the 5s TTL exists for.
+    """
+    if redis is None:
+        return  # no Redis means no cache layer to drop
+    try:
+        await redis.delete(_public_agg_key(file_id))
+    except Exception:
+        pass  # best-effort: a stale read for 5s is worse than failing the event
 
 
 async def _drain_analytics_buffer_once() -> int:
@@ -428,17 +490,24 @@ async def track_event(
     ):
         return JSONResponse(status_code=202, content={"detail": "Event sampled"})
 
-    # Buffer append — O(1), no DB on the hot path. The background drainer
-    # flushes ANALYTICS_BATCH_SIZE-sized INSERTs every ANALYTICS_FLUSH_INTERVAL.
-    await _enqueue_event(
-        {
-            "file_id": str(event.file_id),
-            "event_type": event.event_type,
-            "bytes_p2p": event.bytes_p2p,
-            "bytes_origin": event.bytes_origin,
-        },
-        redis,
-    )
+    record = {
+        "file_id": str(event.file_id),
+        "event_type": event.event_type,
+        "bytes_p2p": event.bytes_p2p,
+        "bytes_origin": event.bytes_origin,
+    }
+
+    # Views/leaves take the inline path (see _insert_event_now): they are the
+    # live counters, and one INSERT per session is cheaper than making every
+    # viewer watch a ~15s-old number. Chunk events keep the batch buffer — O(1)
+    # append, no DB on the hot path, drained every ANALYTICS_FLUSH_INTERVAL.
+    # A failed inline INSERT (DB hiccup) falls through to the buffer so the
+    # view/leave is not lost.
+    if event.event_type in ANALYTICS_INLINE_EVENTS and await _insert_event_now(record):
+        await _invalidate_public_agg(event.file_id, redis)
+        return {"detail": "Event tracked"}
+
+    await _enqueue_event(record, redis)
 
     return {"detail": "Event tracked"}
 
@@ -505,14 +574,23 @@ async def get_public_analytics(file_id: UUID, request: Request):
         recent.append(now)
         _analytics_get_requests[ip] = recent
 
-    # Read cache (5s TTL): the demo/embed page polls this every 5s per viewer,
-    # so 200k viewers = 40k polls/min. Each poll previously recomputed a full
-    # SUM/COUNT over the file's whole analytics history — an unbounded scan
-    # that got slower as the table grew. A 5s cache bounds the DB to ONE
-    # aggregate query per file per 5s (12/min) no matter how many viewers
-    # poll; a 5s-stale stat is indistinguishable in the UI.
-    read_cache_key = f"analytics:public_agg:{file_id}"
-    cache_headers = {"Cache-Control": "public, max-age=5, stale-while-revalidate=5"}
+    # Read cache (5s TTL): the demo/embed page polls this every few seconds per
+    # viewer, so 200k viewers = tens of thousands of polls a minute. Each poll
+    # previously recomputed a full SUM/COUNT over the file's whole analytics
+    # history — an unbounded scan that got slower as the table grew. A 5s cache
+    # bounds the DB to ONE aggregate query per file per 5s (12/min) no matter
+    # how many viewers poll.
+    #
+    # The cache is INVALIDATED by every join/leave (see _invalidate_public_agg),
+    # so the view/peer counters never lag behind a new viewer — only the byte
+    # totals ride the TTL, where a few stale seconds are invisible.
+    #
+    # no-store, not max-age: these are live counters. Letting the browser (or an
+    # edge cache) hold the JSON for 5s stacked a SECOND stale layer on top of
+    # the server cache and made "total views" look stuck. Freshness has to come
+    # from the server, which is where the load is actually bounded.
+    read_cache_key = _public_agg_key(file_id)
+    cache_headers = {"Cache-Control": "no-store"}
     if redis is not None:
         try:
             cached = await redis.get(read_cache_key)
@@ -580,7 +658,3 @@ async def get_analytics(
             raise HTTPException(status_code=404, detail="File not found")
 
         return await _aggregate_file_analytics(conn, file_id)
-
-
-# 5s TTL for the public aggregate cache (see get_public_analytics).
-ANALYTICS_AGG_CACHE_TTL = 5
