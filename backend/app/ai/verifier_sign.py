@@ -124,7 +124,7 @@ def _domain_value(domain: str) -> str:
 
 
 def ed25519_sign(
-    domain: VerificationVoucherDomain | str,
+    domain: str,
     payload: dict[str, Any],
     *,
     key: str,
