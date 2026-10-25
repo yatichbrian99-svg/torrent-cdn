@@ -18,6 +18,7 @@ used to vouch for a key it does not hold.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -155,7 +156,8 @@ class AttestationService:
     verifiers: dict[AttestationPlatform, AttestationVerifier] = field(
         default_factory=dict
     )
-    clock: object = now_unix
+    # Callable, not object: the service calls it as ``self.clock()``.
+    clock: Callable[[], float] = now_unix
 
     def __post_init__(self) -> None:
         if not self.verifiers and self.settings.allow_simulated_attestation:

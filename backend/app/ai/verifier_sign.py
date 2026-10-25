@@ -113,11 +113,14 @@ def _canonical_payload_bytes(payload: dict[str, Any]) -> bytes:
     ).encode("utf-8")
 
 
-def _domain_value(domain: VerificationVoucherDomain | str) -> str:
-    value = domain.value if isinstance(domain, VerificationVoucherDomain) else domain
-    if not isinstance(value, str) or value not in ALLOWED_DOMAINS:
-        raise ValueError(f"unsupported verification voucher domain: {value!r}")
-    return value
+def _domain_value(domain: str) -> str:
+    # ``VerificationVoucherDomain`` is a plain class of string constants, not an
+    # Enum, so it has no ``.value``. The old isinstance/`.value` branch could
+    # only ever raise AttributeError; mypy found it. Callers always pass one of
+    # the constants (or a raw string), and the allow-list below is the check.
+    if not isinstance(domain, str) or domain not in ALLOWED_DOMAINS:
+        raise ValueError(f"unsupported verification voucher domain: {domain!r}")
+    return domain
 
 
 def ed25519_sign(
