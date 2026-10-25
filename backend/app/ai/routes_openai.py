@@ -1,7 +1,7 @@
 """OpenAI-compatible HTTP surface: ``POST /v1/chat/completions``, ``GET /v1/models``.
 
 Mounted at the application root (not under ``/api/ai/v1``) so an unmodified
-OpenAI client works with ``base_url="https://api.torrentcdn.store/v1"``. The
+OpenAI client works with ``base_url="https://www.torrentcdn.store/v1"``. The
 router is mounted only when ``ENABLE_TCDN_AI`` is on.
 
 Errors are OpenAI-shaped (``{"error": {"message", "type", "param", "code"}}``)
@@ -85,7 +85,9 @@ def openai_error_response(exc: AIError) -> JSONResponse:
     if retry_after:
         headers["Retry-After"] = str(retry_after)
     return JSONResponse(
-        status_code=status, content={"error": openai_error_payload(exc)}, headers=headers
+        status_code=status,
+        content={"error": openai_error_payload(exc)},
+        headers=headers,
     )
 
 
@@ -127,7 +129,9 @@ class _OpenAIRoute(APIRoute):
 router = APIRouter(tags=["tcdn-ai-openai"], route_class=_OpenAIRoute)
 
 
-def _headers(job_id: str | None = None, confidentiality: str | None = None) -> dict[str, str]:
+def _headers(
+    job_id: str | None = None, confidentiality: str | None = None
+) -> dict[str, str]:
     headers = {"Cache-Control": "no-store"}
     if job_id:
         headers["X-TCDN-Job-Id"] = job_id
@@ -202,7 +206,9 @@ async def chat_completions(
         receipt: dict[str, Any] = {}
         yield _sse(
             chunk_body(
-                job_id=stream.job_id, model=stream.model, delta={"role": "assistant", "content": ""}
+                job_id=stream.job_id,
+                model=stream.model,
+                delta={"role": "assistant", "content": ""},
             )
         )
         item: tuple[str, Any] | None = first
@@ -213,7 +219,9 @@ async def chat_completions(
                     pieces.append(value)
                     yield _sse(
                         chunk_body(
-                            job_id=stream.job_id, model=stream.model, delta={"content": value}
+                            job_id=stream.job_id,
+                            model=stream.model,
+                            delta={"content": value},
                         )
                     )
                 elif kind == "final":
@@ -258,7 +266,9 @@ async def chat_completions(
         )
         if parsed.include_usage:
             yield _sse(
-                chunk_body(job_id=stream.job_id, model=stream.model, delta={}, usage=usage)
+                chunk_body(
+                    job_id=stream.job_id, model=stream.model, delta={}, usage=usage
+                )
             )
         yield _sse("[DONE]")
 

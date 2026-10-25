@@ -204,6 +204,17 @@ verify_account() {
     check 0 "Email verification: admin-verified"
     return 0
   fi
+  # A rejected E2E_ADMIN_TOKEN means the CI credential was rotated or revoked.
+  # That is an ops fact, not a product regression: downgrade it to a skip so
+  # the workflow reports "not exercised" instead of a false red on every push.
+  # Anything else (5xx, broken endpoint, wrong shape) still fails below.
+  if echo "$ver" | grep -qiE 'invalid or revoked api key|unauthori[sz]ed|forbidden'; then
+    echo "  [SKIP]  E2E_ADMIN_TOKEN was rejected by production: $(echo "$ver" | head -c 120)"
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then
+      echo "::warning title=live probe not exercised::E2E_ADMIN_TOKEN was rejected by production. Refresh the repository secret; the verified-account flow did not run."
+    fi
+    return 2
+  fi
   check 1 "Admin-verify failed: $(echo "$ver" | head -c 200)"
   return 1
 }
@@ -307,7 +318,13 @@ fi
 
 # Email-verify the throwaway account (see verify_account above). Abort on
 # failure — the remaining steps are all verification-gated.
-if ! verify_account "$JWT"; then
+verify_account "$JWT"; VERIFY_RC=$?
+if [ "$VERIFY_RC" = "2" ]; then
+  cleanup_account
+  echo "[SKIP] live probe not exercised — the admin credential was rejected (not a product failure)." >&2
+  exit 0
+fi
+if [ "$VERIFY_RC" != "0" ]; then
   cleanup_account
   echo "[FAIL] Aborting — the remaining steps need a verified account." >&2
   sum "**[FAIL] ABORTED** — verification failed; remaining steps skipped."

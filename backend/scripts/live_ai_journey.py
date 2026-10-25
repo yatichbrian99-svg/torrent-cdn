@@ -135,7 +135,10 @@ async def run(args: argparse.Namespace) -> dict:
     client = httpx.Client(base_url=base, timeout=60.0)
     pool = await asyncpg.create_pool(args.database_url, min_size=1, max_size=4)
     email = f"journey-{uuid.uuid4().hex[:10]}@example.test"
-    password = "Journey-pass-9812"
+    # Generated per run: the account is disposable, one per journey, and a
+    # literal password in a committed script is indistinguishable from a leak
+    # to a secrets scanner (gitleaks flagged exactly this line).
+    password = f"Journey-{uuid.uuid4().hex[:16]}-Aa1!"
     worker = None
 
     def step(name: str, detail: object = None) -> None:
