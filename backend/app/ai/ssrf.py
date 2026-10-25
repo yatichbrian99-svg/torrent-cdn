@@ -103,5 +103,6 @@ def validate_url(url: str, *, allowed_hosts: tuple[str, ...]) -> PinnedTarget:
                 "origin resolves to a non-public address", code="ssrf_blocked"
             )
         if pinned is None:
-            pinned = address
+            # getaddrinfo types the address entry as a union; it is a string here.
+            pinned = str(address)
     return PinnedTarget(url=url, host=host, port=port, ip=pinned or "")

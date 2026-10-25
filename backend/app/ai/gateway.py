@@ -28,7 +28,7 @@ import json
 import logging
 import os
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -355,7 +355,9 @@ class GatewayStream:
     job_id: str
     model: str
     tcdn: dict[str, Any]
-    events: AsyncIterator[tuple[str, Any]]
+    # AsyncGenerator, not AsyncIterator: the route pulls one frame before
+    # committing to a 200 and closes the stream with ``aclose()``.
+    events: AsyncGenerator[tuple[str, Any], None]
 
 
 @dataclass
