@@ -15,7 +15,12 @@ name: "CI: Full-stack Docker audit"
 # caught by the failing gates).
 on:
   push:
-    branches: [main]
+    # fix/tcdn-ai-redis-replay-nonce is listed ONLY so the TCDN-AI trial push
+    # produces a real run. Every workflow in this repo gates push to main, and
+    # this one has no workflow_dispatch on the default branch, so a feature
+    # branch could not otherwise be exercised at all. Remove the branch before
+    # this merges.
+    branches: [main, fix/tcdn-ai-redis-replay-nonce]
     paths:
       - "backend/**"
       - "Caddyfile"
