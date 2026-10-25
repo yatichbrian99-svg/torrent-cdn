@@ -145,8 +145,9 @@ class PriceTable:
         lookup_at = min(at, price_lock_until) if price_lock_until is not None else at
         row = self.price_at(model_id, lookup_at)
         input_rate, output_rate = (
-            row.with_uplift(uplift_pct) if confidential else
-            (row.input_micro_per_mtok, row.output_micro_per_mtok)
+            row.with_uplift(uplift_pct)
+            if confidential
+            else (row.input_micro_per_mtok, row.output_micro_per_mtok)
         )
         return Quote(
             model_id=model_id,

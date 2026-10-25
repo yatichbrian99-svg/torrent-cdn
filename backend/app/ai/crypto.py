@@ -133,7 +133,9 @@ def ed25519_public_from_private(private_b64: str) -> str:
     try:
         key = Ed25519PrivateKey.from_private_bytes(b64d(private_b64))
     except (ValueError, TypeError) as exc:
-        raise CryptoError("malformed Ed25519 private key", code="malformed_key") from exc
+        raise CryptoError(
+            "malformed Ed25519 private key", code="malformed_key"
+        ) from exc
     return b64e(key.public_key().public_bytes_raw())
 
 
@@ -146,11 +148,15 @@ def sign(domain: str, payload: dict[str, Any], private_b64: str) -> str:
     try:
         key = Ed25519PrivateKey.from_private_bytes(b64d(private_b64))
     except (ValueError, TypeError) as exc:
-        raise CryptoError("malformed Ed25519 private key", code="malformed_key") from exc
+        raise CryptoError(
+            "malformed Ed25519 private key", code="malformed_key"
+        ) from exc
     return b64e(key.sign(domain_message(domain, payload)))
 
 
-def verify(domain: str, payload: dict[str, Any], signature_b64: str, public_b64: str) -> bool:
+def verify(
+    domain: str, payload: dict[str, Any], signature_b64: str, public_b64: str
+) -> bool:
     try:
         key = Ed25519PublicKey.from_public_bytes(b64d(public_b64))
         key.verify(b64d(signature_b64), domain_message(domain, payload))
@@ -180,7 +186,9 @@ def x25519_shared_secret(private_b64: str, peer_public_b64: str) -> bytes:
     if not secret or secret == b"\x00" * KEY_BYTES:
         # Low-order / all-zero shared secret: reject rather than derive a key
         # an attacker also knows.
-        raise CryptoError("key agreement produced a degenerate secret", code="key_agreement_failed")
+        raise CryptoError(
+            "key agreement produced a degenerate secret", code="key_agreement_failed"
+        )
     return secret
 
 
@@ -190,10 +198,12 @@ def hkdf_sha256(
     if not salt:
         raise CryptoError("HKDF salt must be supplied", code="bad_kdf_parameters")
     if not info:
-        raise CryptoError("HKDF info must be supplied (domain separation)", code="bad_kdf_parameters")
-    return HKDF(
-        algorithm=hashes.SHA256(), length=length, salt=salt, info=info
-    ).derive(secret)
+        raise CryptoError(
+            "HKDF info must be supplied (domain separation)", code="bad_kdf_parameters"
+        )
+    return HKDF(algorithm=hashes.SHA256(), length=length, salt=salt, info=info).derive(
+        secret
+    )
 
 
 def derive_session_keys(
@@ -234,7 +244,9 @@ def aead_decrypt(key: bytes, blob: bytes, aad: bytes) -> bytes:
         return AESGCM(key).decrypt(nonce, ciphertext, aad)
     except (InvalidTag, ValueError) as exc:
         # Do not distinguish tampering from a wrong key: both are rejections.
-        raise CryptoError("AEAD authentication failed", code="aead_auth_failed") from exc
+        raise CryptoError(
+            "AEAD authentication failed", code="aead_auth_failed"
+        ) from exc
 
 
 # ── API keys ────────────────────────────────────────────────────────────────

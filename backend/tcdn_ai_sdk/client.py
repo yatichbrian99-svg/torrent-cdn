@@ -149,13 +149,16 @@ class Client:
         self.api_key = api_key or os.environ.get("TCDN_AI_API_KEY", "")
         if not self.api_key:
             raise AuthenticationError(
-                "no API key: pass api_key= or set TCDN_AI_API_KEY", code="missing_api_key"
+                "no API key: pass api_key= or set TCDN_AI_API_KEY",
+                code="missing_api_key",
             )
         self.base_url = base_url.rstrip("/")
         self._assert_transport_security(self.base_url)
         self.timeout = timeout
         self.max_retries = max(0, max_retries)
-        self._pinned_keys = dict(coordinator_public_keys) if coordinator_public_keys else None
+        self._pinned_keys = (
+            dict(coordinator_public_keys) if coordinator_public_keys else None
+        )
         self._tofu = False
         self._worker_transport = worker_transport
         self._http = http_client or httpx.Client(
@@ -192,10 +195,15 @@ class Client:
         for attempt in range(self.max_retries + 1):
             try:
                 response = self._http.request(
-                    method, f"{self.base_url}{path}", headers=self._headers(), json=json_body
+                    method,
+                    f"{self.base_url}{path}",
+                    headers=self._headers(),
+                    json=json_body,
                 )
             except httpx.HTTPError as exc:
-                last_error = WorkerUnavailableError(f"coordinator unreachable: {type(exc).__name__}")
+                last_error = WorkerUnavailableError(
+                    f"coordinator unreachable: {type(exc).__name__}"
+                )
             else:
                 if response.status_code < 400:
                     return response.json()
@@ -270,7 +278,9 @@ class Client:
             bundle["sig"],
         ):
             raise TicketVerificationError("coordinator key bundle signature is invalid")
-        self._pinned_keys = {key["key_id"]: key["public_key"] for key in payload["keys"]}
+        self._pinned_keys = {
+            key["key_id"]: key["public_key"] for key in payload["keys"]
+        }
         self._tofu = True
         logger.warning(
             "TCDN-AI coordinator keys pinned via TOFU; pass coordinator_public_keys "
@@ -296,19 +306,25 @@ class Client:
                 code="coordinator_keys_not_pinned",
             )
         if not _crypto.verify_ed25519(
-            public, _crypto.domain_message(TICKET_DOMAIN, payload), str(document.get("sig", ""))
+            public,
+            _crypto.domain_message(TICKET_DOMAIN, payload),
+            str(document.get("sig", "")),
         ):
             raise TicketVerificationError("placement ticket signature is invalid")
         now = int(time.time())
         if int(payload.get("expires_at", 0)) + 5 < now:
-            raise TicketVerificationError("placement ticket has expired", code="ticket_expired")
+            raise TicketVerificationError(
+                "placement ticket has expired", code="ticket_expired"
+            )
         if int(payload.get("issued_at", 0)) > now + 5:
             raise TicketVerificationError("placement ticket is from the future")
         if not payload.get("worker_public_key"):
             raise TicketVerificationError("placement ticket has no worker key")
         expected_tier = "confidential" if confidential else "standard"
         if payload.get("tier") != expected_tier:
-            raise TicketVerificationError("placement ticket tier does not match the request")
+            raise TicketVerificationError(
+                "placement ticket tier does not match the request"
+            )
         return payload
 
     # ── one request end to end ─────────────────────────────────────────────
@@ -341,7 +357,9 @@ class Client:
             "latency_target_ms": latency_target_ms,
             "max_price_micro": max_price_micro,
         }
-        placement = self._request("POST", "/api/ai/v1/placements", json_body=placement_body)
+        placement = self._request(
+            "POST", "/api/ai/v1/placements", json_body=placement_body
+        )
         job_id = placement["job_id"]
         ticket = placement["ticket"]
         payload = self._verify_ticket(ticket, confidential=confidential)
@@ -372,7 +390,9 @@ class Client:
                 **extra,
             }
         )
-        ciphertext = _crypto.aead_encrypt(c2w, request_plaintext, request_aad(job_id, ticket_digest))
+        ciphertext = _crypto.aead_encrypt(
+            c2w, request_plaintext, request_aad(job_id, ticket_digest)
+        )
         worker_payload = {
             "job_id": job_id,
             "ticket": ticket,
@@ -397,10 +417,12 @@ class Client:
         def finalize(collected: list[str], receipt: dict) -> ChatCompletion:
             text = "".join(collected)
             output_sha = _crypto.sha256_hex(text.encode("utf-8"))
-            completion_tokens = int(receipt.get("payload", {}).get("output_tokens", 0)) or len(collected)
-            prompt_tokens = int(receipt.get("payload", {}).get("input_tokens", 0)) or _estimate_tokens(
-                prompt_text
-            )
+            completion_tokens = int(
+                receipt.get("payload", {}).get("output_tokens", 0)
+            ) or len(collected)
+            prompt_tokens = int(
+                receipt.get("payload", {}).get("input_tokens", 0)
+            ) or _estimate_tokens(prompt_text)
             self._submit_ack(job_id, completion_tokens, output_sha)
             return ChatCompletion(
                 id=f"chatcmpl-{job_id}",
@@ -437,11 +459,18 @@ class Client:
                     # No output consumed yet: re-place on a new worker.
                     time.sleep(self._backoff(_retry))
                     return self._execute(
-                        model=model, messages=messages, stream=stream,
-                        temperature=temperature, top_p=top_p, max_tokens=max_tokens,
-                        stop=stop, confidential=confidential,
-                        max_price_micro=max_price_micro, region=region,
-                        latency_target_ms=latency_target_ms, extra=extra,
+                        model=model,
+                        messages=messages,
+                        stream=stream,
+                        temperature=temperature,
+                        top_p=top_p,
+                        max_tokens=max_tokens,
+                        stop=stop,
+                        confidential=confidential,
+                        max_price_micro=max_price_micro,
+                        region=region,
+                        latency_target_ms=latency_target_ms,
+                        extra=extra,
                         _retry=_retry + 1,
                     )
                 if collected:
@@ -480,11 +509,18 @@ class Client:
                 if not collected and _retry < self.max_retries:
                     time.sleep(self._backoff(_retry))
                     replacement, _ = self._execute(
-                        model=model, messages=messages, stream=stream,
-                        temperature=temperature, top_p=top_p, max_tokens=max_tokens,
-                        stop=stop, confidential=confidential,
-                        max_price_micro=max_price_micro, region=region,
-                        latency_target_ms=latency_target_ms, extra=extra,
+                        model=model,
+                        messages=messages,
+                        stream=stream,
+                        temperature=temperature,
+                        top_p=top_p,
+                        max_tokens=max_tokens,
+                        stop=stop,
+                        confidential=confidential,
+                        max_price_micro=max_price_micro,
+                        region=region,
+                        latency_target_ms=latency_target_ms,
+                        extra=extra,
                         _retry=_retry + 1,
                     )
                     yield from replacement  # type: ignore[misc]
@@ -497,12 +533,12 @@ class Client:
                     ) from exc
                 raise
             output_sha = _crypto.sha256_hex("".join(collected).encode("utf-8"))
-            completion_tokens = int(receipt.get("payload", {}).get("output_tokens", 0)) or len(
-                collected
-            )
-            prompt_tokens = int(receipt.get("payload", {}).get("input_tokens", 0)) or _estimate_tokens(
-                prompt_text
-            )
+            completion_tokens = int(
+                receipt.get("payload", {}).get("output_tokens", 0)
+            ) or len(collected)
+            prompt_tokens = int(
+                receipt.get("payload", {}).get("input_tokens", 0)
+            ) or _estimate_tokens(prompt_text)
             self._submit_ack(job_id, completion_tokens, output_sha)
             yield ChatCompletionChunk(
                 id=f"chatcmpl-{job_id}",
@@ -543,6 +579,7 @@ class Client:
             if isinstance(result, (bytes, bytearray)):
                 return [bytes(result)]
             return result
+
         def generate() -> Iterator[bytes]:
             try:
                 with self._http.stream(
@@ -564,7 +601,9 @@ class Client:
 
         return generate()
 
-    def _submit_ack(self, job_id: str, tokens_received: int, output_sha256: str) -> None:
+    def _submit_ack(
+        self, job_id: str, tokens_received: int, output_sha256: str
+    ) -> None:
         body = {
             "job_id": job_id,
             "tokens_received": tokens_received,
@@ -623,11 +662,17 @@ class Completions:
             raise InvalidRequestError("messages must be a non-empty list")
         normalized: list[dict] = []
         for message in messages:
-            if not isinstance(message, dict) or "role" not in message or "content" not in message:
+            if (
+                not isinstance(message, dict)
+                or "role" not in message
+                or "content" not in message
+            ):
                 raise InvalidRequestError("each message needs role and content")
             if message["role"] not in {"system", "user", "assistant"}:
                 raise InvalidRequestError("unsupported message role")
-            normalized.append({"role": message["role"], "content": str(message["content"])})
+            normalized.append(
+                {"role": message["role"], "content": str(message["content"])}
+            )
         stop_list = [stop] if isinstance(stop, str) else list(stop or [])
         return self._client._execute(
             model=model,

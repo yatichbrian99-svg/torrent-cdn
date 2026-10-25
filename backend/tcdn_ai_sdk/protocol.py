@@ -69,19 +69,33 @@ def b64d(value: str) -> bytes:
     if not isinstance(value, str) or not value:
         raise ProtocolError("malformed base64 value")
     try:
-        return base64.urlsafe_b64decode((value + "=" * (-len(value) % 4)).encode("ascii"))
+        return base64.urlsafe_b64decode(
+            (value + "=" * (-len(value) % 4)).encode("ascii")
+        )
     except (binascii.Error, ValueError, UnicodeEncodeError) as exc:
         raise ProtocolError("malformed base64 value") from exc
 
 
 def request_aad(job_id: str, ticket_hash: str) -> bytes:
-    return REQUEST_AAD_PREFIX + b"|" + job_id.encode("utf-8") + b"|" + ticket_hash.encode("ascii")
+    return (
+        REQUEST_AAD_PREFIX
+        + b"|"
+        + job_id.encode("utf-8")
+        + b"|"
+        + ticket_hash.encode("ascii")
+    )
 
 
 def stream_aad(job_id: str, sequence: int) -> bytes:
     if sequence < 0:
         raise ProtocolError("negative frame sequence")
-    return STREAM_AAD_PREFIX + b"|" + job_id.encode("utf-8") + b"|" + str(sequence).encode("ascii")
+    return (
+        STREAM_AAD_PREFIX
+        + b"|"
+        + job_id.encode("utf-8")
+        + b"|"
+        + str(sequence).encode("ascii")
+    )
 
 
 def session_context(job_id: str) -> str:

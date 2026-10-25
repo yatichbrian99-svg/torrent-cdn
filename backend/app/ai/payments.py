@@ -46,7 +46,9 @@ class PaymentProvider(Protocol):
 class FakePaymentProvider:
     name = "fake"
 
-    def __init__(self, *, allow: bool, secret: str = "dev-only-fake-webhook-secret") -> None:
+    def __init__(
+        self, *, allow: bool, secret: str = "dev-only-fake-webhook-secret"
+    ) -> None:
         if not allow:
             raise RuntimeError("FakePaymentProvider is disabled in this environment")
         self._secret = secret.encode()
@@ -54,16 +56,22 @@ class FakePaymentProvider:
     def verify_webhook(self, body: bytes, signature: str) -> PaymentEvent:
         expected = hmac.new(self._secret, body, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, signature or ""):
-            raise AuthenticationError("invalid webhook signature", code="bad_webhook_signature")
+            raise AuthenticationError(
+                "invalid webhook signature", code="bad_webhook_signature"
+            )
         try:
             payload = json.loads(body)
             account_id = payload["data"]["metadata"]["account_id"]
             reference = payload["data"]["reference"]
             amount_micro = int(payload["data"]["amount_micro"])
         except (ValueError, KeyError, TypeError) as exc:
-            raise ValidationError("malformed payment event", code="invalid_payment_event") from exc
+            raise ValidationError(
+                "malformed payment event", code="invalid_payment_event"
+            ) from exc
         if amount_micro <= 0:
-            raise ValidationError("payment amount must be positive", code="invalid_payment_event")
+            raise ValidationError(
+                "payment amount must be positive", code="invalid_payment_event"
+            )
         return PaymentEvent(
             provider=self.name,
             reference=reference,
@@ -79,21 +87,29 @@ class PaystackPaymentProvider:
 
     def __init__(self, secret_key: str, *, webhook_secret: str | None = None) -> None:
         if not secret_key:
-            raise ValidationError("Paystack secret key is required", code="missing_provider_key")
+            raise ValidationError(
+                "Paystack secret key is required", code="missing_provider_key"
+            )
         # Paystack signs webhooks with the account's secret key.
         self._webhook_secret = (webhook_secret or secret_key).encode()
 
     def verify_webhook(self, body: bytes, signature: str) -> PaymentEvent:
         expected = hmac.new(self._webhook_secret, body, hashlib.sha512).hexdigest()
         if not hmac.compare_digest(expected, signature or ""):
-            raise AuthenticationError("invalid webhook signature", code="bad_webhook_signature")
+            raise AuthenticationError(
+                "invalid webhook signature", code="bad_webhook_signature"
+            )
         try:
             payload = json.loads(body)
         except ValueError as exc:
-            raise ValidationError("malformed payment event", code="invalid_payment_event") from exc
+            raise ValidationError(
+                "malformed payment event", code="invalid_payment_event"
+            ) from exc
 
         if payload.get("event") != "charge.success":
-            raise ValidationError("unsupported payment event", code="unsupported_payment_event")
+            raise ValidationError(
+                "unsupported payment event", code="unsupported_payment_event"
+            )
         data = payload.get("data") or {}
         metadata = data.get("metadata") or {}
         account_id = metadata.get("account_id")
@@ -101,16 +117,21 @@ class PaystackPaymentProvider:
         currency = str(data.get("currency", "")).upper()
         amount_minor = data.get("amount")
         if not account_id or not reference or not isinstance(amount_minor, int):
-            raise ValidationError("payment event is missing required fields", code="invalid_payment_event")
+            raise ValidationError(
+                "payment event is missing required fields", code="invalid_payment_event"
+            )
         if currency != "USD":
             # Credits are USD-pegged by definition; accepting another currency
             # would need an FX rate and is deliberately refused.
             raise ValidationError(
-                "only USD payments can be converted to credits", code="unsupported_currency"
+                "only USD payments can be converted to credits",
+                code="unsupported_currency",
             )
         amount_micro = amount_minor * MICRO_PER_USD_CENT
         if amount_micro <= 0:
-            raise ValidationError("payment amount must be positive", code="invalid_payment_event")
+            raise ValidationError(
+                "payment amount must be positive", code="invalid_payment_event"
+            )
         return PaymentEvent(
             provider=self.name,
             reference=str(reference),
@@ -121,7 +142,9 @@ class PaystackPaymentProvider:
         )
 
 
-def get_payment_provider(settings: AISettings, *, secret_key: str = "") -> PaymentProvider:
+def get_payment_provider(
+    settings: AISettings, *, secret_key: str = ""
+) -> PaymentProvider:
     if settings.payment_provider == "fake":
         return FakePaymentProvider(allow=not settings.is_production)
     return PaystackPaymentProvider(secret_key)

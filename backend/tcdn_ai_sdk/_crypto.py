@@ -53,7 +53,9 @@ def domain_message(domain: str, payload: dict) -> bytes:
 
 def new_x25519() -> tuple[str, str]:
     private = X25519PrivateKey.generate()
-    return b64e(private.private_bytes_raw()), b64e(private.public_key().public_bytes_raw())
+    return b64e(private.private_bytes_raw()), b64e(
+        private.public_key().public_bytes_raw()
+    )
 
 
 def shared_secret(private_b64: str, peer_public_b64: str) -> bytes:

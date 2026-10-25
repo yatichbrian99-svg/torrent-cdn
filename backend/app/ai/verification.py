@@ -59,9 +59,7 @@ class VerificationSampler:
         )
 
 
-def resolve_executions(
-    *, job_id: str, outputs: dict[str, str]
-) -> VerificationOutcome:
+def resolve_executions(*, job_id: str, outputs: dict[str, str]) -> VerificationOutcome:
     """Compare output hashes from independent workers.
 
     ``outputs`` maps worker node id → output SHA-256.

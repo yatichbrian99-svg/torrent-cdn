@@ -67,9 +67,7 @@ class Selection:
     rejected: dict[str, int] = field(default_factory=dict)
 
 
-def _reject_reason(
-    node: WorkerCandidate, req: Requirements, now: int
-) -> str | None:
+def _reject_reason(node: WorkerCandidate, req: Requirements, now: int) -> str | None:
     if node.suspended:
         return "suspended"
     if not node.healthy:
@@ -82,9 +80,15 @@ def _reject_reason(
         return "insufficient_vram"
     if req.region is not None and node.region != req.region:
         return "region_mismatch"
-    if req.latency_target_ms is not None and node.latency_ms_p95 > req.latency_target_ms:
+    if (
+        req.latency_target_ms is not None
+        and node.latency_ms_p95 > req.latency_target_ms
+    ):
         return "latency_target_missed"
-    if req.max_price_micro is not None and node.price_micro_per_mtok > req.max_price_micro:
+    if (
+        req.max_price_micro is not None
+        and node.price_micro_per_mtok > req.max_price_micro
+    ):
         return "price_above_cap"
     if node.load >= 0.99:
         return "at_capacity"
@@ -103,7 +107,9 @@ def _reject_reason(
 
 def score(node: WorkerCandidate, req: Requirements) -> float:
     """Higher is better. Reputation dominates, then price, latency, and load."""
-    price_penalty = min(1.0, node.price_micro_per_mtok / 50_000_000)  # 50 credits/1M = max
+    price_penalty = min(
+        1.0, node.price_micro_per_mtok / 50_000_000
+    )  # 50 credits/1M = max
     latency_penalty = min(1.0, node.latency_ms_p95 / 2000.0)
     region_bonus = 0.15 if req.region and node.region == req.region else 0.0
     return round(

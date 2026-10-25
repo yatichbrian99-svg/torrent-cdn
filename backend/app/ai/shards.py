@@ -37,7 +37,9 @@ _UNSAFE_FORMATS = frozenset({"pickle", "pkl", "pt", "pth", "bin", "gguf-unsafe"}
 
 
 def _hash_pair(left_hex: str, right_hex: str) -> str:
-    return hashlib.sha256(bytes.fromhex(left_hex) + bytes.fromhex(right_hex)).hexdigest()
+    return hashlib.sha256(
+        bytes.fromhex(left_hex) + bytes.fromhex(right_hex)
+    ).hexdigest()
 
 
 def merkle_root(leaf_hashes: list[str]) -> str:
@@ -65,7 +67,10 @@ def merkle_proof(leaf_hashes: list[str], index: int) -> list[dict[str, str]]:
             level.append(level[-1])
         sibling = position ^ 1
         proof.append(
-            {"position": "right" if sibling > position else "left", "hash": level[sibling]}
+            {
+                "position": "right" if sibling > position else "left",
+                "hash": level[sibling],
+            }
         )
         level = [_hash_pair(level[i], level[i + 1]) for i in range(0, len(level), 2)]
         position //= 2
@@ -77,7 +82,11 @@ def verify_merkle_proof(leaf_hex: str, proof: list[dict[str, str]], root: str) -
     # validated before use: a non-string digest makes ``bytes.fromhex`` raise
     # TypeError, which would otherwise escape as an unhandled 500/DoS rather
     # than a clean rejection.
-    if not isinstance(leaf_hex, str) or not isinstance(root, str) or not isinstance(proof, list):
+    if (
+        not isinstance(leaf_hex, str)
+        or not isinstance(root, str)
+        or not isinstance(proof, list)
+    ):
         return False
     if len(leaf_hex) != 64 or len(root) != 64:
         return False
@@ -143,7 +152,9 @@ class ModelManifestPayload(BaseModel):
 
     @property
     def manifest_hash(self) -> str:
-        return hashlib.sha256(crypto.canonical_json(self.model_dump(mode="json"))).hexdigest()
+        return hashlib.sha256(
+            crypto.canonical_json(self.model_dump(mode="json"))
+        ).hexdigest()
 
 
 def build_manifest(
@@ -188,11 +199,19 @@ def verify_manifest(
     try:
         manifest = ModelManifestPayload(**payload)
     except (ValueError, TypeError) as exc:
-        raise ValidationError("manifest is malformed or unsafe", code="invalid_manifest") from exc
+        raise ValidationError(
+            "manifest is malformed or unsafe", code="invalid_manifest"
+        ) from exc
     if manifest.total_size > max_model_bytes:
-        raise ValidationError("manifest exceeds the configured model size cap", code="manifest_too_large")
-    if manifest.format in _UNSAFE_FORMATS:  # defence in depth; model validation already refuses
-        raise ValidationError("model format is not permitted", code="unsafe_model_format")
+        raise ValidationError(
+            "manifest exceeds the configured model size cap", code="manifest_too_large"
+        )
+    if (
+        manifest.format in _UNSAFE_FORMATS
+    ):  # defence in depth; model validation already refuses
+        raise ValidationError(
+            "model format is not permitted", code="unsafe_model_format"
+        )
     return manifest
 
 
@@ -263,7 +282,8 @@ class DiskSink:
             path.unlink(missing_ok=True)
         if self._used_bytes() + needed > self.quota_bytes:
             raise UnavailableError(
-                "seeder disk quota cannot accommodate the shard", code="disk_quota_exceeded"
+                "seeder disk quota cannot accommodate the shard",
+                code="disk_quota_exceeded",
             )
 
     def put_shard(self, index: int, data: bytes) -> None:
@@ -271,7 +291,9 @@ class DiskSink:
         if target.exists():
             target.unlink()
         self._evict_for(len(data))
-        fd, temp_name = tempfile.mkstemp(dir=self.root, prefix=".shard-", suffix=".part")
+        fd, temp_name = tempfile.mkstemp(
+            dir=self.root, prefix=".shard-", suffix=".part"
+        )
         try:
             with os.fdopen(fd, "wb") as handle:
                 handle.write(data)
@@ -389,14 +411,19 @@ class SwarmFetcher:
                 continue
 
             actual = hashlib.sha256(data).hexdigest()
-            if not crypto.constant_time_eq(actual, spec.sha256) or len(data) != spec.size:
+            if (
+                not crypto.constant_time_eq(actual, spec.sha256)
+                or len(data) != spec.size
+            ):
                 # Corrupt payload: never written, sender banned for this fetch.
                 async with self._lock:
                     self._banned.add(peer.peer_id)
                     self.report.corrupt_peers.add(peer.peer_id)
                 if self.penalty is not None:
                     self.penalty(peer.peer_id, f"corrupt shard {spec.index}")
-                last_error = ValidationError("shard failed integrity verification", code="corrupt_shard")
+                last_error = ValidationError(
+                    "shard failed integrity verification", code="corrupt_shard"
+                )
                 continue
 
             self.sink.put_shard(spec.index, data)
@@ -409,7 +436,10 @@ class SwarmFetcher:
         raise UnavailableError(
             f"shard {spec.index} could not be fetched from any trusted peer",
             code="shard_unavailable",
-            details={"shard": spec.index, "error": type(last_error).__name__ if last_error else None},
+            details={
+                "shard": spec.index,
+                "error": type(last_error).__name__ if last_error else None,
+            },
         )
 
     async def fetch_all(self) -> FetchReport:

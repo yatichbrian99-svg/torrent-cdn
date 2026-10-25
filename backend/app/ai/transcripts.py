@@ -56,7 +56,9 @@ def prompt_hash(job_id: str, messages: Sequence[dict[str, Any]]) -> str:
 class TranscriptRecorder:
     """Accumulates per-token records in generation order."""
 
-    def __init__(self, *, top_k: int = MAX_TOP_K, max_records: int = MAX_RECORDS) -> None:
+    def __init__(
+        self, *, top_k: int = MAX_TOP_K, max_records: int = MAX_RECORDS
+    ) -> None:
         if top_k < 1:
             raise ValueError("top_k must be at least 1")
         self.top_k = top_k
@@ -211,7 +213,9 @@ class EncryptedTranscriptStore:
     def purge_expired(self) -> int:
         now = int(self._clock())
         with self._lock:
-            expired = [key for key, (_, expires_at) in self._items.items() if now >= expires_at]
+            expired = [
+                key for key, (_, expires_at) in self._items.items() if now >= expires_at
+            ]
             for key in expired:
                 del self._items[key]
             return len(expired)

@@ -121,7 +121,9 @@ def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4) if text else 0
 
 
-def _invalid(message: str, *, param: str | None, code: str = "invalid_request") -> ValidationError:
+def _invalid(
+    message: str, *, param: str | None, code: str = "invalid_request"
+) -> ValidationError:
     details: dict[str, Any] = {}
     if param:
         details["param"] = param
@@ -139,7 +141,9 @@ def _check_messages(messages: Any, settings: AISettings) -> list[dict[str, str]]
     total_chars = 0
     for index, message in enumerate(messages):
         if not isinstance(message, dict):
-            raise _invalid(f"messages[{index}] must be an object", param=f"messages[{index}]")
+            raise _invalid(
+                f"messages[{index}] must be an object", param=f"messages[{index}]"
+            )
         role = message.get("role")
         if role not in {"system", "user", "assistant"}:
             raise _invalid(
@@ -193,7 +197,11 @@ def parse_chat_request(body: Any, settings: AISettings) -> ChatRequest:
 
     for key, reason in UNSUPPORTED_PARAMS.items():
         if body.get(key) is not None:
-            raise _invalid(f"{key} is not supported: {reason}", param=key, code="unsupported_parameter")
+            raise _invalid(
+                f"{key} is not supported: {reason}",
+                param=key,
+                code="unsupported_parameter",
+            )
     unknown = sorted(set(body) - ALLOWED_PARAMS)
     if unknown:
         raise _invalid(
@@ -229,7 +237,8 @@ def parse_chat_request(body: Any, settings: AISettings) -> ChatRequest:
             # OpenAI ignores stream_options without stream; accepting it silently
             # would be the kind of quiet divergence this repo forbids.
             raise _invalid(
-                "stream_options.include_usage requires stream=true", param="stream_options"
+                "stream_options.include_usage requires stream=true",
+                param="stream_options",
             )
 
     n = body.get("n")
@@ -241,7 +250,11 @@ def parse_chat_request(body: Any, settings: AISettings) -> ChatRequest:
         max_tokens = body.get("max_completion_tokens")
     if max_tokens is None:
         max_tokens = 512
-    if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens < 1:
+    if (
+        isinstance(max_tokens, bool)
+        or not isinstance(max_tokens, int)
+        or max_tokens < 1
+    ):
         raise _invalid("max_tokens must be a positive integer", param="max_tokens")
     if max_tokens > settings.max_tokens_per_request:
         raise _invalid(
@@ -287,7 +300,9 @@ def parse_chat_request(body: Any, settings: AISettings) -> ChatRequest:
 WorkerTransport = Callable[[str, dict[str, Any]], AsyncIterator[bytes]]
 
 
-async def http_worker_transport(endpoint: str, payload: dict[str, Any]) -> AsyncIterator[bytes]:
+async def http_worker_transport(
+    endpoint: str, payload: dict[str, Any]
+) -> AsyncIterator[bytes]:
     """POST an encrypted job to a worker over TLS 1.3 and yield raw frames."""
     url = endpoint.rstrip("/") + "/v1/jobs"
     parsed = urlparse(url)
@@ -297,7 +312,8 @@ async def http_worker_transport(endpoint: str, payload: dict[str, Any]) -> Async
         # development worker. A remote worker over HTTP would expose ciphertext
         # and metadata, and would let a network attacker swap frames.
         raise UnavailableError(
-            "worker endpoint must use https (except loopback)", code="insecure_worker_endpoint"
+            "worker endpoint must use https (except loopback)",
+            code="insecure_worker_endpoint",
         )
 
     if secure:
@@ -326,7 +342,8 @@ async def http_worker_transport(endpoint: str, payload: dict[str, Any]) -> Async
                         yield chunk
         except httpx.HTTPError as exc:
             raise UnavailableError(
-                f"worker connection failed: {type(exc).__name__}", code="worker_unreachable"
+                f"worker connection failed: {type(exc).__name__}",
+                code="worker_unreachable",
             ) from exc
 
 
@@ -399,7 +416,9 @@ class Gateway:
             claim_replay=False,
             now=int(self._clock()),
         )
-        if not crypto.constant_time_eq(ticket.worker_public_key, placement.worker_public_key):
+        if not crypto.constant_time_eq(
+            ticket.worker_public_key, placement.worker_public_key
+        ):
             raise ValidationError(
                 "placement ticket does not match the returned worker key",
                 code="ticket_worker_mismatch",
@@ -588,7 +607,14 @@ def chunk_body(
         "choices": (
             []
             if usage is not None and not delta and finish_reason is None
-            else [{"index": 0, "delta": delta, "logprobs": None, "finish_reason": finish_reason}]
+            else [
+                {
+                    "index": 0,
+                    "delta": delta,
+                    "logprobs": None,
+                    "finish_reason": finish_reason,
+                }
+            ]
         ),
     }
     if usage is not None:

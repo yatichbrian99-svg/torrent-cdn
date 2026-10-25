@@ -354,11 +354,15 @@ class Store(Protocol):
 
     async def list_jobs(self, account_id: str, limit: int = 100) -> list[JobRecord]: ...
 
-    async def place_hold(self, job_id: str, account_id: str, amount_micro: int) -> None: ...
+    async def place_hold(
+        self, job_id: str, account_id: str, amount_micro: int
+    ) -> None: ...
 
     async def release_hold(self, job_id: str) -> None: ...
 
-    async def save_receipt(self, job_id: str, kind: str, node_id: str, body: dict) -> None: ...
+    async def save_receipt(
+        self, job_id: str, kind: str, node_id: str, body: dict
+    ) -> None: ...
 
     async def get_receipt(self, job_id: str) -> dict | None: ...
 
@@ -383,7 +387,13 @@ class Store(Protocol):
     async def held_micro(self, account_id: str) -> int: ...
 
     async def credit(
-        self, account_id: str, amount_micro: int, *, source: str, idempotency_key: str, kind: str
+        self,
+        account_id: str,
+        amount_micro: int,
+        *,
+        source: str,
+        idempotency_key: str,
+        kind: str,
     ) -> None: ...
 
     async def list_models(self) -> list[ModelRecord]: ...
@@ -400,7 +410,14 @@ class Store(Protocol):
 
     async def save_payout(self, record: dict[str, Any]) -> None: ...
 
-    async def audit(self, event: str, *, actor: str = "", subject: str = "", detail: dict | None = None) -> None: ...
+    async def audit(
+        self,
+        event: str,
+        *,
+        actor: str = "",
+        subject: str = "",
+        detail: dict | None = None,
+    ) -> None: ...
 
 
 # ── memory implementation ───────────────────────────────────────────────────
@@ -517,11 +534,20 @@ class MemoryStore:
                 expired.append(job.job_id)
         return expired
 
-    async def save_receipt(self, job_id: str, kind: str, node_id: str, body: dict) -> None:
+    async def save_receipt(
+        self, job_id: str, kind: str, node_id: str, body: dict
+    ) -> None:
         key = (job_id, kind)
         if key in self.receipts:
-            raise ConflictError("receipt already submitted for this job", code="duplicate_receipt")
-        self.receipts[key] = {"job_id": job_id, "kind": kind, "node_id": node_id, "body": body}
+            raise ConflictError(
+                "receipt already submitted for this job", code="duplicate_receipt"
+            )
+        self.receipts[key] = {
+            "job_id": job_id,
+            "kind": kind,
+            "node_id": node_id,
+            "body": body,
+        }
 
     async def get_receipt(self, job_id: str) -> dict | None:
         record = self.receipts.get((job_id, "worker"))
@@ -583,7 +609,13 @@ class MemoryStore:
         return self.ledger.held(account_credits(account_id))
 
     async def credit(
-        self, account_id: str, amount_micro: int, *, source: str, idempotency_key: str, kind: str
+        self,
+        account_id: str,
+        amount_micro: int,
+        *,
+        source: str,
+        idempotency_key: str,
+        kind: str,
     ) -> None:
         self.ledger.deposit(
             account=account_credits(account_id),
@@ -618,7 +650,14 @@ class MemoryStore:
     async def save_payout(self, record: dict[str, Any]) -> None:
         self.payouts.append(record)
 
-    async def audit(self, event: str, *, actor: str = "", subject: str = "", detail: dict | None = None) -> None:
+    async def audit(
+        self,
+        event: str,
+        *,
+        actor: str = "",
+        subject: str = "",
+        detail: dict | None = None,
+    ) -> None:
         self.audit_log.append(
             {"event": event, "actor": actor, "subject": subject, "detail": detail or {}}
         )
@@ -745,7 +784,8 @@ class PostgresStore:
     async def touch_api_key(self, key_hash: str, at: int) -> None:
         async with self.pool.acquire() as conn:
             await conn.execute(
-                "UPDATE ai_api_keys SET last_used_at = NOW() WHERE key_hash = $1", key_hash
+                "UPDATE ai_api_keys SET last_used_at = NOW() WHERE key_hash = $1",
+                key_hash,
             )
 
     async def register_node(self, node: NodeRecord) -> NodeRecord:
@@ -795,7 +835,9 @@ class PostgresStore:
 
     async def get_node(self, node_id: str) -> NodeRecord | None:
         async with self.pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM ai_nodes WHERE node_id = $1", node_id)
+            row = await conn.fetchrow(
+                "SELECT * FROM ai_nodes WHERE node_id = $1", node_id
+            )
         return _row_to_node(row) if row else None
 
     async def list_nodes(self) -> list[NodeRecord]:
@@ -924,13 +966,11 @@ class PostgresStore:
 
     async def place_hold(self, job_id: str, account_id: str, amount_micro: int) -> None:
         async with self.pool.acquire() as conn, conn.transaction():
-                # Serialise per account so two concurrent placements cannot both
-                # see the same available balance.
-                await conn.execute(
-                    "SELECT pg_advisory_xact_lock(hashtext($1))", account_id
-                )
-                available = await conn.fetchval(
-                    """
+            # Serialise per account so two concurrent placements cannot both
+            # see the same available balance.
+            await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", account_id)
+            available = await conn.fetchval(
+                """
                     SELECT COALESCE((
                         SELECT SUM(CASE WHEN credit_account = $1 THEN amount_micro
                                         ELSE -amount_micro END)
@@ -941,21 +981,23 @@ class PostgresStore:
                         WHERE account_id = $2 AND status = 'open'
                     ), 0)
                     """,
-                    account_credits(account_id),
-                    _uuid(account_id),
+                account_credits(account_id),
+                _uuid(account_id),
+            )
+            if int(available or 0) < amount_micro:
+                raise InsufficientCredits(
+                    "insufficient credit balance for this job",
+                    details={
+                        "available_micro": max(0, int(available or 0)),
+                        "required_micro": amount_micro,
+                    },
                 )
-                if int(available or 0) < amount_micro:
-                    raise InsufficientCredits(
-                        "insufficient credit balance for this job",
-                        details={"available_micro": max(0, int(available or 0)),
-                                 "required_micro": amount_micro},
-                    )
-                await conn.execute(
-                    "INSERT INTO ai_holds (job_id, account_id, amount_micro) VALUES ($1,$2,$3)",
-                    job_id,
-                    _uuid(account_id),
-                    amount_micro,
-                )
+            await conn.execute(
+                "INSERT INTO ai_holds (job_id, account_id, amount_micro) VALUES ($1,$2,$3)",
+                job_id,
+                _uuid(account_id),
+                amount_micro,
+            )
 
     async def release_hold(self, job_id: str) -> None:
         async with self.pool.acquire() as conn:
@@ -993,7 +1035,9 @@ class PostgresStore:
             )
         return [str(row["job_id"]) for row in rows]
 
-    async def save_receipt(self, job_id: str, kind: str, node_id: str, body: dict) -> None:
+    async def save_receipt(
+        self, job_id: str, kind: str, node_id: str, body: dict
+    ) -> None:
         async with self.pool.acquire() as conn:
             try:
                 await conn.execute(
@@ -1014,14 +1058,16 @@ class PostgresStore:
     async def get_receipt(self, job_id: str) -> dict | None:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT body FROM ai_receipts WHERE job_id = $1 AND kind = 'worker'", job_id
+                "SELECT body FROM ai_receipts WHERE job_id = $1 AND kind = 'worker'",
+                job_id,
             )
         return json.loads(row["body"]) if row else None
 
     async def get_ack(self, job_id: str) -> dict | None:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT body FROM ai_receipts WHERE job_id = $1 AND kind = 'client'", job_id
+                "SELECT body FROM ai_receipts WHERE job_id = $1 AND kind = 'client'",
+                job_id,
             )
         return json.loads(row["body"]) if row else None
 
@@ -1058,50 +1104,62 @@ class PostgresStore:
         seeder = amounts.seeder_micro
         platform = amounts.platform_micro
         entries = [
-            (account_credits(job.account_id), compute_earnings(job.node_id), compute, "job_compute"),
+            (
+                account_credits(job.account_id),
+                compute_earnings(job.node_id),
+                compute,
+                "job_compute",
+            ),
             (account_credits(job.account_id), SEEDER_POOL, seeder, "job_seeder"),
-            (account_credits(job.account_id), PLATFORM_REVENUE, platform, "job_platform"),
+            (
+                account_credits(job.account_id),
+                PLATFORM_REVENUE,
+                platform,
+                "job_platform",
+            ),
         ]
         async with self.pool.acquire() as conn, conn.transaction():
-                await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", job.account_id)
-                for debit, credit, amount, kind in entries:
-                    if amount <= 0:
-                        continue
-                    await conn.execute(
-                        """
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext($1))", job.account_id
+            )
+            for debit, credit, amount, kind in entries:
+                if amount <= 0:
+                    continue
+                await conn.execute(
+                    """
                         INSERT INTO ai_ledger_entries (
                             debit_account, credit_account, amount_micro,
                             idempotency_key, kind, job_id, created_at
                         ) VALUES ($1,$2,$3,$4,$5,$6,$7)
                         ON CONFLICT (idempotency_key) DO NOTHING
                         """,
-                        debit,
-                        credit,
-                        amount,
-                        f"settle:{job.job_id}:{kind}",
-                        kind,
-                        job.job_id,
-                        int(time.time()),
-                    )
-                await conn.execute(
-                    "UPDATE ai_holds SET status = 'settled' WHERE job_id = $1", job.job_id
+                    debit,
+                    credit,
+                    amount,
+                    f"settle:{job.job_id}:{kind}",
+                    kind,
+                    job.job_id,
+                    int(time.time()),
                 )
-                await conn.execute(
-                    """
+            await conn.execute(
+                "UPDATE ai_holds SET status = 'settled' WHERE job_id = $1", job.job_id
+            )
+            await conn.execute(
+                """
                     UPDATE ai_jobs SET status = 'settled', input_tokens = $2,
                         output_tokens = $3, total_micro = $4, compute_micro = $5,
                         seeder_micro = $6, platform_micro = $7, settled_at = NOW(),
                         updated_at = NOW()
                     WHERE job_id = $1
                     """,
-                    job.job_id,
-                    input_tokens,
-                    output_tokens,
-                    total_micro,
-                    compute,
-                    seeder,
-                    platform,
-                )
+                job.job_id,
+                input_tokens,
+                output_tokens,
+                total_micro,
+                compute,
+                seeder,
+                platform,
+            )
         job.status = "settled"
         job.input_tokens = input_tokens
         job.output_tokens = output_tokens
@@ -1157,7 +1215,13 @@ class PostgresStore:
         return int(value or 0)
 
     async def credit(
-        self, account_id: str, amount_micro: int, *, source: str, idempotency_key: str, kind: str
+        self,
+        account_id: str,
+        amount_micro: int,
+        *,
+        source: str,
+        idempotency_key: str,
+        kind: str,
     ) -> None:
         async with self.pool.acquire() as conn:
             await conn.execute(
@@ -1281,7 +1345,12 @@ class PostgresStore:
             )
 
     async def audit(
-        self, event: str, *, actor: str = "", subject: str = "", detail: dict | None = None
+        self,
+        event: str,
+        *,
+        actor: str = "",
+        subject: str = "",
+        detail: dict | None = None,
     ) -> None:
         async with self.pool.acquire() as conn:
             await conn.execute(
@@ -1316,8 +1385,11 @@ def _row_to_model(row: Any, history: Any = None) -> ModelRecord:
         effective_from=int(row["effective_from"]),
         launch_pricing=bool(row["launch_pricing"]),
         history=[
-            (int(item["effective_from"]), int(item["input_micro_per_mtok"]),
-             int(item["output_micro_per_mtok"]))
+            (
+                int(item["effective_from"]),
+                int(item["input_micro_per_mtok"]),
+                int(item["output_micro_per_mtok"]),
+            )
             for item in (history or [])
         ],
     )

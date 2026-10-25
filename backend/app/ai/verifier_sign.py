@@ -89,8 +89,12 @@ class VerificationVoucher:
             alg = document["alg"]
             sig = document["sig"]
         except KeyError as exc:
-            raise VoucherVerificationError(f"voucher is missing {exc.args[0]!r}") from exc
-        if not all(isinstance(value, str) and value for value in (domain, key_id, alg, sig)):
+            raise VoucherVerificationError(
+                f"voucher is missing {exc.args[0]!r}"
+            ) from exc
+        if not all(
+            isinstance(value, str) and value for value in (domain, key_id, alg, sig)
+        ):
             raise VoucherVerificationError("voucher fields must be non-empty strings")
         if not isinstance(payload, dict):
             raise VoucherVerificationError("voucher payload must be an object")
@@ -186,7 +190,9 @@ def verify_voucher(
     except crypto.CryptoError as exc:
         raise VoucherVerificationError("verifying key is malformed") from exc
     if parsed.key_id != expected_key_id:
-        raise VoucherVerificationError("voucher key_id does not match the verifying key")
+        raise VoucherVerificationError(
+            "voucher key_id does not match the verifying key"
+        )
     if not crypto.verify(parsed.domain, parsed.payload, parsed.sig, public_key_b64):
         raise VoucherVerificationError("voucher signature is invalid")
     return parsed

@@ -77,23 +77,33 @@ def verify_receipt(
     if not crypto.verify(
         RECEIPT_DOMAIN, payload, str(document.get("sig", "")), worker_public_key
     ):
-        raise ReceiptError("receipt signature verification failed", code="bad_signature")
+        raise ReceiptError(
+            "receipt signature verification failed", code="bad_signature"
+        )
     try:
         receipt = ReceiptPayload(**payload)
     except PydanticValidationError as exc:
-        raise ReceiptError("receipt fields are invalid", code="invalid_receipt") from exc
+        raise ReceiptError(
+            "receipt fields are invalid", code="invalid_receipt"
+        ) from exc
 
     if receipt.job_id != job.job_id:
-        raise ReceiptError("receipt is for a different job", code="receipt_job_mismatch")
+        raise ReceiptError(
+            "receipt is for a different job", code="receipt_job_mismatch"
+        )
     if receipt.node_id != job.node_id:
         raise ReceiptError(
             "receipt is signed by a node that was not assigned this job",
             code="receipt_node_mismatch",
         )
     if receipt.account_id != job.account_id:
-        raise ReceiptError("receipt account does not match the job", code="receipt_account_mismatch")
+        raise ReceiptError(
+            "receipt account does not match the job", code="receipt_account_mismatch"
+        )
     if receipt.model != job.model:
-        raise ReceiptError("receipt model does not match the job", code="receipt_model_mismatch")
+        raise ReceiptError(
+            "receipt model does not match the job", code="receipt_model_mismatch"
+        )
     if receipt.manifest_hash != job.manifest_hash:
         raise ReceiptError(
             "receipt model manifest does not match the pinned manifest",

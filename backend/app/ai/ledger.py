@@ -38,7 +38,6 @@ def compute_earnings(node_id: str) -> str:
     return f"node:{node_id}:compute"
 
 
-
 PLATFORM_REVENUE = "platform:revenue"
 SEEDER_POOL = "pool:seeders"
 SIGNUP_GRANTS = "platform:signup-grants"
@@ -221,7 +220,9 @@ class Ledger:
     ) -> LedgerEntry:
         _check_amount(amount_micro)
         if not debit or not credit or debit == credit:
-            raise ValidationError("debit and credit must be distinct non-empty accounts")
+            raise ValidationError(
+                "debit and credit must be distinct non-empty accounts"
+            )
         if not idempotency_key:
             raise ValidationError("idempotency_key is required")
         with self._lock:
@@ -272,7 +273,10 @@ class Ledger:
             if available < amount_micro:
                 raise InsufficientCredits(
                     "insufficient credit balance for this job",
-                    details={"available_micro": max(0, available), "required_micro": amount_micro},
+                    details={
+                        "available_micro": max(0, available),
+                        "required_micro": amount_micro,
+                    },
                 )
             hold = Hold(
                 job_id=job_id,
@@ -308,24 +312,46 @@ class Ledger:
                 return existing
             hold = self._holds.get(job_id)
             if hold is None:
-                raise ConflictError("no hold exists for this job", details={"job_id": job_id})
+                raise ConflictError(
+                    "no hold exists for this job", details={"job_id": job_id}
+                )
             if hold.status != "open":
-                raise ConflictError("hold is no longer open", details={"job_id": job_id})
+                raise ConflictError(
+                    "hold is no longer open", details={"job_id": job_id}
+                )
             if total_micro > hold.amount_micro:
                 raise ConflictError(
                     "settlement exceeds the placed hold",
-                    details={"hold_micro": hold.amount_micro, "total_micro": total_micro},
+                    details={
+                        "hold_micro": hold.amount_micro,
+                        "total_micro": total_micro,
+                    },
                 )
             amounts = split_amounts(total_micro, split)
             timestamp = int(at if at is not None else self._clock())
             self._settle_component(
-                job_id, hold.account, compute_account, amounts.compute_micro, "compute", timestamp
+                job_id,
+                hold.account,
+                compute_account,
+                amounts.compute_micro,
+                "compute",
+                timestamp,
             )
             self._settle_component(
-                job_id, hold.account, seeder_account, amounts.seeder_micro, "seeder", timestamp
+                job_id,
+                hold.account,
+                seeder_account,
+                amounts.seeder_micro,
+                "seeder",
+                timestamp,
             )
             self._settle_component(
-                job_id, hold.account, platform_account, amounts.platform_micro, "platform", timestamp
+                job_id,
+                hold.account,
+                platform_account,
+                amounts.platform_micro,
+                "platform",
+                timestamp,
             )
             hold.status = "settled"
             settlement = Settlement(

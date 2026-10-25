@@ -53,7 +53,9 @@ def _address_allowed(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     ):
         return False
     # CGNAT 100.64.0.0/10 is not flagged is_private on all Python versions.
-    if isinstance(ip, ipaddress.IPv4Address) and ip in ipaddress.ip_network("100.64.0.0/10"):
+    if isinstance(ip, ipaddress.IPv4Address) and ip in ipaddress.ip_network(
+        "100.64.0.0/10"
+    ):
         return False
     # IPv4-mapped IPv6 must be judged by its embedded IPv4 address.
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
@@ -79,9 +81,13 @@ def validate_url(url: str, *, allowed_hosts: tuple[str, ...]) -> PinnedTarget:
     try:
         infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except OSError as exc:
-        raise ValidationError("origin host could not be resolved", code="ssrf_blocked") from exc
+        raise ValidationError(
+            "origin host could not be resolved", code="ssrf_blocked"
+        ) from exc
     if not infos:
-        raise ValidationError("origin host resolved to no addresses", code="ssrf_blocked")
+        raise ValidationError(
+            "origin host resolved to no addresses", code="ssrf_blocked"
+        )
 
     pinned: str | None = None
     for info in infos:
@@ -89,7 +95,9 @@ def validate_url(url: str, *, allowed_hosts: tuple[str, ...]) -> PinnedTarget:
         try:
             ip = ipaddress.ip_address(address)
         except ValueError as exc:
-            raise ValidationError("origin resolved to an invalid address", code="ssrf_blocked") from exc
+            raise ValidationError(
+                "origin resolved to an invalid address", code="ssrf_blocked"
+            ) from exc
         if not _address_allowed(ip):
             raise ValidationError(
                 "origin resolves to a non-public address", code="ssrf_blocked"
