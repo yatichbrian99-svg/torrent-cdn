@@ -35,6 +35,8 @@ regexes = [
   # The throwaway probe account password from an earlier commit of
   # scripts/live_ai_journey.py; the script now generates it per run.
   '''Journey-pass-9812''',
-  # RFC 6238's published TOTP test vector, used as a fixture in test_mfa.py.
+  # RFC 6238 Appendix B test secret (base32 of "12345678901234567890"), used
+  # as a correctness fixture in tests/test_mfa.py. Published in the RFC.
+  '''GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ''',
   '''JBSWY3DPEHPK3PXP''',
 ]
