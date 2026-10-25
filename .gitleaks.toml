@@ -1,40 +1,24 @@
-# gitleaks config — TorrentCDN
+# Gitleaks configuration.
 #
-# Extends the default ruleset (all built-in secret patterns stay active) and
-# allowlists documentation *placeholders* that the full-history daily scan
-# legitimately flags as false positives:
+# The default rule set stays fully on. This file only allowlists places where a
+# value-shaped PLACEHOLDER is legitimate, and every entry is kept as narrow as
+# possible because an allowlist entry is exactly where a real secret could hide.
 #
-#   - Truncated JWT-shaped examples in API docs ("eyJhbGciOiJIUzI1NiIs...")
-#   - "Authorization: Bearer YOUR_TOKEN" / "YOUR_API_KEY" curl examples
-#   - RFC 6238 Appendix B TOTP test vector in backend/tests/test_mfa.py
-#     ("GEZDGNBVGY3TQOJQ..." — base32 of "12345678901234567890")
-#
-# These strings can never be real credentials (they end in "...", use the
-# literal placeholder words YOUR_*, or are the published RFC test vector), so
-# allowlisting them is safe. Anything else — real tokens, keys, passwords —
-# still fails the build.
-title = "gitleaks config"
-
+# Why the env templates are allowed:
+#   `.env.example` documents every variable by name. Rules like
+#   generic-api-key fire on `SOMETHING_SECRET=` followed by a short id line
+#   (e.g. `TCDN_AI_API_KEY_PEPPER=` + `TCDN_AI_API_KEY_PEPPER_ID=v1`) purely on
+#   entropy, with no secret present. Two gates still cover that file:
+#     * `backend/scripts/secret_scan.sh --full` scans the whole tree with the
+#       high-signal patterns (PATs, live keys, private-key blocks) and is NOT
+#       allowlisted, so a real token pasted into a template still fails CI;
+#     * this allowlist is path-scoped to `*.example` templates only.
 [extend]
 useDefault = true
 
 [allowlist]
-description = "Documentation API examples (placeholders only — never real credentials)"
-# Match against the full line (not just the secret value): the curl rules
-# report the Authorization header, and the allowlist patterns include the
-# 'Authorization: Bearer ' prefix which only exists in the line.
-regexTarget = "line"
-regexes = [
-  # Truncated JWT-shaped example in frontend/app/docs/page.tsx responses:
-  #   "access_token": "eyJhbGciOiJIUzI1NiIs..."
-  '''eyJhbGciOiJIUzI1NiIs\.\.\.''',
-  # curl examples with explicit placeholder tokens:
-  #   -H "Authorization: Bearer YOUR_TOKEN"
-  #   curl -H 'Authorization: Bearer YOUR_API_KEY' ...
-  '''Authorization: Bearer YOUR_(TOKEN|API_KEY)''',
-  # RFC 6238 Appendix B test vector (TOTP correctness oracle, used in
-  # backend/tests/test_mfa.py). Base32 of the ASCII string
-  # "12345678901234567890" — a published test secret, never a credential.
-  # Gitleaks' generic-api-key rule flags the 32-char base32 shape.
-  '''GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ''',
+description = "Committed env templates: placeholder names, never real values"
+paths = [
+  '''^\.env\.example$''',
+  '''^frontend/\.env\.example$''',
 ]

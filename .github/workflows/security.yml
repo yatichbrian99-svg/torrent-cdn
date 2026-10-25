@@ -472,6 +472,13 @@ jobs:
       # simply have no PR context and skip commenting.
       - name: Gitleaks — scan for hardcoded secrets
         uses: gitleaks/gitleaks-action@v3
+        with:
+          # Keeps the default rules on and allowlists ONLY the committed env
+          # templates, where `FOO_SECRET=` + `FOO_SECRET_ID=v1` trips the
+          # generic-api-key entropy rule with no secret present. The
+          # high-signal tree scan in secret-scan remains un-allowlisted, so a
+          # real token in a template still fails.
+          config-path: .gitleaks.toml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: "true"

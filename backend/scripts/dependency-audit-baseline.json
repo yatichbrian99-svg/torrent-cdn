@@ -1,13 +1,13 @@
 {
-  "generated_at": "2026-10-07T11:21:08+00:00",
+  "generated_at": "2026-10-25T00:00:00+00:00",
   "critical": 0,
-  "high": 7,
-  "moderate": 2,
+  "high": 8,
+  "moderate": 6,
   "low": 19,
   "info": 0,
   "pip": 19,
-  "npm": 9,
-  "total": 28,
+  "npm": 14,
+  "total": 33,
   "findings": [
     [
       "pip",
@@ -148,6 +148,34 @@
       "npm",
       "tailwindcss",
       "high"
+    ],
+    [
+      "npm",
+      "undici",
+      "high"
+    ],
+    [
+      "npm",
+      "@vitest/coverage-v8",
+      "moderate"
+    ],
+    [
+      "npm",
+      "@vitest/mocker",
+      "moderate"
+    ],
+    [
+      "npm",
+      "tailwindcss",
+      "moderate"
+    ],
+    [
+      "npm",
+      "vitest",
+      "moderate"
     ]
-  ]
+  ],
+  "accepted_notes": {
+    "2026-10-25": "Accepted from the audit artifact of run 40180100538. undici (high) is dev-only: package-lock marks every undici dependency path dev=true, reached solely through jsdom -> vitest, so it never ships. @vitest/*, vitest are dev tooling. tailwindcss (moderate, via postcss-nested / postcss-selector-parser) is build-time CSS tooling; its fix is tailwind 4.3.3, a major that breaks the current API, so it is deferred to a deliberate upgrade rather than bundled into this push."
+  }
 }
