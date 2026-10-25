@@ -1,0 +1,10 @@
+$ python scripts/fuzz_ai.py --seconds-per-target 60 --seed 1337 --out ../docs/tcdn-ai/evidence/03-security/fuzz-ai.json
+ticket.verify                    1774097 cases  0 findings
+receipt.verify                    682269 cases  0 findings
+shards.verify_merkle_proof       3263068 cases  0 findings
+crypto.aead_decrypt              6374400 cases  0 findings
+models.PlacementRequest          5750335 cases  0 findings
+payments.verify_webhook          6082062 cases  0 findings
+
+0 finding(s) in 360.0s
+EXIT=0

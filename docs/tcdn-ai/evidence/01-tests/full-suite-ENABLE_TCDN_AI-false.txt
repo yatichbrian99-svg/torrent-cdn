@@ -1,0 +1,4 @@
+$ ENABLE_TCDN_AI=false pytest tests/test_admin.py tests/test_billing.py tests/test_files.py tests/test_live.py tests/test_payouts.py tests/test_auth.py -q
+........................................................................ [ 75%]
+................................................                         [100%]
+192 passed in 8.60s

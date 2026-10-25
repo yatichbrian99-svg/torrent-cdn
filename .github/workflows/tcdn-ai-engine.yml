@@ -1,0 +1,207 @@
+name: "TCDN-AI: real inference engine (nightly)"
+
+# Section C item 2. Deliberately NOT on every push: installing an engine,
+# pulling a model and running CPU inference costs minutes and bandwidth, and a
+# frontend or CDN-only change cannot regress it.
+#
+# What this job proves, which the mocked suite cannot:
+#   * the Ollama adapter streams real tokens from a real engine and reads real
+#     usage counts (`tests/test_ai_engine.py`);
+#   * the vLLM adapter's request shape and SSE parsing work against a real
+#     OpenAI-compatible `/v1` server (Ollama's, not vLLM itself — see the test
+#     docstring);
+#   * the full journey runs on real inference, end to end, including the REAL
+#     email-verification flow: the account must stay unverified until the token
+#     from the recorded email is used.
+#
+# The email provider is a local stand-in (`backend/scripts/dev/fake_resend.py`,
+# redirected by `backend/scripts/dev/sitecustomize.py`) because a real Resend
+# key would send real mail and need a real inbox. Everything else is real:
+# Postgres, Redis, HTTP, tickets, receipts, ledger.
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # 03:00 UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tcdn-ai-engine
+  cancel-in-progress: true
+
+env:
+  # "Configured" so the app does NOT take the auto-verify fallback. Not shaped
+  # like a real key: this is a stand-in, not a credential.
+  RESEND_API_KEY: "ci-email-provider-standin-not-a-real-key"
+  TCDN_FAKE_RESEND_URL: "http://127.0.0.1:8765"
+  TCDN_FAKE_EMAILS: "/tmp/tcdn-ai-emails.jsonl"
+  ENABLE_TCDN_AI: "true"
+  APP_ENV: "development"
+  TCDN_AI_ENVIRONMENT: "development"
+  TCDN_AI_API_KEY_PEPPER: "ci-pepper-not-a-real-secret"
+  TCDN_AI_PAYMENT_PROVIDER: "fake"
+  TCDN_AI_ENGINE_MODEL: "qwen2.5:0.5b"
+  TCDN_AI_ENGINE_URL: "http://127.0.0.1:11434"
+  JWT_SECRET: "this-is-a-32-char-secret-for-testing-only!!"
+  DATABASE_URL: "postgresql://tcdn:tcdn@127.0.0.1:5432/tcdn"
+  REDIS_URL: "redis://127.0.0.1:6379/0"
+
+jobs:
+  real-engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:16.4-alpine
+        env:
+          POSTGRES_USER: tcdn
+          POSTGRES_PASSWORD: tcdn
+          POSTGRES_DB: tcdn
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U tcdn -d tcdn"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis:
+        image: redis:7.4.2-alpine
+        ports:
+          - "6379:6379"
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      # Pinned to a concrete upstream tag (the release asset is .tar.zst; the
+      # newer `ollama.com/download/...tgz` path 404s). Bumping this is a
+      # deliberate change: it re-tests logprob support in
+      # tests/test_ai_engine.py. The local evidence in
+      # docs/tcdn-ai/evidence/10-real-engine/ was produced with the distro build
+      # that reports `ollama 0.33.2`, not this exact tag.
+      - name: Install Ollama 0.40.11
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zstd
+          curl -fsSL \
+            https://github.com/ollama/ollama/releases/download/v0.40.11/ollama-linux-amd64.tar.zst \
+            -o /tmp/ollama.tar.zst
+          sudo tar --zstd -xf /tmp/ollama.tar.zst -C /usr/local
+          ollama --version
+
+      - name: Start engine and pull the test model
+        run: |
+          set -euo pipefail
+          nohup ollama serve > /tmp/ollama.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:11434/api/version >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:11434/api/version
+          # Small models: the registry occasionally resets a connection, so retry.
+          for attempt in 1 2 3 4; do
+            if ollama pull "$TCDN_AI_ENGINE_MODEL"; then break; fi
+            echo "pull attempt $attempt failed; retrying"
+            sleep 5
+          done
+          ollama list
+
+      - name: Start the fake email provider
+        run: |
+          set -euo pipefail
+          nohup python backend/scripts/dev/fake_resend.py \
+            --port 8765 --out "$TCDN_FAKE_EMAILS" > /tmp/fake-resend.log 2>&1 &
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8765/health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8765/health
+
+      - name: Adapter tests against the real engine
+        working-directory: backend
+        run: python -m pytest tests/test_ai_engine.py -q
+
+      - name: Start the coordinator
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          # scripts/dev/sitecustomize.py points the Resend SDK at the stand-in;
+          # it is inert unless TCDN_FAKE_RESEND_URL is set.
+          PYTHONPATH=scripts/dev nohup python -m uvicorn app.main:app \
+            --host 127.0.0.1 --port 8000 > /tmp/coordinator.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/health
+
+      - name: Journey — real inference + real email verification
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          mkdir -p ../docs/tcdn-ai/evidence/10-real-engine
+          python scripts/live_ai_journey.py \
+            --base-url http://127.0.0.1:8000 \
+            --database-url "$DATABASE_URL" \
+            --backend ollama \
+            --engine-url "$TCDN_AI_ENGINE_URL" \
+            --engine-version "ollama 0.40.11" \
+            --model "$TCDN_AI_ENGINE_MODEL" \
+            --gpu-vram-gb 2 \
+            --gpu-model cpu-only-ci \
+            --email-stub-url "$TCDN_FAKE_RESEND_URL" \
+            --email-out "$TCDN_FAKE_EMAILS" \
+            --out ../docs/tcdn-ai/evidence/10-real-engine/journey.json \
+            | tee /tmp/journey.txt
+
+      - name: Collect evidence
+        if: always()
+        run: |
+          cp /tmp/journey.txt docs/tcdn-ai/evidence/10-real-engine/journey.txt 2>/dev/null || true
+          cp /tmp/coordinator.log docs/tcdn-ai/evidence/10-real-engine/coordinator.log 2>/dev/null || true
+          cp /tmp/tcdn-ai-worker.log docs/tcdn-ai/evidence/10-real-engine/worker.log 2>/dev/null || true
+          cp /tmp/ollama.log docs/tcdn-ai/evidence/10-real-engine/ollama.log 2>/dev/null || true
+          # The captured emails contain single-use verification tokens: never
+          # upload them. Only the count is recorded.
+          wc -l < "$TCDN_FAKE_EMAILS" > docs/tcdn-ai/evidence/10-real-engine/emails-count.txt 2>/dev/null || true
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tcdn-ai-real-engine
+          path: docs/tcdn-ai/evidence/10-real-engine/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          echo "==== coordinator ===="; tail -100 /tmp/coordinator.log 2>/dev/null || true
+          echo "==== worker ===="; tail -100 /tmp/tcdn-ai-worker.log 2>/dev/null || true
+          echo "==== ollama ===="; tail -50 /tmp/ollama.log 2>/dev/null || true

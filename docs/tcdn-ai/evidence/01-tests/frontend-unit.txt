@@ -1,0 +1,62 @@
+$ npm test
+
+> torrent-cdn-frontend@1.0.0 test
+> vitest run
+
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.11 [39m[90m/home/yatich/torrent-cdn/frontend[39m
+
+ [32m✓[39m lib/__tests__/security.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m lib/live/segments.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+ [32m✓[39m lib/liveClient.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m lib/__tests__/api.test.ts [2m([22m[2m39 tests[22m[2m)[22m[32m 75[2mms[22m[39m
+ [32m✓[39m app/__tests__/demo.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 1309[2mms[22m[39m
+     [33m[2m✓[22m[39m restores a pinned permalink exactly and does not clobber it with the live rate [33m 453[2mms[22m[39m
+     [33m[2m✓[22m[39m 'use live' recovers from a pinned permalink p2p to the live rate and syncs the URL [33m 391[2mms[22m[39m
+ [32m✓[39m lib/__tests__/theme-parity.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m lib/__tests__/proxy.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 29[2mms[22m[39m
+Not implemented: navigation to another Document
+ [32m✓[39m components/__tests__/AdminHealth.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 410[2mms[22m[39m
+Not implemented: navigation to another Document
+ [32m✓[39m components/__tests__/PricingTable.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 586[2mms[22m[39m
+Not implemented: navigation to another Document
+ [32m✓[39m lib/__tests__/webtorrentPatch.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+Not implemented: navigation to another Document
+ [32m✓[39m components/__tests__/VideoPlayer.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[32m 143[2mms[22m[39m
+Not implemented: navigation to another Document
+ [32m✓[39m components/__tests__/UploadForm.test.tsx [2m([22m[2m14 tests[22m[2m)[22m[33m 3987[2mms[22m[39m
+     [33m[2m✓[22m[39m switches to the import form and back [33m 356[2mms[22m[39m
+     [33m[2m✓[22m[39m disables the import button until a URL is typed [33m 358[2mms[22m[39m
+     [33m[2m✓[22m[39m imports with URL + filename and renders the success view [33m 428[2mms[22m[39m
+     [33m[2m✓[22m[39m imports without a filename (undefined is passed through) [33m 361[2mms[22m[39m
+     [33m[2m✓[22m[39m submits on Enter in the URL field [33m 302[2mms[22m[39m
+     [33m[2m✓[22m[39m does NOT seed the swarm after an import (no local File object) [33m 320[2mms[22m[39m
+     [33m[2m✓[22m[39m uses the fallback message when the rejection has no detail [33m 330[2mms[22m[39m
+     [33m[2m✓[22m[39m clears the URL field when starting another import [33m 390[2mms[22m[39m
+ [32m✓[39m lib/live/swarm.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 718[2mms[22m[39m
+     [33m[2m✓[22m[39m refuses to fetch without a backend-published infohash (leecher contract) [33m 710[2mms[22m[39m
+ [32m✓[39m lib/__tests__/seeder.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m components/__tests__/AuthModal.test.tsx [2m([22m[2m14 tests[22m[2m)[22m[33m 4229[2mms[22m[39m
+     [33m[2m✓[22m[39m toggles the password field between hidden and visible [33m 354[2mms[22m[39m
+     [33m[2m✓[22m[39m shows the API detail message on auth failure [33m 368[2mms[22m[39m
+     [33m[2m✓[22m[39m completes login with a valid MFA code and saves the token [33m 351[2mms[22m[39m
+     [33m[2m✓[22m[39m warns when the last backup code was consumed before closing the modal [33m 324[2mms[22m[39m
+     [33m[2m✓[22m[39m closes immediately when backup codes remain (no last-code warning) [33m 330[2mms[22m[39m
+     [33m[2m✓[22m[39m shows the API detail on an invalid MFA code [33m 306[2mms[22m[39m
+     [33m[2m✓[22m[39m walks through mandatory 2FA enrollment when login requires setup [33m 432[2mms[22m[39m
+     [33m[2m✓[22m[39m walks through mandatory 2FA enrollment right after signup [33m 399[2mms[22m[39m
+ [32m✓[39m components/__tests__/Navbar.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 93[2mms[22m[39m
+ [32m✓[39m components/__tests__/UsageBar.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 72[2mms[22m[39m
+ [32m✓[39m lib/__tests__/auth.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m components/__tests__/FileCard.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 392[2mms[22m[39m
+ [32m✓[39m components/__tests__/EmbedCode.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 194[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m20 passed[39m[22m[90m (20)[39m
+[2m      Tests [22m [1m[32m179 passed[39m[22m[90m (179)[39m
+[2m   Start at [22m 08:43:03
+[2m   Duration [22m 8.55s[2m (transform 2.31s, setup 4.25s, import 4.82s, tests 12.34s, environment 23.59s)[22m
+
+EXIT=0

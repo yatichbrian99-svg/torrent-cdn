@@ -1,0 +1,132 @@
+{
+  "base_url": "http://127.0.0.1:8000",
+  "model": "qwen2.5:0.5b",
+  "backend": "ollama",
+  "canary": "CANARY-397e2b2e39076c89",
+  "steps": [
+    {
+      "step": "health",
+      "ok": true,
+      "detail": "healthy"
+    },
+    {
+      "step": "signup + real email verification (unverified until the emailed token was used)",
+      "ok": true,
+      "detail": {
+        "mode": "provider-link",
+        "provider": "http://127.0.0.1:8765",
+        "verified_before_link": false
+      }
+    },
+    {
+      "step": "2FA enrolled and enforced at login",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "step": "API key created (developer + worker scopes)",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "step": "model registered",
+      "ok": true,
+      "detail": "qwen2.5:0.5b"
+    },
+    {
+      "step": "credits purchased; duplicate callback was idempotent",
+      "ok": true,
+      "detail": 5000000
+    },
+    {
+      "step": "worker registered",
+      "ok": true,
+      "detail": "node_243a95878a4a92843eac55da"
+    },
+    {
+      "step": "official OpenAI client: /v1/models + streaming and non-streaming",
+      "ok": true,
+      "detail": {
+        "verdict": "IMPLEMENTED (gateway mode, official client)",
+        "models": [
+          "llama-3.1-8b-instruct",
+          "qwen2.5:0.5b"
+        ],
+        "non_streaming_tokens": 65,
+        "streaming_chunks": 19,
+        "prompt_visibility": "gateway",
+        "backend": "ollama"
+      }
+    },
+    {
+      "step": "non-streaming inference (TCDN-AI SDK, OpenAI-shaped response)",
+      "ok": true,
+      "detail": {
+        "tokens": 65,
+        "finish": "stop"
+      }
+    },
+    {
+      "step": "streaming inference (TCDN-AI SDK)",
+      "ok": true,
+      "detail": {
+        "chunks": 12
+      }
+    },
+    {
+      "step": "usage and balance updated",
+      "ok": true,
+      "detail": {
+        "account_id": "883bf02e-0276-49c0-82b6-d36d454b9258",
+        "credits": 4.999043,
+        "micro_credits": 4999043,
+        "held_micro": 0,
+        "available_micro": 4999043
+      }
+    },
+    {
+      "step": "invariants: ledger, holds, job states, no canary retention",
+      "ok": true,
+      "detail": {
+        "ledger_entries": 13,
+        "ledger_net_micro": 4999043,
+        "jobs": 4,
+        "open_holds": 0,
+        "canary_leaks": 0
+      }
+    }
+  ],
+  "account_id": "883bf02e-0276-49c0-82b6-d36d454b9258",
+  "email_verification": {
+    "mode": "provider-link",
+    "provider": "http://127.0.0.1:8765",
+    "verified_before_link": false
+  },
+  "api_key_prefix": "tcdn_ai_zUzAhVgu\u2026",
+  "openai_client_compatibility": {
+    "verdict": "IMPLEMENTED (gateway mode, official client)",
+    "models": [
+      "llama-3.1-8b-instruct",
+      "qwen2.5:0.5b"
+    ],
+    "non_streaming_tokens": 65,
+    "streaming_chunks": 19,
+    "prompt_visibility": "gateway",
+    "backend": "ollama"
+  },
+  "balance_after": {
+    "account_id": "883bf02e-0276-49c0-82b6-d36d454b9258",
+    "credits": 4.999043,
+    "micro_credits": 4999043,
+    "held_micro": 0,
+    "available_micro": 4999043
+  },
+  "invariants": {
+    "ledger_entries": 13,
+    "ledger_net_micro": 4999043,
+    "jobs": 4,
+    "open_holds": 0,
+    "canary_leaks": 0
+  },
+  "ok": true
+}

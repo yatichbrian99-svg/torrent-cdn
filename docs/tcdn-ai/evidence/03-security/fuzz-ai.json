@@ -1,0 +1,45 @@
+{
+  "seed": 1337,
+  "seconds_per_target": 60.0,
+  "elapsed_seconds": 360.0,
+  "python": "3.14.7 (main, Sep  5 2026, 05:55:41) [GCC 16.2.0]",
+  "targets": [
+    {
+      "target": "ticket.verify",
+      "cases": 1774097,
+      "findings": 0,
+      "seconds": 60.0
+    },
+    {
+      "target": "receipt.verify",
+      "cases": 682269,
+      "findings": 0,
+      "seconds": 60.0
+    },
+    {
+      "target": "shards.verify_merkle_proof",
+      "cases": 3263068,
+      "findings": 0,
+      "seconds": 60.0
+    },
+    {
+      "target": "crypto.aead_decrypt",
+      "cases": 6374400,
+      "findings": 0,
+      "seconds": 60.0
+    },
+    {
+      "target": "models.PlacementRequest",
+      "cases": 5750335,
+      "findings": 0,
+      "seconds": 60.0
+    },
+    {
+      "target": "payments.verify_webhook",
+      "cases": 6082062,
+      "findings": 0,
+      "seconds": 60.0
+    }
+  ],
+  "findings": []
+}
