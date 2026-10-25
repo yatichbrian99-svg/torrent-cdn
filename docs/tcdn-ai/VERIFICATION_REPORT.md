@@ -108,13 +108,13 @@ engine and GPU.
 | Break tests for critical controls | Verified 10/10 | `06-break-tests/` |
 | Stress, soak, chaos | **Not verified** | section 5 |
 | Full git-history secret scan | Verified clean | `03-security/gitleaks-history.txt` |
-| CI green with all gates | **Not verified** — CI workflows exist but were not run against this branch; push blocked | `.github/workflows/` |
+| CI green with all gates | **Partly verified** — trial push 2026-10-25: `backend-lint`, the Docker audit (incl. the AI Postgres/Redis job) and the engine job are green at `853d8a6`; `security.yml` and `dependency-audit.yml` are red **on main already** (gitleaks step, a domain guard that stops the suite before it runs, and 5 advisories beyond baseline). No container scan or SBOM job exists. No PR opened | run ids `40180591105`, `40180591169`, `40180591233` |
 | Docs complete | Plan/architecture/security/threat model/API/runbook/dev setup/assumptions exist; this report and findings log added today | — |
 
 ## 8. Known limitations and risks
 
-1. The official OpenAI client does not work (F-07); any launch messaging that says "drop-in OpenAI replacement" would be false.
-2. The backend suite cannot be trusted to finish in one invocation (F-08) — CI must run per file or the hang must be fixed first.
+1. ~~The official OpenAI client does not work (F-07)~~ **Fixed**: the adapter accepts the official client's request shape, and CI runs it against a real engine (`/v1/models`, non-streaming, streaming) — run `40180591233`. Chat completions only: no tools, JSON mode, embeddings or `n > 1`.
+2. ~~The backend suite cannot be trusted to finish in one invocation (F-08)~~ **Fixed** (M0.1): the hang was startup migrations opening a real asyncpg pool under `TestClient`. Whole suite in one invocation, flag off and on.
 3. No chaos or soak evidence: crash/restart money correctness is proven only for the abandoned-job path.
 4. Fuzzing was 1/30 of the required budget per target; DAST and container scanning were not run.
 5. Coverage on new AI code is 84 % vs the 85 % gate (F-10).
