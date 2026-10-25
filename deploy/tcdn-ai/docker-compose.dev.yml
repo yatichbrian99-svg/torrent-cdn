@@ -1,0 +1,69 @@
+# TCDN-AI local dependencies.
+#
+# This is a DEVELOPMENT file: the worker uses the labelled `echo` backend and a
+# loopback plaintext listener. Production requires a real engine and TLS certs
+# (see docs/tcdn-ai/RUNBOOK.md).
+name: tcdn-ai-dev
+
+services:
+  postgres:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_USER: tcdn
+      POSTGRES_PASSWORD: tcdn
+      POSTGRES_DB: tcdn
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - ai_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tcdn -d tcdn"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4.2-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Coordinator: the existing backend image. Start it from the repo instead if
+  # you are developing (`uvicorn app.main:app --reload`).
+  coordinator:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql://tcdn:tcdn@postgres:5432/tcdn
+      REDIS_URL: redis://redis:6379/0
+      TCDN_AI_ENVIRONMENT: development
+      TCDN_AI_API_KEY_PEPPER: dev-pepper-change-me
+      TCDN_AI_PAYMENT_PROVIDER: fake
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    profiles: ["coordinator"]
+
+  # Optional real engine (host has no GPU in most dev setups).
+  ollama:
+    image: ollama/ollama:0.5.4
+    ports:
+      - "127.0.0.1:11434:11434"
+    profiles: ["engine"]
+
+  # The SDK-facing worker is launched from the host (docs/tcdn-ai/DEV_SETUP.md):
+  # it must bind a loopback address for the dev plaintext exception, which a
+  # container's published port cannot provide safely.
+
+volumes:
+  ai_postgres:

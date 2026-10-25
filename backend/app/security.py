@@ -14,6 +14,27 @@ from .config import get_settings
 
 logger = logging.getLogger(__name__)
 
+# C0 control characters + DEL. A NUL byte (0x00) is legal JSON and a legal
+# Python str, but NOT legal Postgres text: asyncpg raises
+# CharacterNotInRepertoireError ("invalid byte sequence for encoding UTF8:
+# 0x00") when it binds the parameter, so an unguarded DB-bound field turns a
+# junk value into an unauthenticated 500 plus a stack trace in the logs.
+# The other controls are storable but are never legitimate in a name, email or
+# label — the same rule routes/files.py already applies to folder paths.
+_CONTROL_CHARS = frozenset(chr(c) for c in range(32)) | {"\x7f"}
+
+
+def contains_control_chars(value: str) -> bool:
+    """True when `value` holds a control character that must not reach the DB.
+
+    Call this on every user-supplied string that is written to a text column
+    (see routes/auth.py, routes/files.py, routes/live.py, routes/payouts.py) and
+    answer 400 — never let the driver discover it. Used to be a live 500 on
+    /auth/register, /auth/login, /auth/forgot-password and channel/file writes;
+    found by scripts/pentest_local.py.
+    """
+    return any(c in _CONTROL_CHARS for c in value)
+
 # Magic bytes (file signatures) for supported media formats
 FILE_SIGNATURES: dict[str, list[tuple[int, bytes, str]]] = {
     ".mp4": [

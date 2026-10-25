@@ -43,14 +43,16 @@ class TokenBucketLimiter:
     def __init__(
         self,
         *,
-        max_per_second: float = 20.0,
-        max_burst: int = 40,
+        rate_per_minute: float = 1200.0,
+        burst: int = 40,
         clock=None,
     ) -> None:
-        self._max_per_second = max_per_second
-        self._max_burst = max_burst
+        # Configured per minute (AISettings.rate_limit_per_minute / _burst); the
+        # bucket refills per second.
+        self._max_per_second = float(rate_per_minute) / 60.0
+        self._max_burst = int(burst)
         self._clock = clock or time.monotonic
-        self._tokens = float(max_burst)
+        self._tokens = float(self._max_burst)
         self._last = self._clock()
         self._lock = threading.Lock()
 
