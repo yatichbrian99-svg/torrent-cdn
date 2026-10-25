@@ -496,7 +496,7 @@ class Gateway:
         *,
         job_id: str,
         w2c: bytes,
-    ) -> AsyncIterator[tuple[str, Any]]:
+    ) -> AsyncGenerator[tuple[str, Any], None]:
         buffer = b""
         sequence = 0
         async for chunk in self._transport(endpoint, payload):
