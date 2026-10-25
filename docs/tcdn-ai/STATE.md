@@ -32,7 +32,7 @@ this file is the short, current status.
 | M9 Result verification (Part 3) | **In progress / not active** | Milestone 1 primitives built; coordinator still uses the old sampler; tolerance profiles are placeholders |
 | M10 Confidential tier | **Simulated / interfaces only** | Policy + simulated adapter tested; real SEV-SNP/TDX/NVIDIA verifiers fail closed |
 | M11 Burn module | **Disabled** | Dry-run only, off by default, legal ack required in production |
-| M12 Hardening, docs, full gate | **Not done** | No AI test has ever run in GitHub CI (the Postgres/Redis job is repaired — M0.2 — but unpushed); soak/chaos/DAST/pentest missing; coverage 84 % |
+| M12 Hardening, docs, full gate | **Partly done** | CI is green on GitHub for the first time (all five workflows at `0360b10`, incl. the AI Postgres/Redis job, `ai-types`, `container-scan` report-only, and the nightly real-engine job); soak/chaos/DAST/pentest still missing; coverage 84 % |
 | Test-harness fix: full-suite hang | **Fixed and verified** | Root cause: every `TestClient` startup opened a real asyncpg pool from `main.py`'s own `get_db_pool` binding (unpatched). Now hermetic; whole suite in one invocation, 4/4 green (`evidence/09-openai-gateway/full-suite*.txt`) |
 | M14 Real engine in CI + real email flow (Section C item 2) | **Done and verified** | Ollama 0.33.2 + `qwen2.5:0.5b` on CPU: `tests/test_ai_engine.py` 4/4; journey 12/12 with real inference and real verification link — `evidence/10-real-engine/`; nightly job `tcdn-ai-engine.yml`. Found and fixed the hold-underestimation bug and H-1 |
 | M13 OpenAI gateway (Section C item 1) | **Done and verified** | `/v1/models`, `/v1/chat/completions` (JSON + SSE); 14 tests incl. official OpenAI Python client; official JS client driven against a live uvicorn server: `evidence/09-openai-gateway/` |
@@ -74,10 +74,11 @@ each, no hang: `925 passed, 11 skipped` (flag on) and `879 passed, 57 skipped`
   provider outage), full-budget fuzzing, ZAP, Trivy, SBOM re-run, independent
   pentest/crypto review.
 - Frontend production build (blocked here by a Google Fonts network fetch).
-- Any CI run of an AI test **on GitHub**. The Postgres/Redis job in
-  `.github/workflows/ci-fullstack.yml` now runs `test_ai_core.py`,
-  `test_ai_redis.py` and the real-Postgres `test_ai_postgres.py` (61 + 7 passed
-  locally against fresh containers), but it has never run remotely.
+- ~~Any CI run of an AI test on GitHub~~ **Now verified**: the Postgres/Redis
+  job runs `test_ai_core.py`, `test_ai_redis.py` and the real-Postgres
+  `test_ai_postgres.py` on every push to the trial branch and passes in ~50 s
+  (run `40184119060`), and the nightly engine job runs real Ollama inference
+  (`40184119132`).
 
 ## 4. What is simulated (and labelled)
 
