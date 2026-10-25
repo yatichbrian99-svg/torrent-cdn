@@ -6,11 +6,48 @@ from redis.backoff import ExponentialWithJitterBackoff
 from redis.exceptions import ConnectionError
 from redis.retry import Retry
 
-from .config import get_settings
+from .config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
+
+# Core CDN tables that later migrations ALTER (uploads/analytics) or index
+# (analytics). Created at startup BEFORE those ALTERs: on a brand-new database
+# they used to be created only lazily by the first signup, so the startup
+# migration batch died at ``ALTER TABLE uploads`` and every statement after it —
+# including the whole TCDN-AI schema — was silently skipped. A fresh checkout
+# therefore booted with no AI tables at all.
+CORE_TABLES_DDL = """
+CREATE TABLE IF NOT EXISTS uploads (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    filename VARCHAR(255) NOT NULL,
+    minio_url TEXT NOT NULL,
+    torrent_magnet TEXT NOT NULL,
+    file_size_mb FLOAT NOT NULL DEFAULT 0,
+    thumbnail_url TEXT,
+    idempotency_key TEXT,
+    content_hash TEXT,
+    folder_path VARCHAR(512),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS analytics (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    file_id UUID NOT NULL REFERENCES uploads(id) ON DELETE CASCADE,
+    event_type VARCHAR(50) NOT NULL,
+    bytes_p2p BIGINT DEFAULT 0,
+    bytes_origin BIGINT DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS usage_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    month VARCHAR(7) NOT NULL,
+    total_gb_used FLOAT DEFAULT 0,
+    UNIQUE(user_id, month)
+);
+"""
 
 # Notifications table DDL — created idempotently at startup (see main.py migrations).
 NOTIFICATIONS_TABLE_DDL = """
@@ -234,18 +271,29 @@ class _TimedPool:
         return getattr(self._pool, name)
 
 
-async def get_db_pool() -> asyncpg.Pool:
+async def get_db_pool(*, settings: Settings | None = None) -> asyncpg.Pool:
     global pg_pool
+    s = settings or get_settings()
     if pg_pool is None:
         raw_pool = await asyncpg.create_pool(
-            settings.database_url,
-            min_size=settings.db_pool_min_size,
-            max_size=settings.db_pool_max_size,
-            # Required for Supabase/PgBouncer which doesn't support prepared statements
+            s.database_url,
+            min_size=s.db_pool_min_size,
+            max_size=s.db_pool_max_size,
             statement_cache_size=0,
         )
         pg_pool = _TimedPool(raw_pool)
     return pg_pool
+
+
+# Backwards-compat alias kept so existing call sites that import
+# ``get_db_pool`` and do ``await get_db_pool()`` keep working.
+_GET_DB_POOL_DEPRECATED = get_db_pool
+
+
+async def get_db_pool_with_settings(*, settings: Settings) -> asyncpg.Pool:
+    """Variant used by the test harness: accepts an already-built settings
+    instance instead of calling :func:`get_settings` again."""
+    return await get_db_pool(settings=settings)
 
 
 async def get_redis() -> Redis | None:

@@ -154,13 +154,17 @@ async def authenticate(
 
     ip = get_client_ip(request) or "unknown"
     key_limiter, ip_limiter = _limiters(coordinator.settings)
-    if not key_limiter.allow(f"key:{auth.key_prefix}"):
+    # ``allow`` is async — calling it without awaiting returned a truthy coroutine
+    # and silently disabled both buckets.
+    key_result = await key_limiter.allow(f"key:{auth.key_prefix}")
+    if not key_result.allowed:
         raise LimitExceeded(
             "rate limit exceeded for this API key",
             code="rate_limited",
-            details={"retry_after": key_limiter.retry_after_seconds(f"key:{auth.key_prefix}")},
+            details={"retry_after": key_result.retry_after_seconds},
         )
-    if not ip_limiter.allow(f"ip:{ip}"):
+    ip_result = await ip_limiter.allow(f"ip:{ip}")
+    if not ip_result.allowed:
         raise LimitExceeded("rate limit exceeded for this client address", code="rate_limited")
     return auth
 
