@@ -3,6 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from ..ai.redis_cache import setifempty
 from ..auth import get_current_user_id
 from ..database import get_db_pool, get_redis
 from ..email_service import (
@@ -11,7 +12,6 @@ from ..email_service import (
     send_verification_email,
 )
 from ..models import EmailVerifyRequest
-from ..ai.redis_cache import setifempty
 
 # Simple in-memory rate limiting for resend (Redis not required)
 # Bounded: entries older than the 60s cooldown window are dropped on every
