@@ -97,7 +97,6 @@ TRANSCRIPT_RECORD_DOMAIN = "tcdn-ai/transcript-record/v1"
 DEFAULT_CHALLENGE_FRACTION = 0.03  # 3% of output tokens
 DEFAULT_MIN_CHALLENGE = 8
 DEFAULT_MAX_CHALLENGE = 256
-DEFAULT_TOP_K = 5
 TRANSCRIPT_QUANTIZATION_BITS = 14  # fixed-point logprob precision for commitments
 
 # ---------------------------------------------------------------------------
@@ -205,8 +204,6 @@ def _quantize_logprob(value: float) -> int:
 # ---------------------------------------------------------------------------
 # Receipt extension fields (additive, no schema break)
 # ---------------------------------------------------------------------------
-
-VERIFICATION_EXTENSIONS_KEY = "verification"
 
 
 class VerificationReceiptExt:
@@ -445,15 +442,6 @@ def _recomputed_leaf_hex(record: TranscriptRecord) -> str:
         "tk": [(tid, _quantize_logprob(lp)) for tid, lp in record.top_k],
     }
     return crypto.sha256_hex(crypto.canonical_json(payload))
-
-
-def _proof_fails_with_mismatch_position(position: int, transcript_root: str) -> bool:
-    """Predicate used by tests to assert the exact failure shape of a forged proof.
-
-    This returns True only for the deterministic per-token mismatch the coordinator
-    treats as a verifiable violation; it is not part of the evaluated protocol path.
-    """
-    return False
 
 
 # ---------------------------------------------------------------------------
@@ -774,22 +762,6 @@ class VerdictType:
     FAIL = "fail"
 
 
-def verdict_type_from_statistics(
-    stats: VerificationStatistics, *, fail_on_tail: bool = True
-) -> str:
-    """Map comparison statistics to an initial verdict type.
-
-    This is the *verifier-side* initial decision, before the suspect flow and
-    majority rules in the coordinator. It is intentionally a pure function so it
-    can be re-run with different tolerance profiles during appeals.
-    """
-    if stats.challenged_all_within_tolerance and stats.chosen_all_within_tolerance:
-        return VerdictType.PASS
-    if fail_on_tail and stats.tail_fraction > 0.0:
-        return VerdictType.FAIL
-    return VerdictType.SUSPECT
-
-
 @dataclass(frozen=True)
 class Verdict:
     """Signed verdict record produced by a verifier.
@@ -986,8 +958,6 @@ def penalty_accounts_for_destiny(destiny: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 # Synthetic probe + canary helpers
 # ---------------------------------------------------------------------------
-
-PRIVACY_CANARY_MARKER = "TCDN_AI_PRIVACY_CANARY"
 
 
 def has_canary(value: Any, canary: str) -> bool:
