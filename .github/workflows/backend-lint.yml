@@ -5,7 +5,9 @@ name: backend-lint
 # Python version as backend/Dockerfile (3.11) so CI and local runs agree.
 on:
   push:
-    branches: [main]
+    # Temporary: the TCDN-AI trial push, to get a real lint run on the branch.
+    # Remove fix/tcdn-ai-redis-replay-nonce before this merges.
+    branches: [main, fix/tcdn-ai-redis-replay-nonce]
   pull_request:
     branches: [main]
 
