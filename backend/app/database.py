@@ -285,17 +285,6 @@ async def get_db_pool(*, settings: Settings | None = None) -> asyncpg.Pool:
     return pg_pool
 
 
-# Backwards-compat alias kept so existing call sites that import
-# ``get_db_pool`` and do ``await get_db_pool()`` keep working.
-_GET_DB_POOL_DEPRECATED = get_db_pool
-
-
-async def get_db_pool_with_settings(*, settings: Settings) -> asyncpg.Pool:
-    """Variant used by the test harness: accepts an already-built settings
-    instance instead of calling :func:`get_settings` again."""
-    return await get_db_pool(settings=settings)
-
-
 async def get_redis() -> Redis | None:
     """Get Redis client. Returns None if Redis is unavailable (optional dependency).
 

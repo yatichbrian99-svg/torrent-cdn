@@ -305,8 +305,12 @@ class TestGatewayHonesty:
         ai_routes.set_coordinator_for_tests(ai_env.coordinator)
 
         async def failing_transport(url: str, payload: dict):
+            # The guarded yield comes FIRST so this is an async generator (the
+            # transport hook requires one) without leaving unreachable code
+            # after the raise, which the dead-code audit rejects.
+            if False:  # pragma: no cover
+                yield b""
             raise UnavailableError("worker down", code="worker_unreachable")
-            yield b""  # pragma: no cover - makes this an async generator
 
         openai_routes.set_worker_transport_for_tests(failing_transport)
         try:
