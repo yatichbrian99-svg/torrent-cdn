@@ -1,0 +1,148 @@
+{
+  "mutations": [
+    {
+      "control": "receipt signature verification",
+      "file": "app/ai/receipts.py",
+      "test": "tests/test_ai_components.py::TestReceipts::test_flipped_signature_rejected",
+      "baseline": "pass",
+      "mutated_exit": 1,
+      "mutated_output": "E       Failed: DID NOT RAISE ReceiptError\n\ntests/test_ai_components.py:186: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_components.py::TestReceipts::test_flipped_signature_rejected\n1 failed in 0.72s",
+      "restored": true,
+      "after_restore": "pass",
+      "status": "CAUGHT"
+    },
+    {
+      "control": "signature domain separation",
+      "file": "app/ai/crypto.py",
+      "test": "tests/test_ai_core.py::TestCrypto",
+      "baseline": "pass",
+      "mutated_exit": 1,
+      "mutated_output": "E        +    where <function verify at 0x7f79a499c510> = crypto.verify\n\ntests/test_ai_core.py:60: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_core.py::TestCrypto::test_sign_verify_and_tamper - Asser...\n1 failed, 7 passed in 0.96s",
+      "restored": true,
+      "after_restore": "pass",
+      "status": "CAUGHT"
+    },
+    {
+      "control": "AEAD associated data binding",
+      "file": "app/ai/crypto.py",
+      "test": "tests/test_ai_core.py::TestCrypto::test_aead_roundtrip_and_tamper",
+      "baseline": "pass",
+      "mutated_exit": 1,
+      "mutated_output": "E           app.ai.errors.CryptoError: AEAD authentication failed\n\napp/ai/crypto.py:237: CryptoError\n=========================== short test summary info ============================\nFAILED tests/test_ai_core.py::TestCrypto::test_aead_roundtrip_and_tamper - ap...\n1 failed in 0.74s",
+      "restored": true,
+      "after_restore": "pass",
+      "status": "CAUGHT"
+    },
+    {
+      "control": "ticket replay cache",
+      "file": "app/ai/tickets.py",
+      "test": "tests/test_ai_core.py::TestTickets::test_replay_is_rejected",
+      "baseline": "pass",
+      "mutated_exit": 1,
+      "mutated_output": "E       Failed: DID NOT RAISE ReplayError\n\ntests/test_ai_core.py:149: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_core.py::TestTickets::test_replay_is_rejected - Failed: ...\n1 failed in 0.71s",
+      "restored": true,
+      "after_restore": "pass",
+      "status": "CAUGHT"
+    },
+    {
+      "control": "credit hold cannot overdraw",
+      "file": "app/ai/ledger.py",
+      "test": "tests/test_ai_core.py::TestLedger::test_hold_cannot_exceed_available",
+      "baseline": "pass",
+      "mutated_exit": 1,
+      "mutated_output": "E       Failed: DID NOT RAISE InsufficientCredits\n\ntests/test_ai_core.py:273: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_core.py::TestLedger::test_hold_cannot_exceed_available\n1 failed in 0.73s",
+      "restored": true,
+      "after_restore": "pass",
+      "status": "CAUGHT"
+    },
+    {
+      "control": "simulated attestation refused in production",
+      "file": "app/ai/attestation.py",
+      "test": "tests/test_ai_components.py::TestAttestation::test_simulated_verdict_rejected_in_production",
+      "baseline": "pass",
+      "mutated_exit": 1,
+      "mutated_output": "E       Failed: DID NOT RAISE AttestationError\n\ntests/test_ai_components.py:487: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_components.py::TestAttestation::test_simulated_verdict_rejected_in_production\n1 failed in 0.73s",
+      "restored": true,
+      "after_restore": "pass",
+      "status": "CAUGHT"
+    },
+    {
+      "control": "AI admin endpoints require admin JWT",
+      "file": "app/ai/routes.py",
+      "test": "tests/test_ai_api.py::TestAccountIsolation::test_api_key_cannot_reach_admin",
+      "baseline": "pass",
+      "mutated_exit": 1,
+      "mutated_output": "E        +  where 200 = <Response [200 OK]>.status_code\n\ntests/test_ai_api.py:207: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_api.py::TestAccountIsolation::test_api_key_cannot_reach_admin\n1 failed in 0.86s",
+      "restored": true,
+      "after_restore": "pass",
+      "status": "CAUGHT"
+    },
+    {
+      "control": "Merkle proof verification",
+      "file": "app/ai/shards.py",
+      "test": "tests/test_ai_components.py::TestShards::test_manifest_merkle_and_signature",
+      "baseline": "pass",
+      "mutated_exit": 1,
+      "mutated_output": "E            +    and   '1118eee6f7818995eb5c7ff5a77baced6242fa10ad89273e24e11d770faf7002' = ModelManifestPayload(model_id='m', name='M', format='safetensors', version='1', total_size=21, shards=[ShardSpec(index...edd96cf160bfb', size=7)], merkle_root='1118eee6f7818995eb5c7ff5a77baced6242fa10ad89273e24e11d770faf7002', created_at=1).merkle_root\n\ntests/test_ai_components.py:267: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_components.py::TestShards::test_manifest_merkle_and_signature\n1 failed in 0.76s",
+      "restored": true,
+      "after_restore": "pass",
+      "status": "CAUGHT"
+    },
+    {
+      "control": "payment webhook signature",
+      "file": "app/ai/payments.py",
+      "test": "tests/test_ai_billing.py::TestFakeProvider::test_bad_signature_rejected",
+      "baseline": "pass",
+      "mutated_exit": 1,
+      "mutated_output": "E       Failed: DID NOT RAISE AuthenticationError\n\ntests/test_ai_billing.py:68: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_billing.py::TestFakeProvider::test_bad_signature_rejected\n1 failed in 0.73s",
+      "restored": true,
+      "after_restore": "pass",
+      "status": "CAUGHT"
+    },
+    {
+      "control": "gateway rejects unsupported/confidential OpenAI params",
+      "file": "app/ai/gateway.py",
+      "test": "tests/test_ai_openai_compat.py::TestOfficialClient::test_tools_are_rejected_not_silently_ignored",
+      "baseline": "pass",
+      "mutated_exit": 1,
+      "mutated_output": "E           Failed: DID NOT RAISE BadRequestError\n\ntests/test_ai_openai_compat.py:219: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_openai_compat.py::TestOfficialClient::test_tools_are_rejected_not_silently_ignored\n1 failed in 1.47s",
+      "restored": true,
+      "after_restore": "pass",
+      "status": "CAUGHT"
+    },
+    {
+      "control": "credit hold carries engine-token headroom",
+      "file": "app/ai/service.py",
+      "test": "tests/test_ai_service.py::TestHoldHeadroomAndDisputes::test_engine_chat_template_overhead_settles_within_the_hold",
+      "baseline": "pass",
+      "mutated_exit": 1,
+      "mutated_output": "E        +  and   63 = JobRecord(job_id='c05c73cb5d194d959d4afec350973fe7', account_id='11111111-1111-4111-8111-111111111111', node_id='node_... seeder_micro=0, platform_micro=0, created_at=1792868763, settled_at=None, dispute_reason=None, receipt=None, ack=None).max_price_micro\n\ntests/test_ai_service.py:419: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_service.py::TestHoldHeadroomAndDisputes::test_engine_chat_template_overhead_settles_within_the_hold\n1 failed in 0.85s",
+      "restored": true,
+      "after_restore": "pass",
+      "status": "CAUGHT"
+    },
+    {
+      "control": "disputed job releases its credit hold",
+      "file": "app/ai/service.py",
+      "test": "tests/test_ai_service.py::TestHoldHeadroomAndDisputes::test_disputed_job_releases_the_hold",
+      "baseline": "pass",
+      "mutated_exit": 1,
+      "mutated_output": "E       assert 255 == 0\n\ntests/test_ai_service.py:443: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_service.py::TestHoldHeadroomAndDisputes::test_disputed_job_releases_the_hold\n1 failed in 0.78s",
+      "restored": true,
+      "after_restore": "pass",
+      "status": "CAUGHT"
+    },
+    {
+      "control": "job ownership on client ack",
+      "file": "app/ai/service.py",
+      "test": "tests/test_authorization_matrix.py::TestAIRoleMatrix::test_foreign_account_cannot_ack_another_tenants_job",
+      "baseline": "pass",
+      "mutated_exit": 1,
+      "mutated_output": "E        +  where 200 = <Response [200 OK]>.status_code\n\ntests/test_authorization_matrix.py:259: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_authorization_matrix.py::TestAIRoleMatrix::test_foreign_account_cannot_ack_another_tenants_job\n1 failed in 0.85s",
+      "restored": true,
+      "after_restore": "pass",
+      "status": "CAUGHT"
+    }
+  ],
+  "unproven": 0
+}

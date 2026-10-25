@@ -1,0 +1,110 @@
+{
+  "base_url": "http://127.0.0.1:8011",
+  "model": "llama-3.1-8b-instruct",
+  "canary": "CANARY-4ffa4ca53ef00741",
+  "steps": [
+    {
+      "step": "health",
+      "ok": true,
+      "detail": "healthy"
+    },
+    {
+      "step": "signup + email verification",
+      "ok": true,
+      "detail": {
+        "verified": true
+      }
+    },
+    {
+      "step": "2FA enrolled and enforced at login",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "step": "API key created (developer + worker scopes)",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "step": "model registered",
+      "ok": true,
+      "detail": "llama-3.1-8b-instruct"
+    },
+    {
+      "step": "credits purchased; duplicate callback was idempotent",
+      "ok": true,
+      "detail": 5000000
+    },
+    {
+      "step": "worker registered",
+      "ok": true,
+      "detail": "node_10d69428f663980414d4efc1"
+    },
+    {
+      "step": "official OpenAI client compatibility probe",
+      "ok": true,
+      "detail": {
+        "status": 404,
+        "verdict": "NOT IMPLEMENTED"
+      }
+    },
+    {
+      "step": "non-streaming inference (TCDN-AI SDK, OpenAI-shaped response)",
+      "ok": true,
+      "detail": {
+        "tokens": 10,
+        "finish": "stop"
+      }
+    },
+    {
+      "step": "streaming inference (TCDN-AI SDK)",
+      "ok": true,
+      "detail": {
+        "chunks": 3
+      }
+    },
+    {
+      "step": "usage and balance updated",
+      "ok": true,
+      "detail": {
+        "account_id": "3d4e1c8a-7070-4d58-87df-bf66710b1a47",
+        "credits": 4.999922,
+        "micro_credits": 4999922,
+        "held_micro": 0,
+        "available_micro": 4999922
+      }
+    },
+    {
+      "step": "invariants: ledger, holds, job states, no canary retention",
+      "ok": true,
+      "detail": {
+        "ledger_entries": 7,
+        "ledger_net_micro": 4999922,
+        "jobs": 2,
+        "open_holds": 0,
+        "canary_leaks": 0
+      }
+    }
+  ],
+  "account_id": "3d4e1c8a-7070-4d58-87df-bf66710b1a47",
+  "api_key_prefix": "tcdn_ai_jL0nGp9x\u2026",
+  "openai_client_compatibility": {
+    "status": 404,
+    "verdict": "NOT IMPLEMENTED"
+  },
+  "balance_after": {
+    "account_id": "3d4e1c8a-7070-4d58-87df-bf66710b1a47",
+    "credits": 4.999922,
+    "micro_credits": 4999922,
+    "held_micro": 0,
+    "available_micro": 4999922
+  },
+  "invariants": {
+    "ledger_entries": 7,
+    "ledger_net_micro": 4999922,
+    "jobs": 2,
+    "open_holds": 0,
+    "canary_leaks": 0
+  },
+  "ok": true
+}

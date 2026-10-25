@@ -1,0 +1,3 @@
+$ ruff check app tests scripts
+All checks passed!
+exit=0

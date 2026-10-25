@@ -1,0 +1,15 @@
+# Whole backend suite — ENABLE_TCDN_AI=true
+# command: cd backend && ENABLE_TCDN_AI=true .venv/bin/python -m pytest -q
+# date: 2026-10-24
+# Before the conftest fix this command hung (exit 124) after ~15%.
+
+run1: 923 passed, 7 skipped, 59 warnings in 94.60s (0:01:34)
+run2: 923 passed, 7 skipped, 59 warnings in 75.99s (0:01:15)
+run3: 923 passed, 7 skipped, 59 warnings in 69.97s (0:01:09)
+
+--- tail of run1 ---
+    torrent.creation_date = datetime.utcnow()
+
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+923 passed, 7 skipped, 59 warnings in 94.60s (0:01:34)

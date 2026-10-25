@@ -1,0 +1,15 @@
+# Whole backend suite — ENABLE_TCDN_AI=false
+# command: cd backend && ENABLE_TCDN_AI=false .venv/bin/python -m pytest -q
+# date: 2026-10-24
+# AI HTTP-surface tests skip with an explicit reason; unit tests still run.
+
+run1: 877 passed, 53 skipped, 59 warnings in 64.60s (0:01:04)
+run2: 877 passed, 53 skipped, 59 warnings in 70.60s (0:01:10)
+run3: 877 passed, 53 skipped, 59 warnings in 98.18s (0:01:38)
+
+--- tail of run1 ---
+    torrent.creation_date = datetime.utcnow()
+
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+877 passed, 53 skipped, 59 warnings in 64.60s (0:01:04)

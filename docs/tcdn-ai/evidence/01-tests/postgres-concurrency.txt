@@ -1,0 +1,14 @@
+$ TEST_POSTGRES_URL=postgresql://tcdn:tcdn@127.0.0.1:5432/tcdn .venv/bin/python -m pytest tests/test_ai_postgres.py -q
+....                                                                     [100%]
+=============================== warnings summary ===============================
+tests/conftest.py:12
+  /home/yatich/torrent-cdn/backend/tests/conftest.py:12: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient
+
+.venv/lib/python3.14/site-packages/_pytest/cacheprovider.py:469
+  /home/yatich/torrent-cdn/backend/.venv/lib/python3.14/site-packages/_pytest/cacheprovider.py:469: PytestCacheWarning: cache could not write path /home/yatich/torrent-cdn/backend/.pytest_cache/v/cache/nodeids: [Errno 13] Permission denied: '/home/yatich/torrent-cdn/backend/.pytest_cache/v/cache/nodeids'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+4 passed, 2 warnings in 2.10s
+EXIT=0

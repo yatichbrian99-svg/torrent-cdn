@@ -1,0 +1,14 @@
+$ .venv/bin/python scripts/break_tests.py --out ../docs/tcdn-ai/evidence/06-break-tests/break-tests.json
+CAUGHT     receipt signature verification
+CAUGHT     signature domain separation
+CAUGHT     AEAD associated data binding
+CAUGHT     ticket replay cache
+CAUGHT     credit hold cannot overdraw
+CAUGHT     simulated attestation refused in production
+CAUGHT     AI admin endpoints require admin JWT
+CAUGHT     Merkle proof verification
+CAUGHT     payment webhook signature
+CAUGHT     job ownership on client ack
+
+10/10 controls proven; 0 unproven
+EXIT=0
