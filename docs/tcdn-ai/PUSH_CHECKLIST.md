@@ -10,7 +10,7 @@ Nothing here is inherited from an earlier report.
 
 | Level | VERIFIED | PARTIAL | BUILT-UNVERIFIED | MISSING | DEFERRED | NOT VERIFIABLE HERE | Total |
 |---|---|---|---|---|---|---|---|
-| **P1** | **10** | **37** | 0 | **7** | 0 | 0 | 54 |
+| **P1** | **11** | **37** | 0 | **6** | 0 | 0 | 54 |
 | **P2** | 0 | 1 | 0 | 27 | 0 | 1 | 29 |
 | **DEFER** | 0 | 0 | 0 | 0 | 2 | 0 | 2 |
 
@@ -18,13 +18,12 @@ Counts produced by parsing the tables in this file (not estimated).
 
 **Level 1 ready: NO.**
 
-All seven [P1] `MISSING` items block the push:
+All six [P1] `MISSING` items block the push:
 
 | Blocker | Why it stops Level 1 |
 |---|---|
 | **1.13** | `CONTRACTS.md` does not exist; no contract tests. |
 | **5.5** | No SAST, no ZAP, no Trivy, fuzz budget not run — Level 1 requires **no open critical/high**, which cannot be asserted without these. |
-| **3.1** | No real engine has ever run through the adapters; only stubs. |
 | **6.1** | Redundant execution is not wired into placement. |
 | **10.2** | No capacity test results, so no measured limits or server sizing. |
 | **12.3** | No draft PR. |
@@ -57,7 +56,7 @@ Additional [P1] `PARTIAL`s that must reach `VERIFIED` before the same push:
 | 1.5 | Secrets scan clean, whole history, all branches | P1 | **VERIFIED (limited)** | **blob-level scan of every ref**: 39 refs, 396 commits, **1661 blobs**, 0 high-signal findings, 0 key-file paths anywhere in history; 209 credential-shaped hits triaged to placeholders and 5 known test fixtures (`evidence/11-secret-scan/`, reproducible via its `scan.py`) | **gitleaks is not installed**; this is pattern matching + a credential-in-URL pass, not gitleaks' entropy heuristics |
 | 1.6 | No artefacts, DBs, large binaries committed | P1 | **PARTIAL** | untracked in tree: `backend/.coverage`, `clips/*.mp4/gif/png`, `frontend/__debug_sdk.mjs`, `frontend/__sdk_debug.mjs` | must be ignored/removed before push |
 | 1.7 | Dependency audit clean, lockfiles, SBOM, justified deps | P1 | **PARTIAL** | `pip-audit -r requirements.txt` → "No known vulnerabilities found"; `frontend/package-lock.json` committed (untracked change) | **no SBOM generated**; crypto deps not individually justified |
-| 1.8 | CI green on GitHub: build, lint, tests w/ Postgres, SAST, deps, secrets, container, SBOM | P1 | **PARTIAL** | `ai-store` job repaired and run locally against **fresh** `postgres:16.4-alpine` + `redis:7.4.2-alpine`: **61 passed** (core+redis) and **7 passed** (real Postgres), exit 0; workflow YAML parses | **no GitHub run yet** (nothing pushed); SAST / container / SBOM jobs still absent from the workflows |
+| 1.8 | CI green on GitHub: build, lint, tests w/ Postgres, SAST, deps, secrets, container, SBOM | P1 | **PARTIAL** | trial push: `ai-store` **success** on GitHub twice (runs **40180042110** 2m24s and **40180591169**), `backend-lint` **success** (**40180591105**), engine job **success** (**40180591233**) — all at `853d8a6` | `security.yml` red on **main** 6/6 recent runs (gitleaks, domain guard, production live probes); `dependency-audit.yml` red on **main** 5/5 (5 advisories beyond baseline); no container-scan or SBOM job exists |
 | 1.9 | Migrations additive + reversible; fresh DB and upgrade both tested | P1 | **PARTIAL** | fresh DB bootstrap proven: `TEST_POSTGRES_URL=… pytest tests/test_ai_postgres.py` → **7 passed**; schema is idempotent `AI_TABLES_DDL` | no migration framework, no down-path, no upgrade test |
 | 1.10 | Production refuses simulated verifier, stub backend, memory store, fake payments, TLS off, missing secrets | P1 | **PARTIAL** | refusal code in `config.py:141,202`, `attestation.py`, `payments.py`; `test_ai_security.py::test_production_refuses_to_auto_generate_keys` passes | not one test per refusal listed; TLS/missing-secret refusals not proven |
 | 1.11 | Simulated/dry-run labelled everywhere and impossible in prod | P1 | **PARTIAL** | 45 label mentions in `app/ai`; `SimulatedVerifier`, `EchoBackend`, fake payment provider gate on `is_production`; `GpuDirectSink` fails closed | API-output/docs labelling not audited row by row |
@@ -84,7 +83,7 @@ Additional [P1] `PARTIAL`s that must reach `VERIFIED` before the same push:
 
 | ID | Item | Level | Status | Evidence | Notes |
 |---|---|---|---|---|---|
-| 3.1 | Real open-weight model through Ollama/vLLM, streaming, with evidence | P1 | **MISSING** | no engine in this environment; no CI job exists (`test_ai_engine.py` is 4 tests, skipped without an engine) | blocks Level 1 |
+| 3.1 | Real open-weight model through Ollama/vLLM, streaming, with evidence | P1 | **VERIFIED (limited)** | GitHub run **40180591233**: Ollama **0.40.11** + `qwen2.5:0.5b` (397 MB) on a CPU runner; `tests/test_ai_engine.py` **4 passed**; journey **12/12 PASS** — 62 real tokens non-streaming, 19 SSE chunks, official OpenAI client over `/v1`, `verified_before_link: False`, ledger nets to balance, **0 canary leaks** | **vLLM itself never ran**: its adapter was exercised against Ollama's OpenAI-compatible `/v1`. CPU-only, no GPU, no logprobs |
 | 3.2 | Signed registration/heartbeat, liveness gating, rotation, supervised task with backoff | P1 | **PARTIAL** | `service.py` heartbeat + nonce + rotation; `scripts/ai_worker.py:228` `create_task` | no restart/backoff supervision |
 | 3.3 | Failure handling: crash mid-stream, disappear mid-job, coordinator restart | P1 | **PARTIAL** | `test_ai_failure_injection.py` has **1** test; `expire_stale_jobs` releases holds (Postgres test passes) | crash/restart matrix not covered |
 
@@ -189,9 +188,47 @@ Additional [P1] `PARTIAL`s that must reach `VERIFIED` before the same push:
 | 12.1 | This checklist complete, counts, "Level 1 ready" line | P1 | **VERIFIED** | this file | says **NO** with reasons |
 | 12.2 | `VERIFICATION_REPORT.md` per Appendix 4 §7 | P1 | **PARTIAL** | file exists and follows the shape | **contains wrong counts** (175 AI / 192 legacy; actual 200 / 897) |
 | 12.3 | Draft PR description with all required sections | P1 | **MISSING** | no PR opened | blocked by the items above |
-| 12.4 | After push: CI green, no secrets, PR link | P1 | **MISSING** | not pushed | follows from 1.8 and 12.3 |
+| 12.4 | After push: CI green, no secrets, PR link | P1 | **MISSING** | pushed: 3 workflows green at `853d8a6` (lint, docker audit incl. `ai-store`, engine), 0 secrets in the full-history scan | **no PR** (a trial push explicitly excluded one) and CI is not green across the whole Level-1 set, so this cannot pass yet |
 
 ---
+
+## CI evidence — the trial push (2026-10-25)
+
+Branch `fix/tcdn-ai-redis-replay-nonce`, pushed to GitHub **without a pull request** and without
+force (`1497062..853d8a6`). Nothing was pushed to `main`.
+
+A branch push initially ran **nothing at all**: every workflow gates `push` to `main`, and
+`ci-fullstack.yml`/`backend-lint.yml` have no `workflow_dispatch` on the default branch (dispatch
+is only accepted for workflows that already exist there — trying `tcdn-ai-engine.yml` returned
+**404**). That is why 1.8 had no evidence to point at, and it is a defect in the CI design, not in
+this branch. Three temporary `push` triggers were added for the trial and must be removed before
+merge: `ci-fullstack.yml`, `backend-lint.yml`, `tcdn-ai-engine.yml`.
+
+| Run | Workflow | Result | What it proves |
+|---|---|---|---|
+| **40180042110** | Full-stack Docker audit | **success** 2m24s | `fullstack-audit` + **`ai-store` success in 50 s**: real PostgresStore, real Redis, 61 + 7 tests |
+| **40180236002** | Full-stack Docker audit | **success** | same, on the lint-fix commit |
+| **40180591169** | Full-stack Docker audit | **success** | same, at `853d8a6` |
+| **40180591105** | backend-lint | **success** | `ruff check app tests scripts` clean on GitHub, ruff 0.16.3 |
+| **40180591233** | TCDN-AI engine (nightly) | **success** 1m45s | real Ollama 0.40.11 + `qwen2.5:0.5b`, adapters 4 passed, journey 12/12 |
+| 40180042189 | backend-lint | failure 13 s | import order in `routes/verification.py` — fixed in `30b96c1` |
+| 40180100538 | Dependency Audit | failure | "5 NEW dependency advisory(ies) beyond baseline" — **also fails on main 5/5** |
+| 40180095217 | Tests & Security Audits | failure | gitleaks step + "Domain guard (dead host + apex URLs)" + production live probes — **also fails on main 6/6** |
+
+**The two red workflows are pre-existing, not caused by this branch.** `security.yml` has failed on
+`main` on 2026-10-20, 21, 22, 23, 24 and 25; `dependency-audit.yml` on 20-24. Their `tests` job dies
+at the domain guard before the suite runs, so **no full-suite result comes from GitHub CI yet** —
+the only suite evidence is local (below). Fixing those two is 1.7/1.8 work that 1.8 cannot close
+without.
+
+**Clean-clone verification of the exact pushed commit** (`1b83f06`, clone at `/tmp`, dependencies
+reused because pip had no network — so the "install from scratch" half of 1.3 is still unproven):
+
+```
+flag off:  897 passed, 57 skipped, exit 0   (2m59s)
+flag on:   950 passed,  4 skipped, exit 0   (2m37s)   real Postgres + real Redis attached
+ai-store step body, run verbatim:          61 passed + 7 passed, exit 0
+```
 
 ## Fixes landed during this confirm pass (M0.1)
 
