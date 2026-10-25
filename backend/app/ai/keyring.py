@@ -51,7 +51,11 @@ class KeyRecord:
 
     @property
     def can_sign(self) -> bool:
-        return self.private_key is not None and self.retired_at is None and self.revoked_at is None
+        return (
+            self.private_key is not None
+            and self.retired_at is None
+            and self.revoked_at is None
+        )
 
     def can_verify(self, now: int, overlap_seconds: int) -> bool:
         if self.revoked_at is not None:
@@ -188,7 +192,9 @@ class KeyRing:
     ) -> dict[str, Any]:
         record = self.active if key_id is None else self.get(key_id)
         if not record.can_sign:
-            raise CryptoError("key is not permitted to sign", code="inactive_signing_key")
+            raise CryptoError(
+                "key is not permitted to sign", code="inactive_signing_key"
+            )
         return {
             "key_id": record.key_id,
             "alg": SIG_ALG,
@@ -211,7 +217,9 @@ class KeyRing:
         if not required.issubset(document):
             raise CryptoError("malformed signed document", code="malformed_document")
         if document["alg"] != SIG_ALG:
-            raise CryptoError("unsupported signature algorithm", code="unsupported_algorithm")
+            raise CryptoError(
+                "unsupported signature algorithm", code="unsupported_algorithm"
+            )
         if document["domain"] != domain:
             # The domain is also inside the signed bytes; this check makes the
             # mismatch explicit and cheap.
@@ -234,9 +242,10 @@ class KeyRing:
 
     def revoke(self, key_id: str, reason: str, *, at: int | None = None) -> None:
         record = self.get(key_id)
-        if record.can_sign and sum(
-            1 for key_id_ in self._order if self._keys[key_id_].can_sign
-        ) == 1:
+        if (
+            record.can_sign
+            and sum(1 for key_id_ in self._order if self._keys[key_id_].can_sign) == 1
+        ):
             # Revoking the only signing key would leave the coordinator unable
             # to issue tickets; rotate first, then revoke.
             raise CryptoError(
@@ -281,9 +290,7 @@ class KeyRing:
         }
 
     @classmethod
-    def from_secret(
-        cls, data: dict[str, Any], *, clock: Any = _now
-    ) -> KeyRing:
+    def from_secret(cls, data: dict[str, Any], *, clock: Any = _now) -> KeyRing:
         if int(data.get("version", 0)) != 1:
             raise CryptoError("unsupported keyring version", code="keyring_version")
         ring = cls(
@@ -301,11 +308,17 @@ class KeyRing:
                 revoked_at=entry.get("revoked_at"),
                 revoke_reason=entry.get("revoke_reason"),
             )
-            derived = crypto.ed25519_public_from_private(record.private_key) if record.private_key else None
+            derived = (
+                crypto.ed25519_public_from_private(record.private_key)
+                if record.private_key
+                else None
+            )
             if derived is not None and derived != record.public_key:
                 # A stored key whose public half does not match its private half
                 # would silently sign documents nobody can verify.
-                raise CryptoError("keyring entry is internally inconsistent", code="corrupt_keyring")
+                raise CryptoError(
+                    "keyring entry is internally inconsistent", code="corrupt_keyring"
+                )
             ring._keys[record.key_id] = record
             ring._order.append(record.key_id)
         if not ring._order:
@@ -346,7 +359,9 @@ class FileSecretStore:
         try:
             return json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
-            raise CryptoError("keyring file is unreadable", code="corrupt_keyring") from exc
+            raise CryptoError(
+                "keyring file is unreadable", code="corrupt_keyring"
+            ) from exc
 
     def save(self, data: dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -390,10 +405,14 @@ class EnvSecretStore:
         try:
             return json.loads(raw)
         except ValueError as exc:
-            raise CryptoError("injected keyring is not valid JSON", code="corrupt_keyring") from exc
+            raise CryptoError(
+                "injected keyring is not valid JSON", code="corrupt_keyring"
+            ) from exc
 
     def save(self, data: dict[str, Any]) -> None:  # pragma: no cover - never used
-        raise CryptoError("injected keyring is read-only", code="read_only_secret_store")
+        raise CryptoError(
+            "injected keyring is read-only", code="read_only_secret_store"
+        )
 
 
 def load_keyring(
@@ -411,7 +430,9 @@ def load_keyring(
             # secret env vars, systemd credentials); never written back.
             store = EnvSecretStore()
         elif settings.is_production:  # pragma: no cover - validator rejects first
-            raise CryptoError("no keyring secret store configured", code="missing_secret_store")
+            raise CryptoError(
+                "no keyring secret store configured", code="missing_secret_store"
+            )
         else:
             store = MemorySecretStore()
 
@@ -427,7 +448,9 @@ def load_keyring(
             "TCDN-AI keyring absent — generating an in-memory DEVELOPMENT keyring "
             "(keys do not survive a restart)"
         )
-        ring = KeyRing.generate("coordinator", overlap_seconds=settings.key_overlap_seconds)
+        ring = KeyRing.generate(
+            "coordinator", overlap_seconds=settings.key_overlap_seconds
+        )
         store.save(ring.to_secret())
         return ring
 

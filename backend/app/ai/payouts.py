@@ -74,9 +74,13 @@ def verify_transfer_receipt(
     downloader_public_key: str,
     seeder_public_key: str,
 ) -> None:
-    if not crypto.verify(TRANSFER_DOMAIN, claim.payload(), downloader_signature, downloader_public_key):
+    if not crypto.verify(
+        TRANSFER_DOMAIN, claim.payload(), downloader_signature, downloader_public_key
+    ):
         raise ValueError("downloader signature is invalid")
-    if not crypto.verify(TRANSFER_DOMAIN, claim.payload(), seeder_signature, seeder_public_key):
+    if not crypto.verify(
+        TRANSFER_DOMAIN, claim.payload(), seeder_signature, seeder_public_key
+    ):
         raise ValueError("seeder signature is invalid")
 
 
@@ -127,15 +131,17 @@ def review_claims(
     return reviewed
 
 
-def distribute(
-    pool_micro: int, weights: dict[str, int]
-) -> dict[str, int]:
+def distribute(pool_micro: int, weights: dict[str, int]) -> dict[str, int]:
     """Largest-remainder split of ``pool_micro`` by integer byte weights.
 
     Guarantees: result values are non-negative ints and sum exactly to the pool
     (when the pool is non-negative and any weight is positive).
     """
-    if isinstance(pool_micro, bool) or not isinstance(pool_micro, int) or pool_micro < 0:
+    if (
+        isinstance(pool_micro, bool)
+        or not isinstance(pool_micro, int)
+        or pool_micro < 0
+    ):
         raise ValueError("pool must be a non-negative integer number of micro-credits")
     payable = {node: weight for node, weight in weights.items() if weight > 0}
     total_weight = sum(payable.values())

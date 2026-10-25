@@ -94,15 +94,16 @@ CHALLENGE_DOMAIN = "tcdn-ai/challenge/v1"
 TRANSCRIPT_RECORD_DOMAIN = "tcdn-ai/transcript-record/v1"
 
 # Challenge budget (spec defaults, overridable by settings in the coordinator).
-DEFAULT_CHALLENGE_FRACTION = 0.03   # 3% of output tokens
+DEFAULT_CHALLENGE_FRACTION = 0.03  # 3% of output tokens
 DEFAULT_MIN_CHALLENGE = 8
 DEFAULT_MAX_CHALLENGE = 256
 DEFAULT_TOP_K = 5
-TRANSCRIPT_QUANTIZATION_BITS = 14    # fixed-point logprob precision for commitments
+TRANSCRIPT_QUANTIZATION_BITS = 14  # fixed-point logprob precision for commitments
 
 # ---------------------------------------------------------------------------
 # Transcript records (per-token commitment leaf)
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class TranscriptRecord:
@@ -115,10 +116,12 @@ class TranscriptRecord:
     themselves — only the Merkle root in the receipt.
     """
 
-    position: int                       # token index, 0-based
-    token_id: int                      # vocabulary id of the emitted token
-    chosen_logprob: float              # log-prob of the emitted token under the model
-    top_k: tuple[tuple[int, float], ...]  # (token_id, logprob) pairs, sorted, length <= k
+    position: int  # token index, 0-based
+    token_id: int  # vocabulary id of the emitted token
+    chosen_logprob: float  # log-prob of the emitted token under the model
+    top_k: tuple[
+        tuple[int, float], ...
+    ]  # (token_id, logprob) pairs, sorted, length <= k
 
     def leaf_hex(self) -> str:
         """Deterministic hex leaf for the Merkle tree.
@@ -165,12 +168,16 @@ def build_transcript_root(records: list[TranscriptRecord]) -> str:
     expected = list(range(len(ordered)))
     actual = [r.position for r in ordered]
     if actual != expected:
-        raise ValueError("transcript records must be contiguous positions starting at 0")
+        raise ValueError(
+            "transcript records must be contiguous positions starting at 0"
+        )
     leaves = [r.leaf_hex() for r in ordered]
     return merkle_root(leaves)
 
 
-def transcript_proof(records: list[TranscriptRecord], index: int) -> list[dict[str, str]]:
+def transcript_proof(
+    records: list[TranscriptRecord], index: int
+) -> list[dict[str, str]]:
     """Merkle inclusion proof for the per-token record at ``index``."""
     leaves = [r.leaf_hex() for r in records]
     return merkle_proof(leaves, index)
@@ -179,6 +186,7 @@ def transcript_proof(records: list[TranscriptRecord], index: int) -> list[dict[s
 # ---------------------------------------------------------------------------
 # Quantisation helpers (commitment precision + canonical floats)
 # ---------------------------------------------------------------------------
+
 
 def _quantize_logprob(value: float) -> int:
     """Fixed-point representation of a logprob for the commitment leaf.
@@ -199,6 +207,7 @@ def _quantize_logprob(value: float) -> int:
 # ---------------------------------------------------------------------------
 
 VERIFICATION_EXTENSIONS_KEY = "verification"
+
 
 class VerificationReceiptExt:
     """The ``verification`` extension carried inside the execution receipt.
@@ -228,13 +237,13 @@ class VerificationReceiptExt:
     def build(
         *,
         receipt_id: str,
-        engine: str,                 # e.g. "vllm", "ollama"
+        engine: str,  # e.g. "vllm", "ollama"
         engine_version: str,
-        dtype: str,                  # e.g. "float16", "bfloat16", "float32"
-        quantization: str,           # e.g. "none", "q4_k_m", "gptq"
-        gpu_class: str,              # documented hardware bucket label
+        dtype: str,  # e.g. "float16", "bfloat16", "float32"
+        quantization: str,  # e.g. "none", "q4_k_m", "gptq"
+        gpu_class: str,  # documented hardware bucket label
         sampling_params: dict[str, Any],
-        prompt_hash: str,            # salted SHA-256; never the prompt
+        prompt_hash: str,  # salted SHA-256; never the prompt
         transcript_records: list[TranscriptRecord],
         model_version: str | None = None,
         attestation_ref: str | None = None,
@@ -282,6 +291,7 @@ class VerificationReceiptExt:
 # Coordinator randomness: job sampling + challenge derivation
 # ---------------------------------------------------------------------------
 
+
 class VerificationRng:
     """Deterministic-but-unpredictable-to-the-worker randomness for sampling and
     challenge indices.
@@ -300,7 +310,9 @@ class VerificationRng:
             raise ValueError("verification server secret must be non-empty")
         self._secret = server_secret
 
-    def sample_decision(self, job_id: str, transcript_root: str, *, rate_per_10k: int) -> bool:
+    def sample_decision(
+        self, job_id: str, transcript_root: str, *, rate_per_10k: int
+    ) -> bool:
         """True = verified. Derived only from (secret, job_id, transcript_root).
 
         ``rate_per_10k`` is the coordinator's current per-job sampling target
@@ -317,8 +329,12 @@ class VerificationRng:
         return (value % 10000) < rate_per_10k
 
     def challenge_indices(
-        self, job_id: str, transcript_root: str, token_count: int,
-        *, fraction: float = DEFAULT_CHALLENGE_FRACTION,
+        self,
+        job_id: str,
+        transcript_root: str,
+        token_count: int,
+        *,
+        fraction: float = DEFAULT_CHALLENGE_FRACTION,
         minimum: int = DEFAULT_MIN_CHALLENGE,
         maximum: int = DEFAULT_MAX_CHALLENGE,
     ) -> list[int]:
@@ -333,7 +349,9 @@ class VerificationRng:
         rnd = hmac.new(seed, b"indices", hashlib.sha256).digest()
         indices = list(range(token_count))
         for i in range(count):
-            rnd = hmac.new(rnd + int.to_bytes(i, 4, "big"), b"shuffle", hashlib.sha256).digest()
+            rnd = hmac.new(
+                rnd + int.to_bytes(i, 4, "big"), b"shuffle", hashlib.sha256
+            ).digest()
             j = int.from_bytes(rnd[:4], "big") % (token_count - i) + i
             indices[i], indices[j] = indices[j], indices[i]
         return sorted(indices[:count])
@@ -342,6 +360,7 @@ class VerificationRng:
 # ---------------------------------------------------------------------------
 # Challenge response verification (deterministic violations)
 # ---------------------------------------------------------------------------
+
 
 class ChallengeVerificationError(Exception):
     """A deterministic violation in the challenge protocol."""
@@ -355,7 +374,9 @@ def verify_challenge_response(
     payload: dict[str, Any],
     *,
     transcript_root: str,
-    records: dict[int, TranscriptRecord],   # position -> record (worker-kept, opened on demand)
+    records: dict[
+        int, TranscriptRecord
+    ],  # position -> record (worker-kept, opened on demand)
     node_public_key: str,
     job_id: str,
 ) -> list[TranscriptRecord]:
@@ -375,20 +396,27 @@ def verify_challenge_response(
     opened: list[TranscriptRecord] = []
     responses = payload.get("responses")
     if not isinstance(responses, list):
-        raise ChallengeVerificationError("challenge response missing 'responses'", code="bad_challenge_shape")
+        raise ChallengeVerificationError(
+            "challenge response missing 'responses'", code="bad_challenge_shape"
+        )
 
     for item in responses:
         if not isinstance(item, dict):
-            raise ChallengeVerificationError("bad challenge response item", code="bad_challenge_shape")
+            raise ChallengeVerificationError(
+                "bad challenge response item", code="bad_challenge_shape"
+            )
         position = item.get("position")
         proof = item.get("proof")
         if not isinstance(position, int) or not isinstance(proof, list):
-            raise ChallengeVerificationError("challenge response missing position/proof", code="bad_challenge_shape")
+            raise ChallengeVerificationError(
+                "challenge response missing position/proof", code="bad_challenge_shape"
+            )
 
         record = records.get(position)
         if record is None:
             raise ChallengeVerificationError(
-                f"worker did not open token index {position}", code="challenge_open_failure"
+                f"worker did not open token index {position}",
+                code="challenge_open_failure",
             )
 
         leaf_hex = record.leaf_hex()
@@ -428,10 +456,10 @@ def _proof_fails_with_mismatch_position(position: int, transcript_root: str) -> 
     return False
 
 
-
 # ---------------------------------------------------------------------------
 # Tolerance profiles + verifier comparison
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class ToleranceProfile:
@@ -448,11 +476,11 @@ class ToleranceProfile:
     dtype: str
     quantization: str
     profile_version: str
-    chosen_logprob_abs_tolerance: float       # per-token tolerance for the chosen logprob
-    top_k_overlap_min: int                    # minimum number of top-k ids that should overlap
+    chosen_logprob_abs_tolerance: float  # per-token tolerance for the chosen logprob
+    top_k_overlap_min: int  # minimum number of top-k ids that should overlap
     top_k_logprob_abs_tolerance: float
-    mean_logprob_abs_tolerance: float         # full-sequence mean abs diff threshold
-    tail_fraction_threshold: float            # fraction of tokens in extreme low-prob tail
+    mean_logprob_abs_tolerance: float  # full-sequence mean abs diff threshold
+    tail_fraction_threshold: float  # fraction of tokens in extreme low-prob tail
     effective_from: int
     effective_until: int | None
 
@@ -478,7 +506,13 @@ class CalibrationRegistry:
         self._profiles[profile.label] = profile
 
     def lookup(
-        self, *, model_family: str, gpu_class: str, engine: str, dtype: str, quantization: str
+        self,
+        *,
+        model_family: str,
+        gpu_class: str,
+        engine: str,
+        dtype: str,
+        quantization: str,
     ) -> ToleranceProfile | None:
         key = f"{model_family}/{gpu_class}/{engine}/{dtype}/{quantization}"
         return self._profiles.get(key)
@@ -520,12 +554,13 @@ class TokenComparison:
     worker_top_k_ids: list[int]
     verifier_top_k_ids: list[int]
     in_verifier_top_k: bool
-    tail: bool   # True if the emitted token is in an extreme low-prob tail under the verifier
+    tail: bool  # True if the emitted token is in an extreme low-prob tail under the verifier
 
 
 @dataclass(frozen=True)
 class VerificationStatistics:
     """Aggregated per-job stats a verdict carries. No plaintext tokens/prompts."""
+
     token_count: int
     challenged_positions: list[int]
     comparisons: list[TokenComparison]
@@ -664,7 +699,9 @@ def compare_sequence(
     diffs: list[float] = []
     tail_hits = 0
 
-    for i, (wr, (vtid, vlogprob, vtopk)) in enumerate(zip(worker_records, verifier_records)):
+    for i, (wr, (vtid, vlogprob, vtopk)) in enumerate(
+        zip(worker_records, verifier_records)
+    ):
         vtopk_ids = [t[0] for t in vtopk]
         diff = wr.chosen_logprob - vlogprob
         tail = wr.chosen_logprob < -10.0 or vlogprob < -10.0  # extreme tail proxy
@@ -720,9 +757,9 @@ def compare_sequence(
         mean_top_k_overlap=mean_overlap,
         chosen_all_within_tolerance=all_within,
         challenged_all_within_tolerance=challenged_within,
-        output_hash_matches=False,   # filled by the verdict builder from the receipt
-        token_count_matches=False,   # filled by the verdict builder
-        prompt_hash_matches=False,   # filled by the verdict builder
+        output_hash_matches=False,  # filled by the verdict builder from the receipt
+        token_count_matches=False,  # filled by the verdict builder
+        prompt_hash_matches=False,  # filled by the verdict builder
     )
 
 
@@ -730,13 +767,16 @@ def compare_sequence(
 # Verdict types + signing
 # ---------------------------------------------------------------------------
 
+
 class VerdictType:
     PASS = "pass"
     SUSPECT = "suspect"
     FAIL = "fail"
 
 
-def verdict_type_from_statistics(stats: VerificationStatistics, *, fail_on_tail: bool = True) -> str:
+def verdict_type_from_statistics(
+    stats: VerificationStatistics, *, fail_on_tail: bool = True
+) -> str:
     """Map comparison statistics to an initial verdict type.
 
     This is the *verifier-side* initial decision, before the suspect flow and
@@ -762,12 +802,12 @@ class Verdict:
     job_id: str
     worker_node_id: str
     verifier_id: str
-    type: str                     # pass | suspect | fail
+    type: str  # pass | suspect | fail
     transcript_root: str
     output_hash: str
     token_count: int
-    statistics: dict[str, Any]    # serialisable shape of VerificationStatistics
-    tolerance_profile: str        # profile label + version used
+    statistics: dict[str, Any]  # serialisable shape of VerificationStatistics
+    tolerance_profile: str  # profile label + version used
     profile_version: str
     created_at: int
     appeal_id: str | None = None
@@ -792,7 +832,9 @@ class Verdict:
     def sign(self, private_key_b64: str) -> dict[str, Any]:
         payload = self.document()
         return {
-            "key_id": crypto.key_id_for(crypto.ed25519_public_from_private(private_key_b64)),
+            "key_id": crypto.key_id_for(
+                crypto.ed25519_public_from_private(private_key_b64)
+            ),
             "alg": "Ed25519",
             "domain": VERDICT_DOMAIN,
             "payload": payload,
@@ -801,7 +843,9 @@ class Verdict:
 
     @classmethod
     def verify(cls, document: dict[str, Any], public_key_b64: str) -> Verdict:
-        if not crypto.verify(VERDICT_DOMAIN, document["payload"], document["sig"], public_key_b64):
+        if not crypto.verify(
+            VERDICT_DOMAIN, document["payload"], document["sig"], public_key_b64
+        ):
             raise ValueError("verdict signature invalid")
         payload = document["payload"]
         return cls(
@@ -860,7 +904,7 @@ class VerdictRecord:
     transcript_root: str
     output_hash: str
     token_count: int
-    statistics_digest: str   # SHA-256 of the canonical statistics JSON
+    statistics_digest: str  # SHA-256 of the canonical statistics JSON
     tolerance_profile: str
     profile_version: str
     created_at: int
@@ -870,7 +914,9 @@ class VerdictRecord:
     reversal_reason: str | None = None
 
     @classmethod
-    def from_verdict(cls, verdict: Verdict, *, statistics_digest: str, penalty_applied: bool) -> VerdictRecord:
+    def from_verdict(
+        cls, verdict: Verdict, *, statistics_digest: str, penalty_applied: bool
+    ) -> VerdictRecord:
         return cls(
             verdict_id=verdict.verdict_id,
             job_id=verdict.job_id,
@@ -901,8 +947,8 @@ class PenaltyRecord:
     penalty_id: str
     job_id: str | None
     node_id: str
-    actor: str             # verifier id or "system" or an admin id
-    kind: str              # e.g. "void_job_earnings", "holdback", "suspend_reputation", "ban"
+    actor: str  # verifier id or "system" or an admin id
+    kind: str  # e.g. "void_job_earnings", "holdback", "suspend_reputation", "ban"
     amount_micro: int
     debit_account: str
     credit_account: str
@@ -926,7 +972,10 @@ def penalty_accounts_for_destiny(destiny: str) -> tuple[str, str]:
     money path is a single place that can be audited.
     """
     if destiny == "client_refund":
-        return ("__VOID__", "__CLIENT_REFUND__")  # filled by caller with real account ids
+        return (
+            "__VOID__",
+            "__CLIENT_REFUND__",
+        )  # filled by caller with real account ids
     if destiny == "insurance_pool":
         return ("__VOID__", "pool:insurance")
     if destiny == "platform":
@@ -939,6 +988,7 @@ def penalty_accounts_for_destiny(destiny: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 PRIVACY_CANARY_MARKER = "TCDN_AI_PRIVACY_CANARY"
+
 
 def has_canary(value: Any, canary: str) -> bool:
     """Return True if a canary string appears anywhere in a structure.
@@ -962,6 +1012,7 @@ def has_canary(value: Any, canary: str) -> bool:
 # ---------------------------------------------------------------------------
 # Verification signing layer (Part 3 reference helper)
 # ---------------------------------------------------------------------------
+
 
 def sign_challenge_response(
     *,

@@ -196,7 +196,6 @@ class RedisNonceStore(
             pass
 
 
-
 async def setifempty(
     redis_client: Any,
     key: str,

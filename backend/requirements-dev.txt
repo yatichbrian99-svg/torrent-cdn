@@ -7,3 +7,7 @@
 # ruff    — pinned to the version in .github/workflows/backend-lint.yml.
 openai>=3,<4
 ruff==0.16.3
+# mypy — non-strict type checking, scoped to app/ai and tcdn_ai_sdk only (see
+# mypy-ai.ini). Version range, not a pin: the pinned tool here is ruff, and a
+# strict mypy pin would need a manual bump every release for no added safety.
+mypy>=1.11,<2

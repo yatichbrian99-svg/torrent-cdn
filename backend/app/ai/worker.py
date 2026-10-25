@@ -117,7 +117,10 @@ class EchoBackend:
         recorder = TranscriptRecorder()
         self.last_transcript = ()
         for index, word in enumerate(emitted):
-            token_id = int(hashlib.sha256(f"{index}:{word}".encode()).hexdigest()[:8], 16) % 32_000
+            token_id = (
+                int(hashlib.sha256(f"{index}:{word}".encode()).hexdigest()[:8], 16)
+                % 32_000
+            )
             chosen = -0.5 - 0.01 * (index % 12)
             recorder.record(
                 token_id=token_id,
@@ -186,7 +189,9 @@ class OllamaBackend(_HttpBackend):
         self.last_transcript = ()
         try:
             async with (
-                httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout) as client,
+                httpx.AsyncClient(
+                    base_url=self.base_url, timeout=self.timeout
+                ) as client,
                 client.stream("POST", self.upstream_path, json=payload) as response,
             ):
                 response.raise_for_status()
@@ -244,7 +249,9 @@ class VLLMBackend(_HttpBackend):
         self.last_transcript = ()
         try:
             async with (
-                httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout) as client,
+                httpx.AsyncClient(
+                    base_url=self.base_url, timeout=self.timeout
+                ) as client,
                 client.stream("POST", self.upstream_path, json=payload) as response,
             ):
                 response.raise_for_status()
@@ -258,7 +265,9 @@ class VLLMBackend(_HttpBackend):
                     if event.get("usage"):
                         self.last_usage = {
                             "input_tokens": int(event["usage"].get("prompt_tokens", 0)),
-                            "output_tokens": int(event["usage"].get("completion_tokens", 0)),
+                            "output_tokens": int(
+                                event["usage"].get("completion_tokens", 0)
+                            ),
                         }
                     for choice in event.get("choices", []):
                         content = choice.get("delta", {}).get("content")
@@ -321,11 +330,16 @@ class WorkerIdentity:
             "alg": "Ed25519",
             "domain": "tcdn-ai/session-key/v1",
             "payload": payload,
-            "sig": crypto.sign("tcdn-ai/session-key/v1", payload, self.identity_private_key),
+            "sig": crypto.sign(
+                "tcdn-ai/session-key/v1", payload, self.identity_private_key
+            ),
         }
 
     def needs_rotation(self, *, rotate_seconds: int, now: int | None = None) -> bool:
-        return int(now if now is not None else now_unix()) - self.session_created_at >= rotate_seconds
+        return (
+            int(now if now is not None else now_unix()) - self.session_created_at
+            >= rotate_seconds
+        )
 
 
 @dataclass
@@ -381,7 +395,10 @@ class WorkerAgent:
         # Disabled in unit tests (which assert the coordinator-side flow directly)
         # and enabled by scripts/ai_worker.py.
         self.reporting: tuple[str, str] | None = None
-        if config.confidentiality is Confidentiality.ATTESTED_TEE and not config.attested:
+        if (
+            config.confidentiality is Confidentiality.ATTESTED_TEE
+            and not config.attested
+        ):
             # A confidential worker that has not attested can exist, but it will
             # refuse confidential tickets at process time. This is a startup
             # warning, not a silent downgrade.
@@ -399,7 +416,9 @@ class WorkerAgent:
 
     def _validate_request(self, request: dict[str, Any], ticket: Any) -> None:
         if request.get("model") != ticket.model:
-            raise ValidationError("request model does not match the ticket", code="model_mismatch")
+            raise ValidationError(
+                "request model does not match the ticket", code="model_mismatch"
+            )
         messages = request.get("messages")
         if not isinstance(messages, list) or not messages:
             raise ValidationError("messages must be a non-empty list")
@@ -408,7 +427,9 @@ class WorkerAgent:
         total_chars = 0
         for message in messages:
             if not isinstance(message, dict) or message.get("role") not in {
-                "system", "user", "assistant",
+                "system",
+                "user",
+                "assistant",
             }:
                 raise ValidationError("malformed message")
             content = message.get("content")
@@ -421,7 +442,9 @@ class WorkerAgent:
         if not isinstance(max_tokens, int) or max_tokens < 1:
             raise ValidationError("max_tokens must be a positive integer")
         if max_tokens > ticket.max_tokens or max_tokens > self.config.max_tokens:
-            raise ValidationError("max_tokens exceeds the ticket allowance", code="token_limit_exceeded")
+            raise ValidationError(
+                "max_tokens exceeds the ticket allowance", code="token_limit_exceeded"
+            )
 
     async def stream_frames(self, payload: dict[str, Any]) -> AsyncIterator[bytes]:
         """Yield encrypted token frames as the engine produces them, then the receipt.
@@ -440,22 +463,32 @@ class WorkerAgent:
             expected_job_id=job_id,
             expected_node_id=self.identity.node_id,
         )
-        if ticket.confidentiality is Confidentiality.ATTESTED_TEE and not self.config.attested:
+        if (
+            ticket.confidentiality is Confidentiality.ATTESTED_TEE
+            and not self.config.attested
+        ):
             raise AttestationError(
                 "this worker has no attestation and cannot accept confidential jobs",
                 code="worker_not_attested",
             )
-        if not crypto.constant_time_eq(ticket.worker_public_key, self.identity.session_public_key):
+        if not crypto.constant_time_eq(
+            ticket.worker_public_key, self.identity.session_public_key
+        ):
             raise ValidationError(
-                "ticket was issued for a stale worker session key", code="stale_session_key"
+                "ticket was issued for a stale worker session key",
+                code="stale_session_key",
             )
         if ticket.model not in self.config.models:
-            raise ValidationError("model is not available on this worker", code="model_unavailable")
+            raise ValidationError(
+                "model is not available on this worker", code="model_unavailable"
+            )
 
         salt = b64d(str(payload.get("salt", "")))
         client_public_key = str(payload.get("client_public_key", ""))
         ciphertext = b64d(str(payload.get("ciphertext", "")))
-        shared = crypto.x25519_shared_secret(self.identity.session_private_key, client_public_key)
+        shared = crypto.x25519_shared_secret(
+            self.identity.session_private_key, client_public_key
+        )
         c2w, w2c = crypto.derive_session_keys(
             shared, salt=salt, context=session_context(job_id)
         )
@@ -488,7 +521,9 @@ class WorkerAgent:
             output_chars += len(text)
             encoded = text.encode("utf-8")
             digest.update(encoded)
-            ciphertext_chunk = crypto.aead_encrypt(w2c, encoded, stream_aad(job_id, sequence))
+            ciphertext_chunk = crypto.aead_encrypt(
+                w2c, encoded, stream_aad(job_id, sequence)
+            )
             sequence += 1
             yield encode_frame(TOKEN_FRAME, ciphertext_chunk)
 
@@ -565,7 +600,6 @@ class WorkerAgent:
             except Exception as exc:  # the SDK ack can still settle after a retry
                 logger.warning("receipt submission failed: %s", type(exc).__name__)
         yield encode_frame(FINAL_FRAME, canonical_json(receipt))
-
 
     def transcript_for(self, job_id: str) -> list[TranscriptRecord]:
         """Decrypt the records for a job (challenge-response path, milestone 2)."""
@@ -674,4 +708,3 @@ def save_worker_identity(path: str, identity: WorkerIdentity) -> None:
     finally:
         os.close(fd)
     os.chmod(path, 0o600)
-

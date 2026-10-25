@@ -8,7 +8,9 @@ from __future__ import annotations
 
 
 class TCDNAIError(Exception):
-    def __init__(self, message: str, *, code: str = "error", status_code: int = 0) -> None:
+    def __init__(
+        self, message: str, *, code: str = "error", status_code: int = 0
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.status_code = status_code
@@ -49,7 +51,9 @@ class WorkerUnavailableError(TCDNAIError):
 class PartialResultError(TCDNAIError):
     """The worker failed after output was consumed; the job is partially billed."""
 
-    def __init__(self, message: str, *, partial_text: str = "", job_id: str = "") -> None:
+    def __init__(
+        self, message: str, *, partial_text: str = "", job_id: str = ""
+    ) -> None:
         super().__init__(message, code="partial_result")
         self.partial_text = partial_text
         self.job_id = job_id

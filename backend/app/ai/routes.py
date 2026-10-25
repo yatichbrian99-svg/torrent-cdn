@@ -58,7 +58,12 @@ _ip_limiter: TokenBucketLimiter | None = None
 
 def reset_for_tests() -> None:
     """Clear process singletons (tests only)."""
-    global _coordinator, _coordinator_override, _keyring_singleton, _key_limiter, _ip_limiter
+    global \
+        _coordinator, \
+        _coordinator_override, \
+        _keyring_singleton, \
+        _key_limiter, \
+        _ip_limiter
     _coordinator = None
     _coordinator_override = None
     _keyring_singleton = None
@@ -114,7 +119,11 @@ def _limiters(settings: AISettings) -> tuple[TokenBucketLimiter, TokenBucketLimi
 
 def _bearer(request: Request, x_api_key: str | None) -> str:
     header = request.headers.get("authorization", "")
-    raw = header[7:].strip() if header.lower().startswith("bearer ") else (x_api_key or "")
+    raw = (
+        header[7:].strip()
+        if header.lower().startswith("bearer ")
+        else (x_api_key or "")
+    )
     if not raw:
         raise AuthenticationError("missing API key")
     return raw
@@ -165,7 +174,9 @@ async def authenticate(
         )
     ip_result = await ip_limiter.allow(f"ip:{ip}")
     if not ip_result.allowed:
-        raise LimitExceeded("rate limit exceeded for this client address", code="rate_limited")
+        raise LimitExceeded(
+            "rate limit exceeded for this client address", code="rate_limited"
+        )
     return auth
 
 
@@ -204,7 +215,9 @@ async def submit_receipt(
     _limit: Annotated[None, Depends(enforce_body_size)],
 ) -> SettlementResponse:
     if envelope.payload.get("job_id") != job_id:
-        raise ValidationError("receipt job_id does not match the path", code="job_mismatch")
+        raise ValidationError(
+            "receipt job_id does not match the path", code="job_mismatch"
+        )
     return await coordinator.submit_receipt(envelope)
 
 
@@ -252,7 +265,10 @@ async def attestation_nonce(
         from .errors import NotFoundError
 
         raise NotFoundError("unknown node")
-    return {"node_id": node_id, "nonce": await coordinator.issue_attestation_nonce(node_id)}
+    return {
+        "node_id": node_id,
+        "nonce": await coordinator.issue_attestation_nonce(node_id),
+    }
 
 
 @router.post("/attestations")
@@ -306,7 +322,9 @@ async def coordinator_keys(
     coordinator: Annotated[Coordinator, Depends(get_coordinator)],
 ) -> CoordinatorKeyResponse:
     keys = coordinator.keys()
-    return CoordinatorKeyResponse(bundle=keys["bundle"], revocations=keys["revocations"])
+    return CoordinatorKeyResponse(
+        bundle=keys["bundle"], revocations=keys["revocations"]
+    )
 
 
 # ── admin ───────────────────────────────────────────────────────────────────
@@ -373,11 +391,11 @@ async def ai_error_handler(request: Request, exc: AIError) -> JSONResponse:
     # Codes and messages only: request bodies may contain prompts and are never
     # logged (no-retention invariant). Without this line a rejected receipt is
     # a bare 400 in the access log with no way to tell why.
-    logger.info(
-        "ai error %s %s %s", request.method, request.url.path, exc.code
-    )
+    logger.info("ai error %s %s %s", request.method, request.url.path, exc.code)
     headers = {}
     retry_after = exc.details.get("retry_after")
     if retry_after:
         headers["Retry-After"] = str(retry_after)
-    return JSONResponse(status_code=exc.status_code, content=exc.as_body(), headers=headers)
+    return JSONResponse(
+        status_code=exc.status_code, content=exc.as_body(), headers=headers
+    )

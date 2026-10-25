@@ -34,7 +34,9 @@ from .models import (
 from .nonce_store import NonceStore
 from .redis_cache import RedisNonceStore
 
-__all__ = ["NonceStore"]  # backwards-compat re-export for tests that import NonceStore from attestation
+__all__ = [
+    "NonceStore"
+]  # backwards-compat re-export for tests that import NonceStore from attestation
 
 VERDICT_DOMAIN = "tcdn-ai/attestation-verdict/v1"
 
