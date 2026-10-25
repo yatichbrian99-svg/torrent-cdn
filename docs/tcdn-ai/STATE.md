@@ -1,0 +1,214 @@
+# TCDN-AI — STATE (single source of truth)
+
+Last updated: **2026-10-25** (Section E confirm pass + M0.1)
+Current branch: **`fix/tcdn-ai-redis-replay-nonce`**
+Last committed revision: **`1497062`** — the TCDN-AI module is now committed on that
+branch (31 files + `tests/test_ai_redis.py`). Everything else is still uncommitted
+in the working tree. `main` remains `200109e` and contains no TCDN-AI code.
+
+**Measured 2026-10-25** (evidence in `HANDOFF_AUDIT.md` §2 and `PUSH_CHECKLIST.md`):
+- Full suite, flag **off**: 897 passed, 57 skipped, 86 s, exit 0 (one invocation, no hang).
+- Full suite, flag **on**: 943 passed, 11 skipped, 121 s, exit 0 (was 32 failed before M0.1).
+- AI tests: 200 total; real-Postgres lane 7/7 on a fresh database; Redis lane 18/18.
+- Fixed this session: un-awaited Redis replay/nonce checks; `TokenBucketLimiter` interface
+  mismatch; rate limiting never enforced (un-awaited `allow`).
+- Open blockers for Level 1: see `PUSH_CHECKLIST.md` (8 `MISSING` [P1] items).
+
+Read this first, then `HANDOFF_AUDIT.md`. The authoritative detail is the audit;
+this file is the short, current status.
+
+## 1. Milestone status
+
+| Milestone | Status | Evidence / blocker |
+|---|---|---|
+| M1 Crypto, keyring, tickets | **Done and verified** | 221 AI tests; break tests 10/10 |
+| M2 Models + `ai_*` DDL | **Done and verified** | Fresh DB created 14 tables (this session) |
+| M3 Coordinator: auth, registry, scheduler, placement | **Done and verified** | Live journey `JOURNEY OK` |
+| M4 Worker: ticket validation, AEAD, receipts | **Done and verified** | Live journey; e2e test; F-04/F-05 fixed |
+| M5 Python SDK + e2e streaming | **Done and verified** | 221 tests; live journey |
+| M6 Ledger, credits, holds, settlement | **Done and verified** | Live invariants; H-1 (disputed jobs leaking the hold) is **fixed**: `service.py:721-728` releases the hold, `test_ai_service.py:429` proves it; Postgres lane 7/7 |
+| M7 P2P weight streaming | **Partial** | Manifest/Merkle/fetch tested; no real WebRTC/libtorrent transport; no direct-to-VRAM |
+| M8 Seeder receipts + payout split | **Partial** | Math/fraud controls unit-tested; no ingestion or payout issuance |
+| M9 Result verification (Part 3) | **In progress / not active** | Milestone 1 primitives built; coordinator still uses the old sampler; tolerance profiles are placeholders |
+| M10 Confidential tier | **Simulated / interfaces only** | Policy + simulated adapter tested; real SEV-SNP/TDX/NVIDIA verifiers fail closed |
+| M11 Burn module | **Disabled** | Dry-run only, off by default, legal ack required in production |
+| M12 Hardening, docs, full gate | **Not done** | No AI test has ever run in GitHub CI (the Postgres/Redis job is repaired — M0.2 — but unpushed); soak/chaos/DAST/pentest missing; coverage 84 % |
+| Test-harness fix: full-suite hang | **Fixed and verified** | Root cause: every `TestClient` startup opened a real asyncpg pool from `main.py`'s own `get_db_pool` binding (unpatched). Now hermetic; whole suite in one invocation, 4/4 green (`evidence/09-openai-gateway/full-suite*.txt`) |
+| M14 Real engine in CI + real email flow (Section C item 2) | **Done and verified** | Ollama 0.33.2 + `qwen2.5:0.5b` on CPU: `tests/test_ai_engine.py` 4/4; journey 12/12 with real inference and real verification link — `evidence/10-real-engine/`; nightly job `tcdn-ai-engine.yml`. Found and fixed the hold-underestimation bug and H-1 |
+| M13 OpenAI gateway (Section C item 1) | **Done and verified** | `/v1/models`, `/v1/chat/completions` (JSON + SSE); 14 tests incl. official OpenAI Python client; official JS client driven against a live uvicorn server: `evidence/09-openai-gateway/` |
+
+## 2. What is verified (ran in this session)
+
+- Live end-to-end: signup → verified → 2FA enforced → API keys → credits
+  (duplicate callback idempotent) → model registration → worker registration →
+  non-streaming + streaming inference → balance/usage → ledger/hold/canary
+  invariants. Raw: `evidence/08-handoff-audit/journey.txt`.
+- **Whole backend suite in ONE pytest invocation, flag on and flag off**, twice
+each, no hang: `925 passed, 11 skipped` (flag on) and `879 passed, 57 skipped`
+(flag off) in 70-100 s. Raw: `evidence/09-openai-gateway/full-suite-on.txt`,
+`full-suite-off.txt`.
+- The 13 break-test controls (receipt/ticket/crypto/ledger/attestation/admin/
+  Merkle/payments/gateway/hold-headroom/dispute-hold-release/ownership) —
+  `evidence/06-break-tests/`.
+- OpenAI gateway: official OpenAI **Python** client (non-streaming and streaming
+  with `include_usage`, tools rejected with OpenAI's error shape) and official
+  **JavaScript** client against a live uvicorn server — `evidence/09-openai-gateway/`.
+  Canary tests prove the prompt is absent from logs and stored rows.
+- **Real inference + real email verification**: Ollama 0.33.2, `qwen2.5:0.5b`,
+  CPU. Adapter tests 4/4, journey 12/12 in 8 s, settlement with `held_micro=0`,
+  ledger net equals balance, no canary retention — `evidence/10-real-engine/`.
+  The account was unverified until the token from the recorded email was used.
+- Break tests `13/13` CAUGHT.
+- `ruff` clean; SQL-injection audit clean; gitleaks history 0 findings;
+  `secret_scan.sh --full` clean; `pip-audit` no known vulnerabilities.
+- Frontend `tsc --noEmit` clean, `179` Vitest tests pass.
+
+## 3. What is NOT verified
+
+- The OpenAI-compatible gateway has **not** been run against a real inference
+  engine (only the echo worker) and has no load/soak test yet.
+- Coverage gate (84 % < 85 %).
+- Real vLLM/Ollama inference, real GPU, real attestation hardware, live
+  Paystack, M-Pesa.
+- 30-min sustained / 4-h soak / 10× spike, chaos (kill, partition, disk, clock,
+  provider outage), full-budget fuzzing, ZAP, Trivy, SBOM re-run, independent
+  pentest/crypto review.
+- Frontend production build (blocked here by a Google Fonts network fetch).
+- Any CI run of an AI test **on GitHub**. The Postgres/Redis job in
+  `.github/workflows/ci-fullstack.yml` now runs `test_ai_core.py`,
+  `test_ai_redis.py` and the real-Postgres `test_ai_postgres.py` (61 + 7 passed
+  locally against fresh containers), but it has never run remotely.
+
+## 4. What is simulated (and labelled)
+
+| Component | Label | Production behaviour |
+|---|---|---|
+| `SimulatedVerifier` (attestation) | `status="simulated"`, reason string | Refused by `AttestationService.accept` — **but** see the config trap below |
+| `SevSnpVerifier` / `TdxVerifier` / `NvidiaGpuVerifier` | fail closed | Raise `attestation_verifier_unavailable` |
+| `EchoBackend` inference | `/health` says `dev-stub` | Refuses when `ALLOW_DEV_STUB_BACKEND=false` |
+| `FakePaymentProvider` | event provider `"fake"` | Refuses construction in production |
+| `GpuDirectSink` | raises `HardwareUnavailable` | Never pretends to load weights |
+
+## 5. Decisions in force (details in `ASSUMPTIONS.md`)
+
+- Python/FastAPI inside `backend/`; no new runtime. SDK is Python; TS is a port
+  spec only.
+- Postgres via asyncpg, hand-written idempotent DDL at startup, no Alembic.
+- `cryptography` primitives only: Ed25519, X25519, HKDF-SHA-256, AES-256-GCM.
+- Canonical JSON = sorted keys, `,`/`:`, UTF-8; every signature covers
+  `domain || 0x00 || canonical_json(payload)`.
+- Money is `int` micro-credits (1 credit = 1e6; $1 = 1e8). Floats rejected.
+- Split is `compute//100`, `seeder//100`, platform absorbs remainder.
+- IDs: `node_<hex>`, `job_<uuid>`; timestamps are UTC epoch seconds.
+- Errors: JSON `{"error":{"code","message","details"}}`; codes in
+  `app/ai/errors.py`.
+- In-process state (rate limit, replay cache, nonces) is a documented
+  limitation, not a design goal.
+
+## 6. Known problems (current, ordered)
+
+1. **Nothing is committed**; fresh clone has no AI code.
+2. **Feature flag is ineffective** and defaults on; schema/routes unconditional.
+3. **Production env trap**: `TCDN_AI_ENVIRONMENT` defaults to `development`
+   under `APP_ENV=production`, allowing simulated attestation / fake payments.
+4. ~~Disputed jobs freeze the hold forever~~ **Fixed** (H-1): settling as
+   disputed releases the reservation; nobody is paid until review. Break-tested.
+   The related hold-underestimation bug found with a real engine is also fixed
+   (reservation headroom for chat-template tokens).
+5. **OpenAI gateway covers chat completions only** — no tools, JSON mode,
+   embeddings, or `n > 1` (Section C item 11).
+6. **Verification engine not wired**; tolerance profiles are placeholders.
+7. **No CI coverage of the AI code has run remotely yet.** The nightly engine
+   job and the Postgres/Redis job both exist; neither has run on GitHub.
+   Coverage below gate (84 % < 85 %). Ollama-served jobs carry no verification transcript
+   (its logprobs have no token ids) — see `LIMITATIONS.md` §8.
+8. Missing: host onboarding, payout issuance, consoles, legal drafts,
+   production deploy manifests, alerting, Redis-backed ephemeral state.
+9. Docs overclaim: `RedactingFilter` does not exist; suspension is unreachable
+   in the normal sample; dead-code audit is failing. (The journey's PASS-on-404
+   probe is gone: it now asserts the real gateway with the official client.)
+10. Junk in the tree: `backend/.coverage` (gitignored build artefact), frontend
+    debug scripts.
+
+## 7. Next three actions
+
+1. Section C item 3: Redis-backed rate limits / replay cache / attestation
+   nonces, a Postgres service in CI so `PostgresStore` is tested for real, and
+   the full suite green in one invocation (already achieved locally).
+2. Commit the work on a feature branch, separated from pre-existing CDN changes
+   (audit item B1.1) — do not push to `main`.
+3. Section C item 4: wire redundant execution into placement.
+
+## 8. Exact commands
+
+All backend commands run from `backend/` unless stated.
+
+```bash
+# --- install ---
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -r requirements-dev.txt   # ruff + official openai client (tests)
+
+# --- infrastructure (repo root) ---
+docker compose -f deploy/tcdn-ai/docker-compose.dev.yml up -d postgres redis
+
+# --- coordinator ---
+ENABLE_TCDN_AI=true TCDN_AI_ENVIRONMENT=development \
+TCDN_AI_API_KEY_PEPPER=dev-pepper-change-me TCDN_AI_PAYMENT_PROVIDER=fake \
+DATABASE_URL=postgresql://tcdn:tcdn@127.0.0.1:5432/tcdn \
+REDIS_URL=redis://127.0.0.1:6379/0 \
+JWT_SECRET=this-is-a-32-char-secret-for-testing-only!! \
+.venv/bin/python -m uvicorn app.main:app --port 8000
+
+# --- full end-to-end (starts its own echo worker) ---
+.venv/bin/python scripts/live_ai_journey.py \
+  --base-url http://127.0.0.1:8000 \
+  --database-url postgresql://tcdn:tcdn@127.0.0.1:5432/tcdn \
+  --out ../docs/tcdn-ai/evidence/04-e2e/journey.json
+
+# --- tests: whole suite, one invocation, both flag states ---
+ENABLE_TCDN_AI=true .venv/bin/python -m pytest -q     # 925 passed, 11 skipped
+ENABLE_TCDN_AI=false .venv/bin/python -m pytest -q    # 879 passed, 57 skipped
+# AI-only subset (flag on):
+ENABLE_TCDN_AI=true TEST_POSTGRES_URL=postgresql://tcdn:tcdn@127.0.0.1:5432/tcdn \
+  .venv/bin/python -m pytest tests/test_ai_*.py tests/test_part3_coverage.py \
+  tests/test_authorization_matrix.py -q
+
+# --- lint / audits ---
+.venv/bin/python -m ruff check app tests scripts
+ENABLE_TCDN_AI=true .venv/bin/python scripts/break_tests.py   # 13/13 controls
+
+# --- real engine (Ollama) — see DEV_SETUP.md §6 for the full bring-up ---
+TCDN_AI_ENGINE_URL=http://127.0.0.1:11434 TCDN_AI_ENGINE_MODEL=qwen2.5:0.5b \
+  .venv/bin/python -m pytest tests/test_ai_engine.py -q   # 4 passed with an engine
+.venv/bin/python scripts/live_ai_journey.py --backend ollama \
+  --engine-url http://127.0.0.1:11434 --model qwen2.5:0.5b \
+  --email-stub-url http://127.0.0.1:8765 --email-out /tmp/tcdn-ai-emails.jsonl
+# CI: .github/workflows/tcdn-ai-engine.yml (nightly + manual, not on push)
+
+# --- OpenAI-compatible gateway (gateway mode) ---
+ENABLE_TCDN_AI=true .venv/bin/python -m pytest tests/test_ai_openai_compat.py -q
+# live check with the official JS client: see evidence/09-openai-gateway/README.md
+.venv/bin/python scripts/sql_injection_audit.py
+.venv/bin/python scripts/dead_code_audit.py          # currently FAILS (7)
+.venv/bin/python scripts/secret_scan.sh --full       # via bash
+bash scripts/secret_scan.sh --full
+gitleaks git --no-banner --redact
+.venv/bin/python -m pip_audit -r requirements.txt
+
+# --- frontend ---
+cd ../frontend && npm ci && npx tsc --noEmit && npm test && npm run build
+```
+
+Evidence from the handoff audit: `docs/tcdn-ai/evidence/08-handoff-audit/`
+(`ruff.txt`, `ai-suite.txt`, `legacy-per-file.txt`, `full-suite-attempt.txt`,
+`journey.txt`, `journey.json`).
+
+## 9. Handoff checklist for the next session
+
+1. Read `HANDOFF_AUDIT.md` (critical alerts and §5 matrix) and this file.
+2. Confirm the working tree still contains the AI files; if not, stop — they
+   were lost.
+3. Re-run the AI suite and the live journey before trusting any status here.
+4. Do not describe the system as OpenAI-compatible, production-ready, or
+   confidential-tier capable until the audit's Phase B items are verified.
