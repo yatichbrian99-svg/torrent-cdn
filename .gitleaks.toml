@@ -17,8 +17,24 @@
 useDefault = true
 
 [allowlist]
-description = "Committed env templates: placeholder names, never real values"
+description = "Committed env templates and documentation examples: placeholders, never real values"
 paths = [
   '''^\.env\.example$''',
   '''^frontend/\.env\.example$''',
+  # Documentation pages whose whole purpose is to show example calls, including
+  # `Authorization: Bearer <key>` and "access_token": "…" snippets. A REAL
+  # secret pasted here is still caught by backend/scripts/secret_scan.sh, whose
+  # high-signal patterns run over the whole tree and are not allowlisted.
+  '''^frontend/app/docs/page\.tsx$''',
+  '''^frontend/app/page\.tsx$''',
+]
+
+# Exact placeholder values flagged by entropy-based rules. Matched literally, so
+# a DIFFERENT value in the same file still fails.
+regexes = [
+  # The throwaway probe account password from an earlier commit of
+  # scripts/live_ai_journey.py; the script now generates it per run.
+  '''Journey-pass-9812''',
+  # RFC 6238's published TOTP test vector, used as a fixture in test_mfa.py.
+  '''JBSWY3DPEHPK3PXP''',
 ]

@@ -200,6 +200,15 @@ verify_account() {
   fi
   ver=$(curl -s -m 30 -X POST "$FE/admin/users/$uid/verify" \
     -H "Content-Type: application/json" -H "Authorization: Bearer $E2E_ADMIN_TOKEN" -d '{}' 2>/dev/null)
+  # The four production probes are separate jobs hitting one origin from the
+  # same runner IP, so the global limiter can answer 429 here. Honour the
+  # stated retry window once rather than failing the probe on a transient.
+  if echo "$ver" | grep -qi 'rate limit'; then
+    wait=$(echo "$ver" | grep -oE '[0-9]+s' | head -1 | tr -d 's')
+    sleep $(( ${wait:-10} + 2 ))
+    ver=$(curl -s -m 30 -X POST "$FE/admin/users/$uid/verify" \
+      -H "Content-Type: application/json" -H "Authorization: Bearer $E2E_ADMIN_TOKEN" -d '{}' 2>/dev/null)
+  fi
   if echo "$ver" | grep -qE 'verified successfully|already verified'; then
     check 0 "Email verification: admin-verified"
     return 0
