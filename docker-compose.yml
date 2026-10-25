@@ -141,6 +141,7 @@ services:
       MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set to a random value of 32+ characters}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-TorrentCDN <notifications@torrentcdn.store>}
       PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-sk_test_xxx}
       PAYSTACK_CURRENCY: ${PAYSTACK_CURRENCY:-KES}
       PAYSTACK_PLAN_PRO: ${PAYSTACK_PLAN_PRO:-PLN_pro_monthly}

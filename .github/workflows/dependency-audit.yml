@@ -60,11 +60,12 @@ jobs:
 
       # pip-audit audits the INSTALLED environment, so install the pinned
       # requirements first — the report then reflects exactly what would ship
-      # (same resolution the tests job uses).
-      - name: Install backend deps + pip-audit
+      # (same resolution the tests job uses). cyclonedx-bom produces the SBOM
+      # artefact from the same resolved environment.
+      - name: Install backend deps + pip-audit + SBOM tool
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pip-audit
+          pip install -r requirements.txt pip-audit cyclonedx-bom
 
       # npm audit reads package-lock.json — no npm ci needed (and none of the
       # build cost). Cache the npm registry metadata to keep the cron fast.
@@ -97,11 +98,27 @@ jobs:
           echo "Report preview:"
           head -8 /tmp/audit-report.md
 
-      - name: Upload audit report artifact
+      # Software bill of materials for the shipped backend environment: every
+      # resolved dependency at its exact version plus transitive deps, in
+      # CycloneDX JSON. Uploaded beside the audit report so a release can attach
+      # it, and so an advisory can be matched to the versions actually shipped.
+      - name: Generate backend SBOM (CycloneDX)
+        run: |
+          cyclonedx-py environment -o /tmp/sbom-backend.cdx.json \
+            --output-format JSON
+          python - <<'PY'
+          import json
+          doc = json.load(open('/tmp/sbom-backend.cdx.json'))
+          print(f"SBOM components: {len(doc.get('components', []))}")
+          PY
+
+      - name: Upload audit report + SBOM artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dependency-audit-report
-          path: /tmp/audit-report.md
+          name: dependency-audit-and-sbom
+          path: |
+            /tmp/audit-report.md
+            /tmp/sbom-backend.cdx.json
           if-no-files-found: error
 
       # Always surface the full report in the run summary (job logs expire; the
@@ -112,6 +129,8 @@ jobs:
             echo "## Dependency Audit"
             echo ""
             cat /tmp/audit-report.md
+            echo ""
+            echo "SBOM: CycloneDX file \`sbom-backend.cdx.json\` attached to this run's artifacts."
           } >> "$GITHUB_STEP_SUMMARY"
 
       # PRs only: post (or update) the report as a comment. The marker lets us

@@ -518,4 +518,12 @@ jobs:
       - name: Run SQL injection static audit
         run: python scripts/sql_injection_audit.py
 
+      # Dead-code gate: unreachable statements after a terminator, definitions
+      # referenced exactly once (their own def — decorators excluded, since
+      # frameworks discover those by reflection), pass-only stubs, and orphan
+      # modules. Reference counting is whole-word across app/ tests/ scripts/
+      # and counts matches inside strings, so it under-reports by design.
+      - name: Run dead code audit
+        run: python scripts/dead_code_audit.py
+
 

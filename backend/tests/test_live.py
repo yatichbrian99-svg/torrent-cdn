@@ -44,6 +44,27 @@ class TestChannelCrud:
         assert "stream_key_hash" in sql
         assert "stream_key_hash, stream_key_prefix" not in data.values()
 
+    def test_channel_labels_reject_control_characters(self, client, auth_headers, mock_conn):
+        """`name`, `slug` and `description` are stored verbatim in live_channels
+        and Postgres rejects NUL at bind time — the insert used to answer 500
+        with a stack trace. Create and update must both answer 400."""
+        mock_conn.fetch.return_value = []  # no existing slugs
+        for body in (
+            {"name": "bad\x00name"},
+            {"name": "ok", "slug": "bad\x00slug"},
+            {"name": "ok", "description": "bad\x00desc"},
+        ):
+            resp = client.post(self.URL, json=body, headers=auth_headers)
+            assert resp.status_code == 400, body
+            assert "control characters" in resp.json()["detail"]
+        assert mock_conn.fetchrow.await_count == 0
+
+        upd = client.patch(f"{self.URL}/{uuid4()}", json={"name": "bad\x00name"},
+                           headers=auth_headers)
+        assert upd.status_code == 400
+        assert "control characters" in upd.json()["detail"]
+        assert mock_conn.fetchrow.await_count == 0
+
     def test_create_generates_unique_slugs(self, client, auth_headers, mock_conn, test_user_id):
         mock_conn.fetch.return_value = [{"slug": "my-stream"}]
         captured = {}

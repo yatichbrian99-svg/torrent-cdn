@@ -662,7 +662,13 @@ class TestImportRoute:
     def test_import_rate_limit_peek_blocks_before_download(self, client, auth_headers, mock_redis, monkeypatch):
         """When the per-IP upload budget is already exhausted, the import is
         rejected BEFORE the server-side download starts (no wasted fetch)."""
-        mock_redis.get.return_value = "10"  # budget exhausted
+        # Scope the exhausted budget to the upload counter ONLY. A blanket
+        # `mock_redis.get.return_value = "10"` also makes the logout blocklist
+        # lookup (token_block:{jti}) look populated, so the request 401'd before
+        # the rate limiter was ever consulted and this assertion never ran.
+        def _get(key, *a, **k):
+            return "10" if str(key).startswith("upload_rate:") else None
+        mock_redis.get.side_effect = _get
 
         def _explode(*a, **k):
             raise AssertionError("download must not start when rate-limited")
