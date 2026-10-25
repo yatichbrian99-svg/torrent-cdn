@@ -416,10 +416,14 @@ jobs:
           cache: "pip"
           cache-dependency-path: backend/requirements.txt
 
+      # requirements-dev.txt is not optional here any more: the TCDN-AI
+      # OpenAI-compatibility test imports the official `openai` client, so a
+      # runtime-only install failed collection with ModuleNotFoundError and the
+      # suite never ran at all.
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt -r requirements-dev.txt
 
       # Fails if the backend SOURCE or IaC references the dead
       # api.torrentcdn.store host (no DNS record — the docs BASE_URL once
