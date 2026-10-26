@@ -214,6 +214,36 @@ CREATE TABLE IF NOT EXISTS ai_signup_grants (
 );
 CREATE INDEX IF NOT EXISTS idx_ai_signup_grants_ip ON ai_signup_grants(ip_hash);
 
+-- Idempotency-Key replay store for creation requests (checklist 2.5). The
+-- response is the ORIGINAL reply, kept so a retry after a lost response gets
+-- the same job instead of a second hold. A row with response IS NULL is a
+-- request still in flight: a concurrent retry gets 409, never a duplicate.
+CREATE TABLE IF NOT EXISTS ai_idempotency (
+    account_id UUID NOT NULL,
+    scope VARCHAR(32) NOT NULL,
+    idem_key VARCHAR(128) NOT NULL,
+    request_hash CHAR(64) NOT NULL,
+    response JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    PRIMARY KEY (account_id, scope, idem_key)
+);
+
+-- Redundant-execution bookkeeping (checklist 6.1). Kept out of ai_jobs on
+-- purpose: a verification run has no hold, no settlement and no money, and the
+-- job table's columns are all about those.
+CREATE TABLE IF NOT EXISTS ai_verifications (
+    job_id VARCHAR(64) PRIMARY KEY,
+    account_id UUID NOT NULL,
+    primary_node_id VARCHAR(64) NOT NULL,
+    verification_job_id VARCHAR(64) NOT NULL UNIQUE,
+    verification_node_id VARCHAR(64) NOT NULL,
+    status VARCHAR(24) NOT NULL,
+    outcome VARCHAR(16),
+    faulty_node_id VARCHAR(64),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    completed_at TIMESTAMP WITH TIME ZONE
+);
+
 CREATE TABLE IF NOT EXISTS ai_audit_log (
     id BIGSERIAL PRIMARY KEY,
     event VARCHAR(64) NOT NULL,
@@ -304,6 +334,29 @@ class JobRecord:
 
 
 @dataclass
+class VerificationRecord:
+    """One redundant execution scheduled for one job.
+
+    ``status`` is deliberately explicit rather than a boolean: "scheduled" (a
+    second node was chosen), "dispatched" (the gateway actually sent it),
+    "not_dispatched_sdk_mode" (the coordinator holds no plaintext and cannot
+    re-run it), "completed", or a refusal reason such as
+    "no_alternate_node".
+    """
+
+    job_id: str
+    account_id: str
+    primary_node_id: str
+    verification_job_id: str
+    verification_node_id: str
+    status: str
+    outcome: str | None = None
+    faulty_node_id: str | None = None
+    created_at: int = 0
+    completed_at: int | None = None
+
+
+@dataclass
 class ModelRecord:
     model_id: str
     name: str
@@ -360,6 +413,28 @@ class Store(Protocol):
 
     async def release_hold(self, job_id: str) -> None: ...
 
+    async def reserve_idempotency(
+        self, account_id: str, scope: str, idem_key: str, request_hash: str
+    ) -> dict[str, Any] | None: ...
+
+    async def complete_idempotency(
+        self, account_id: str, scope: str, idem_key: str, response: dict
+    ) -> None: ...
+
+    async def clear_idempotency(
+        self, account_id: str, scope: str, idem_key: str
+    ) -> None: ...
+
+    async def save_verification(self, record: VerificationRecord) -> None: ...
+
+    async def get_verification(self, job_id: str) -> VerificationRecord | None: ...
+
+    async def get_verification_by_shadow(
+        self, verification_job_id: str
+    ) -> VerificationRecord | None: ...
+
+    async def update_verification(self, job_id: str, **fields: Any) -> None: ...
+
     async def save_receipt(
         self, job_id: str, kind: str, node_id: str, body: dict
     ) -> None: ...
@@ -400,9 +475,15 @@ class Store(Protocol):
 
     async def get_model(self, model_id: str) -> ModelRecord | None: ...
 
-    async def record_signup_grant(self, account_id: str, ip_hash: str) -> bool: ...
+    async def record_signup_grant(
+        self, account_id: str, ip_hash: str, at: int
+    ) -> bool: ...
 
     async def count_grants_for_ip(self, ip_hash: str) -> int: ...
+
+    async def count_signup_grants_since(self, since: int) -> int: ...
+
+    async def account_email_verified(self, account_id: str) -> bool: ...
 
     async def save_transfer_receipt(self, record: dict[str, Any]) -> None: ...
 
@@ -433,11 +514,14 @@ class MemoryStore:
         self._clock = clock
         self.ledger = Ledger(clock=lambda: int(self._clock()))
         self.api_keys: dict[str, ApiKeyRecord] = {}
+        self.idempotency: dict[tuple[str, str, str], dict[str, Any]] = {}
         self.nodes: dict[str, NodeRecord] = {}
         self.jobs: dict[str, JobRecord] = {}
         self.receipts: dict[tuple[str, str], dict] = {}
         self.models: dict[str, ModelRecord] = {}
-        self.signup_grants: dict[str, str] = {}
+        self.signup_grants: dict[str, tuple[str, int]] = {}
+        self.verified_accounts: set[str] = set()
+        self.verifications: dict[str, VerificationRecord] = {}
         self.transfers: list[dict] = []
         self.payouts: list[dict] = []
         self.audit_log: list[dict] = []
@@ -523,6 +607,54 @@ class MemoryStore:
 
     async def release_hold(self, job_id: str) -> None:
         self.ledger.release_hold(job_id)
+
+    async def reserve_idempotency(
+        self, account_id: str, scope: str, idem_key: str, request_hash: str
+    ) -> dict[str, Any] | None:
+        key = (account_id, scope, idem_key)
+        if key in self.idempotency:
+            return dict(self.idempotency[key])
+        # No await between the check and the write: on one event loop this is the
+        # same guarantee the Postgres PRIMARY KEY gives across processes.
+        self.idempotency[key] = {"request_hash": request_hash, "response": None}
+        return None
+
+    async def complete_idempotency(
+        self, account_id: str, scope: str, idem_key: str, response: dict
+    ) -> None:
+        key = (account_id, scope, idem_key)
+        record = self.idempotency.get(key)
+        if record is None:
+            raise NotFoundError("idempotency reservation disappeared")
+        record["response"] = response
+
+    async def clear_idempotency(
+        self, account_id: str, scope: str, idem_key: str
+    ) -> None:
+        self.idempotency.pop((account_id, scope, idem_key), None)
+
+    async def save_verification(self, record: VerificationRecord) -> None:
+        self.verifications[record.job_id] = record
+
+    async def get_verification(self, job_id: str) -> VerificationRecord | None:
+        return self.verifications.get(job_id)
+
+    async def get_verification_by_shadow(
+        self, verification_job_id: str
+    ) -> VerificationRecord | None:
+        for record in self.verifications.values():
+            if record.verification_job_id == verification_job_id:
+                return record
+        return None
+
+    async def update_verification(self, job_id: str, **fields: Any) -> None:
+        record = self.verifications.get(job_id)
+        if record is None:
+            raise NotFoundError("unknown verification")
+        for name, value in fields.items():
+            if not hasattr(record, name):
+                raise ValidationError(f"unknown verification field {name!r}")
+            setattr(record, name, value)
 
     async def expire_stale_jobs(self, ttl_seconds: int) -> list[str]:
         cutoff = int(self._clock()) - ttl_seconds
@@ -632,14 +764,22 @@ class MemoryStore:
     async def get_model(self, model_id: str) -> ModelRecord | None:
         return self.models.get(model_id)
 
-    async def record_signup_grant(self, account_id: str, ip_hash: str) -> bool:
+    async def record_signup_grant(self, account_id: str, ip_hash: str, at: int) -> bool:
         if account_id in self.signup_grants:
             return False
-        self.signup_grants[account_id] = ip_hash
+        self.signup_grants[account_id] = (ip_hash, at)
         return True
 
     async def count_grants_for_ip(self, ip_hash: str) -> int:
-        return sum(1 for value in self.signup_grants.values() if value == ip_hash)
+        return sum(1 for ip, _ in self.signup_grants.values() if ip == ip_hash)
+
+    async def count_signup_grants_since(self, since: int) -> int:
+        return sum(1 for _, at in self.signup_grants.values() if at >= since)
+
+    async def account_email_verified(self, account_id: str) -> bool:
+        # The real users table lives in the CDN schema; the memory store has no
+        # users table, so tests opt an account in explicitly.
+        return account_id in self.verified_accounts
 
     async def save_transfer_receipt(self, record: dict[str, Any]) -> None:
         self.transfers.append(record)
@@ -691,6 +831,27 @@ def _row_to_node(row: Any) -> NodeRecord:
         software_version=row["software_version"] or "0.1.0",
         endpoint=row["endpoint"] or "",
         last_heartbeat=row["last_heartbeat"],
+    )
+
+
+def _row_to_verification(row: Any) -> VerificationRecord:
+    return VerificationRecord(
+        job_id=row["job_id"],
+        account_id=str(row["account_id"]),
+        primary_node_id=row["primary_node_id"],
+        verification_job_id=row["verification_job_id"],
+        verification_node_id=row["verification_node_id"],
+        status=row["status"],
+        outcome=row["outcome"],
+        faulty_node_id=row["faulty_node_id"],
+        created_at=(
+            int(row["created_at"].timestamp()) if row["created_at"] is not None else 0
+        ),
+        completed_at=(
+            int(row["completed_at"].timestamp())
+            if row["completed_at"] is not None
+            else None
+        ),
     )
 
 
@@ -1006,6 +1167,144 @@ class PostgresStore:
                 job_id,
             )
 
+    async def reserve_idempotency(
+        self, account_id: str, scope: str, idem_key: str, request_hash: str
+    ) -> dict[str, Any] | None:
+        """Claim ``(account, scope, key)``; return the existing row if taken.
+
+        One statement, so the claim is atomic across coordinator processes: the
+        loser of a race never places a second job and never takes a second hold.
+        """
+        async with self.pool.acquire() as conn:
+            claimed = await conn.fetchrow(
+                """
+                INSERT INTO ai_idempotency (account_id, scope, idem_key, request_hash)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (account_id, scope, idem_key) DO NOTHING
+                RETURNING request_hash
+                """,
+                _uuid(account_id),
+                scope,
+                idem_key,
+                request_hash,
+            )
+            if claimed is not None:
+                return None
+            row = await conn.fetchrow(
+                """
+                SELECT request_hash, response FROM ai_idempotency
+                WHERE account_id = $1 AND scope = $2 AND idem_key = $3
+                """,
+                _uuid(account_id),
+                scope,
+                idem_key,
+            )
+        if row is None:  # pragma: no cover - only if another request deleted it
+            return None
+        stored = row["response"]
+        return {
+            "request_hash": row["request_hash"],
+            "response": json.loads(stored) if stored else None,
+        }
+
+    async def complete_idempotency(
+        self, account_id: str, scope: str, idem_key: str, response: dict
+    ) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE ai_idempotency SET response = $4::jsonb
+                WHERE account_id = $1 AND scope = $2 AND idem_key = $3
+                """,
+                _uuid(account_id),
+                scope,
+                idem_key,
+                json.dumps(response),
+            )
+
+    async def clear_idempotency(
+        self, account_id: str, scope: str, idem_key: str
+    ) -> None:
+        # A failed placement must not leave a reservation behind, or the retry
+        # would get 409 forever and the customer could never resubmit.
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                DELETE FROM ai_idempotency
+                WHERE account_id = $1 AND scope = $2 AND idem_key = $3
+                """,
+                _uuid(account_id),
+                scope,
+                idem_key,
+            )
+
+    async def save_verification(self, record: VerificationRecord) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO ai_verifications (
+                    job_id, account_id, primary_node_id, verification_job_id,
+                    verification_node_id, status, outcome, faulty_node_id, created_at
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,to_timestamp($9))
+                """,
+                record.job_id,
+                _uuid(record.account_id),
+                record.primary_node_id,
+                record.verification_job_id,
+                record.verification_node_id,
+                record.status,
+                record.outcome,
+                record.faulty_node_id,
+                record.created_at,
+            )
+
+    async def get_verification(self, job_id: str) -> VerificationRecord | None:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM ai_verifications WHERE job_id = $1", job_id
+            )
+        return _row_to_verification(row) if row else None
+
+    async def get_verification_by_shadow(
+        self, verification_job_id: str
+    ) -> VerificationRecord | None:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM ai_verifications WHERE verification_job_id = $1",
+                verification_job_id,
+            )
+        return _row_to_verification(row) if row else None
+
+    async def update_verification(self, job_id: str, **fields: Any) -> None:
+        allowed = {"status", "outcome", "faulty_node_id", "completed_at"}
+        unknown = set(fields) - allowed
+        if unknown:
+            # Whitelisted so a caller cannot write an arbitrary column with a
+            # dynamically built statement.
+            raise ValidationError(f"unknown verification field(s) {sorted(unknown)}")
+        if not fields:
+            return
+        # One static statement, not assembled SQL: a NULL parameter means "leave
+        # this column alone". Every allowed field is only ever set to a value
+        # (none is ever cleared), so COALESCE is exact here — and the static SQL
+        # audit (tests/test_ai_security.py) stays meaningful.
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE ai_verifications SET
+                    status = COALESCE($2, status),
+                    outcome = COALESCE($3, outcome),
+                    faulty_node_id = COALESCE($4, faulty_node_id),
+                    completed_at = COALESCE(to_timestamp($5), completed_at)
+                WHERE job_id = $1
+                """,
+                job_id,
+                fields.get("status"),
+                fields.get("outcome"),
+                fields.get("faulty_node_id"),
+                fields.get("completed_at"),
+            )
+
     async def expire_stale_jobs(self, ttl_seconds: int) -> list[str]:
         """Expire jobs whose worker never reported, and free their holds.
 
@@ -1280,7 +1579,7 @@ class PostgresStore:
             )
         return _row_to_model(row, history)
 
-    async def record_signup_grant(self, account_id: str, ip_hash: str) -> bool:
+    async def record_signup_grant(self, account_id: str, ip_hash: str, at: int) -> bool:
         async with self.pool.acquire() as conn:
             result = await conn.execute(
                 """
@@ -1289,7 +1588,7 @@ class PostgresStore:
                 """,
                 _uuid(account_id),
                 ip_hash,
-                int(time.time()),
+                at,
             )
         return result.endswith("1")
 
@@ -1299,6 +1598,26 @@ class PostgresStore:
                 "SELECT COUNT(*) FROM ai_signup_grants WHERE ip_hash = $1", ip_hash
             )
         return int(value or 0)
+
+    async def count_signup_grants_since(self, since: int) -> int:
+        async with self.pool.acquire() as conn:
+            value = await conn.fetchval(
+                "SELECT COUNT(*) FROM ai_signup_grants WHERE granted_at >= $1", since
+            )
+        return int(value or 0)
+
+    async def account_email_verified(self, account_id: str) -> bool:
+        """Read the CDN's own verification flag — the AI surface does not duplicate it.
+
+        ``users.verified`` is set by the email-verification flow (and by admin
+        verification); granting free credits to an unverified address is the
+        sybil path row 4.5 closes.
+        """
+        async with self.pool.acquire() as conn:
+            value = await conn.fetchval(
+                "SELECT verified FROM users WHERE id = $1", _uuid(account_id)
+            )
+        return bool(value)
 
     async def save_transfer_receipt(self, record: dict[str, Any]) -> None:
         async with self.pool.acquire() as conn:

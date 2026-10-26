@@ -9,7 +9,12 @@ import json
 import pytest
 
 from app.ai.config import AISettings
-from app.ai.errors import AuthenticationError, ConflictError, ValidationError
+from app.ai.errors import (
+    AuthenticationError,
+    AuthorizationError,
+    ConflictError,
+    ValidationError,
+)
 from app.ai.ledger import SIGNUP_GRANTS, account_credits
 from app.ai.payments import (
     FakePaymentProvider,
@@ -137,8 +142,36 @@ class TestPaystackProvider:
 
 class TestSignupCredits:
     @pytest.mark.asyncio
+    async def test_unverified_email_gets_no_free_credit(self, ai_env):
+        account = "66666666-6666-4666-8666-666666666666"
+        with pytest.raises(AuthorizationError) as excinfo:
+            await ai_env.coordinator.grant_signup_credits(account, "ip-hash-1")
+        assert excinfo.value.code == "email_not_verified"
+        assert ai_env.store.ledger.balance(account_credits(account)) == 0
+        assert await ai_env.store.count_grants_for_ip("ip-hash-1") == 0
+
+    @pytest.mark.asyncio
+    async def test_monthly_budget_caps_total_free_credit(self, ai_env, monkeypatch):
+        # The budget is enforced before any grant is recorded, so the cap is a
+        # ceiling on the platform's cost — not a per-account rate limit.
+        monkeypatch.setattr(
+            ai_env.settings, "signup_monthly_cap_micro", 600 * 1_000_000
+        )
+        first = "77777777-7777-4777-8777-777777777777"
+        second = "88888888-8888-4888-8888-888888888888"
+        ai_env.store.verified_accounts.update({first, second})
+        assert await ai_env.coordinator.grant_signup_credits(first, "ip-a") == 500_000_000
+        with pytest.raises(ConflictError) as excinfo:
+            await ai_env.coordinator.grant_signup_credits(second, "ip-b")
+        assert excinfo.value.code == "signup_monthly_cap"
+        # The refused grant left nothing behind: no row, no credit.
+        assert await ai_env.store.count_grants_for_ip("ip-b") == 0
+        assert ai_env.store.ledger.balance(account_credits(second)) == 0
+
+    @pytest.mark.asyncio
     async def test_granted_once_per_account_from_platform_pool(self, ai_env):
         account = "33333333-3333-4333-8333-333333333333"
+        ai_env.store.verified_accounts.add(account)
         granted = await ai_env.coordinator.grant_signup_credits(account, "ip-hash-1")
         assert granted == 500 * 1_000_000
         again = await ai_env.coordinator.grant_signup_credits(account, "ip-hash-1")
@@ -150,11 +183,78 @@ class TestSignupCredits:
 
     @pytest.mark.asyncio
     async def test_per_ip_cap(self, ai_env):
-        for index in range(3):
-            await ai_env.coordinator.grant_signup_credits(
-                f"4444444{index}-4444-4444-8444-444444444444", "shared-ip"
+        accounts = [
+            f"4444444{index}-4444-4444-8444-444444444444" for index in range(3)
+        ]
+        ai_env.store.verified_accounts.update(accounts)
+        for account in accounts:
+            await ai_env.coordinator.grant_signup_credits(account, "shared-ip")
+        fourth = "55555555-5555-4555-8555-555555555555"
+        ai_env.store.verified_accounts.add(fourth)
+        with pytest.raises(ConflictError) as excinfo:
+            await ai_env.coordinator.grant_signup_credits(fourth, "shared-ip")
+        assert excinfo.value.code == "signup_credit_limit"
+
+
+
+def _ai_surface_enabled() -> bool:
+    from app.ai.config import get_ai_settings
+    from app.config import get_settings
+
+    try:
+        return get_ai_settings().is_ai_enabled_for_host(get_settings().app_env)
+    except Exception:
+        return False
+
+class TestWebhookInputHardening:
+    """Row 5.6: the webhook is an unauthenticated endpoint with a JSON parser.
+
+    A valid signature proves *who* sent it, not that the payload is sane, so
+    every field the coordinator later depends on is checked before it is used.
+    """
+
+    @pytest.mark.asyncio
+    async def test_signed_event_with_a_bad_account_id_is_rejected(self, ai_env):
+        body = _fake_body("not-a-uuid")
+        signature = hmac.new(
+            b"dev-only-fake-webhook-secret", body, hashlib.sha256
+        ).hexdigest()
+        with pytest.raises(ValidationError) as excinfo:
+            await ai_env.coordinator.handle_payment_webhook(body, signature)
+        assert excinfo.value.code == "invalid_payment_event"
+        # Nothing was credited, and no orphan ledger row was written.
+        assert await ai_env.store.balance_micro(ai_env.account_id) == 1_000_000_000
+        assert not [e for e in ai_env.store.ledger.entries if e.kind == "credit_purchase"
+                    and e.job_id is None and e.idempotency_key != "seed-credits"]
+
+    def test_paystack_malformed_json_with_a_valid_signature(self):
+        provider = PaystackPaymentProvider("sk_test_key")
+        body = b"{not json at all"
+        signature = hmac.new(b"sk_test_key", body, hashlib.sha512).hexdigest()
+        with pytest.raises(ValidationError) as excinfo:
+            provider.verify_webhook(body, signature)
+        assert excinfo.value.code == "invalid_payment_event"
+
+    @pytest.mark.skipif(
+        not _ai_surface_enabled(),
+        reason="ENABLE_TCDN_AI is off: /api/ai/v1 is not mounted",
+    )
+    def test_oversized_webhook_is_refused_before_parsing(self, ai_env, client):
+        from app.ai import routes as ai_routes
+
+        ai_routes.reset_for_tests()
+        ai_routes.set_coordinator_for_tests(ai_env.coordinator)
+        try:
+            response = client.post(
+                "/api/ai/v1/billing/webhook",
+                content=b"x" * (ai_env.settings.max_body_bytes + 1024),
+                headers={
+                    "content-type": "application/json",
+                    "x-tcdn-signature": "0" * 64,
+                },
             )
-        with pytest.raises(ConflictError):
-            await ai_env.coordinator.grant_signup_credits(
-                "55555555-5555-4555-8555-555555555555", "shared-ip"
-            )
+        finally:
+            ai_routes.set_coordinator_for_tests(None)
+            ai_routes.reset_for_tests()
+        assert response.status_code == 413, response.text
+        assert response.json()["error"]["code"] == "body_too_large"

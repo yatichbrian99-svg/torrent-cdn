@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import socket
 import time
 
+import httpx
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
@@ -603,3 +605,203 @@ class TestSSRFAndValidation:
     def test_production_refuses_insecure_defaults(self):
         with pytest.raises(ValueError):
             AISettings(environment="production")
+
+
+# ── HTTPS origin fallback (row 7.1) ────────────────────────────────────────
+
+
+class TestOriginFallback:
+    """The origin is the last resort, and the least trusted input in the fetch.
+
+    A shard URL is derived from a manifest, so a hostile manifest must not be
+    able to steer the worker at an internal host, a plain-HTTP mirror, or a
+    redirect to somewhere else.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _public_dns(self, monkeypatch):
+        # validate_url resolves once and requires every address to be public;
+        # this test must not depend on the network or on a real DNS name.
+        monkeypatch.setattr(
+            "app.ai.ssrf.socket.getaddrinfo",
+            lambda *args, **kwargs: [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))
+            ],
+        )
+
+    def _origin(self, manifest, payloads, *, client=None, **kwargs):
+        from app.ai.shards import HttpsOriginPeer
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            index = int(request.url.path.rsplit("shard-", 1)[1].split(".")[0])
+            return httpx.Response(200, content=payloads[index], request=request)
+
+        return HttpsOriginPeer(
+            base_url="https://models.tcdn.store/weights",
+            manifest=manifest,
+            allowed_hosts=("models.tcdn.store",),
+            client=client
+            or httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            **kwargs,
+        )
+
+    @pytest.mark.asyncio
+    async def test_origin_is_used_when_every_peer_is_down(self):
+        payloads = [b"alpha", b"beta", b"gamma"]
+        manifest = build_manifest(model_id="m", name="M", shard_payloads=payloads)
+
+        class DeadPeer:
+            peer_id = "dead"
+            reputation = 10
+
+            async def fetch_shard(self, index, expected_sha256):
+                raise OSError("peer offline")
+
+        sink = MemorySink()
+        origin = self._origin(manifest, payloads)
+        try:
+            report = await SwarmFetcher(
+                manifest, [DeadPeer()], sink=sink, attempts=1, origin=origin
+            ).fetch_all()
+        finally:
+            await origin._client.aclose()
+
+        assert report.origin_shards == len(payloads)
+        assert report.failed_shards == []
+        assert sink.data == {index: data for index, data in enumerate(payloads)}
+
+    def test_origin_must_be_https(self):
+        from app.ai.shards import HttpsOriginPeer
+
+        manifest = build_manifest(model_id="m", name="M", shard_payloads=[b"x"])
+        with pytest.raises(ValidationError) as excinfo:
+            HttpsOriginPeer(
+                base_url="http://models.tcdn.store/weights",
+                manifest=manifest,
+                allowed_hosts=("models.tcdn.store",),
+            )
+        assert excinfo.value.code == "ssrf_blocked"
+
+    def test_origin_host_must_be_allowlisted(self):
+        from app.ai.shards import HttpsOriginPeer
+
+        manifest = build_manifest(model_id="m", name="M", shard_payloads=[b"x"])
+        with pytest.raises(ValidationError) as excinfo:
+            HttpsOriginPeer(
+                base_url="https://models.tcdn.store/weights",
+                manifest=manifest,
+                allowed_hosts=("other.example",),
+            )
+        assert excinfo.value.code == "ssrf_blocked"
+
+    @pytest.mark.asyncio
+    async def test_oversized_origin_response_is_refused(self):
+        payloads = [b"a" * 10]
+        manifest = build_manifest(model_id="m", name="M", shard_payloads=payloads)
+        origin = self._origin(manifest, [b"a" * 11])  # one byte too many
+        try:
+            with pytest.raises(ValidationError) as excinfo:
+                await origin.fetch_shard(0, manifest.shards[0].sha256)
+        finally:
+            await origin._client.aclose()
+        assert excinfo.value.code == "origin_oversize"
+
+    @pytest.mark.asyncio
+    async def test_redirect_to_another_host_is_refused(self):
+        from app.ai.shards import HttpsOriginPeer
+
+        payloads = [b"a" * 10]
+        manifest = build_manifest(model_id="m", name="M", shard_payloads=payloads)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "models.tcdn.store":
+                return httpx.Response(
+                    302,
+                    headers={"Location": "https://evil.example/shard-00000.safetensors"},
+                    request=request,
+                )
+            # The redirect target answers happily; the point is that we never
+            # accept a payload delivered from a host outside the allowlist.
+            return httpx.Response(200, content=payloads[0], request=request)
+
+        # follow_redirects=True is the hostile case: the client walks the
+        # redirect, so the peer's own host check has to catch it.
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), follow_redirects=True
+        )
+        origin = HttpsOriginPeer(
+            base_url="https://models.tcdn.store/weights",
+            manifest=manifest,
+            allowed_hosts=("models.tcdn.store",),
+            client=client,
+        )
+        try:
+            with pytest.raises(ValidationError) as excinfo:
+                await origin.fetch_shard(0, manifest.shards[0].sha256)
+        finally:
+            await client.aclose()
+        assert excinfo.value.code == "ssrf_blocked"
+
+
+class TestPeerPayloadHardening:
+    """Row 5.6 for P2P-sourced bytes: short, long and misaddressed payloads."""
+
+    @pytest.mark.asyncio
+    async def test_truncated_shard_is_rejected_even_with_the_right_prefix(self):
+        payloads = [b"alpha", b"beta"]
+        manifest = build_manifest(model_id="m", name="M", shard_payloads=payloads)
+
+        class TruncatingPeer:
+            peer_id = "truncating"
+            reputation = 90
+
+            async def fetch_shard(self, index, expected_sha256):
+                return payloads[index][:-1]  # right prefix, one byte short
+
+        class GoodPeer:
+            peer_id = "good"
+            reputation = 50
+
+            async def fetch_shard(self, index, expected_sha256):
+                return payloads[index]
+
+        sink = MemorySink()
+        report = await SwarmFetcher(
+            manifest,
+            [TruncatingPeer(), GoodPeer()],
+            sink=sink,
+            attempts=2,
+            penalty=lambda peer_id, reason: None,
+        ).fetch_all()
+        assert report.corrupt_peers == {"truncating"}
+        assert sink.data == {0: b"alpha", 1: b"beta"}
+
+    def test_origin_url_cannot_carry_path_traversal(self):
+        from app.ai.shards import HttpsOriginPeer
+
+        # The manifest schema allows '/' in a model id, so the origin URL must
+        # encode it rather than become a path the server (or a proxy) resolves.
+        payloads = [b"x"]
+        manifest = build_manifest(
+            model_id="m/../../etc", name="M", shard_payloads=payloads
+        )
+        import socket as _socket
+
+        from app.ai import ssrf
+
+        original = ssrf.socket.getaddrinfo
+        ssrf.socket.getaddrinfo = lambda *a, **k: [
+            (_socket.AF_INET, _socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))
+        ]
+        try:
+            origin = HttpsOriginPeer(
+                base_url="https://models.tcdn.store/w",
+                manifest=manifest,
+                allowed_hosts=("models.tcdn.store",),
+            )
+        finally:
+            ssrf.socket.getaddrinfo = original
+        url = origin._url(0)
+        assert "%2F" in url
+        assert "/../" not in url
+        assert url.startswith("https://models.tcdn.store/w/")

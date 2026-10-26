@@ -335,3 +335,22 @@ class UsageResponse(_Strict):
 class CoordinatorKeyResponse(_Strict):
     bundle: dict[str, Any]
     revocations: dict[str, Any]
+
+
+class RefundRequest(_Strict):
+    """An admin credit adjustment. Money only moves as a ledger entry (4.6)."""
+
+    account_id: str = Field(pattern=r"^[0-9a-fA-F-]{36}$")
+    amount_micro: int
+    reason: str = Field(min_length=3, max_length=500)
+    #: Operator reference (ticket id). Required because it is the idempotency
+    #: key: a retried refund must not credit the account twice.
+    reference: str = Field(min_length=1, max_length=128)
+
+    @field_validator("amount_micro")
+    @classmethod
+    def _amount(cls, value: int) -> int:
+        value = _validate_money(value, "amount_micro")
+        if value == 0:
+            raise ValueError("amount_micro must be greater than zero")
+        return value

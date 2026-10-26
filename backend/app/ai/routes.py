@@ -26,7 +26,13 @@ from ..routes.admin import require_admin
 from ..security import get_client_ip
 from .clock import now_unix
 from .config import AISettings, get_ai_settings
-from .errors import AIError, AuthenticationError, LimitExceeded, ValidationError
+from .errors import (
+    AIError,
+    AuthenticationError,
+    LimitExceeded,
+    PayloadTooLarge,
+    ValidationError,
+)
 from .keyring import KeyRing, load_keyring
 from .models import (
     AckPayload,
@@ -35,6 +41,7 @@ from .models import (
     ModelInfo,
     NodeRegistrationResponse,
     PlacementRequest,
+    RefundRequest,
     SettlementResponse,
     SignedEnvelope,
     TicketResponse,
@@ -148,7 +155,7 @@ async def enforce_body_size(
     except ValueError as exc:
         raise ValidationError("invalid Content-Length header") from exc
     if declared > coordinator.settings.max_body_bytes:
-        raise LimitExceeded("request body is too large", code="body_too_large")
+        raise PayloadTooLarge("request body is too large")
 
 
 async def authenticate(
@@ -200,8 +207,12 @@ async def create_placement(
     request: PlacementRequest,
     auth: Annotated[AuthContext, Depends(authenticate)],
     coordinator: Annotated[Coordinator, Depends(get_coordinator)],
+    # Optional, but a retry is the difference between one hold and two. See
+    # Coordinator.place: the replay is scoped to the account and refuses a
+    # reused key with a different body.
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> TicketResponse:
-    return await coordinator.place(auth, request)
+    return await coordinator.place(auth, request, idempotency_key=idempotency_key)
 
 
 # ── receipts / acks ─────────────────────────────────────────────────────────
@@ -372,6 +383,41 @@ async def create_api_key(
     )
     # Shown exactly once; never logged.
     return {"api_key": raw, "account_id": account_id, "scopes": list(requested)}
+
+
+@admin_router.post("/refunds")
+async def refund_credits(
+    body: RefundRequest,
+    admin_uid: Annotated[object, Depends(require_admin)],
+    coordinator: Annotated[Coordinator, Depends(get_coordinator)],
+) -> dict:
+    """Credit an account as a double-entry ledger transaction (row 4.6).
+
+    ``reference`` is required and doubles as the idempotency key, so a retried
+    refund cannot pay twice. The audit row records who, how much and why.
+    """
+    await coordinator.refund_credits(
+        account_id=body.account_id,
+        amount_micro=body.amount_micro,
+        reason=body.reason,
+        reference=body.reference,
+    )
+    await coordinator.store.audit(
+        "admin.refund",
+        actor=str(admin_uid),
+        subject=body.account_id,
+        detail={
+            "micro": body.amount_micro,
+            "reason": body.reason,
+            "reference": body.reference,
+        },
+    )
+    return {
+        "status": "refunded",
+        "account_id": body.account_id,
+        "amount_micro": body.amount_micro,
+        "balance_micro": await coordinator.store.balance_micro(body.account_id),
+    }
 
 
 async def expire_jobs_loop(interval_seconds: int = 60) -> None:

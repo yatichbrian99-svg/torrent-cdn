@@ -38,7 +38,10 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
+import sys
 import uuid
+from pathlib import Path
 
 import asyncpg
 import pytest
@@ -202,7 +205,36 @@ async def test_dropping_every_ai_table_is_reversible_for_the_legacy_schema(db):
         assert await conn.fetchval("SELECT count(*) FROM ai_accounts") == 0
 
 
-def test_legacy_app_does_not_need_the_ai_schema(client):
-    """Flag off: the CDN app boots and serves without any ai_* table existing."""
-    assert client.get("/health").status_code == 200
-    assert not [p for p in client.app.openapi()["paths"] if "/ai/" in p]
+def test_legacy_app_does_not_need_the_ai_schema():
+    """Flag off: the CDN app boots and serves without any ai_* table existing.
+
+    A subprocess, because ``app.main`` reads the flag at import time. In-process
+    this test only passed when the surrounding suite happened to run with the
+    flag off — in the CI lane (flag on) it asserted the opposite of its own
+    name. Removing the variable is also the honest test: that is what a
+    deployment without TCDN-AI looks like.
+    """
+    env = dict(os.environ)
+    env.pop("ENABLE_TCDN_AI", None)
+    env.setdefault("APP_ENV", "development")
+    env.setdefault("JWT_SECRET", "this-is-a-32-char-secret-for-testing-only!!")
+    script = (
+        "import json\n"
+        "from starlette.testclient import TestClient\n"
+        "from app.main import app\n"
+        "client = TestClient(app)\n"
+        "assert client.get('/health').status_code == 200\n"
+        "paths = list(app.openapi()['paths'])\n"
+        "assert not [p for p in paths if '/ai/' in p], paths\n"
+        "print(json.dumps({'paths': len(paths)}))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr

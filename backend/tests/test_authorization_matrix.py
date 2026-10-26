@@ -279,7 +279,7 @@ class TestAIRoleMatrix:
             response = await client.post(
                 path, content=oversized, headers={"content-type": "application/json"}
             )
-        assert response.status_code == 429, response.text
+        assert response.status_code == 413, response.text
         assert response.json()["error"]["code"] == "body_too_large"
 
     @pytest.mark.asyncio

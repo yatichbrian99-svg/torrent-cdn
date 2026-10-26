@@ -77,6 +77,11 @@ class AISettings(BaseSettings):
     # ── Money ──────────────────────────────────────────────────────────────
     signup_credits: int = Field(default=500, ge=0)
     signup_ip_cap: int = Field(default=3, ge=1)
+    #: Platform-funded ceiling for ALL signup credits issued in a calendar month
+    #: (UTC). Free credit is a cost, not income: without a budget, N verified
+    #: throwaway addresses drain the platform share at signup_credits each.
+    #: 100_000 credits = $100 at 1 credit = $0.001.
+    signup_monthly_cap_micro: int = Field(default=100_000 * 1_000_000, ge=0)
     confidential_uplift_pct: int = Field(default=25, ge=0, le=1000)
     launch_pricing_until: str = "2027-04-01"
     price_lock_days: int = Field(default=180, ge=0)
