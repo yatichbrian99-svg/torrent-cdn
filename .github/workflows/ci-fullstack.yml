@@ -281,7 +281,12 @@ jobs:
           export TEST_POSTGRES_URL="$DATABASE_URL"
           .venv/bin/python -m pytest tests/test_ai_core.py tests/test_ai_redis.py \
             -q --tb=short --no-header
+          # Migrations (row 1.9) prove the DDL block is idempotent and
+          # upgrade-safe; the schema contract proves every statement app/ai
+          # issues is valid against that same DDL. Both need real Postgres.
           .venv/bin/python -m pytest tests/test_ai_postgres.py \
+            tests/test_ai_migrations.py \
+            tests/test_ai_schema_contract.py \
             -q --tb=short --no-header -rs
 
       - name: Cleanup
