@@ -230,6 +230,15 @@ verify_account() {
   # the workflow reports "not exercised" instead of a false red on every push.
   # Anything else (5xx, broken endpoint, wrong shape) still fails below.
   if echo "$ver" | grep -qiE 'invalid or revoked api key|unauthori[sz]ed|forbidden'; then
+    # Strict mode is the scheduled run on main: there the probe IS the product
+    # check, so a rejected credential must fail, never skip.
+    if [ "${PROBE_STRICT_CREDENTIALS:-false}" = "true" ]; then
+      check 1 "E2E_ADMIN_TOKEN was rejected by production on a SCHEDULED run: $(echo "$ver" | head -c 120)"
+      if [ -n "${GITHUB_ACTIONS:-}" ]; then
+        echo "::error title=production probe could not verify an account::E2E_ADMIN_TOKEN was rejected on a scheduled run. Scheduled runs never skip this check. Refresh the repository secret."
+      fi
+      return 1
+    fi
     echo "  [SKIP]  E2E_ADMIN_TOKEN was rejected by production: $(echo "$ver" | head -c 120)"
     if [ -n "${GITHUB_ACTIONS:-}" ]; then
       echo "::warning title=live probe not exercised::E2E_ADMIN_TOKEN was rejected by production. Refresh the repository secret; the verified-account flow did not run."

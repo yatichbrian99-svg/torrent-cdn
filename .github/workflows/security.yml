@@ -33,6 +33,16 @@ on:
 permissions:
   contents: read
 
+# The four production probes normally SKIP when E2E_ADMIN_TOKEN is rejected
+# (a rotated CI credential is an ops fact, not a product regression, and a red
+# branch/PR run would only train people to ignore it). A SCHEDULED run on main
+# is different: it is the only automated check that the live product still
+# works, so a rejected credential there must FAIL loudly rather than pass
+# silently. The probes read this variable (see verify_account in
+# backend/scripts/*_audit_prod.sh).
+env:
+  PROBE_STRICT_CREDENTIALS: ${{ github.event_name == 'schedule' && github.ref == 'refs/heads/main' }}
+
 # Schedule + manual dispatch runs get their own concurrency group ('cron'):
 # on schedule events github.ref is the default branch, so without this a
 # coincidental push would share the group and cancel-in-progress would kill
