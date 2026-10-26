@@ -191,7 +191,13 @@ Errors on this surface use OpenAI's shape:
 ```
 
 Status mapping: validation 400, auth 401, insufficient credits 402, forbidden
-403, unknown model 404, rate limit 429 (with `Retry-After`), no worker 503.
+403, unknown model 404, body over `TCDN_AI_MAX_BODY_BYTES` 413 (413, not 429: a
+retried identically-oversized body cannot succeed), rate limit 429 (with
+`Retry-After`), no worker 503.
+
+Tiers and visibility are disclosed in `LIMITATIONS.md` §"Tier and visibility
+disclosure": every `/v1` response is standard tier, and `tcdn.prompt_visibility
+= "gateway"` says the platform relays the prompt.
 
 ## Error format
 

@@ -1,19 +1,24 @@
 # TCDN-AI — STATE (single source of truth)
 
-Last updated: **2026-10-26** (M2 closed incl. 1.9; probes fail-closed on schedule; dependency exceptions verified)
-Current branch: **`fix/tcdn-ai-redis-replay-nonce`**
-Last committed revision: **`7b4df67`** — M1 is committed on that branch (`0360b10`
-plus the M1 record). `main` still carries no TCDN-AI code; the working tree holds
-the M2 data-layer tests, the probe/dependency work of this pass, plus the
-untracked `frontend/torrentcdn-integration.html` (O2).
+Last updated: **2026-10-26** (M2 partial-closure set + M3 redundant execution)
+Current branch: **`fix/tcdn-ai-redis-replay-nonce`** (nothing pushed, nothing on `main`)
+Last committed revision: **`fa0911b`** — M1 and the M2 data layer are committed;
+`main` still carries no TCDN-AI code. The working tree holds the M2 partial-closure
+work (idempotency, signup gates, refunds, input hardening, origin fallback, JS
+client, contracts) plus the untracked `frontend/torrentcdn-integration.html` (O2).
 
-**Measured 2026-10-25** (evidence in `HANDOFF_AUDIT.md` §2 and `PUSH_CHECKLIST.md`):
-- Full suite, flag **off**: 897 passed, 57 skipped, 86 s, exit 0 (one invocation, no hang).
-- Full suite, flag **on**: 943 passed, 11 skipped, 121 s, exit 0 (was 32 failed before M0.1).
-- AI tests: 200 total; real-Postgres lane 7/7 on a fresh database; Redis lane 18/18.
-- Fixed this session: un-awaited Redis replay/nonce checks; `TokenBucketLimiter` interface
-  mismatch; rate limiting never enforced (un-awaited `allow`).
-- Open blockers for Level 1: see `PUSH_CHECKLIST.md` (8 `MISSING` [P1] items).
+**Measured 2026-10-26** (evidence in `PUSH_CHECKLIST.md`, `evidence/06-break-tests/`,
+`evidence/09-openai-gateway/`):
+- Full suite, flag **on** (real Postgres attached): **1030 passed, 4 skipped**, 108 s, exit 0.
+- Full suite, flag **off** (real Postgres attached): **971 passed, 63 skipped**, 70 s, exit 0.
+- AI subset (flag on): **327 tests**; `ai-store` lane (Postgres + migrations + schema
+  contract): **18 passed** on a fresh database.
+- Break tests: **13/13 CAUGHT** (was 12/13 with the 13th silently unproven — the
+  harness's mutation target had drifted and it never printed the error).
+- Official **JavaScript** OpenAI client: **19/19 checks** against a live uvicorn
+  gateway (`evidence/09-openai-gateway/js-client.json`), now a committed, CI-gated check.
+- Boundary contracts: `CONTRACTS.md` TB1–TB7 + **23** contract tests.
+- Open blockers for Level 1: see `PUSH_CHECKLIST.md` (6 `MISSING` [P1] items).
 
 Read this first, then `HANDOFF_AUDIT.md`. The authoritative detail is the audit;
 this file is the short, current status.
