@@ -1,6 +1,6 @@
 # TCDN-AI — PUSH CHECKLIST (Section E)
 
-**Generated:** 2026-10-25 · **Branch:** `fix/tcdn-ai-redis-replay-nonce`
+**Generated:** 2026-10-25 · **Updated:** 2026-10-26 (M2 partial-closure set + M3 contracts) · **Branch:** `fix/tcdn-ai-redis-replay-nonce`
 **Rule:** a row is `VERIFIED` only where a command or test was run and its output captured.
 Nothing here is inherited from an earlier report.
 
@@ -10,7 +10,7 @@ Nothing here is inherited from an earlier report.
 
 | Level | VERIFIED | PARTIAL | BUILT-UNVERIFIED | MISSING | DEFERRED | NOT VERIFIABLE HERE | Total |
 |---|---|---|---|---|---|---|---|
-| **P1** | **16** | **32** | 0 | **7** | 0 | 0 | 55 |
+| **P1** | **36** | **13** | 0 | **6** | 0 | 0 | 55 |
 | **P2** | 0 | 1 | 0 | 27 | 0 | 1 | 29 |
 | **DEFER** | 0 | 0 | 0 | 0 | 2 | 0 | 2 |
 
@@ -18,11 +18,10 @@ Counts produced by parsing the tables in this file (not estimated).
 
 **Level 1 ready: NO.**
 
-All seven [P1] `MISSING` items block the push:
+All six [P1] `MISSING` items block the push:
 
 | Blocker | Why it stops Level 1 |
 |---|---|
-| **1.13** | `CONTRACTS.md` does not exist; no contract tests. |
 | **5.5** | No SAST, no ZAP, no Trivy, fuzz budget not run — Level 1 requires **no open critical/high**, which cannot be asserted without these. |
 | **6.1** | Redundant execution is not wired into placement. |
 | **10.2** | No capacity test results, so no measured limits or server sizing. |
@@ -32,9 +31,15 @@ All seven [P1] `MISSING` items block the push:
 
 Additional [P1] `PARTIAL`s that must reach `VERIFIED` before the same push:
 
-- **2.1 / 2.2 / 2.3 / 5.7** — no official JavaScript client test; gateway-mode disclosure missing
-  from docs/Terms; no environment-wide canary scan.
-- **10.3 / 12.2** — `STATE.md` and `VERIFICATION_REPORT.md` still carry wrong counts (C-4).
+- **2.3 / 5.7** — "confidential requires SDK mode" still has no dedicated test; no
+  environment-wide canary scan (logs, metrics, temp files, backups).
+
+The other eleven [P1] `PARTIAL`s are declared for the record rather than as push blockers:
+**2.6** (global concurrency cap unenforced), **3.2/3.3** (worker supervision and the
+crash/restart matrix), **4.4** (no Paystack sandbox run, M-Pesa not enabled), **5.1/5.2**
+(checklist not assembled as one artefact, secret-store mode unproven), **5.3/5.4** (matrix
+covers AI routes only; no two-instance run), **5.9** (payout kill-switch endpoint absent),
+**7.2** (no real swarm), **10.1** (full `DEV_SETUP.md` stack not brought up).
 
 ---
 
@@ -50,21 +55,21 @@ Additional [P1] `PARTIAL`s that must reach `VERIFIED` before the same push:
 | 1.6 | No artefacts, DBs, large binaries committed | P1 | **VERIFIED** | `.gitignore` now covers `.coverage*`, `coverage.xml`, `htmlcov/`, `clips/`, `frontend/__debug_sdk.mjs`, `frontend/__sdk_debug.mjs`; `git status` no longer lists any of them and `git ls-files` contains none | `frontend/torrentcdn-integration.html` stays untracked **and un-ignored**: it is not obviously an artefact, so the owner classifies it rather than me guessing |
 | 1.7 | Dependency audit clean, lockfiles, SBOM, justified deps | P1 | **VERIFIED** | Dependency Audit **green** on GitHub (run `40184369463`): `pip-audit` 0 findings, npm 7 (5 accepted with written reasons in the baseline file), CycloneDX SBOM generated **and uploaded**: `frontend/package-lock.json` + `backend/requirements*.txt` committed | 1 HIGH is accepted: `undici`, **dev-only** per package-lock (`dev: true`, reached only via jsdom→vitest); tailwindcss's fix is a major bump and is deferred; no production-runtime advisory accepted. **Re-verified 2026-10-26 against the artefacts, not just the lockfile**: `undici`/`vitest` are absent from `npm ci --omit=dev` and imported only by tests; `tailwindcss` was wrongly a *runtime* dependency (a PostCSS compiler), so it moved to `devDependencies` and `frontend/Dockerfile` now runs `npm prune --omit=dev` after the build (444 → 301 packages; all three gone; `next` CLI intact) |
 | 1.8 | CI green on GitHub: build, lint, tests w/ Postgres, SAST, deps, secrets, container, SBOM | P1 | **VERIFIED** | **all five workflows green at `0360b10`**: Tests & Security (`40184120111`, incl. full backend suite + gitleaks "no leaks found"), full-stack Docker (`40184119060`, incl. `ai-store` in 50 s and the new `container-scan`), backend-lint (`40184119065`, incl. `ai-types`), engine (`40184119132`), Dependency Audit (`40184369463`) | container scan is **report-only** (`--exit-code 0`); making it blocking, and the "no open critical/high" claim, is 5.5 (M7) |
-| 1.9 | Migrations additive + reversible; fresh DB and upgrade both tested | P1 | **VERIFIED (scope in notes)** | new `tests/test_ai_migrations.py` on real Postgres: **6 passed** (with `tests/test_ai_schema_contract.py`, **4 passed**: every one of the 39 SQL statements in `app/ai` is `PREPARE`d against the same DDL, so a query that outruns the schema fails CI — see the M2 section) — fresh DB gets all 14 tables and the block re-runs cleanly; a previous-version DB (missing three later tables) upgrades by re-running the block with existing rows intact; `ALTER TABLE … ADD COLUMN IF NOT EXISTS` is re-runnable (one column after two runs); dropping all 14 `ai_*` tables `CASCADE` leaves `users` **and its row** intact, and re-running the block restores them empty; flag-off app serves `/health` with no AI route mounted. Wired into the `ai-store` CI job | **column reconciliation is not automatic**: `CREATE TABLE IF NOT EXISTS` leaves a missing column missing (pinned by `test_missing_column_is_not_reconciled`), so a future column must ship as an explicit `ALTER … ADD COLUMN IF NOT EXISTS` line in `AI_TABLES_DDL` — the primitive this test proves re-runnable. No column has been added since the schema was first committed (`git diff 1497062..HEAD` on the DDL block: no column changes), so no deployment has depended on it |
-| 1.10 | Production refuses simulated verifier, stub backend, memory store, fake payments, TLS off, missing secrets | P1 | **PARTIAL** | refusal code in `config.py:141,202`, `attestation.py`, `payments.py`; `test_ai_security.py::test_production_refuses_to_auto_generate_keys` passes | not one test per refusal listed; TLS/missing-secret refusals not proven |
-| 1.11 | Simulated/dry-run labelled everywhere and impossible in prod | P1 | **PARTIAL** | 45 label mentions in `app/ai`; `SimulatedVerifier`, `EchoBackend`, fake payment provider gate on `is_production`; `GpuDirectSink` fails closed | API-output/docs labelling not audited row by row |
-| 1.12 | No duplicates, no dead code, no TODO on money/security | P1 | **PARTIAL** | `ruff check app/ai` clean; duplicated/truncated blocks in `redis_cache.py` found and removed (F-04) | no repo-wide duplicate/dead-code sweep run this pass |
-| 1.13 | One written contract per boundary + contract tests | P1 | **MISSING** | `docs/tcdn-ai/CONTRACTS.md` does not exist (`ls` → No such file) | blocks Level 1 |
+| 1.9 | Migrations additive + reversible; fresh DB and upgrade both tested | P1 | **VERIFIED (scope in notes)** | new `tests/test_ai_migrations.py` on real Postgres: **6 passed** (with `tests/test_ai_schema_contract.py`, **4 passed**: every one of the 44 SQL statements in `app/ai` is `PREPARE`d against the same DDL, so a query that outruns the schema fails CI — see the M2 section) — fresh DB gets all 15 tables and the block re-runs cleanly; a previous-version DB (missing three later tables) upgrades by re-running the block with existing rows intact; `ALTER TABLE … ADD COLUMN IF NOT EXISTS` is re-runnable (one column after two runs); dropping all 15 `ai_*` tables `CASCADE` leaves `users` **and its row** intact, and re-running the block restores them empty; flag-off app serves `/health` with no AI route mounted. Wired into the `ai-store` CI job | **column reconciliation is not automatic**: `CREATE TABLE IF NOT EXISTS` leaves a missing column missing (pinned by `test_missing_column_is_not_reconciled`), so a future column must ship as an explicit `ALTER … ADD COLUMN IF NOT EXISTS` line in `AI_TABLES_DDL` — the primitive this test proves re-runnable. No column has been added since the schema was first committed (`git diff 1497062..HEAD` on the DDL block: no column changes), so no deployment has depended on it |
+| 1.10 | Production refuses simulated verifier, stub backend, memory store, fake payments, TLS off, missing secrets | P1 | **VERIFIED** | `TestProductionGates`: 7 parametrised cases, **each matching its own refusal message** (TLS, simulated attestation, dev stub, fake payments, pepper, keyring, burn legal ack) plus `test_a_complete_production_config_is_accepted` so the gate cannot be vacuous; `test_memory_store_refuses_to_exist_in_production`; `test_dev_stub_backend_cannot_start_in_production`; `FakePaymentProvider(allow=False)` | refusing-with-the-right-reason is the assertion, not just `ValueError` |
+| 1.11 | Simulated/dry-run labelled everywhere and impossible in prod | P1 | **VERIFIED** | `TestSimulationLabels`: worker `/health` reports `backend="dev-stub"`, `attested=False`; the simulated verdict carries `status`, `verifier`, `measurement` and `tcb` all `simulated`; the dev backend's `transcript_source` is `simulated`; gateway responses carry `tcdn.mode`/`prompt_visibility`/`confidentiality`; production refusal is row 1.10 plus the break-tested `AttestationService.accept` | labels are asserted on API surfaces, not only in docs |
+| 1.12 | No duplicates, no dead code, no TODO on money/security | P1 | **VERIFIED** | `scripts/dead_code_audit.py` reports **No dead code found**; `grep TODO\|FIXME\|XXX\|HACK app/ai/*.py` returns 0; AST scan of `app/` finds **0** functions with identical bodies of 6+ statements; `ruff check app/ai` clean; F-04's duplicated blocks in `redis_cache.py` were removed earlier | the duplicate scan is per-function-body on the AST, so copy-paste with renamed locals is caught |
+| 1.13 | One written contract per boundary + contract tests | P1 | **VERIFIED** | `docs/tcdn-ai/CONTRACTS.md` documents all seven trust boundaries from `THREAT_MODEL.md` §2 (TB1 SDK→coordinator, TB2 SDK→worker frames, TB3 worker→coordinator envelopes, TB4 coordinator→worker ticket, TB5 coordinator→seeder manifest, TB6 host→guest, TB7 worker→swarm): what crosses, exact field sets, who validates, failure codes. `tests/test_ai_contracts.py` = one class per boundary (**23 tests**), including the frame layout and AAD binding, receipt domain separation, ticket single-use/expiry/node binding, manifest invariants, the fail-closed GPU sink, and shard substitution. A doc-resolution test fails if a boundary is documented without a class | written against the wire so a TypeScript/Go port can be written from it |
 
 ## 2. API and SDK
 
 | ID | Item | Level | Status | Evidence | Notes |
 |---|---|---|---|---|---|
-| 2.1 | `/v1/chat/completions`, `/v1/models`, streaming, OpenAI errors; official Python **and JS** clients | P1 | **PARTIAL** | openapi lists both paths; `test_ai_openai_compat.py` uses official `AsyncOpenAI` and passes in the 943-green run | **no official JavaScript client test**; streaming covered by compat tests |
-| 2.2 | Gateway mode standard-tier only, disclosed; prompts never logged/stored; canary proof | P1 | **PARTIAL** | tier gating in `routes_openai.py`; canary assertions in `test_ai_service.py` | no canary test specific to the `/v1` gateway path; Terms disclosure absent |
+| 2.1 | `/v1/chat/completions`, `/v1/models`, streaming, OpenAI errors; official Python **and JS** clients | P1 | **VERIFIED** | Python: `test_ai_openai_compat.py` (official `AsyncOpenAI`, JSON + SSE + rejected `tools`). JS: **committed** harness `scripts/gateway_harness.py` (real uvicorn, in-memory store, in-process echo worker, no infrastructure) driven by `scripts/js_client_check.mjs` — **19 assertions** incl. models list, non-streaming, streaming usage, `tools` 400 and `confidential` rejection; runs in the `ai-store` CI job | the previous JS check was a throwaway script; this one is reproducible and gated |
+| 2.2 | Gateway mode standard-tier only, disclosed; prompts never logged/stored; canary proof | P1 | **VERIFIED** | `test_confidential_flag_points_at_the_sdk` (400, message names the SDK); **canary test on the `/v1` path** asserts the prompt string is in the echo reply yet absent from `caplog`, the job row and the audit log; disclosure in `API.md` §OpenAI-compatible surface + `LIMITATIONS.md` §Tier and visibility, pinned by `TestDisclosureDocs` | the canary is the gateway path itself, not the native API |
 | 2.3 | SDK mode e2e encryption; coordinator never sees prompt; confidential needs SDK mode | P1 | **PARTIAL** | `test_ai_sdk_e2e.py::test_coordinator_never_sees_the_prompt` passes in the 943-green run | "confidential requires SDK mode" not proven by a test |
 | 2.4 | Full lifecycle incl. dispute and hold release | P1 | **VERIFIED** | `test_ai_service.py` (16 tests) passes: placement/hold/receipt/ack/settle/dispute; `test_disputed_job_releases_the_hold`; Postgres lane rejects overspend | — |
-| 2.5 | `Idempotency-Key` on creation requests, replay-tested | P1 | **PARTIAL** | `idempotency_key` in `ledger.py`, `store.py`, `service.py` (ledger credits) | no HTTP `Idempotency-Key` header handling found for placements |
+| 2.5 | `Idempotency-Key` on creation requests, replay-tested | P1 | **VERIFIED** | `POST /api/ai/v1/placements` accepts `Idempotency-Key`; `Coordinator.place` replays the stored response, refuses a reused key with a different body (`409 idempotency_key_reused`), refuses a concurrent in-flight retry (`409 idempotency_in_progress`) and releases the key on failure. `tests/test_ai_idempotency.py` (7 tests) plus `test_ai_postgres.py::test_idempotency_reservation_is_atomic_across_connections` (8 concurrent claims, exactly one wins) | the `ai_idempotency` table is additive; API-key creation is not covered (each key is intentionally distinct) |
 | 2.6 | Rate limits, quotas, size, max messages/tokens, concurrency | P1 | **PARTIAL** | per-key and per-IP buckets now **actually enforce** (M0.1 fixed the un-awaited `allow`); `TestRateLimit` + shared-bucket compat test pass | global concurrency cap config exists (`max_concurrent_jobs_per_key`) but enforcement unproven |
 | 2.7 | `/v1/completions`, embeddings, tools, JSON mode, `seed`, `n`, `include_usage`, matrix | P2 | **MISSING** | no such routes in openapi | — |
 | 2.8 | Token counting authority rules | P2 | **MISSING** | no canonical tokenizer module | — |
@@ -88,8 +93,8 @@ Additional [P1] `PARTIAL`s that must reach `VERIFIED` before the same push:
 | 4.2 | Configurable split, validated at startup, default 70/10/20, recorded per job | P1 | **VERIFIED** | `config.py` split validation; `Ledger` split tests; job records split | — |
 | 4.3 | Concurrency: holds/settlements/refunds/penalties, no double-spend | P1 | **VERIFIED** | `test_ai_postgres.py::test_concurrent_holds_cannot_overspend`, `::test_concurrent_credits_with_the_same_key_post_once` — **7/7 passed** | — |
 | 4.4 | Paystack test mode: card + M-Pesa, signature, idempotency, forged/duplicate/late/failed/mismatch/refund | P1 | **PARTIAL** | `test_ai_billing.py` (11 tests) pass — signature + replay + state machine | no Paystack sandbox session; **M-Pesa channel not enabled on the account** |
-| 4.5 | Free credit: email-verified gate, one per account, per-IP cap, monthly cap, platform-funded | P1 | **PARTIAL** | grant + one-per-account + per-IP cap present and tested | **no `email_verified` gate exists** (grep: 0 matches in `app/ai/**`, `app/routes/**`); monthly cap not found |
-| 4.6 | Refunds/admin adjustments as ledger entries, audit-logged | P1 | **PARTIAL** | adjustments are ledger entries; audit log present | no admin refund endpoint found |
+| 4.5 | Free credit: email-verified gate, one per account, per-IP cap, monthly cap, platform-funded | P1 | **VERIFIED** | All four gates in `Coordinator.grant_signup_credits`: `users.verified` (the CDN's own email-verification flag, read through the store) → `email_not_verified`; one grant per account; per-IP cap (`signup_ip_cap`); monthly budget (`signup_monthly_cap_micro`, UTC calendar month) → `signup_monthly_cap`. Funded from `platform:signup-grants`, never node earnings. `TestSignupCredits` (5 tests) incl. the refused grant leaving no row and no credit | device fingerprinting / phone verification still absent (documented) |
+| 4.6 | Refunds/admin adjustments as ledger entries, audit-logged | P1 | **VERIFIED** | `POST /api/ai/v1/admin/refunds` (admin JWT only) → `Coordinator.refund_credits` posts a double-entry transaction (debit `platform:revenue`, credit the account, kind `refund`), requires an operator `reference` that doubles as the idempotency key, and writes an `admin.refund` audit row with actor, amount and reason. `tests/test_ai_admin_refunds.py` (5 tests: ledger entry, audit, retry pays once, 0/negative refused, API key refused) | live Paystack refunds to a card remain out of scope; this is an internal credit adjustment |
 | 4.7 | Burn/staking disabled, dry-run only, prod-gated, no token transaction | P1 | **VERIFIED** | `burn.py` docstring + `ENABLE_TCDN_BURN` default false; `config.py:166` requires `TCDN_AI_BURN_LEGAL_REVIEW_ACK` in production | interface only, no tx submission path |
 | 4.8 | Paystack Transfers payouts + controls | P2 | **MISSING** | — | owner-deferred issuance |
 | 4.9 | Nightly reconciliation + checksummed export | P2 | **MISSING** | — | — |
@@ -105,11 +110,11 @@ Additional [P1] `PARTIAL`s that must reach `VERIFIED` before the same push:
 | 5.3 | Authorization matrix over every route and role; no IDOR | P1 | **PARTIAL** | `test_authorization_matrix.py` (7 tests) incl. route-inventory assertions, foreign-tenant 404, worker-key rejection — all pass | does not cover every legacy CDN route × every role |
 | 5.4 | Replay + rate-limit state shared via Redis, two instances | P1 | **PARTIAL** | tickets, attestation nonces and rate limits are Redis-backed; `test_ai_redis.py` **18/18** incl. running-loop path | **no two-instance test**; receipt replay still in-process |
 | 5.5 | SAST, fuzzing to budget, ZAP, Trivy; no open critical/high | P1 | **MISSING** | gitleaks/bandit/semgrep/Trivy/ZAP **not installed**; `scripts/fuzz_ai.py` exists but budget not run | blocks Level 1 |
-| 5.6 | Injection, traversal, SSRF, oversize, malformed inputs | P1 | **PARTIAL** | `test_ai_security.py` (17 tests) pass; body-size guard tested | payment-callback and P2P-sourced payloads not covered |
+| 5.6 | Injection, traversal, SSRF, oversize, malformed inputs | P1 | **VERIFIED** | Payment callback: malformed JSON with a valid signature → `400 invalid_payment_event`; a correctly signed event naming a non-UUID account used to reach the ledger cast and surface as **500** — now validated first; oversize webhook → **413** (was a retryable 429; new `PayloadTooLarge`). P2P: a truncated shard with the right prefix, a peer serving another index, and a manifest model id containing `../` (quoted in the origin URL) are all refused. SSRF allowlist re-tested; the interpolated-SQL scan is clean | `TestWebhookInputHardening`, `TestPeerPayloadHardening`, `TestSSRFAndValidation`, `TestStaticSafety::test_no_interpolated_sql` |
 | 5.7 | Privacy invariant proven with canaries across DB/logs/metrics/backups | P1 | **PARTIAL** | canary assertions in `test_ai_service.py` pass | no environment-wide scan (logs, metrics, temp files, backups) |
-| 5.8 | Break tests on 13 named controls | P1 | **PARTIAL** | `docs/tcdn-ai/evidence/06-break-tests/{break-tests.json,log,txt}` present | **not re-run by me**; cannot confirm 10/10 in this tree |
+| 5.8 | Break tests on 13 named controls | P1 | **VERIFIED** | `ENABLE_TCDN_AI=true .venv/bin/python scripts/break_tests.py` → **13/13 CAUGHT, 0 unproven** in this tree; evidence regenerated under `evidence/06-break-tests/` | the harness had drifted: the gateway mutation's `find` string no longer matched after `ruff format` reflowed `gateway.py`, so that control was counted as unproven without being named. Fixed the target **and** made the harness print `HARNESS-ERROR` entries |
 | 5.9 | Business-logic abuse tests | P1 | **PARTIAL** | negative/zero/overflow and wash-transfer tests in `test_ai_core.py`/`test_ai_components.py`; Postgres double-spend test | refund-then-use, free-credit farming, payout kill-switch not tested (endpoint missing) |
-| 5.10 | OWASP Top 10 + API Top 10 + LLM Top 10 table, rows point to tests | P1 | **PARTIAL** | `SECURITY.md` has all three sections (lines 74, 89, 104; 19 control references) | row-by-row code/test linkage not re-verified |
+| 5.10 | OWASP Top 10 + API Top 10 + LLM Top 10 table, rows point to tests | P1 | **VERIFIED** | All three tables in `docs/tcdn-ai/SECURITY.md` re-audited: **52 cited identifiers, 0 unresolved**; one citation was wrong (`test_ai_security::test_no_interpolated_sql` → `TestStaticSafety::…`); rows for this pass added (idempotency, refunds, signup gates, origin SSRF). `TestSecurityDocCitations::test_every_cited_test_exists` parses the tables and fails if a cited test does not exist | the citation check is mechanical, so the tables cannot drift again |
 | 5.11 | Alert rules → webhook | P2 | **MISSING** | — | — |
 | 5.12 | Headers, strict CORS, TLS 1.3 everywhere | P2 | **PARTIAL (CDN)** | existing CDN hardening; AI hops unverified | — |
 | 5.13 | Admin surface separated by host/allowlist, 2FA | P2 | **MISSING** | admin routes share the listener (`/api/ai/v1/admin/*`) | — |
@@ -120,8 +125,8 @@ Additional [P1] `PARTIAL`s that must reach `VERIFIED` before the same push:
 | ID | Item | Level | Status | Evidence | Notes |
 |---|---|---|---|---|---|
 | 6.1 | Sampling unpredictable, after commitment, **wired into placement**, 3%, cap, different operator | P1 | **MISSING** | placement uses the previous sampler; no second-run launch | blocks Level 1 |
-| 6.2 | Commitment protocol correctness | P1 | **PARTIAL** | `verification2.py` primitives + transcript/Merkle tests in `test_ai_components.py`, `test_part3_coverage.py` | coordinator does not consume it yet |
-| 6.3 | Docs state verification is probabilistic with limits | P1 | **PARTIAL** | `LIMITATIONS.md` / `SECURITY.md` discuss probabilistic assurance | not phrased as required for the shipped engine (engine not wired) |
+| 6.2 | Commitment protocol correctness | P1 | **VERIFIED** | `tests/test_part3_coverage.py`: deterministic leaves, contiguous positions, transcript root equals `build_transcript_root`, challenge indices distinct and bounded, a valid response opens exactly the challenged records, a bad proof and a missing record are deterministic violations, verdict sign/verify round trip, domain separation between challenge/verdict/receipt. `test_ai_components.py` covers the Merkle/transcript extensions | correctness of the primitives; consuming them in placement is 6.1 (still MISSING) |
+| 6.3 | Docs state verification is probabilistic with limits | P1 | **VERIFIED** | `LIMITATIONS.md` §"Result verification is probabilistic": the 5 % bucket sample, different-operator re-execution, majority rule, and explicitly (a) no detection when all sampled executors agree, (b) the unsampled 95 % are trusted as reported, (c) the second execution is **not launched automatically** at this revision. Pinned by `TestDisclosureDocs::test_verification_is_described_as_probabilistic_with_its_limits` | the section names the missing wiring instead of implying the guarantee holds |
 | 6.4 | Calibration tool + signed tolerance registry | P2 | **MISSING** | placeholders only | — |
 | 6.5 | Verifier service, suspect flow, penalties, appeals | P2 | **MISSING** | — | — |
 | 6.6 | Synthetic probes | P2 | **MISSING** | — | — |
@@ -131,7 +136,7 @@ Additional [P1] `PARTIAL`s that must reach `VERIFIED` before the same push:
 
 | ID | Item | Level | Status | Evidence | Notes |
 |---|---|---|---|---|---|
-| 7.1 | Manifests, Merkle, per-shard SHA-256, banning, resume, quotas, HTTPS fallback | P1 | **PARTIAL** | `shards.py` + `test_ai_components.py` (44 tests) pass in the 943-green run | HTTPS fallback not exercised end to end |
+| 7.1 | Manifests, Merkle, per-shard SHA-256, banning, resume, quotas, HTTPS fallback | P1 | **VERIFIED** (real swarm still absent) | Manifest/Merkle/hash/ban/resume/quota tests unchanged; the **HTTPS fallback now exists and is tested**: `HttpsOriginPeer` reuses `ssrf.validate_url` (https only, explicit host allowlist, private/link-local/metadata blocked, resolved once), refuses a cross-host redirect even when a caller injected a redirect-following client, caps the response at the declared shard size, and is the last resort when every peer fails (`report.origin_shards`). `TestOriginFallback` (5 tests) | a peer-to-peer transport is still not shipped, so cold start from a real swarm is 7.2/7.3 |
 | 7.2 | Cold start from empty cache; corrupt shard rejected + sender penalised; origin fallback | P1 | **PARTIAL** | in-process corrupt-shard/ban tests pass | no cold-start or fallback run; no real swarm |
 | 7.3 | Node sidecar WebRTC transport, measured cold start | P2 | **MISSING** | — | — |
 | 7.4 | TCDN Pull CLI, Ollama/vLLM integration, metering | P2 | **MISSING** | — | — |
@@ -141,8 +146,8 @@ Additional [P1] `PARTIAL`s that must reach `VERIFIED` before the same push:
 
 | ID | Item | Level | Status | Evidence | Notes |
 |---|---|---|---|---|---|
-| 8.1 | Confidential job never reaches non-attested node; worker refuses; both tested | P1 | **PARTIAL** | scheduler/worker checks in code; policy tests in `test_ai_components.py` | "tested both sides" not confirmed as a pair |
-| 8.2 | Real adapters fail closed; simulated impossible in prod; session key bound | P1 | **PARTIAL** | `SevSnpVerifier`/`TdxVerifier`/`NvidiaGpuVerifier` raise without `TrustPolicy`; simulated refused in production (test passes) | session-key→attestation binding not proven by a test |
+| 8.1 | Confidential job never reaches non-attested node; worker refuses; both tested | P1 | **VERIFIED** | Coordinator side: `test_confidential_job_runs_only_on_attested_node` (standard node present, only the attested one selected), `test_confidential_refused_without_attestation` (`no_eligible_worker`), `TestScheduler::test_confidential_never_downgrades`. Worker side: `test_worker_refuses_confidential_without_attestation` builds a ticket directly to bypass the scheduler and the worker still refuses (`worker_not_attested`) | both halves in one place, the second deliberately bypassing the first |
+| 8.2 | Real adapters fail closed; simulated impossible in prod; session key bound | P1 | **VERIFIED** | `SevSnpVerifier`/`TdxVerifier`/`NvidiaGpuVerifier` are parametrised to raise `attestation_verifier_unavailable` without a `TrustPolicy`; simulated attestation is refused in production (config gate + `AttestationService.accept`, break-tested); the session key is bound twice — `Coordinator.attest` compares the evidence hash with the registered session key (`key_binding_mismatch`) and `AttestationService` rejects a verifier that returns a verdict for a different key | real hardware attestation remains DEFERRED (8.3) |
 | 8.3 | Real-hardware attestation | DEFER | **DEFERRED** | owner-approved; tier marketed as not available | — |
 
 ## 9. Accounts and consoles
@@ -159,7 +164,7 @@ Additional [P1] `PARTIAL`s that must reach `VERIFIED` before the same push:
 |---|---|---|---|---|---|
 | 10.1 | Prod+dev compose, non-root images, health checks; DEV_SETUP followed literally | P1 | **PARTIAL** | `docker-compose.yml` brings up Postgres (verified: container reached ready, 7 Postgres tests passed); backend `Dockerfile` non-root | full stack (proxy/redis/coordinator/worker) not brought up from `DEV_SETUP.md` |
 | 10.2 | Capacity test with many keys: ramp, 30-min sustain, 10x spike, server size | P1 | **MISSING** | `backend/scripts/load_test.py` exists | **no results**; blocks Level 1 |
-| 10.3 | All docs present and accurate | P1 | **PARTIAL** | most docs exist; `PUSH_CHECKLIST.md` created now; `CONTRACTS.md` **missing**; `VERIFICATION_REPORT.md` counts wrong (C-4); `STATE.md` stale | accuracy blocker |
+| 10.3 | All docs present and accurate | P1 | **VERIFIED** | `CONTRACTS.md` written; `VERIFICATION_REPORT.md` counts corrected; `STATE.md` rewritten for this commit; the stale `LIMITATIONS.md` claims (no HTTPS origin adapter, no live-DB CI, email verification delegated and not called) corrected; docs tests (`TestDisclosureDocs`, `TestSecurityDocCitations`, the CONTRACTS citation test) fail on drift | docs that describe unimplemented things still say so |
 | 10.4 | 4-hour soak, chaos, full fuzz budget | P2 | **MISSING** | — | — |
 | 10.5 | Encrypted backups + tested restore, DR, monitoring, status page | P2 | **MISSING** | — | — |
 
@@ -167,7 +172,7 @@ Additional [P1] `PARTIAL`s that must reach `VERIFIED` before the same push:
 
 | ID | Item | Level | Status | Evidence | Notes |
 |---|---|---|---|---|---|
-| 11.1 | Standard tier labelled non-confidential; confidential labelled unavailable; gateway disclosure | P1 | **PARTIAL** | `confidentiality: "none"` in models/registry; `LIMITATIONS.md` says confidential is not available | gateway-mode disclosure absent from docs/Terms; no Terms file at all |
+| 11.1 | Standard tier labelled non-confidential; confidential labelled unavailable; gateway disclosure | P1 | **VERIFIED** | API responses label the tier (`confidentiality: "none"`, `tcdn.mode`, `tcdn.prompt_visibility`, `confidentiality_notice`); `LIMITATIONS.md` has a **Tier and visibility disclosure** table (standard = explicitly non-confidential, confidential = **not available in this build**) and `API.md` states that gateway mode sees the prompt in transit and points at it. `TestDisclosureDocs::test_tiers_are_disclosed_with_gateway_visibility` pins both | a formal Terms/DPA/AUP is 11.2 (P2); this row is about labels a client actually reads |
 | 11.2 | Draft Terms, DPA, AUP, privacy, refund, sub-processors, `security.txt` | P2 | **MISSING** | `security.txt` exists in `app/main.py`; no `docs/tcdn-ai/legal/` | — |
 | 11.3 | `allowed_regions` invariant, measured regions, license geofencing | P2 | **MISSING** | — | — |
 | 11.4 | Sanctions screening hooks, KYC-lite, per-country fraud rules | P2 | **MISSING** | — | — |
@@ -179,7 +184,7 @@ Additional [P1] `PARTIAL`s that must reach `VERIFIED` before the same push:
 | ID | Item | Level | Status | Evidence | Notes |
 |---|---|---|---|---|---|
 | 12.1 | This checklist complete, counts, "Level 1 ready" line | P1 | **VERIFIED** | this file | says **NO** with reasons |
-| 12.2 | `VERIFICATION_REPORT.md` per Appendix 4 §7 | P1 | **PARTIAL** | file exists and follows the shape | **contains wrong counts** (175 AI / 192 legacy; actual 200 / 897) |
+| 12.2 | `VERIFICATION_REPORT.md` per Appendix 4 §7 | P1 | **VERIFIED** | counts re-measured 2026-10-26 and corrected: flag **on** `1030 passed, 4 skipped`, flag **off** `971 passed, 63 skipped`, AI subset **327 tests**; break tests **13/13**; the OpenAI-client and refund rows corrected from "not implemented" to what is now true | the report is a dated record with a revision note; `PUSH_CHECKLIST.md` is the current status |
 | 12.3 | Draft PR description with all required sections | P1 | **MISSING** | no PR opened | blocked by the items above |
 | 12.4 | After push: CI green, no secrets, PR link | P1 | **MISSING** | pushed: 3 workflows green at `853d8a6` (lint, docker audit incl. `ai-store`, engine), 0 secrets in the full-history scan | **no PR** (a trial push explicitly excluded one) and CI is not green across the whole Level-1 set, so this cannot pass yet |
 | 12.5 | Temporary trial-push triggers removed, in their own labelled commit, before the PR is marked ready | P1 | **MISSING** | three workflows list `fix/tcdn-ai-redis-replay-nonce` in `push:` — `ci-fullstack.yml`, `backend-lint.yml`, `tcdn-ai-engine.yml`, each marked with a remove-before-merge comment | the triggers exist only to make CI runnable on a branch; shipping them would run CI on that branch forever |
@@ -296,15 +301,15 @@ verified against a real Postgres (fresh throwaway schema per test).
 
 | Claim | How it was proven |
 |---|---|
-| Fresh DB gets all 14 tables; re-running the DDL block is a no-op | `test_ai_migrations.py::test_fresh_database_creates_every_table_and_reruns_cleanly` |
+| Fresh DB gets all 15 tables; re-running the DDL block is a no-op | `test_ai_migrations.py::test_fresh_database_creates_every_table_and_reruns_cleanly` |
 | A previous-version DB upgrades with existing rows intact | `::test_upgrade_from_a_previous_version_keeps_rows` (drops the three tables added later, re-runs the block) |
 | `ALTER TABLE … ADD COLUMN IF NOT EXISTS` is re-entrant | `::test_additive_column_statement_is_reentrant` (one column after two runs) |
 | A dropped column is **not** restored — the limitation is pinned, not assumed | `::test_missing_column_is_not_reconciled` |
 | Dropping every `ai_*` table is reversible for the legacy schema | `::test_dropping_every_ai_table_is_reversible_for_the_legacy_schema` |
-| Every statement `app/ai` issues is valid against that DDL | `test_ai_schema_contract.py`: **39 unique SQL literals**, each `PREPARE`d against a freshly applied DDL block — **0 failures** |
+| Every statement `app/ai` issues is valid against that DDL | `test_ai_schema_contract.py`: **44 unique SQL literals**, each `PREPARE`d against a freshly applied DDL block — **0 failures** |
 | The checker can actually fail | `::test_the_checker_rejects_a_column_the_schema_never_got` — `PREPARE` rejects `SELECT does_not_exist FROM ai_jobs` and `WHERE nope = $1` |
 | No table in the schema is dead | `::test_no_table_in_the_schema_is_dead` — every `ai_*` table appears in at least one statement |
-| Every table has a primary key | `::test_every_table_has_a_primary_key` (catalog check; all 14 have one) |
+| Every table has a primary key | `::test_every_table_has_a_primary_key` (catalog check; all 15 have one) |
 
 **Why the schema contract exists.** `CREATE TABLE IF NOT EXISTS` does nothing to a
 table that already exists, so a query written against a newer schema than the
@@ -313,6 +318,31 @@ on every upgraded one — the failure appears only in production. The DDL has ne
 added a column (`git diff 1497062..HEAD` on the block: no column changes), so no
 deployment has depended on reconciliation yet; this test makes the first one that
 does fail in CI instead.
+
+**Note (2026-10-26).** The M2 numbers above were 14 tables / 39 statements when that pass
+closed. Row 2.5 added `ai_idempotency` and one statement, so the current figures are **15**
+and **44**; both counts are derived from the code by the tests, which is why only prose
+needed updating.
+
+## M3 — written contracts, one per trust boundary (2026-10-26)
+
+Target: row **1.13**, the last `MISSING` documentation item.
+
+* `docs/tcdn-ai/CONTRACTS.md` — TB1–TB7 (the boundaries already drawn in
+  `THREAT_MODEL.md` §2) with, for each: what crosses, the exact field set, who validates
+  what, the failure code, and the test that pins it. Written against the wire, not the
+  implementation, so a TypeScript or Go port can be written from the file alone.
+* `backend/tests/test_ai_contracts.py` — **23 tests**, one class per boundary:
+  TB1 field sets and prompt-absence, TB2 frame layout + partial-frame remainder + AAD
+  binding, TB3 receipt signature/domain separation/node mismatch, TB4 ticket single-use,
+  expiry and node binding, TB5 manifest signature/format/size invariants, TB6 the GPU sink
+  failing closed, TB7 shard substitution and wrong-index payloads.
+* A doc-resolution test asserts the seven classes named in `CONTRACTS.md` exist, so a new
+  boundary cannot be documented without a contract test.
+
+```
+ENABLE_TCDN_AI=true .venv/bin/python -m pytest tests/test_ai_contracts.py -q   # 23 passed
+```
 
 Run locally (the exact `ai-store` lane):
 
@@ -325,16 +355,12 @@ TEST_POSTGRES_URL=postgresql://user:ci-test-password@127.0.0.1:5432/torrentcdn \
 
 ## Next actions (in order)
 
-1. **1.8 / 12.4**: push and get the repaired `ai-store` job green **on GitHub**; add the missing
-   SAST / container / SBOM jobs to reach the full Level-1 CI set. *(The job itself is repaired and
-   verified locally against fresh containers; only the remote run is outstanding.)*
-2. **1.13**: write `CONTRACTS.md` for the seven boundaries + at least one contract test per boundary.
-3. **1.6 / 1.7**: gitignore `backend/.coverage`, `clips/`, debug scripts; generate an SBOM.
-4. ~~**1.9**: introduce ordered migration files (or document idempotent DDL as the accepted design
-   with an upgrade test).~~ **DONE** — idempotent DDL is the accepted design, with an upgrade test
-   and a schema contract (M2 above).
-5. **1.3**: fresh-clone verification run; format `app/ai`.
-6. **3.1 / 2.1**: Ollama nightly job; official JS client test.
-7. **6.1**: wire redundant execution into placement.
-8. **10.2**: capacity run with many keys.
-9. **12.2 / 12.3**: correct the report counts; only then draft the PR.
+1. **6.1**: wire redundant execution into placement (sampling exists; the second run is not dispatched).
+2. **5.5**: SAST, Trivy (make `container-scan` blocking), ZAP and the full fuzz budget; only then can
+   "no open critical/high" be asserted.
+3. **10.2**: capacity run with many keys (ramp, 30-min sustain, 10× spike).
+4. **12.5**: remove the three temporary trial-push triggers, in their own labelled commit.
+5. **12.4 / 12.3**: push the branch, get every Level-1 workflow green on GitHub, then open the draft PR.
+
+Closed in this pass: 1.13 (contracts, M3), 1.10–1.12, 2.1, 2.2, 2.5, 4.5, 4.6, 5.6, 5.8, 5.10,
+6.2, 6.3, 7.1, 8.1, 8.2, 10.3, 11.1, 12.2.

@@ -22,8 +22,12 @@ your deployment, the corresponding guarantee does not exist.
 2. **No Python WebRTC/WebTorrent transport.** The browser P2P layer cannot be
    reused from a Python worker. `ShardPeer` is the transport seam; the manifest,
    Merkle proof, integrity checks, peer banning and resume logic are implemented
-   and tested with in-process peers. A production worker needs a transport adapter
-   (libtorrent, a JS sidecar, or an HTTPS origin) — that adapter is not shipped.
+   and tested with in-process peers. A production worker needs a transport adapter:
+   the **HTTPS origin fallback is now shipped** (`HttpsOriginPeer`: https-only, an
+   explicit host allowlist through `ssrf.py`, no cross-host redirects, and a
+   response capped at the declared shard size — tested in
+   `TestOriginFallback`), but a peer-to-peer transport (libtorrent or a JS
+   sidecar) is still not shipped, so a real swarm is untested.
 3. **Confidential tier is not usable with real hardware in this build.** The
    interfaces, policy enforcement and key binding exist and are tested; real
    verdict-producing verifiers do not.
@@ -53,19 +57,24 @@ your deployment, the corresponding guarantee does not exist.
    vocabulary id, so the adapter discards them and the receipt carries no
    verification block. Fixing this needs a tokenizer-backed id mapping (or a
    pinned verifier) — it is not done, and the engine does not claim otherwise.
-9. **SQL coverage is unit-tested through the store protocol, not against a live
-   Postgres.** The Postgres implementation uses parameterised SQL, advisory locks
-   and unique idempotency keys; the automated suite runs `MemoryStore`. A live-DB
-   integration job is the next step (the repo's existing CI has no database
-   service).
+9. **SQL is now tested against real Postgres in CI.** `tests/test_ai_postgres.py`
+   (holds, credits, idempotency, expiry) plus `tests/test_ai_migrations.py` and
+   `tests/test_ai_schema_contract.py` run in the `ai-store` job against a real
+   Postgres container, and the whole suite still uses `MemoryStore` everywhere
+   else. What remains untested is **multi-instance** behaviour: the advisory
+   locks protect concurrent writers, not a second coordinator process sharing
+   in-memory rate limits and replay caches (gap 5).
 10. **Only the Python SDK exists.** A TypeScript SDK is specified
     (`SDK-PORT-SPEC.md`) but not implemented, per the single-language rule.
 11. **Worker heartbeat/rotation scheduling is not a daemon.** The launcher registers
     and serves; periodic heartbeats are trivial to add with a task, but a crashed
     heartbeat loop is not restarted by a supervisor in this build.
-12. **Free-credit abuse controls are partial.** One grant per account and a per-IP
-    cap exist; email/phone verification and device fingerprinting are delegated to
-    the existing account system, which this module does not call.
+12. **Free-credit abuse controls: address verification yes, device signals no.**
+    A grant now requires `users.verified` (the account system's email-verification
+    flag, read through the store), one grant per account, a per-IP cap and a
+    monthly platform budget. What is still missing is device fingerprinting and
+    phone verification: a farm of distinct verified addresses on distinct IPs can
+    still claim the credit until the monthly budget stops it.
 13. **Seeder payouts stop short of issuance.** Co-signed transfer-receipt
     verification, the fraud controls (ticketed downloader, pair caps, duplicate and
     same-owner flags) and the exact largest-remainder distribution are implemented
@@ -90,6 +99,49 @@ your deployment, the corresponding guarantee does not exist.
     already sent when a worker dies mid-stream, so the failure is delivered as an
     SSE `error` event. Such a job is not acked and therefore never settles; it
     expires and the hold is released.
+
+## Result verification is probabilistic — read this before trusting a result
+
+Verification of inferenced output is **probabilistic, not a proof**. What the
+design does:
+
+- a deterministic sample of jobs (default `TCDN_AI_VERIFICATION_SAMPLE_PCT=5`,
+  bucket-based on the job id) is chosen for redundant execution;
+- the sampled job is re-executed on a *different* operator, and the transcript
+  commitments are compared (majority wins, disagreeing node loses reputation
+  and can be suspended);
+- the coordinator records the decision, the faulty node ids and the transcript
+  root in the audit log.
+
+What it does **not** do:
+
+- it cannot detect a wrong answer that *every* sampled executor agrees on, or a
+  model that is systematically biased rather than tampered with;
+- it says nothing about the 95 % of jobs that are never sampled — those are
+  trusted as reported;
+- at this revision the **second execution is not launched automatically**
+  (gap 4): sampling decisions, transcript commitments, comparison, tiebreak and
+  penalties are implemented and tested, but placement does not yet dispatch the
+  redundant run. Treat the guarantee as unavailable until that is wired and the
+  calibration registry stops being a placeholder.
+
+Nothing in this repository should be read as claiming "verified inference" for
+unsampled jobs, or as a substitute for an independent evaluation of a model's
+output quality.
+
+## Tier and visibility disclosure
+
+| Tier | State | What the operator can see | Where it is available |
+|---|---|---|---|
+| **Standard** | Available | In **SDK mode** the prompt and completion are encrypted end-to-end (X25519 + HKDF + AES-256-GCM) and the coordinator never sees either. In **gateway mode** (`/v1/chat/completions`) the coordinator relays the plaintext prompt and completion in transit, never logging or storing them. | Native API (`/api/ai/v1`) and the OpenAI-compatible surface |
+| **Confidential** | **Not available in this build** | Nothing — a confidential job may only run on a node with a live, verified TEE attestation, and no real attestation verifier is shipped (gap 3) | Interfaces only; the SDK exposes `confidential=True` and the coordinator will refuse placement with no eligible attested node (`no_eligible_worker`) |
+
+So: **standard is explicitly non-confidential.** Anything that must not be
+visible to the platform needs end-to-end encryption, and this build cannot serve
+that tier on real hardware. Gateway mode is standard-tier only and rejects a
+`confidential` parameter rather than silently downgrading. Track these claims
+against `API.md` §"OpenAI-compatible surface" and the `tcdn` object on every
+gateway response (`mode`, `prompt_visibility`, `confidentiality`).
 
 ## Things that are real, not simulated
 

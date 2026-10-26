@@ -38,11 +38,40 @@ stay meaningful. The same patch removed an order-dependent legacy failure:
 `test_billing.py::TestPaystackWebhookPaymentGate` used to fail when it was the
 first test to import `app.main` in the process.
 
-## `check.mjs` / `evidence.json`
+## `js-client.json` — the official JavaScript client, committed and gated
+
+The earlier JS check was a throwaway script (`check.mjs`, kept below as history).
+It is now part of the repo and runs in CI:
+
+```bash
+# from backend/
+npm install --no-save --no-package-lock --no-audit --no-fund openai@6.49.0
+.venv/bin/python scripts/gateway_harness.py --port 8099 --info /tmp/gateway-harness.json &
+node scripts/js_client_check.mjs /tmp/gateway-harness.json
+```
+
+`scripts/gateway_harness.py` serves the *real* host app (lifespan off, so no CDN
+database) with an in-memory store, one signed-in echo worker and the OpenAI
+gateway mounted; it writes the base URL, a fresh API key and the model id to
+`--info`. `scripts/js_client_check.mjs` then asserts **19 things** with
+`openai` from npm: the models list and its `tcdn.gateway_mode` flag, a
+non-streaming completion (`chat.completion`, `chatcmpl-` id, echo content,
+`finish_reason`, usage arithmetic, `tcdn.mode`/`prompt_visibility`/
+`confidentiality`), streaming deltas plus the final usage chunk, `tools` →
+`400 unsupported_parameter`, and `confidential: true` → a 400 that points at
+the SDK. It prints a JSON summary and exits non-zero on the first mismatch.
+
+`js-client.json` is the output of that run on 2026-10-26 (Node 24.18.0,
+`openai` 6.49.0): `ok: true`, 19 checks, one `chatcmpl-` completion.
+
+The CI job is the `ai-store` step "Official JavaScript client against a live
+gateway (row 2.1)" in `.github/workflows/ci-fullstack.yml`.
+
+## `check.mjs` / `evidence.json` (historical, 2026-10-24)
 
 The **official OpenAI JavaScript client** (`openai` from npm) run against a live
 uvicorn server on `127.0.0.1:8099`, serving the coordinator with one registered
-in-process echo worker. The harness is a throwaway script (not committed to the
+in-process echo worker. The harness was a throwaway script (not committed to the
 product). Reproduce:
 
 ```bash
