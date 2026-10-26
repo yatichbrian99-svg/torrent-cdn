@@ -34,9 +34,12 @@ class TestSecretHandling:
         store = FileSecretStore(path)
         store.save(KeyRing.generate("c").to_secret())
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
-        assert load_keyring(
-            AISettings(api_key_pepper="p", coordinator_key_file=str(path))
-        ).active is not None
+        assert (
+            load_keyring(
+                AISettings(api_key_pepper="p", coordinator_key_file=str(path))
+            ).active
+            is not None
+        )
 
     def test_keyring_can_be_injected_as_read_only_environment_secret(self, monkeypatch):
         # The platform secret manager injects the whole keyring; nothing is ever
@@ -113,7 +116,10 @@ class TestProductionGates:
                 {"allow_dev_stub_backend": True},
                 "TCDN_AI_ALLOW_DEV_STUB_BACKEND must be false",
             ),
-            ({"payment_provider": "fake"}, "TCDN_AI_PAYMENT_PROVIDER must not be 'fake'"),
+            (
+                {"payment_provider": "fake"},
+                "TCDN_AI_PAYMENT_PROVIDER must not be 'fake'",
+            ),
             ({"api_key_pepper": None}, "TCDN_AI_API_KEY_PEPPER must be set"),
             ({"coordinator_key_file": None}, "COORDINATOR_KEY_FILE"),
             (
@@ -252,7 +258,9 @@ class TestVerification:
         assert not outcome.faulty_nodes
 
     @pytest.mark.asyncio
-    async def test_service_penalises_and_suspends_faulty_nodes(self, ai_env, ai_worker_factory):
+    async def test_service_penalises_and_suspends_faulty_nodes(
+        self, ai_env, ai_worker_factory
+    ):
         first = await ai_worker_factory()
         second = await ai_worker_factory()
         third = await ai_worker_factory()
@@ -270,7 +278,10 @@ class TestVerification:
         assert outcome.status == "majority"
         assert outcome.faulty_nodes == (third.identity.node_id,)
         nodes = {node.node_id: node for node in await ai_env.store.list_nodes()}
-        assert nodes[third.identity.node_id].reputation == before[third.identity.node_id] - 20
+        assert (
+            nodes[third.identity.node_id].reputation
+            == before[third.identity.node_id] - 20
+        )
         assert any(
             entry["event"] == "node.verification_failed"
             for entry in ai_env.store.audit_log
@@ -390,7 +401,9 @@ class TestSecurityDocCitations:
             if name.startswith("test_"):
                 found = f"def {name}(" in sources
             elif method:
-                block = re.search(rf"class {name}\b.*?(?=\nclass |\Z)", sources, re.S)
+                block = re.search(
+                    rf"class {name}\b.*?(?=\nclass |\Z)", sources, re.DOTALL
+                )
                 found = bool(block and f"def {method}(" in block.group(0))
             else:
                 found = f"class {name}" in sources
@@ -418,10 +431,19 @@ class TestDisclosureDocs:
     def test_verification_is_described_as_probabilistic_with_its_limits(self):
         limitations, _ = self._docs()
         start = limitations.index("## Result verification is probabilistic")
-        section = limitations[start : limitations.index("## Tier and visibility", start)]
+        section = limitations[
+            start : limitations.index("## Tier and visibility", start)
+        ]
         assert "probabilistic, not a proof" in section
         assert "never sampled" in section or "95 %" in section
-        assert "not launched automatically" in section
+        # The section must name where the second run does and does not happen:
+        # gateway mode dispatches it, SDK mode cannot (the coordinator has no
+        # plaintext), so the guarantee cannot be read as universal.
+        assert "dispatched automatically in gateway mode" in section
+        assert "not_dispatched_sdk_mode" in section
+        # …and the sampling weakness: predictable to the node, decided before
+        # any commitment.
+        assert "predictable to the node" in section
 
     def test_tiers_are_disclosed_with_gateway_visibility(self):
         limitations, api = self._docs()

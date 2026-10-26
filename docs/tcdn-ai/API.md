@@ -140,7 +140,12 @@ All require the existing admin JWT.
   raw key once.
 - `POST /admin/verification?job_id=…` with body `{"node_a": "<hash>", "node_b": "<hash>"}`
   — records sampled execution hashes, resolves majority and penalises/suspends the
-  faulty worker.
+  faulty worker. This is the manual path; a sampled **gateway** request is
+  re-executed on a different operator automatically and reconciled when both
+  receipts arrive, without an operator action. A sampled **SDK** request cannot
+  be — the coordinator never holds its plaintext — and is recorded as
+  `not_dispatched_sdk_mode`. Neither the re-execution nor an admin settlement of
+  one is billed to the customer.
 
 ## OpenAI-compatible surface (`gateway mode`)
 
