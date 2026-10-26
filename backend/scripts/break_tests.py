@@ -74,7 +74,8 @@ MUTATIONS = [
         "find": "Depends(require_admin)",
         "replace": 'Depends(lambda: "mutant")',
         "test": "tests/test_ai_api.py::TestAccountIsolation::test_api_key_cannot_reach_admin",
-        "occurrences": 2,
+        # Every admin route: verification, API-key creation and refunds.
+        "occurrences": 3,
     },
     {
         "control": "Merkle proof verification",
@@ -100,8 +101,11 @@ MUTATIONS = [
         "find": (
             "    for key, reason in UNSUPPORTED_PARAMS.items():\n"
             "        if body.get(key) is not None:\n"
-            '            raise _invalid(f"{key} is not supported: {reason}", param=key, '
-            'code="unsupported_parameter")\n'
+            "            raise _invalid(\n"
+            '                f"{key} is not supported: {reason}",\n'
+            "                param=key,\n"
+            '                code="unsupported_parameter",\n'
+            "            )\n"
             "    unknown = sorted(set(body) - ALLOWED_PARAMS)\n"
         ),
         "replace": "    unknown: list[str] = []\n",
@@ -188,6 +192,9 @@ def main() -> int:
             )
             results.append(entry)
             unproven += 1
+            # A drifted mutation target used to be counted but never printed, so
+            # the summary said "1 unproven" without naming the control.
+            print(f"{entry['status']:10} {mutation['control']}: {entry['detail']}")
             continue
 
         baseline = run(mutation["test"])
@@ -199,6 +206,7 @@ def main() -> int:
             )
             results.append(entry)
             unproven += 1
+            print(f"{entry['status']:10} {mutation['control']}: baseline test fails")
             continue
 
         try:

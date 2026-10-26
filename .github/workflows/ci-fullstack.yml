@@ -289,6 +289,59 @@ jobs:
             tests/test_ai_schema_contract.py \
             -q --tb=short --no-header -rs
 
+      # security.yml runs the whole suite with the flag OFF (that is the shipped
+      # default), where every /api/ai/v1 test skips by design. Without this
+      # step the AI surface — contracts, idempotency, refunds, OWASP citation
+      # checks — would only ever run on a developer's machine.
+      - name: Run the AI suite with the flag on
+        env:
+          ENABLE_TCDN_AI: "true"
+          TCDN_AI_ENVIRONMENT: development
+          TCDN_AI_API_KEY_PEPPER: ci-test-ai-pepper-32-chars-ok!!!
+          JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: ci-test-password
+          REDIS_URL: redis://127.0.0.1:6379/0
+        run: |
+          set -euo pipefail
+          cd backend
+          export DATABASE_URL="postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD}@127.0.0.1:5432/torrentcdn"
+          export TEST_POSTGRES_URL="$DATABASE_URL"
+          .venv/bin/python -m pytest tests/test_ai_*.py \
+            tests/test_part3_coverage.py tests/test_authorization_matrix.py \
+            -q --tb=short --no-header
+
+      # Row 2.1: OpenAI's official *JavaScript* client needs a socket, so this
+      # drives the gateway through a real uvicorn process
+      # (scripts/gateway_harness.py) instead of the ASGI transport the Python
+      # compat tests use. In-memory store + echo worker: no database, no engine,
+      # no real data — and the harness labels its output as simulated.
+      - name: Official JavaScript client against a live gateway (row 2.1)
+        env:
+          ENABLE_TCDN_AI: "true"
+          TCDN_AI_ENVIRONMENT: development
+          TCDN_AI_API_KEY_PEPPER: ci-test-ai-pepper-32-chars-ok!!!
+          JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
+        run: |
+          set -euo pipefail
+          cd backend
+          # Pinned, and --no-save/--no-package-lock so the check cannot alter
+          # frontend/package.json or its lockfile. The client comes from npm on
+          # the runner; nothing in the product depends on it.
+          npm install --no-save --no-package-lock --no-audit --no-fund openai@6.49.0
+          .venv/bin/python scripts/gateway_harness.py --port 8099 \
+            --info /tmp/gateway-harness.json &
+          harness=$!
+          trap 'kill "$harness" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 60); do
+            [ -f /tmp/gateway-harness.json ] && break
+            sleep 0.5
+          done
+          test -f /tmp/gateway-harness.json || {
+            echo "gateway harness did not become ready"; exit 1
+          }
+          node scripts/js_client_check.mjs /tmp/gateway-harness.json
+
       - name: Cleanup
         if: always()
         env:
