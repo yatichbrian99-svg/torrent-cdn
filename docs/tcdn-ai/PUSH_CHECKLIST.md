@@ -10,7 +10,7 @@ Nothing here is inherited from an earlier report.
 
 | Level | VERIFIED | PARTIAL | BUILT-UNVERIFIED | MISSING | DEFERRED | NOT VERIFIABLE HERE | Total |
 |---|---|---|---|---|---|---|---|
-| **P1** | **15** | **33** | 0 | **7** | 0 | 0 | 55 |
+| **P1** | **16** | **32** | 0 | **7** | 0 | 0 | 55 |
 | **P2** | 0 | 1 | 0 | 27 | 0 | 1 | 29 |
 | **DEFER** | 0 | 0 | 0 | 0 | 2 | 0 | 2 |
 
@@ -18,7 +18,7 @@ Counts produced by parsing the tables in this file (not estimated).
 
 **Level 1 ready: NO.**
 
-All six [P1] `MISSING` items block the push:
+All seven [P1] `MISSING` items block the push:
 
 | Blocker | Why it stops Level 1 |
 |---|---|
@@ -28,11 +28,10 @@ All six [P1] `MISSING` items block the push:
 | **10.2** | No capacity test results, so no measured limits or server sizing. |
 | **12.3** | No draft PR. |
 | **12.4** | Post-push confirmation cannot exist before a push. |
+| **12.5** | `security.yml` still carries the temporary push trigger added while diagnosing the red jobs. |
 
 Additional [P1] `PARTIAL`s that must reach `VERIFIED` before the same push:
 
-- **1.9** — no migration framework; "additive and reversible / upgrade from previous state"
-  still cannot be claimed (documented-design route agreed: fresh DB, upgrade, drop-and-still-works).
 - **2.1 / 2.2 / 2.3 / 5.7** — no official JavaScript client test; gateway-mode disclosure missing
   from docs/Terms; no environment-wide canary scan.
 - **10.3 / 12.2** — `STATE.md` and `VERIFICATION_REPORT.md` still carry wrong counts (C-4).
@@ -49,9 +48,9 @@ Additional [P1] `PARTIAL`s that must reach `VERIFIED` before the same push:
 | 1.4 | Whole suite in one invocation, no hang | P1 | **VERIFIED** | 897 passed in 86 s (off), 943 in 121 s (on), exit 0 both | one invocation, no per-file split |
 | 1.5 | Secrets scan clean, whole history, all branches | P1 | **VERIFIED (limited)** | **blob-level scan of every ref**: 39 refs, 396 commits, **1661 blobs**, 0 high-signal findings, 0 key-file paths anywhere in history; 209 credential-shaped hits triaged to placeholders and 5 known test fixtures (`evidence/11-secret-scan/`, reproducible via its `scan.py`) | **gitleaks is not installed**; this is pattern matching + a credential-in-URL pass, not gitleaks' entropy heuristics |
 | 1.6 | No artefacts, DBs, large binaries committed | P1 | **VERIFIED** | `.gitignore` now covers `.coverage*`, `coverage.xml`, `htmlcov/`, `clips/`, `frontend/__debug_sdk.mjs`, `frontend/__sdk_debug.mjs`; `git status` no longer lists any of them and `git ls-files` contains none | `frontend/torrentcdn-integration.html` stays untracked **and un-ignored**: it is not obviously an artefact, so the owner classifies it rather than me guessing |
-| 1.7 | Dependency audit clean, lockfiles, SBOM, justified deps | P1 | **VERIFIED** | Dependency Audit **green** on GitHub (run `40184369463`): `pip-audit` 0 findings, npm 7 (5 accepted with written reasons in the baseline file), CycloneDX SBOM generated **and uploaded**: `frontend/package-lock.json` + `backend/requirements*.txt` committed | 1 HIGH is accepted: `undici`, **dev-only** per package-lock (`dev: true`, reached only via jsdom→vitest); tailwindcss's fix is a major bump and is deferred; no production-runtime advisory accepted |
+| 1.7 | Dependency audit clean, lockfiles, SBOM, justified deps | P1 | **VERIFIED** | Dependency Audit **green** on GitHub (run `40184369463`): `pip-audit` 0 findings, npm 7 (5 accepted with written reasons in the baseline file), CycloneDX SBOM generated **and uploaded**: `frontend/package-lock.json` + `backend/requirements*.txt` committed | 1 HIGH is accepted: `undici`, **dev-only** per package-lock (`dev: true`, reached only via jsdom→vitest); tailwindcss's fix is a major bump and is deferred; no production-runtime advisory accepted. **Re-verified 2026-10-26 against the artefacts, not just the lockfile**: `undici`/`vitest` are absent from `npm ci --omit=dev` and imported only by tests; `tailwindcss` was wrongly a *runtime* dependency (a PostCSS compiler), so it moved to `devDependencies` and `frontend/Dockerfile` now runs `npm prune --omit=dev` after the build (444 → 301 packages; all three gone; `next` CLI intact) |
 | 1.8 | CI green on GitHub: build, lint, tests w/ Postgres, SAST, deps, secrets, container, SBOM | P1 | **VERIFIED** | **all five workflows green at `0360b10`**: Tests & Security (`40184120111`, incl. full backend suite + gitleaks "no leaks found"), full-stack Docker (`40184119060`, incl. `ai-store` in 50 s and the new `container-scan`), backend-lint (`40184119065`, incl. `ai-types`), engine (`40184119132`), Dependency Audit (`40184369463`) | container scan is **report-only** (`--exit-code 0`); making it blocking, and the "no open critical/high" claim, is 5.5 (M7) |
-| 1.9 | Migrations additive + reversible; fresh DB and upgrade both tested | P1 | **PARTIAL** | fresh DB bootstrap proven: `TEST_POSTGRES_URL=… pytest tests/test_ai_postgres.py` → **7 passed**; schema is idempotent `AI_TABLES_DDL` | no migration framework, no down-path, no upgrade test |
+| 1.9 | Migrations additive + reversible; fresh DB and upgrade both tested | P1 | **VERIFIED (scope in notes)** | new `tests/test_ai_migrations.py` on real Postgres: **6 passed** (with `tests/test_ai_schema_contract.py`, **4 passed**: every one of the 39 SQL statements in `app/ai` is `PREPARE`d against the same DDL, so a query that outruns the schema fails CI — see the M2 section) — fresh DB gets all 14 tables and the block re-runs cleanly; a previous-version DB (missing three later tables) upgrades by re-running the block with existing rows intact; `ALTER TABLE … ADD COLUMN IF NOT EXISTS` is re-runnable (one column after two runs); dropping all 14 `ai_*` tables `CASCADE` leaves `users` **and its row** intact, and re-running the block restores them empty; flag-off app serves `/health` with no AI route mounted. Wired into the `ai-store` CI job | **column reconciliation is not automatic**: `CREATE TABLE IF NOT EXISTS` leaves a missing column missing (pinned by `test_missing_column_is_not_reconciled`), so a future column must ship as an explicit `ALTER … ADD COLUMN IF NOT EXISTS` line in `AI_TABLES_DDL` — the primitive this test proves re-runnable. No column has been added since the schema was first committed (`git diff 1497062..HEAD` on the DDL block: no column changes), so no deployment has depended on it |
 | 1.10 | Production refuses simulated verifier, stub backend, memory store, fake payments, TLS off, missing secrets | P1 | **PARTIAL** | refusal code in `config.py:141,202`, `attestation.py`, `payments.py`; `test_ai_security.py::test_production_refuses_to_auto_generate_keys` passes | not one test per refusal listed; TLS/missing-secret refusals not proven |
 | 1.11 | Simulated/dry-run labelled everywhere and impossible in prod | P1 | **PARTIAL** | 45 label mentions in `app/ai`; `SimulatedVerifier`, `EchoBackend`, fake payment provider gate on `is_production`; `GpuDirectSink` fails closed | API-output/docs labelling not audited row by row |
 | 1.12 | No duplicates, no dead code, no TODO on money/security | P1 | **PARTIAL** | `ruff check app/ai` clean; duplicated/truncated blocks in `redis_cache.py` found and removed (F-04) | no repo-wide duplicate/dead-code sweep run this pass |
@@ -290,6 +289,40 @@ client, and Redis readiness is actually waited for (the job used real Redis but 
 **Rebuilt from scratch:** `actions/setup-python@v7` (3.12, pip-cached on both requirements files)
 so the job no longer relies on whatever `python` the runner happens to expose.
 
+## M2 — models + `ai_*` DDL (2026-10-26)
+
+Target set: the data-layer milestone plus checklist row **1.9**. Both closed and
+verified against a real Postgres (fresh throwaway schema per test).
+
+| Claim | How it was proven |
+|---|---|
+| Fresh DB gets all 14 tables; re-running the DDL block is a no-op | `test_ai_migrations.py::test_fresh_database_creates_every_table_and_reruns_cleanly` |
+| A previous-version DB upgrades with existing rows intact | `::test_upgrade_from_a_previous_version_keeps_rows` (drops the three tables added later, re-runs the block) |
+| `ALTER TABLE … ADD COLUMN IF NOT EXISTS` is re-entrant | `::test_additive_column_statement_is_reentrant` (one column after two runs) |
+| A dropped column is **not** restored — the limitation is pinned, not assumed | `::test_missing_column_is_not_reconciled` |
+| Dropping every `ai_*` table is reversible for the legacy schema | `::test_dropping_every_ai_table_is_reversible_for_the_legacy_schema` |
+| Every statement `app/ai` issues is valid against that DDL | `test_ai_schema_contract.py`: **39 unique SQL literals**, each `PREPARE`d against a freshly applied DDL block — **0 failures** |
+| The checker can actually fail | `::test_the_checker_rejects_a_column_the_schema_never_got` — `PREPARE` rejects `SELECT does_not_exist FROM ai_jobs` and `WHERE nope = $1` |
+| No table in the schema is dead | `::test_no_table_in_the_schema_is_dead` — every `ai_*` table appears in at least one statement |
+| Every table has a primary key | `::test_every_table_has_a_primary_key` (catalog check; all 14 have one) |
+
+**Why the schema contract exists.** `CREATE TABLE IF NOT EXISTS` does nothing to a
+table that already exists, so a query written against a newer schema than the
+deployed one works perfectly on a fresh database and raises `UndefinedColumnError`
+on every upgraded one — the failure appears only in production. The DDL has never
+added a column (`git diff 1497062..HEAD` on the block: no column changes), so no
+deployment has depended on reconciliation yet; this test makes the first one that
+does fail in CI instead.
+
+Run locally (the exact `ai-store` lane):
+
+```
+TEST_POSTGRES_URL=postgresql://user:ci-test-password@127.0.0.1:5432/torrentcdn \
+  .venv/bin/python -m pytest tests/test_ai_postgres.py \
+  tests/test_ai_migrations.py tests/test_ai_schema_contract.py -q
+# 17 passed on one fresh database
+```
+
 ## Next actions (in order)
 
 1. **1.8 / 12.4**: push and get the repaired `ai-store` job green **on GitHub**; add the missing
@@ -297,8 +330,9 @@ so the job no longer relies on whatever `python` the runner happens to expose.
    verified locally against fresh containers; only the remote run is outstanding.)*
 2. **1.13**: write `CONTRACTS.md` for the seven boundaries + at least one contract test per boundary.
 3. **1.6 / 1.7**: gitignore `backend/.coverage`, `clips/`, debug scripts; generate an SBOM.
-4. **1.9**: introduce ordered migration files (or document idempotent DDL as the accepted design
-   with an upgrade test).
+4. ~~**1.9**: introduce ordered migration files (or document idempotent DDL as the accepted design
+   with an upgrade test).~~ **DONE** — idempotent DDL is the accepted design, with an upgrade test
+   and a schema contract (M2 above).
 5. **1.3**: fresh-clone verification run; format `app/ai`.
 6. **3.1 / 2.1**: Ollama nightly job; official JS client test.
 7. **6.1**: wire redundant execution into placement.

@@ -1,10 +1,11 @@
 # TCDN-AI — STATE (single source of truth)
 
-Last updated: **2026-10-25** (Section E confirm pass + M0.1)
+Last updated: **2026-10-26** (M2 closed incl. 1.9; probes fail-closed on schedule; dependency exceptions verified)
 Current branch: **`fix/tcdn-ai-redis-replay-nonce`**
-Last committed revision: **`1497062`** — the TCDN-AI module is now committed on that
-branch (31 files + `tests/test_ai_redis.py`). Everything else is still uncommitted
-in the working tree. `main` remains `200109e` and contains no TCDN-AI code.
+Last committed revision: **`7b4df67`** — M1 is committed on that branch (`0360b10`
+plus the M1 record). `main` still carries no TCDN-AI code; the working tree holds
+the M2 data-layer tests, the probe/dependency work of this pass, plus the
+untracked `frontend/torrentcdn-integration.html` (O2).
 
 **Measured 2026-10-25** (evidence in `HANDOFF_AUDIT.md` §2 and `PUSH_CHECKLIST.md`):
 - Full suite, flag **off**: 897 passed, 57 skipped, 86 s, exit 0 (one invocation, no hang).
@@ -22,7 +23,7 @@ this file is the short, current status.
 | Milestone | Status | Evidence / blocker |
 |---|---|---|
 | M1 Crypto, keyring, tickets | **Done and verified** | 221 AI tests; break tests 10/10 |
-| M2 Models + `ai_*` DDL | **Done and verified** | Fresh DB created 14 tables (this session) |
+| M2 Models + `ai_*` DDL | **Done and verified** | Fresh DB creates all 14 tables and re-runs cleanly; `tests/test_ai_migrations.py` (row 1.9) proves upgrade from a previous version keeps rows; `tests/test_ai_schema_contract.py` plans every SQL statement in `app/ai` with `PREPARE`, so a query naming a column the DDL never got fails the build instead of production (39 statements, 0 failures); no dead tables; every table has a PK |
 | M3 Coordinator: auth, registry, scheduler, placement | **Done and verified** | Live journey `JOURNEY OK` |
 | M4 Worker: ticket validation, AEAD, receipts | **Done and verified** | Live journey; e2e test; F-04/F-05 fixed |
 | M5 Python SDK + e2e streaming | **Done and verified** | 221 tests; live journey |
@@ -62,6 +63,31 @@ each, no hang: `925 passed, 11 skipped` (flag on) and `879 passed, 57 skipped`
 - `ruff` clean; SQL-injection audit clean; gitleaks history 0 findings;
   `secret_scan.sh --full` clean; `pip-audit` no known vulnerabilities.
 - Frontend `tsc --noEmit` clean, `179` Vitest tests pass.
+- **M2 data layer, against real Postgres** (fresh throwaway schema per test):
+  `test_ai_postgres.py` + `test_ai_migrations.py` + `test_ai_schema_contract.py`
+  = **17 passed** on one fresh database (the exact `ai-store` CI lane). The
+  schema contract's negative control proves the check can fail: `PREPARE`
+  rejects `SELECT does_not_exist FROM ai_jobs`, so a green run is meaningful.
+- **Production probes fail closed on the scheduled run.** All four
+  `*_audit_prod.sh` probes skip a rejected `E2E_ADMIN_TOKEN` on branch/PR runs
+  (warning annotation, exit 0) but on the scheduled run on `main`
+  (`PROBE_STRICT_CREDENTIALS`) they emit an `::error` and exit non-zero, so the
+  daily job goes red instead of silently passing. Behaviour pinned by
+  `tests/test_probe_strict_credentials.py` (12 tests: 4 probes x skip/strict/
+  caller-propagation).
+- **Dependency-audit exceptions verified against what actually ships.**
+  `undici` and `vitest` are `dev=true` in `package-lock.json` (undici only via
+  `jsdom`), absent from `npm ci --omit=dev`, and imported by nothing outside
+  tests. `tailwindcss` was **wrongly** a runtime dependency: it is a PostCSS
+  compiler, so it moved to `devDependencies` and `frontend/Dockerfile` now runs
+  `npm prune --omit=dev` after the build. Verified **inside the built image**:
+  `undici`, `vitest`, `tailwindcss` and `jsdom` are all absent, 302 packages
+  remain, `next` and its CLI are intact, and the image serves `GET /` -> 200 in
+  2 s as the non-root `node` user. The browser bundle (`.next/static`, 55
+  chunks) greps clean for all three, and none is traced into `.next/standalone`
+  (the only `undici` strings are URLs in Next's own comments).
+- **Frontend production build succeeds** (the earlier Google-Fonts blocker was
+  environmental): `npm run build` exit 0, webtorrent patch guard OK.
 
 ## 3. What is NOT verified
 
@@ -73,7 +99,6 @@ each, no hang: `925 passed, 11 skipped` (flag on) and `879 passed, 57 skipped`
 - 30-min sustained / 4-h soak / 10× spike, chaos (kill, partition, disk, clock,
   provider outage), full-budget fuzzing, ZAP, Trivy, SBOM re-run, independent
   pentest/crypto review.
-- Frontend production build (blocked here by a Google Fonts network fetch).
 - ~~Any CI run of an AI test on GitHub~~ **Now verified**: the Postgres/Redis
   job runs `test_ai_core.py`, `test_ai_redis.py` and the real-Postgres
   `test_ai_postgres.py` on every push to the trial branch and passes in ~50 s
@@ -108,7 +133,9 @@ each, no hang: `925 passed, 11 skipped` (flag on) and `879 passed, 57 skipped`
 
 ## 6. Known problems (current, ordered)
 
-1. **Nothing is committed**; fresh clone has no AI code.
+1. **Nothing is on `main`**: the AI code is committed on
+   `fix/tcdn-ai-redis-replay-nonce` (`7b4df67`); a fresh clone of `main` has no
+   AI code. Owner action O4 (branch protection) governs how it gets there.
 2. **Feature flag is ineffective** and defaults on; schema/routes unconditional.
 3. **Production env trap**: `TCDN_AI_ENVIRONMENT` defaults to `development`
    under `APP_ENV=production`, allowing simulated attestation / fake payments.
@@ -119,8 +146,9 @@ each, no hang: `925 passed, 11 skipped` (flag on) and `879 passed, 57 skipped`
 5. **OpenAI gateway covers chat completions only** — no tools, JSON mode,
    embeddings, or `n > 1` (Section C item 11).
 6. **Verification engine not wired**; tolerance profiles are placeholders.
-7. **No CI coverage of the AI code has run remotely yet.** The nightly engine
-   job and the Postgres/Redis job both exist; neither has run on GitHub.
+7. **CI now covers the AI code remotely** — the Postgres/Redis job
+   (`40184119060`) and the nightly engine job (`40184119132`) are green at
+   `0360b10`; the caveat is that the *scheduled* run is red until O1 is done.
    Coverage below gate (84 % < 85 %). Ollama-served jobs carry no verification transcript
    (its logprobs have no token ids) — see `LIMITATIONS.md` §8.
 8. Missing: host onboarding, payout issuance, consoles, legal drafts,
@@ -205,7 +233,19 @@ Evidence from the handoff audit: `docs/tcdn-ai/evidence/08-handoff-audit/`
 (`ruff.txt`, `ai-suite.txt`, `legacy-per-file.txt`, `full-suite-attempt.txt`,
 `journey.txt`, `journey.json`).
 
-## 9. Handoff checklist for the next session
+## 9. Owner actions pending (not code — cannot be done from this repo)
+
+The first one is currently the *cause* of a red scheduled run; the rest are
+decisions or settings that no commit can make.
+
+| # | Action | Why it blocks something | Where it lives |
+|---|---|---|---|
+| **O1** | **Refresh `E2E_ADMIN_TOKEN`** — create a non-revoked admin key in production and replace the repository secret | The four production probes (`*_audit_prod.sh`) verify a throwaway account through `POST /admin/users/{id}/verify`. The current key is rejected (`Invalid or revoked API key`). On `workflow_dispatch` the probes **skip** and say "not exercised"; on the **scheduled run on `main` they now FAIL** by design (`PROBE_STRICT_CREDENTIALS`, pinned by `tests/test_probe_strict_credentials.py`: 12 tests driving the real extracted `verify_account`/caller pair with a stubbed 401 — skip→exit 0, strict→`::error`+exit 2). So the daily job stays red until this is refreshed — that red is the truth, not a flake | GitHub → Settings → Secrets → Actions |
+| **O2** | **Classify `frontend/torrentcdn-integration.html`** — commit it if it is a real artefact of the product, delete it if it was scratch work | It is deliberately **untracked and un-ignored** (checklist 1.6): it does not look like a build output, so it was left for the owner instead of guessed at. Until then it is neither shipped nor forgotten | working tree |
+| **O3** | **Choose the API hostname and create its DNS** — one canonical host for the API (today `www.torrentcdn.store/v1` via the Vercel proxy → Render), plus the storage host `cdn.torrentcdn.store` (custom domain + `MINIO_PUBLIC_URL`) | `backend/app/ai/routes_openai.py` advertises `https://www.torrentcdn.store/v1` because that is the only origin that resolves; a dedicated `api.` host needs DNS (two records, `R2_MIGRATION_RUNBOOK.md` §DNS) before any doc can promise it. The domain guard in CI only allows origins that actually resolve, so this is a decision, not a code fix | DNS / Cloudflare |
+| **O4** | **Enable branch protection on `main`** — require the five workflows (Tests & Security, full-stack Docker, backend-lint, engine, Dependency Audit), no force-push, no direct merges | Every gate in M1 only binds if a merge must pass it; `main` is currently unprotected, so the green runs at `0360b10` can be bypassed | GitHub → Settings → Branches |
+
+## 10. Handoff checklist for the next session
 
 1. Read `HANDOFF_AUDIT.md` (critical alerts and §5 matrix) and this file.
 2. Confirm the working tree still contains the AI files; if not, stop — they
