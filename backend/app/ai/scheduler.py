@@ -128,13 +128,23 @@ def select_worker(
     *,
     now: int | None = None,
     rng: random.Random | None = None,
+    exclude: frozenset[str] = frozenset(),
 ) -> Selection:
+    """Pick the best eligible worker.
+
+    ``exclude`` exists for redundant execution: the verification run must land
+    on a *different operator*, and filtering after selection would silently
+    fall back to the same node when it is the only one.
+    """
     now_ts = int(now if now is not None else now_unix())
     rng = rng or random.SystemRandom()
 
     eligible: list[WorkerCandidate] = []
     rejected: dict[str, int] = {}
     for node in candidates:
+        if node.node_id in exclude:
+            rejected["excluded"] = rejected.get("excluded", 0) + 1
+            continue
         reason = _reject_reason(node, req, now_ts)
         if reason is None:
             eligible.append(node)

@@ -17,16 +17,19 @@ import hashlib
 import os
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import quote
 
+import httpx
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from . import crypto
 from .errors import UnavailableError, ValidationError
 from .keyring import KeyRing
+from .ssrf import validate_url
 
 MANIFEST_DOMAIN = "tcdn-ai/manifest/v1"
 ALLOWED_FORMATS = frozenset({"safetensors"})
@@ -364,6 +367,96 @@ class FetchReport:
     origin_shards: int = 0
 
 
+class HttpsOriginPeer:
+    """Last-resort shard source: the registry's own HTTPS origin.
+
+    Every peer can be offline or banned at once, so a cold start needs an
+    origin. It is deliberately narrow, because the URL is derived from a
+    manifest and manifests come from peers:
+
+    * HTTPS only — plain HTTP would put weights on the wire in clear;
+    * an explicit host allowlist — otherwise a hostile manifest turns a worker
+      into an SSRF proxy against the metadata service or an internal host;
+    * no redirects — a 302 to another host would walk around that allowlist;
+    * a response size cap — a shard is declared in the manifest, not negotiated.
+
+    Integrity is still the caller's check: this class returns bytes and lets
+    ``SwarmFetcher`` verify the SHA-256 before anything reaches the sink.
+    """
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        manifest: ModelManifestPayload,
+        allowed_hosts: Iterable[str],
+        timeout_seconds: float = 30.0,
+        client: httpx.AsyncClient | None = None,
+        peer_id: str = "origin",
+        reputation: int = 100,
+    ) -> None:
+        # Reuse the one SSRF control the coordinator already owns rather than
+        # a second, subtly different allowlist: https only, an explicit host
+        # allowlist, one DNS resolution with every address required to be
+        # public. It runs once, at construction, so a fetch of 10k shards does
+        # not re-resolve the name 10k times.
+        self._target = validate_url(
+            base_url.rstrip("/") + "/", allowed_hosts=tuple(allowed_hosts)
+        )
+        self.base_url = base_url.rstrip("/")
+        self.manifest = manifest
+        self.timeout_seconds = timeout_seconds
+        self.peer_id = peer_id
+        self.reputation = reputation
+        self._client = client
+        self._shard_sizes = {shard.index: shard.size for shard in manifest.shards}
+
+    def _url(self, index: int) -> str:
+        # Both components are safe by construction: the model id is validated by
+        # the manifest schema, and the shard name comes from the integer index.
+        return (
+            f"{self.base_url}/{quote(self.manifest.model_id, safe='')}"
+            f"/{_safe_shard_name(index)}"
+        )
+
+    async def fetch_shard(self, index: int, expected_sha256: str) -> bytes:
+        declared = self._shard_sizes.get(index)
+        if declared is None:
+            raise ValidationError(
+                "origin asked for a shard the manifest does not declare",
+                code="unknown_shard",
+            )
+        owned = self._client is None
+        client = self._client or httpx.AsyncClient(
+            timeout=self.timeout_seconds, follow_redirects=False
+        )
+        try:
+            response = await client.get(self._url(index))
+        finally:
+            if owned:
+                await client.aclose()
+        if response.url.host and response.url.host.lower() != self._target.host:
+            # Only reachable if a caller injected a redirect-following client;
+            # the allowlist must survive that too.
+            raise ValidationError(
+                "origin redirected to a different host", code="ssrf_blocked"
+            )
+        if response.status_code != 200:
+            raise UnavailableError(
+                f"origin returned HTTP {response.status_code}",
+                code="origin_unavailable",
+                details={"status": response.status_code},
+            )
+        data = response.content
+        if len(data) > declared:
+            raise ValidationError(
+                "origin returned more bytes than the manifest declares",
+                code="origin_oversize",
+                details={"declared": declared, "received": len(data)},
+            )
+        return data
+
+
 class SwarmFetcher:
     def __init__(
         self,
@@ -374,8 +467,10 @@ class SwarmFetcher:
         concurrency: int = 8,
         attempts: int = 3,
         penalty: Callable[[str, str], None] | None = None,
+        origin: ShardPeer | None = None,
     ) -> None:
         self.manifest = manifest
+        self.origin = origin
         self.peers = sorted(peers, key=lambda p: p.reputation, reverse=True)
         self.sink = sink
         self.concurrency = concurrency
@@ -431,6 +526,28 @@ class SwarmFetcher:
             self.report.bytes_written += len(data)
             self.report.peers_used.add(peer.peer_id)
             return
+
+        # Last resort: the origin. The same integrity check applies — a
+        # compromised origin gets no more trust than a peer.
+        if self.origin is not None:
+            try:
+                data = await self.origin.fetch_shard(spec.index, spec.sha256)
+            except Exception as exc:
+                last_error = exc
+            else:
+                if (
+                    crypto.constant_time_eq(hashlib.sha256(data).hexdigest(), spec.sha256)
+                    and len(data) == spec.size
+                ):
+                    self.sink.put_shard(spec.index, data)
+                    self.report.shards_written += 1
+                    self.report.bytes_written += len(data)
+                    self.report.origin_shards += 1
+                    return
+                last_error = ValidationError(
+                    "origin shard failed integrity verification",
+                    code="corrupt_shard",
+                )
 
         self.report.failed_shards.append(spec.index)
         raise UnavailableError(

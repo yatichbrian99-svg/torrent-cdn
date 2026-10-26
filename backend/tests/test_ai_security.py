@@ -94,18 +94,35 @@ class TestSecretHandling:
 
 
 class TestProductionGates:
+    """One case per refusal, each asserting *which* refusal fired.
+
+    Asserting only ``ValueError`` would pass when the settings were rejected for
+    an unrelated reason (a typo in the test itself, a second refusal masking the
+    one under test), so every case names its own message.
+    """
+
     @pytest.mark.parametrize(
-        "overrides",
+        ("overrides", "refusal"),
         [
-            {"require_tls": False},
-            {"allow_simulated_attestation": True},
-            {"allow_dev_stub_backend": True},
-            {"payment_provider": "fake"},
-            {"api_key_pepper": None},
-            {"coordinator_key_file": None},
+            ({"require_tls": False}, "TCDN_AI_REQUIRE_TLS must be true"),
+            (
+                {"allow_simulated_attestation": True},
+                "TCDN_AI_ALLOW_SIMULATED_ATTESTATION must be false",
+            ),
+            (
+                {"allow_dev_stub_backend": True},
+                "TCDN_AI_ALLOW_DEV_STUB_BACKEND must be false",
+            ),
+            ({"payment_provider": "fake"}, "TCDN_AI_PAYMENT_PROVIDER must not be 'fake'"),
+            ({"api_key_pepper": None}, "TCDN_AI_API_KEY_PEPPER must be set"),
+            ({"coordinator_key_file": None}, "COORDINATOR_KEY_FILE"),
+            (
+                {"enable_tcdn_burn": True, "burn_legal_review_ack": False},
+                "TCDN_AI_BURN_LEGAL_REVIEW_ACK",
+            ),
         ],
     )
-    def test_insecure_production_configs_are_rejected(self, overrides):
+    def test_insecure_production_configs_are_rejected(self, overrides, refusal):
         base = {
             "environment": "production",
             "require_tls": True,
@@ -116,8 +133,39 @@ class TestProductionGates:
             "coordinator_key_file": "/run/secrets/keys.json",
         }
         base.update(overrides)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=refusal):
             AISettings(**base)
+
+    def test_a_complete_production_config_is_accepted(self):
+        # The mirror of the cases above: without this, every one of them would
+        # still pass if AISettings rejected production unconditionally.
+        settings = AISettings(
+            environment="production",
+            require_tls=True,
+            allow_simulated_attestation=False,
+            allow_dev_stub_backend=False,
+            payment_provider="paystack",
+            api_key_pepper="prod-pepper",
+            coordinator_key_file="/run/secrets/keys.json",
+        )
+        assert settings.is_production
+
+    def test_memory_store_refuses_to_exist_in_production(self):
+        from app.ai.store import MemoryStore
+
+        production = AISettings(
+            environment="production",
+            require_tls=True,
+            allow_simulated_attestation=False,
+            allow_dev_stub_backend=False,
+            payment_provider="paystack",
+            api_key_pepper="prod-pepper",
+            coordinator_key_file="/run/secrets/keys.json",
+        )
+        with pytest.raises(RuntimeError, match="not available in production"):
+            MemoryStore(production)
+        # …and only because of production, not because the class is broken.
+        MemoryStore(AISettings(api_key_pepper="dev"))
 
     def test_split_must_sum_to_100(self):
         with pytest.raises(ValueError):
@@ -234,3 +282,154 @@ class TestVerification:
         assert decision.sampled is (
             decision.bucket < ai_env.settings.verification_sample_pct * 100
         )
+
+
+class TestSimulationLabels:
+    """Row 1.11: every simulated component says so where a caller can see it.
+
+    "Labelled in the docs" is not enough: an API consumer never reads our docs
+    before trusting a boolean. These assertions are on the surfaces a client or
+    operator actually reads — worker health, the attestation verdict and the
+    transcript provenance.
+    """
+
+    @pytest.mark.asyncio
+    async def test_worker_health_names_the_stub_backend(self, ai_worker_factory):
+        from starlette.testclient import TestClient
+
+        from app.ai.worker import create_worker_app
+
+        agent = await ai_worker_factory()
+        with TestClient(create_worker_app(agent)) as client:
+            health = client.get("/health").json()
+        assert health["backend"] == "dev-stub"
+        assert health["attested"] is False
+        assert health["confidentiality"] == "none"
+        assert health["status"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_transcript_from_the_stub_is_marked_simulated(
+        self, ai_worker_factory
+    ):
+        agent = await ai_worker_factory()
+        assert agent.backend.transcript_source == "simulated"
+
+    def test_simulated_attestation_verdict_is_labelled_in_every_field(self):
+        from app.ai.attestation import SimulatedVerifier
+        from app.ai.models import AttestationEvidencePayload, AttestationPlatform
+
+        verifier = SimulatedVerifier(allow=True)
+        verdict = verifier.verify(
+            AttestationEvidencePayload(
+                node_id="node_x",
+                platform=AttestationPlatform.SEV_SNP,
+                nonce="n" * 16,
+                session_key_sha256="a" * 64,
+                report_b64="c" * 16,
+                issued_at=1,
+            ),
+            now=1,
+        )
+        assert verdict.status == "simulated"
+        assert verdict.verifier == "simulated"
+        assert verdict.measurement == "simulated-measurement"
+        assert verdict.tcb == "simulated"
+        # It borrows ATTESTED_TEE for the type, which is exactly why status and
+        # verifier must stay visible: nothing downstream may read the tier alone
+        # as proof of attestation.
+        assert "simulated" in (verdict.reason or "").lower()
+
+    def test_api_error_bodies_never_claim_attestation(self, ai_env):
+        """The refusal path a client actually sees: a plain, honest error."""
+        from app.ai.errors import AttestationError
+
+        assert AttestationError("attestation is required for this tier").code == (
+            "attestation_failed"
+        )
+
+
+class TestSecurityDocCitations:
+    """Row 5.10: the OWASP tables must point at tests that exist.
+
+    A control table whose "Test" column names a test that was renamed or never
+    written is worse than no table: it reads as evidence. This test parses the
+    three OWASP tables in ``docs/tcdn-ai/SECURITY.md`` and resolves every
+    citation against the test tree, so the doc cannot drift from the suite.
+    """
+
+    def test_every_cited_test_exists(self):
+        import pathlib
+        import re
+
+        repo = pathlib.Path(__file__).resolve().parents[2]
+        document = (repo / "docs/tcdn-ai/SECURITY.md").read_text(encoding="utf-8")
+        start = document.index("## 4. OWASP Top 10 (2021)")
+        end = document.index("## 7. Additional controls")
+        section = document[start:end]
+        tests_dir = repo / "backend/tests"
+        sources = "\n".join(
+            path.read_text(encoding="utf-8", errors="ignore")
+            for path in tests_dir.glob("test_*.py")
+        )
+
+        cited: set[tuple[str, str]] = set()
+        for cell in re.findall(r"`([^`]+)`", section):
+            for part in cell.split(","):
+                match = re.match(
+                    r"([A-Za-z_][\w]*)(?:::([A-Za-z0-9_]+))?$", part.strip()
+                )
+                if not match:
+                    continue
+                name, method = match.group(1), match.group(2) or ""
+                if name.startswith(("Test", "test_")):
+                    cited.add((name, method))
+
+        assert cited, "the OWASP tables cite no tests at all"
+        missing: list[str] = []
+        for name, method in sorted(cited):
+            if name.startswith("test_"):
+                found = f"def {name}(" in sources
+            elif method:
+                block = re.search(rf"class {name}\b.*?(?=\nclass |\Z)", sources, re.S)
+                found = bool(block and f"def {method}(" in block.group(0))
+            else:
+                found = f"class {name}" in sources
+            if not found:
+                missing.append(f"{name}::{method}" if method else name)
+        assert missing == [], f"OWASP tables cite tests that do not exist: {missing}"
+
+
+class TestDisclosureDocs:
+    """Rows 6.3 and 11.1: the limitations are stated where a buyer reads them.
+
+    Both rows are documentation claims, so the check is on the documents. It is
+    deliberately narrow: a few load-bearing sentences, not a prose test.
+    """
+
+    def _docs(self) -> tuple[str, str]:
+        import pathlib
+
+        repo = pathlib.Path(__file__).resolve().parents[2]
+        return (
+            (repo / "docs/tcdn-ai/LIMITATIONS.md").read_text(encoding="utf-8"),
+            (repo / "docs/tcdn-ai/API.md").read_text(encoding="utf-8"),
+        )
+
+    def test_verification_is_described_as_probabilistic_with_its_limits(self):
+        limitations, _ = self._docs()
+        start = limitations.index("## Result verification is probabilistic")
+        section = limitations[start : limitations.index("## Tier and visibility", start)]
+        assert "probabilistic, not a proof" in section
+        assert "never sampled" in section or "95 %" in section
+        assert "not launched automatically" in section
+
+    def test_tiers_are_disclosed_with_gateway_visibility(self):
+        limitations, api = self._docs()
+        start = limitations.index("## Tier and visibility disclosure")
+        section = limitations[start:]
+        assert "Not available in this build" in section
+        assert "standard is explicitly non-confidential" in section
+        assert "gateway" in section.lower()
+        # …and the API doc points a client at the same disclosure.
+        assert "prompt_visibility" in api
+        assert "LIMITATIONS.md" in api.split("Status mapping", 1)[1]

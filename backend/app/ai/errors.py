@@ -73,6 +73,18 @@ class LimitExceeded(AIError):
     code = "limit_exceeded"
 
 
+class PayloadTooLarge(LimitExceeded):
+    """The body exceeded ``max_body_bytes``.
+
+    413, not the 429 a plain ``LimitExceeded`` produced: 429 means "retry
+    later", so an OpenAI-compatible client retried an identically oversized
+    body until it gave up. OpenAI returns 413 here, and so do we.
+    """
+
+    status_code = 413
+    code = "body_too_large"
+
+
 class UnavailableError(AIError):
     status_code = 503
     code = "unavailable"

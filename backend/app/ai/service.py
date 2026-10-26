@@ -20,6 +20,7 @@ import logging
 import os
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from . import crypto
@@ -36,7 +37,7 @@ from .errors import (
     ValidationError,
 )
 from .keyring import KeyRing
-from .ledger import SIGNUP_GRANTS, Split
+from .ledger import PLATFORM_REVENUE, SIGNUP_GRANTS, Split
 from .models import (
     AckPayload,
     AttestationEvidencePayload,
@@ -251,7 +252,70 @@ class Coordinator:
 
     # ── placement ──────────────────────────────────────────────────────────
 
+    #: Idempotency keys are namespaced per operation so a key can never replay a
+    #: different kind of creation request (a key used for a placement must not
+    #: shadow an API-key creation with the same value).
+    _IDEMPOTENCY_SCOPE = "placement"
+
     async def place(
+        self,
+        auth: AuthContext,
+        request: PlacementRequest,
+        *,
+        idempotency_key: str | None = None,
+    ) -> TicketResponse:
+        """Place a job, replaying the original ticket for a repeated key.
+
+        A client that retries after a dropped response must not be charged a
+        second hold, and a retry must not be able to place a *different* job
+        under the same key. Both are enforced here rather than in the route, so
+        every caller (SDK, gateway, HTTP) gets the same guarantee.
+        """
+        if idempotency_key is None:
+            return await self._place(auth, request)
+        if not 1 <= len(idempotency_key) <= 128:
+            raise ValidationError(
+                "Idempotency-Key must be 1-128 characters",
+                code="invalid_idempotency_key",
+            )
+        request_hash = hashlib.sha256(
+            crypto.canonical_json(request.model_dump(mode="json"))
+        ).hexdigest()
+        existing = await self.store.reserve_idempotency(
+            auth.account_id, self._IDEMPOTENCY_SCOPE, idempotency_key, request_hash
+        )
+        if existing is not None:
+            if existing["request_hash"] != request_hash:
+                raise ConflictError(
+                    "Idempotency-Key was already used with a different request body",
+                    code="idempotency_key_reused",
+                )
+            if existing["response"] is None:
+                # The original request is still running. Returning a half-built
+                # job would be worse than asking the client to retry once.
+                raise ConflictError(
+                    "a request with this Idempotency-Key is still in progress",
+                    code="idempotency_in_progress",
+                )
+            return TicketResponse.model_validate(existing["response"])
+        try:
+            response = await self._place(auth, request)
+        except BaseException:
+            # A failed attempt must not burn the key: the client's retry is a new
+            # attempt at the same request, not a replay of a response.
+            await self.store.clear_idempotency(
+                auth.account_id, self._IDEMPOTENCY_SCOPE, idempotency_key
+            )
+            raise
+        await self.store.complete_idempotency(
+            auth.account_id,
+            self._IDEMPOTENCY_SCOPE,
+            idempotency_key,
+            response.model_dump(mode="json"),
+        )
+        return response
+
+    async def _place(
         self, auth: AuthContext, request: PlacementRequest
     ) -> TicketResponse:
         self.require_scope(auth, "inference")
@@ -813,15 +877,43 @@ class Coordinator:
         )
 
     async def grant_signup_credits(self, account_id: str, ip_hash: str) -> int:
+        """Issue the one-time free credit, platform-funded, with every gate on.
+
+        Four gates, all of which have been farmed in comparable products:
+        the address must be verified (a throwaway signup address costs nothing),
+        one grant per account, a per-IP cap, and a monthly platform budget that
+        free credit cannot exceed however many verified accounts appear.
+        """
         if self.settings.signup_credits <= 0:
             return 0
+        if not await self.store.account_email_verified(account_id):
+            raise AuthorizationError(
+                "email must be verified before the signup credit is granted",
+                code="email_not_verified",
+            )
         grants = await self.store.count_grants_for_ip(ip_hash)
         if grants >= self.settings.signup_ip_cap:
             raise ConflictError(
                 "signup credit limit reached for this network",
                 code="signup_credit_limit",
             )
-        first = await self.store.record_signup_grant(account_id, ip_hash)
+        now = int(self.clock())
+        month_start = int(
+            datetime.fromtimestamp(now, tz=UTC)
+            .replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            .timestamp()
+        )
+        issued = await self.store.count_signup_grants_since(month_start)
+        budgeted = self.settings.signup_monthly_cap_micro
+        if (
+            budgeted
+            and (issued + 1) * self.settings.signup_credits * 1_000_000 > budgeted
+        ):
+            raise ConflictError(
+                "monthly signup credit budget is exhausted",
+                code="signup_monthly_cap",
+            )
+        first = await self.store.record_signup_grant(account_id, ip_hash, now)
         if not first:
             return 0
         amount = self.settings.signup_credits * 1_000_000
@@ -844,6 +936,17 @@ class Coordinator:
 
     async def handle_payment_webhook(self, body: bytes, signature: str) -> dict:
         event: PaymentEvent = self.payment_provider.verify_webhook(body, signature)
+        # A correctly-signed event is authentic, not necessarily well-formed:
+        # the provider validates the fields it needs, but the account id is
+        # opaque to it. Without this check a signed event naming a non-UUID
+        # account reached the ledger's UUID cast and surfaced as a 500.
+        try:
+            uuid.UUID(event.account_id)
+        except (ValueError, AttributeError, TypeError) as exc:
+            raise ValidationError(
+                "payment event account is not a valid identifier",
+                code="invalid_payment_event",
+            ) from exc
         await self.store.credit(
             event.account_id,
             event.amount_micro,
@@ -863,6 +966,31 @@ class Coordinator:
             "amount_micro": event.amount_micro,
             "balance_micro": await self.store.balance_micro(event.account_id),
         }
+
+    async def refund_credits(
+        self, *, account_id: str, amount_micro: int, reason: str, reference: str
+    ) -> None:
+        """Credit an account from the platform share, as a ledger entry.
+
+        Refunds and goodwill adjustments are transactions, not edits to a
+        balance: the entry has a debit account (platform revenue) and a credit
+        account (the customer), so the ledger still sums to zero and a
+        reconciliation export can tell a refund from a purchase.
+        """
+        await self.store.credit(
+            account_id,
+            amount_micro,
+            source=PLATFORM_REVENUE,
+            idempotency_key=f"refund:{reference}",
+            kind="refund",
+        )
+        logger.info(
+            "refund issued reference=%s account=%s micro=%s reason=%s",
+            reference,
+            account_id,
+            amount_micro,
+            reason,
+        )
 
     # ── redundant-execution verification ───────────────────────────────────
 

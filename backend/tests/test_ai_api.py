@@ -147,7 +147,8 @@ class TestPlacement:
                 headers={**_auth(ai_env), "Content-Length": str(10 * 1024 * 1024)},
                 json={"model": ai_env.model.model_id, "max_tokens": 8},
             )
-        assert response.status_code == 429
+        # 413, not 429: "too large" is not "retry later" (see PayloadTooLarge).
+        assert response.status_code == 413
         assert response.json()["error"]["code"] == "body_too_large"
 
 

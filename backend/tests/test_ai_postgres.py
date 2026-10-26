@@ -274,6 +274,50 @@ async def test_job_created_at_survives_the_postgres_round_trip(store):
 
 
 @pytest.mark.asyncio
+async def test_idempotency_reservation_is_atomic_across_connections(store):
+    """Row 2.5 on the real store: one claim, one replay, one refusal.
+
+    The in-memory test proves the service logic; this proves the SQL the
+    production store actually issues — ``INSERT ... ON CONFLICT DO NOTHING``
+    is what makes a retry safe across coordinator processes.
+    """
+    account = str(uuid.uuid4())
+    key = "postgres-idempotency"
+    scope = "placement"
+    body_hash = "c" * 64
+    try:
+        # Concurrent claims: exactly one wins, and it is the only one that gets
+        # a None back ("you may proceed").
+        claims = await asyncio.gather(
+            *(store.reserve_idempotency(account, scope, key, body_hash) for _ in range(8))
+        )
+        assert sum(claim is None for claim in claims) == 1, claims
+
+        await store.complete_idempotency(
+            account, scope, key, {"job_id": "job_replayed"}
+        )
+        replayed = await store.reserve_idempotency(account, scope, key, body_hash)
+        assert replayed == {
+            "request_hash": body_hash,
+            "response": {"job_id": "job_replayed"},
+        }
+
+        # A different body under the same key is visible to the service, which
+        # turns it into a 409 rather than a replayed ticket.
+        changed = await store.reserve_idempotency(account, scope, key, "d" * 64)
+        assert changed is not None and changed["request_hash"] == body_hash
+
+        await store.clear_idempotency(account, scope, key)
+        assert await store.reserve_idempotency(account, scope, key, body_hash) is None
+    finally:
+        async with store.pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM ai_idempotency WHERE account_id = $1",
+                uuid.UUID(account),
+            )
+
+
+@pytest.mark.asyncio
 async def test_expire_stale_jobs_releases_the_hold(store):
     """A crashed worker must not lock the customer's credits forever."""
     import time as _time
