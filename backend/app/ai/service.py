@@ -31,6 +31,7 @@ from .errors import (
     AuthenticationError,
     AuthorizationError,
     ConflictError,
+    NoEligibleWorker,
     NotFoundError,
     RateLimitedError,
     ReceiptError,
@@ -67,7 +68,7 @@ from .receipts import (
     verify_receipt,
 )
 from .scheduler import Requirements, WorkerCandidate, select_worker
-from .store import JobRecord, NodeRecord, Store
+from .store import JobRecord, NodeRecord, Store, VerificationRecord
 from .verification import VerificationOutcome, VerificationSampler, resolve_executions
 
 logger = logging.getLogger(__name__)
@@ -151,6 +152,10 @@ class Coordinator:
             else NoOpRateLimiter()
         )
         self.verification = VerificationSampler(settings.verification_sample_pct)
+        # Daily dispatch cap so a sample rate cannot turn into an unbounded
+        # second-inference bill. Process-local: one coordinator per deployment.
+        self._verification_count = 0
+        self._verification_day = -1
         self.payment_provider = payment_provider or get_payment_provider(
             settings,
             secret_key=os.environ.get("TCDN_AI_PAYSTACK_SECRET_KEY", ""),
@@ -372,22 +377,19 @@ class Coordinator:
             and now - int(node.last_heartbeat) <= HEARTBEAT_TIMEOUT_SECONDS
         ]
         candidates = [self._candidate(node) for node in nodes]
-        selection = select_worker(
-            candidates,
-            Requirements(
-                model=request.model,
-                vram_gb=request.vram_gb or model.required_vram_gb,
-                region=request.region,
-                latency_target_ms=request.latency_target_ms,
-                max_price_micro=request.max_price_micro,
-                confidential=request.confidential,
-                allow_simulated_attestation=(
-                    self.settings.allow_simulated_attestation
-                    and not self.settings.is_production
-                ),
+        requirements = Requirements(
+            model=request.model,
+            vram_gb=request.vram_gb or model.required_vram_gb,
+            region=request.region,
+            latency_target_ms=request.latency_target_ms,
+            max_price_micro=request.max_price_micro,
+            confidential=request.confidential,
+            allow_simulated_attestation=(
+                self.settings.allow_simulated_attestation
+                and not self.settings.is_production
             ),
-            now=now,
         )
+        selection = select_worker(candidates, requirements, now=now)
         worker = selection.worker
         node = next(n for n in nodes if n.node_id == worker.node_id)
 
@@ -467,6 +469,16 @@ class Coordinator:
             ticket.tier,
             hold_micro,
         )
+        await self._schedule_verification(
+            job_id=job_id,
+            account_id=auth.account_id,
+            primary_node=node,
+            candidates=candidates,
+            requirements=requirements,
+            request=request,
+            quote=quote,
+            now=now,
+        )
         return TicketResponse(
             job_id=job_id,
             model=request.model,
@@ -479,6 +491,271 @@ class Coordinator:
             tier=ticket.tier,
             ticket=ticket_document,
             coordinator_key_id=self.keyring.active.key_id,
+        )
+
+    # ── redundant execution (checklist 6.1) ────────────────────────────────
+
+    async def _schedule_verification(
+        self,
+        *,
+        job_id: str,
+        account_id: str,
+        primary_node: NodeRecord,
+        candidates: list[WorkerCandidate],
+        requirements: Requirements,
+        request: PlacementRequest,
+        quote: Any,
+        now: int,
+    ) -> None:
+        """Decide the sample and issue a second ticket to a *different* operator.
+
+        Sampling is deterministic on the job id (an attacker cannot influence it
+        by retrying), the second node is excluded by id (never the same
+        operator), and the second ticket is an ordinary signed ticket with its
+        own job id and no hold — the verification run is priced at zero because
+        the customer already paid for one execution.
+        """
+        decision = self.verification.decide(job_id)
+        if not decision.sampled:
+            return
+        today = int(now) // 86_400
+        if today != self._verification_day:
+            self._verification_day = today
+            self._verification_count = 0
+        if self._verification_count >= self.settings.verification_daily_cap:
+            await self.store.save_verification(
+                VerificationRecord(
+                    job_id=job_id,
+                    account_id=account_id,
+                    primary_node_id=primary_node.node_id,
+                    verification_job_id=f"v{uuid.uuid4().hex}",
+                    verification_node_id="",
+                    status="daily_cap_reached",
+                    created_at=now,
+                )
+            )
+            return
+
+        try:
+            selection = select_worker(
+                candidates,
+                requirements,
+                now=now,
+                exclude=frozenset({primary_node.node_id}),
+            )
+        except NoEligibleWorker:
+            await self.store.save_verification(
+                VerificationRecord(
+                    job_id=job_id,
+                    account_id=account_id,
+                    primary_node_id=primary_node.node_id,
+                    verification_job_id=f"v{uuid.uuid4().hex}",
+                    verification_node_id="",
+                    status="no_alternate_node",
+                    created_at=now,
+                )
+            )
+            await self.store.audit(
+                "job.verification_skipped",
+                actor=account_id,
+                subject=job_id,
+                detail={"reason": "no_alternate_node", "model": request.model},
+            )
+            return
+
+        second = await self.store.get_node(selection.worker.node_id)
+        if second is None:  # pragma: no cover - the candidate came from the store
+            return
+        verification_job_id = f"v{uuid.uuid4().hex}"
+        ticket_document, _ticket = self.tickets.issue(
+            job_id=verification_job_id,
+            account_id=account_id,
+            node_id=second.node_id,
+            model=request.model,
+            worker_public_key=second.session_public_key,
+            confidentiality=Confidentiality(second.confidentiality),
+            max_tokens=request.max_tokens,
+            max_price_micro=quote.total_micro,
+            now=now,
+        )
+        await self.store.save_verification(
+            VerificationRecord(
+                job_id=job_id,
+                account_id=account_id,
+                primary_node_id=primary_node.node_id,
+                verification_job_id=verification_job_id,
+                verification_node_id=second.node_id,
+                status="scheduled",
+                created_at=now,
+                ticket=ticket_document,
+            )
+        )
+        self._verification_count += 1
+        await self.store.audit(
+            "job.verification_scheduled",
+            actor=account_id,
+            subject=job_id,
+            detail={
+                "bucket": decision.bucket,
+                "primary_node_id": primary_node.node_id,
+                "verification_node_id": second.node_id,
+                "verification_job_id": verification_job_id,
+            },
+        )
+
+    async def verification_assignment(self, job_id: str) -> dict[str, Any] | None:
+        """Hand the caller a ready-to-send verification run, once.
+
+        The gateway is the only caller with the plaintext, so it owns the
+        dispatch; the coordinator only supplies the signed ticket and the node
+        to send it to. Asking twice returns None — a job cannot be dispatched
+        to two verifiers.
+        """
+        record = await self.store.get_verification(job_id)
+        if record is None or record.status != "scheduled" or not record.ticket:
+            return None
+        node = await self.store.get_node(record.verification_node_id)
+        if node is None or not node.endpoint:
+            await self.store.update_verification(job_id, status="no_alternate_endpoint")
+            return None
+        await self.store.update_verification(job_id, status="dispatched")
+        await self.store.audit(
+            "job.verification_dispatched",
+            subject=job_id,
+            detail={
+                "verification_job_id": record.verification_job_id,
+                "verification_node_id": record.verification_node_id,
+            },
+        )
+        return {
+            "job_id": record.job_id,
+            "verification_job_id": record.verification_job_id,
+            "node_id": record.verification_node_id,
+            "endpoint": node.endpoint,
+            "worker_public_key": node.session_public_key,
+            "ticket": record.ticket,
+        }
+
+    async def submit_verification_receipt(self, envelope: SignedEnvelope) -> dict:
+        """Reconcile a verification run's receipt against the primary result.
+
+        No money moves here: the verification run has no hold and never settles.
+        Its only product is the comparison, and the penalty path it feeds is the
+        existing one (`record_verification`).
+        """
+        shadow_job_id = str(envelope.payload.get("job_id", ""))
+        record = await self.store.get_verification_by_shadow(shadow_job_id)
+        if record is None:
+            raise NotFoundError("unknown verification job")
+        node = await self.store.get_node(record.verification_node_id)
+        if node is None:
+            raise NotFoundError("the verification node is no longer registered")
+        self._verify_self_signed(envelope, RECEIPT_DOMAIN, node.identity_public_key)
+
+        shadow_hash = envelope.payload.get("output_sha256")
+        if not isinstance(shadow_hash, str) or len(shadow_hash) != 64:
+            raise ReceiptError(
+                "verification receipt is missing output_sha256", code="bad_receipt"
+            )
+        await self.store.update_verification(
+            record.job_id, shadow_output_sha256=shadow_hash
+        )
+        # Whichever run finishes second triggers the comparison; the hash is
+        # persisted so a restart between the two does not lose the sample.
+        return await self._reconcile_verification(record.job_id)
+
+    async def _reconcile_verification(self, job_id: str) -> dict:
+        """Compare the two outputs once both receipts are known."""
+        record = await self.store.get_verification(job_id)
+        if record is None:
+            return {"status": "unknown"}
+        if record.status == "completed":
+            return {
+                "status": "completed",
+                "outcome": record.outcome,
+                "faulty_nodes": [record.faulty_node_id]
+                if record.faulty_node_id
+                else [],
+            }
+        primary_receipt = await self.store.get_receipt(record.job_id)
+        primary_hash = ""
+        if primary_receipt:
+            primary_hash = str(
+                primary_receipt.get("payload", {}).get("output_sha256", "")
+            )
+        if not primary_hash or not record.shadow_output_sha256:
+            # Only one side is in; state which side is missing rather than
+            # guessing an outcome. The other submission completes the pair.
+            await self.store.update_verification(
+                job_id,
+                status="awaiting_primary"
+                if not primary_hash
+                else "awaiting_verification",
+            )
+            return {
+                "status": "awaiting_primary"
+                if not primary_hash
+                else "awaiting_verification"
+            }
+
+        outcome = await self.record_verification(
+            record.job_id,
+            {
+                record.primary_node_id: primary_hash,
+                record.verification_node_id: record.shadow_output_sha256,
+            },
+        )
+        await self.store.update_verification(
+            record.job_id,
+            status="completed",
+            outcome=outcome.status,
+            faulty_node_id=(outcome.faulty_nodes[0] if outcome.faulty_nodes else None),
+            completed_at=int(self.clock()),
+        )
+        await self.store.audit(
+            "job.verification_completed",
+            subject=record.job_id,
+            detail={
+                "outcome": outcome.status,
+                "faulty_nodes": list(outcome.faulty_nodes),
+                "primary_node_id": record.primary_node_id,
+                "verification_node_id": record.verification_node_id,
+            },
+        )
+        return {
+            "status": "completed",
+            "outcome": outcome.status,
+            "faulty_nodes": list(outcome.faulty_nodes),
+        }
+
+    async def _note_undispatched_verification(self, job_id: str) -> None:
+        """Mark a sampled job that finished without a verification run.
+
+        A receipt arriving over the SDK path means the client did the work and
+        the coordinator never held the plaintext, so it cannot re-run the job.
+        Recording that honestly is the difference between "unsampled" and
+        "sampled but unverifiable" — the latter is the coverage gap 6.1 names.
+        """
+        record = await self.store.get_verification(job_id)
+        if record is None or record.status != "scheduled":
+            return
+        await self.store.update_verification(job_id, status="not_dispatched_sdk_mode")
+        await self.store.audit(
+            "job.verification_skipped",
+            subject=job_id,
+            detail={"reason": "not_dispatched_sdk_mode"},
+        )
+
+    async def fail_verification(self, job_id: str, reason: str) -> None:
+        """Record that a scheduled verification could not be dispatched."""
+        record = await self.store.get_verification(job_id)
+        if record is None or record.status == "completed":
+            return
+        await self.store.update_verification(job_id, status="dispatch_failed")
+        await self.store.audit(
+            "job.verification_failed",
+            subject=job_id,
+            detail={"reason": reason[:300]},
         )
 
     async def expire_stale_jobs(self) -> list[str]:
@@ -671,7 +948,9 @@ class Coordinator:
         job = await self.store.get_job(job_id)
         if job is None:
             raise NotFoundError("unknown job")
+        await self._note_undispatched_verification(job_id)
         if job.status == "settled":
+            await self._reconcile_verification(job_id)
             return self._settlement_response(job, "already settled")
         if job.node_id != node.node_id:
             raise ReceiptError(
@@ -796,6 +1075,7 @@ class Coordinator:
                     "hold_released_micro": job.hold_micro,
                 },
             )
+            await self._reconcile_verification(job.job_id)
             return SettlementResponse(
                 job_id=job.job_id,
                 status=JobStatus.DISPUTED,
@@ -825,6 +1105,7 @@ class Coordinator:
                 "platform_micro": job.platform_micro,
             },
         )
+        await self._reconcile_verification(job.job_id)
         return self._settlement_response(job, None)
 
     @staticmethod
@@ -1004,9 +1285,11 @@ class Coordinator:
         """Resolve independent executions; penalise and possibly suspend the faulty node.
 
         This records the *resolution* of a sampled job. Scheduling the second
-        execution itself is an orchestration concern documented as a limitation
-        because it requires a real second worker; the comparison, majority
-        tiebreak and penalty path are complete and tested.
+        execution is `_schedule_verification` (placement hands out a second
+        signed ticket for a different operator) and dispatch is the gateway's,
+        the only party holding the plaintext. Two executions that disagree have
+        no majority, so `resolve_executions` returns ``inconclusive`` and nobody
+        is penalised — exact-hash comparison cannot attribute a near-miss.
         """
         outcome = resolve_executions(job_id=job_id, outputs=outputs)
         for node_id in outcome.faulty_nodes:

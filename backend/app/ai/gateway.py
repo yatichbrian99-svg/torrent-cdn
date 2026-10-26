@@ -24,6 +24,7 @@ Honesty rules for this module:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -49,7 +50,7 @@ from . import crypto
 from .clock import now_unix
 from .config import AISettings
 from .errors import UnavailableError, ValidationError
-from .models import AckPayload, Confidentiality, PlacementRequest
+from .models import AckPayload, Confidentiality, PlacementRequest, SignedEnvelope
 from .service import AuthContext, Coordinator
 
 logger = logging.getLogger(__name__)
@@ -358,6 +359,13 @@ class GatewayStream:
     # AsyncGenerator, not AsyncIterator: the route pulls one frame before
     # committing to a 200 and closes the stream with ``aclose()``.
     events: AsyncGenerator[tuple[str, Any], None]
+    #: A collected redundant-execution assignment (checklist 6.1), if this job
+    #: was sampled and a second node was available. The gateway owns dispatch
+    #: because it is the only party holding the plaintext.
+    pending_verification: dict[str, Any] | None = None
+    #: Background task that runs the verification and submits its receipt.
+    #: Exposed so tests (and a graceful shutdown) can await it.
+    verification_task: asyncio.Task | None = None
 
 
 @dataclass
@@ -485,9 +493,129 @@ class Gateway:
             job_id=placement.job_id,
             w2c=w2c,
         )
-        return GatewayStream(
-            job_id=placement.job_id, model=request.model, tcdn=tcdn, events=events
+        pending = await self._collect_verification(
+            placement.job_id, request, request_plaintext
         )
+        return GatewayStream(
+            job_id=placement.job_id,
+            model=request.model,
+            tcdn=tcdn,
+            events=events,
+            pending_verification=pending,
+        )
+
+    # ── redundant execution (checklist 6.1) ────────────────────────────────
+
+    async def _collect_verification(
+        self, job_id: str, request: ChatRequest, request_plaintext: bytes
+    ) -> dict[str, Any] | None:
+        """Fetch a verification assignment and build its encrypted request.
+
+        The second run is a normal encrypted job for a different operator: it
+        has its own job id and its own placement ticket, and reuses the same
+        request plaintext. Any failure here is logged and dropped — a sampled
+        verification must never fail the customer's completion.
+        """
+        try:
+            assignment = await self.coordinator.verification_assignment(job_id)
+            if not assignment:
+                return None
+            ticket = self.coordinator.tickets.verify(
+                assignment["ticket"],
+                expected_job_id=assignment["verification_job_id"],
+                expected_node_id=assignment["node_id"],
+                claim_replay=False,
+                now=int(self._clock()),
+            )
+            ticket_digest = crypto.sha256_hex(canonical_json(assignment["ticket"]))
+            ephemeral = crypto.generate_x25519()
+            salt = os.urandom(32)
+            shared = crypto.x25519_shared_secret(
+                ephemeral["private_key"], ticket.worker_public_key
+            )
+            c2w, w2c = crypto.derive_session_keys(
+                shared,
+                salt=salt,
+                context=session_context(assignment["verification_job_id"]),
+            )
+            ciphertext = crypto.aead_encrypt(
+                c2w,
+                request_plaintext,
+                request_aad(assignment["verification_job_id"], ticket_digest),
+            )
+            payload = {
+                "job_id": assignment["verification_job_id"],
+                "ticket": assignment["ticket"],
+                "client_public_key": ephemeral["public_key"],
+                "salt": crypto.b64e(salt),
+                "ciphertext": crypto.b64e(ciphertext),
+            }
+        except Exception:
+            logger.warning("verification assignment for %s could not be built", job_id)
+            await self.coordinator.fail_verification(job_id, "assignment_build_failed")
+            return None
+        return {
+            "job_id": job_id,
+            "verification_job_id": assignment["verification_job_id"],
+            "endpoint": assignment["endpoint"],
+            "payload": payload,
+            "w2c": w2c,
+        }
+
+    async def run_verification(self, pending: dict[str, Any]) -> None:
+        """Send the verification run, collect its receipt and report it.
+
+        Only the final frame matters: the second completion is never billed,
+        forwarded to the customer, or logged. Its receipt's ``output_sha256`` is
+        what the fault-attribution comparison consumes.
+        """
+        receipt: dict[str, Any] | None = None
+        try:
+            buffer = b""
+            sequence = 0
+            async for chunk in self._transport(pending["endpoint"], pending["payload"]):
+                buffer += chunk
+                frames, buffer = decode_frames(buffer)
+                for frame in frames:
+                    if frame.kind == TOKEN_FRAME:
+                        # Decrypted only to keep the AEAD sequence in step; the
+                        # plaintext is discarded, never persisted.
+                        crypto.aead_decrypt(
+                            pending["w2c"],
+                            frame.body,
+                            stream_aad(pending["verification_job_id"], sequence),
+                        )
+                        sequence += 1
+                    elif frame.kind == FINAL_FRAME:
+                        receipt = json.loads(frame.body.decode("utf-8"))
+        except Exception:
+            logger.warning(
+                "verification run for %s did not complete", pending["job_id"]
+            )
+            await self.coordinator.fail_verification(
+                pending["job_id"], "verification_transport_failed"
+            )
+            return
+        if not receipt:
+            await self.coordinator.fail_verification(
+                pending["job_id"], "verification_receipt_missing"
+            )
+            return
+        try:
+            envelope = SignedEnvelope(
+                payload=receipt.get("payload", {}),
+                key_id=receipt.get("key_id", ""),
+                alg=receipt.get("alg", "Ed25519"),
+                sig=receipt.get("sig", ""),
+            )
+            await self.coordinator.submit_verification_receipt(envelope)
+        except Exception:
+            logger.warning(
+                "verification receipt for %s was rejected", pending["job_id"]
+            )
+            await self.coordinator.fail_verification(
+                pending["job_id"], "verification_receipt_rejected"
+            )
 
     async def _decrypt_frames(
         self,
@@ -524,6 +652,7 @@ class Gateway:
             else:
                 receipt = value
         text = "".join(pieces)
+        self._start_verification(stream)
         usage = await self._finalize(auth, stream, text, receipt)
         return GatewayResult(
             job_id=stream.job_id,
@@ -571,7 +700,20 @@ class Gateway:
         receipt: dict[str, Any],
     ) -> dict[str, int]:
         """Public wrapper used by the streaming route after the last frame."""
+        self._start_verification(stream)
         return await self._finalize(auth, stream, text, receipt)
+
+    def _start_verification(self, stream: GatewayStream) -> None:
+        """Dispatch a sampled verification in the background, at most once.
+
+        Background on purpose: the second inference must not add latency to the
+        customer's own completion. The task is kept on the stream so tests can
+        await it and a future shutdown hook can drain it.
+        """
+        pending = stream.pending_verification
+        if pending is None or stream.verification_task is not None:
+            return
+        stream.verification_task = asyncio.create_task(self.run_verification(pending))
 
 
 def completion_body(result: GatewayResult) -> dict[str, Any]:

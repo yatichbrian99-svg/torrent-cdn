@@ -3,8 +3,9 @@
 The coordinator-side sampler here is the *job selection* layer only, and it is
 the old exact-hash scheme: its seed is ``sha256(salt + job_id)``, which the
 worker can compute. The Part 3 commitment protocol, tolerance re-scoring and
-verdict shapes live in :mod:`app.ai.verification2`; the coordinator still calls
-this sampler until milestone 2 replaces it.
+verdict shapes live in :mod:`app.ai.verification2`; placement still calls this
+sampler (checklist 6.1), so its predictability is a stated limitation rather
+than a fixed property — ``LIMITATIONS.md`` says so where a buyer reads it.
 
 This module is retained so existing coordinator paths and audit tooling that
 already import ``VerificationSampler`` / ``VerificationOutcome`` keep working.

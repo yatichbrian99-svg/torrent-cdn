@@ -97,6 +97,10 @@ class AISettings(BaseSettings):
     hold_input_margin_tokens: int = Field(default=64, ge=0, le=8192)
     hold_input_margin_pct: int = Field(default=10, ge=0, le=100)
     verification_sample_pct: int = Field(default=5, ge=0, le=100)
+    #: Upper bound on redundant executions dispatched per UTC day. Every sampled
+    #: job costs a second inference the platform pays for, so the sample rate is
+    #: capped even when traffic is high (checklist 6.1).
+    verification_daily_cap: int = Field(default=500, ge=0, le=100_000)
     #: How long a worker keeps encrypted per-token records for challenge
     #: opening. Part 3 §3 default is 24 hours.
     transcript_retention_seconds: int = Field(default=86_400, ge=60, le=7 * 86_400)

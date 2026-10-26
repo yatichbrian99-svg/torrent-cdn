@@ -31,10 +31,17 @@ your deployment, the corresponding guarantee does not exist.
 3. **Confidential tier is not usable with real hardware in this build.** The
    interfaces, policy enforcement and key binding exist and are tested; real
    verdict-producing verifiers do not.
-4. **Redundant execution is only partially automated.** Sampling decisions,
-   comparison, majority tiebreak, reputation penalty and suspension are implemented
-   and tested (`record_verification`, admin endpoint). Automatically launching the
-   second execution on another worker is not wired into the placement flow.
+4. **Redundant execution is automatic in gateway mode, impossible in SDK mode.**
+   A sampled job gets a second signed ticket for a *different* operator at
+   placement, and the gateway dispatches the same request to it in the
+   background — the gateway holds the plaintext, so it is the only party that
+   can. In SDK mode the coordinator never sees the prompt, so it cannot re-run
+   the job: the sample is recorded as `not_dispatched_sdk_mode` and never
+   compared. Three further limits are real: the sample is bucketed on the job id
+   with a fixed salt, so a worker can predict which of its jobs will be sampled;
+   the decision is taken at placement rather than after a commitment; and the
+   comparison is exact-hash, so two honest but non-deterministic runs disagree
+   and are recorded as `inconclusive` with no penalty instead of attributed.
 5. **In-process coordination state.** Rate-limit buckets, ticket replay caches and
    attestation nonces live in process memory. With multiple coordinator instances
    the effective limits multiply and a ticket could be replayed across instances.
@@ -119,11 +126,20 @@ What it does **not** do:
   model that is systematically biased rather than tampered with;
 - it says nothing about the 95 % of jobs that are never sampled — those are
   trusted as reported;
-- at this revision the **second execution is not launched automatically**
-  (gap 4): sampling decisions, transcript commitments, comparison, tiebreak and
-  penalties are implemented and tested, but placement does not yet dispatch the
-  redundant run. Treat the guarantee as unavailable until that is wired and the
-  calibration registry stops being a placeholder.
+- the **second execution is dispatched automatically in gateway mode** and
+  cannot be dispatched in SDK mode, where the coordinator never holds the
+  plaintext (gap 4). In gateway mode a sampled job is re-run on another operator
+  and the two receipts are compared as soon as both arrive; in SDK mode the
+  sample is recorded as `not_dispatched_sdk_mode` and nothing is compared, so
+  the guarantee does not exist for SDK jobs at all;
+- the sample is predictable to the node: it is bucketed on `sha256(salt + job_id)`
+  with a salt that ships in the code, and it is decided at placement, before any
+  commitment. A worker that wants to avoid the check can compute which of its
+  jobs will be sampled;
+- the comparison is exact-hash with two executions, so a disagreement produces
+  `inconclusive` and penalises nobody. It detects a *deterministic* divergence
+  (a substituted model or binary), not a subtly wrong answer, and the tolerance
+  registry that would score near-misses is still a placeholder.
 
 Nothing in this repository should be read as claiming "verified inference" for
 unsampled jobs, or as a substitute for an independent evaluation of a model's

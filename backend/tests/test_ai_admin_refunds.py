@@ -11,7 +11,6 @@ import pytest
 
 from app.ai import routes as ai_routes
 from app.ai.ledger import PLATFORM_REVENUE, account_credits
-from app.main import app
 
 REFUND_URL = "/api/ai/v1/admin/refunds"
 

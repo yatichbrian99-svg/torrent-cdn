@@ -240,9 +240,17 @@ CREATE TABLE IF NOT EXISTS ai_verifications (
     status VARCHAR(24) NOT NULL,
     outcome VARCHAR(16),
     faulty_node_id VARCHAR(64),
+    ticket JSONB,
+    shadow_output_sha256 CHAR(64),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     completed_at TIMESTAMP WITH TIME ZONE
 );
+
+-- Upgrades of a database created before these columns existed. Creating the
+-- table above is a no-op there, so the columns are added explicitly
+-- (idempotent, and cheap enough to run on every start).
+ALTER TABLE ai_verifications ADD COLUMN IF NOT EXISTS ticket JSONB;
+ALTER TABLE ai_verifications ADD COLUMN IF NOT EXISTS shadow_output_sha256 CHAR(64);
 
 CREATE TABLE IF NOT EXISTS ai_audit_log (
     id BIGSERIAL PRIMARY KEY,
@@ -342,6 +350,10 @@ class VerificationRecord:
     "not_dispatched_sdk_mode" (the coordinator holds no plaintext and cannot
     re-run it), "completed", or a refusal reason such as
     "no_alternate_node".
+
+    ``ticket`` holds the signed second ticket until the gateway collects it.
+    It is persisted rather than held in memory so a coordinator restart between
+    placement and dispatch does not silently drop the sample.
     """
 
     job_id: str
@@ -354,6 +366,10 @@ class VerificationRecord:
     faulty_node_id: str | None = None
     created_at: int = 0
     completed_at: int | None = None
+    ticket: dict[str, Any] | None = None
+    #: Output hash the verification node reported. Stored as soon as it arrives
+    #: so the comparison does not depend on which of the two runs finishes first.
+    shadow_output_sha256: str | None = None
 
 
 @dataclass
@@ -844,6 +860,12 @@ def _row_to_verification(row: Any) -> VerificationRecord:
         status=row["status"],
         outcome=row["outcome"],
         faulty_node_id=row["faulty_node_id"],
+        ticket=(
+            json.loads(row["ticket"])
+            if isinstance(row["ticket"], str)
+            else row["ticket"]
+        ),
+        shadow_output_sha256=row["shadow_output_sha256"],
         created_at=(
             int(row["created_at"].timestamp()) if row["created_at"] is not None else 0
         ),
@@ -1244,8 +1266,9 @@ class PostgresStore:
                 """
                 INSERT INTO ai_verifications (
                     job_id, account_id, primary_node_id, verification_job_id,
-                    verification_node_id, status, outcome, faulty_node_id, created_at
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,to_timestamp($9))
+                    verification_node_id, status, outcome, faulty_node_id,
+                    ticket, shadow_output_sha256, created_at
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,to_timestamp($11))
                 """,
                 record.job_id,
                 _uuid(record.account_id),
@@ -1255,6 +1278,8 @@ class PostgresStore:
                 record.status,
                 record.outcome,
                 record.faulty_node_id,
+                (json.dumps(record.ticket) if record.ticket is not None else None),
+                record.shadow_output_sha256,
                 record.created_at,
             )
 
@@ -1276,7 +1301,13 @@ class PostgresStore:
         return _row_to_verification(row) if row else None
 
     async def update_verification(self, job_id: str, **fields: Any) -> None:
-        allowed = {"status", "outcome", "faulty_node_id", "completed_at"}
+        allowed = {
+            "status",
+            "outcome",
+            "faulty_node_id",
+            "completed_at",
+            "shadow_output_sha256",
+        }
         unknown = set(fields) - allowed
         if unknown:
             # Whitelisted so a caller cannot write an arbitrary column with a
@@ -1285,9 +1316,9 @@ class PostgresStore:
         if not fields:
             return
         # One static statement, not assembled SQL: a NULL parameter means "leave
-        # this column alone". Every allowed field is only ever set to a value
-        # (none is ever cleared), so COALESCE is exact here — and the static SQL
-        # audit (tests/test_ai_security.py) stays meaningful.
+        # this column alone". Every field above is only ever set to a value (none
+        # is ever cleared), so COALESCE is exact here — and the static SQL audit
+        # (tests/test_ai_security.py) stays meaningful.
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """
@@ -1295,7 +1326,8 @@ class PostgresStore:
                     status = COALESCE($2, status),
                     outcome = COALESCE($3, outcome),
                     faulty_node_id = COALESCE($4, faulty_node_id),
-                    completed_at = COALESCE(to_timestamp($5), completed_at)
+                    completed_at = COALESCE(to_timestamp($5), completed_at),
+                    shadow_output_sha256 = COALESCE($6, shadow_output_sha256)
                 WHERE job_id = $1
                 """,
                 job_id,
@@ -1303,6 +1335,7 @@ class PostgresStore:
                 fields.get("outcome"),
                 fields.get("faulty_node_id"),
                 fields.get("completed_at"),
+                fields.get("shadow_output_sha256"),
             )
 
     async def expire_stale_jobs(self, ttl_seconds: int) -> list[str]:

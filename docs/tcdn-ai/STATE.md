@@ -1,11 +1,11 @@
 # TCDN-AI — STATE (single source of truth)
 
-Last updated: **2026-10-26** (M2 partial-closure set + M3 redundant execution)
+Last updated: **2026-10-26** (M3 redundant execution wired into placement)
 Current branch: **`fix/tcdn-ai-redis-replay-nonce`** (nothing pushed, nothing on `main`)
-Last committed revision: **`fa0911b`** — M1 and the M2 data layer are committed;
-`main` still carries no TCDN-AI code. The working tree holds the M2 partial-closure
-work (idempotency, signup gates, refunds, input hardening, origin fallback, JS
-client, contracts) plus the untracked `frontend/torrentcdn-integration.html` (O2).
+Last committed revision: **`b06b1ab`** — M1, the M2 data layer and the M2 closure set
+are committed in three commits (`c9b3086` code+tests, `bc267f0` CI+tools, `b06b1ab`
+docs); `main` still carries no TCDN-AI code. The working tree holds the M3 redundant
+execution wiring plus the untracked `frontend/torrentcdn-integration.html` (O2).
 
 **Measured 2026-10-26** (evidence in `PUSH_CHECKLIST.md`, `evidence/06-break-tests/`,
 `evidence/09-openai-gateway/`):
@@ -13,6 +13,10 @@ client, contracts) plus the untracked `frontend/torrentcdn-integration.html` (O2
 - Full suite, flag **off** (real Postgres attached): **971 passed, 63 skipped**, 70 s, exit 0.
 - AI subset (flag on): **327 tests**; `ai-store` lane (Postgres + migrations + schema
   contract): **18 passed** on a fresh database.
+- **M3 pass, no Postgres attached** (the Postgres lanes skip): flag on
+  **1020 passed, 21 skipped** in 81 s, flag off **961 passed, 80 skipped** in 99 s;
+  AI subset **303 passed, 21 skipped**; the new `test_ai_redundant_execution.py`
+  **7 passed**. `ruff check` + `ruff format --check` clean on every touched file.
 - Break tests: **13/13 CAUGHT** (was 12/13 with the 13th silently unproven — the
   harness's mutation target had drifted and it never printed the error).
 - Official **JavaScript** OpenAI client: **19/19 checks** against a live uvicorn
@@ -35,7 +39,7 @@ this file is the short, current status.
 | M6 Ledger, credits, holds, settlement | **Done and verified** | Live invariants; H-1 (disputed jobs leaking the hold) is **fixed**: `service.py:721-728` releases the hold, `test_ai_service.py:429` proves it; Postgres lane 7/7 |
 | M7 P2P weight streaming | **Partial** | Manifest/Merkle/fetch tested; no real WebRTC/libtorrent transport; no direct-to-VRAM |
 | M8 Seeder receipts + payout split | **Partial** | Math/fraud controls unit-tested; no ingestion or payout issuance |
-| M9 Result verification (Part 3) | **In progress / not active** | Milestone 1 primitives built; coordinator still uses the old sampler; tolerance profiles are placeholders |
+| M9 Result verification (Part 3) | **Partial — wired in gateway mode** | Placement now issues a second signed ticket to a *different* operator and records it in `ai_verifications`; the gateway dispatches it in the background and the two output hashes are compared as soon as both receipts land (`test_ai_redundant_execution.py`, 7 tests). Still missing: an unpredictable (commitment-derived) sample seed, the 3 % default, any SDK-mode path, and real tolerance profiles — checklist 6.1 is `PARTIAL` with the three clauses named |
 | M10 Confidential tier | **Simulated / interfaces only** | Policy + simulated adapter tested; real SEV-SNP/TDX/NVIDIA verifiers fail closed |
 | M11 Burn module | **Disabled** | Dry-run only, off by default, legal ack required in production |
 | M12 Hardening, docs, full gate | **Partly done** | CI is green on GitHub for the first time (all five workflows at `0360b10`, incl. the AI Postgres/Redis job, `ai-types`, `container-scan` report-only, and the nightly real-engine job); soak/chaos/DAST/pentest still missing; coverage 84 % |
@@ -64,6 +68,12 @@ each, no hang: `925 passed, 11 skipped` (flag on) and `879 passed, 57 skipped`
   CPU. Adapter tests 4/4, journey 12/12 in 8 s, settlement with `held_micro=0`,
   ledger net equals balance, no canary retention — `evidence/10-real-engine/`.
   The account was unverified until the token from the recorded email was used.
+- **Redundant execution** (checklist 6.1): a sampled job runs twice on two
+  registered operators, the second run's receipt is verified against its own
+  node key, the pair is compared once both arrive, the customer is billed once,
+  and the refusal paths (`no_alternate_node`, `daily_cap_reached`,
+  `not_dispatched_sdk_mode`, `dispatch_failed`) are recorded rather than silent —
+  `tests/test_ai_redundant_execution.py` 7/7.
 - Break tests `13/13` CAUGHT.
 - `ruff` clean; SQL-injection audit clean; gitleaks history 0 findings;
   `secret_scan.sh --full` clean; `pip-audit` no known vulnerabilities.
@@ -150,7 +160,14 @@ each, no hang: `925 passed, 11 skipped` (flag on) and `879 passed, 57 skipped`
    (reservation headroom for chat-template tokens).
 5. **OpenAI gateway covers chat completions only** — no tools, JSON mode,
    embeddings, or `n > 1` (Section C item 11).
-6. **Verification engine not wired**; tolerance profiles are placeholders.
+6. **Verification is wired for gateway jobs only, and its sample is predictable.**
+   A sampled gateway job is re-run on a different operator and compared; an SDK
+   job cannot be (the coordinator has no plaintext) and is recorded as
+   `not_dispatched_sdk_mode`. The bucket seed is `sha256(fixed salt + job_id)`, so
+   a node can compute which of its jobs will be sampled, and the decision is
+   taken at placement rather than after a commitment. Exact-hash comparison with
+   two executions reports a disagreement as `inconclusive` and penalises nobody.
+   Tolerance profiles are still placeholders.
 7. **CI now covers the AI code remotely** — the Postgres/Redis job
    (`40184119060`) and the nightly engine job (`40184119132`) are green at
    `0360b10`; the caveat is that the *scheduled* run is red until O1 is done.
@@ -171,7 +188,9 @@ each, no hang: `925 passed, 11 skipped` (flag on) and `879 passed, 57 skipped`
    the full suite green in one invocation (already achieved locally).
 2. Commit the work on a feature branch, separated from pre-existing CDN changes
    (audit item B1.1) — do not push to `main`.
-3. Section C item 4: wire redundant execution into placement.
+3. Section C item 4 follow-up: make the verification sample unpredictable and
+   commitment-derived, and give SDK jobs a path (a commitment-only re-scoring run
+   is the only one available without the plaintext).
 
 ## 8. Exact commands
 

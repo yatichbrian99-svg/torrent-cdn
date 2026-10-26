@@ -1,6 +1,6 @@
 # TCDN-AI — PUSH CHECKLIST (Section E)
 
-**Generated:** 2026-10-25 · **Updated:** 2026-10-26 (M2 partial-closure set + M3 contracts) · **Branch:** `fix/tcdn-ai-redis-replay-nonce`
+**Generated:** 2026-10-25 · **Updated:** 2026-10-26 (M2 committed; M3 redundant execution wired) · **Branch:** `fix/tcdn-ai-redis-replay-nonce`
 **Rule:** a row is `VERIFIED` only where a command or test was run and its output captured.
 Nothing here is inherited from an earlier report.
 
@@ -10,7 +10,7 @@ Nothing here is inherited from an earlier report.
 
 | Level | VERIFIED | PARTIAL | BUILT-UNVERIFIED | MISSING | DEFERRED | NOT VERIFIABLE HERE | Total |
 |---|---|---|---|---|---|---|---|
-| **P1** | **36** | **13** | 0 | **6** | 0 | 0 | 55 |
+| **P1** | **36** | **14** | 0 | **5** | 0 | 0 | 55 |
 | **P2** | 0 | 1 | 0 | 27 | 0 | 1 | 29 |
 | **DEFER** | 0 | 0 | 0 | 0 | 2 | 0 | 2 |
 
@@ -18,12 +18,11 @@ Counts produced by parsing the tables in this file (not estimated).
 
 **Level 1 ready: NO.**
 
-All six [P1] `MISSING` items block the push:
+All five [P1] `MISSING` items block the push:
 
 | Blocker | Why it stops Level 1 |
 |---|---|
 | **5.5** | No SAST, no ZAP, no Trivy, fuzz budget not run — Level 1 requires **no open critical/high**, which cannot be asserted without these. |
-| **6.1** | Redundant execution is not wired into placement. |
 | **10.2** | No capacity test results, so no measured limits or server sizing. |
 | **12.3** | No draft PR. |
 | **12.4** | Post-push confirmation cannot exist before a push. |
@@ -33,6 +32,10 @@ Additional [P1] `PARTIAL`s that must reach `VERIFIED` before the same push:
 
 - **2.3 / 5.7** — "confidential requires SDK mode" still has no dedicated test; no
   environment-wide canary scan (logs, metrics, temp files, backups).
+- **6.1** — redundant execution is wired and tested, but three clauses of the row
+  are still untrue: the sample is **predictable to the node**, it is taken at
+  placement rather than **after a commitment**, and the row asks for **3 %** while
+  the default is 5 % (configurable). See the row for exactly what is proven.
 
 The other eleven [P1] `PARTIAL`s are declared for the record rather than as push blockers:
 **2.6** (global concurrency cap unenforced), **3.2/3.3** (worker supervision and the
@@ -124,9 +127,9 @@ covers AI routes only; no two-instance run), **5.9** (payout kill-switch endpoin
 
 | ID | Item | Level | Status | Evidence | Notes |
 |---|---|---|---|---|---|
-| 6.1 | Sampling unpredictable, after commitment, **wired into placement**, 3%, cap, different operator | P1 | **MISSING** | placement uses the previous sampler; no second-run launch | blocks Level 1 |
+| 6.1 | Sampling unpredictable, after commitment, **wired into placement**, 3%, cap, different operator | P1 | **PARTIAL** | Wired: `Coordinator._schedule_verification` issues a **second signed ticket for a different operator** at placement (excluded by node id, not filtered after selection), records it in `ai_verifications`, and the gateway — the only party holding the plaintext — dispatches the same request in the background, verifies the returned receipt against the second node's key and compares the two output hashes as soon as both arrive. Cap: `TCDN_AI_VERIFICATION_DAILY_CAP` (default 500) stops dispatch and records `daily_cap_reached`. `tests/test_ai_redundant_execution.py` (7 tests): full round trip agrees on two operators, disagreement is `inconclusive` and penalises nobody, an assignment is handed out once, a single node records `no_alternate_node`, the cap refuses, an unsampled job schedules nothing | Still untrue: the bucket is `sha256(fixed-salt + job_id)`, so a node can **predict** its sample; the decision happens at placement, **not after a commitment**; the default is **5 %**, not 3 %; SDK-mode jobs are sampled but recorded `not_dispatched_sdk_mode` because the coordinator has no plaintext to re-run |
 | 6.2 | Commitment protocol correctness | P1 | **VERIFIED** | `tests/test_part3_coverage.py`: deterministic leaves, contiguous positions, transcript root equals `build_transcript_root`, challenge indices distinct and bounded, a valid response opens exactly the challenged records, a bad proof and a missing record are deterministic violations, verdict sign/verify round trip, domain separation between challenge/verdict/receipt. `test_ai_components.py` covers the Merkle/transcript extensions | correctness of the primitives; consuming them in placement is 6.1 (still MISSING) |
-| 6.3 | Docs state verification is probabilistic with limits | P1 | **VERIFIED** | `LIMITATIONS.md` §"Result verification is probabilistic": the 5 % bucket sample, different-operator re-execution, majority rule, and explicitly (a) no detection when all sampled executors agree, (b) the unsampled 95 % are trusted as reported, (c) the second execution is **not launched automatically** at this revision. Pinned by `TestDisclosureDocs::test_verification_is_described_as_probabilistic_with_its_limits` | the section names the missing wiring instead of implying the guarantee holds |
+| 6.3 | Docs state verification is probabilistic with limits | P1 | **VERIFIED** | `LIMITATIONS.md` §"Result verification is probabilistic": the bucket sample, different-operator re-execution, majority rule, and explicitly (a) no detection when all sampled executors agree, (b) the unsampled 95 % are trusted as reported, (c) the second execution **is dispatched automatically in gateway mode** and **cannot be in SDK mode** (`not_dispatched_sdk_mode`), (d) the sample is **predictable to the node** and taken before any commitment, (e) exact-hash comparison with two runs records a disagreement as `inconclusive` and penalises nobody. Pinned by `TestDisclosureDocs::test_verification_is_described_as_probabilistic_with_its_limits` | updated with M3: the section now describes what the code does, including the three clauses 6.1 still fails |
 | 6.4 | Calibration tool + signed tolerance registry | P2 | **MISSING** | placeholders only | — |
 | 6.5 | Verifier service, suspect flow, penalties, appeals | P2 | **MISSING** | — | — |
 | 6.6 | Synthetic probes | P2 | **MISSING** | — | — |
@@ -184,7 +187,7 @@ covers AI routes only; no two-instance run), **5.9** (payout kill-switch endpoin
 | ID | Item | Level | Status | Evidence | Notes |
 |---|---|---|---|---|---|
 | 12.1 | This checklist complete, counts, "Level 1 ready" line | P1 | **VERIFIED** | this file | says **NO** with reasons |
-| 12.2 | `VERIFICATION_REPORT.md` per Appendix 4 §7 | P1 | **VERIFIED** | counts re-measured 2026-10-26 and corrected: flag **on** `1030 passed, 4 skipped`, flag **off** `971 passed, 63 skipped`, AI subset **327 tests**; break tests **13/13**; the OpenAI-client and refund rows corrected from "not implemented" to what is now true | the report is a dated record with a revision note; `PUSH_CHECKLIST.md` is the current status |
+| 12.2 | `VERIFICATION_REPORT.md` per Appendix 4 §7 | P1 | **VERIFIED** | counts re-measured 2026-10-26 and corrected: flag **on** `1030 passed, 4 skipped`, flag **off** `971 passed, 63 skipped`, AI subset **327 tests**; break tests **13/13**; the OpenAI-client and refund rows corrected from "not implemented" to what is now true. **M3 pass, same day, no Postgres attached:** flag on `1020 passed, 21 skipped` (81 s), flag off `961 passed, 80 skipped` (99 s), AI subset `303 passed, 21 skipped`, new file `7 passed`; `ruff check` clean | the report is a dated record with a revision note; `PUSH_CHECKLIST.md` is the current status. The two runs differ only in the Postgres lanes, which skip without `TEST_POSTGRES_URL` |
 | 12.3 | Draft PR description with all required sections | P1 | **MISSING** | no PR opened | blocked by the items above |
 | 12.4 | After push: CI green, no secrets, PR link | P1 | **MISSING** | pushed: 3 workflows green at `853d8a6` (lint, docker audit incl. `ai-store`, engine), 0 secrets in the full-history scan | **no PR** (a trial push explicitly excluded one) and CI is not green across the whole Level-1 set, so this cannot pass yet |
 | 12.5 | Temporary trial-push triggers removed, in their own labelled commit, before the PR is marked ready | P1 | **MISSING** | three workflows list `fix/tcdn-ai-redis-replay-nonce` in `push:` — `ci-fullstack.yml`, `backend-lint.yml`, `tcdn-ai-engine.yml`, each marked with a remove-before-merge comment | the triggers exist only to make CI runnable on a branch; shipping them would run CI on that branch forever |
@@ -353,9 +356,36 @@ TEST_POSTGRES_URL=postgresql://user:ci-test-password@127.0.0.1:5432/torrentcdn \
 # 17 passed on one fresh database
 ```
 
+## M3 — redundant execution wired into placement (2026-10-26)
+
+Target: row **6.1**. It moved `MISSING` → `PARTIAL`: the wiring is done and tested, three
+clauses of the row are still false and are listed rather than glossed.
+
+| Claim | How it was proven |
+|---|---|
+| A sampled job is re-run on a **different operator** | `test_runs_twice_on_two_operators_and_reconciles`: two registered workers, 100 % sample, the second ticket's `node_id` differs from the primary's and the two job ids differ. Exclusion is by node id in `select_worker`, so a single-node deployment cannot silently verify itself |
+| The second run is a real encrypted job, not a copy of the first | the shadow receipt is signed by the second node's identity key and its `output_sha256` is stored on the row; the coordinator checks the signature against that node before using it |
+| The customer's job is billed once | after both receipts, `len(store.jobs) == 1` and the shadow job id is absent — no hold, no settlement, no ledger entry for the verification run |
+| Both halves reconcile whichever arrives first | the shadow hash is persisted (`shadow_output_sha256`); the comparison runs when the second receipt lands, and a restart between the two keeps the sample instead of losing it |
+| Disagreement is honest | `test_output_disagreement_is_inconclusive_and_penalises_nobody`: a divergent backend on the second node yields `inconclusive`, `faulty_node_id = None` and both reputations unchanged — two executions have no majority |
+| One dispatch per job | `test_assignment_is_handed_out_once`: the second call returns `None` and the row is `dispatched` |
+| Refusals are recorded, not silent | `no_alternate_node` (single node), `daily_cap_reached` (`TCDN_AI_VERIFICATION_DAILY_CAP=0`), `not_dispatched_sdk_mode` (SDK jobs), `dispatch_failed`; each writes an audit row |
+
+```
+ENABLE_TCDN_AI=true .venv/bin/python -m pytest tests/test_ai_redundant_execution.py -q   # 7 passed
+```
+
+Schema: `ai_verifications` gained `ticket` (the signed second ticket, so a restart between
+placement and dispatch does not drop the sample) and `shadow_output_sha256`, both added with
+`ALTER TABLE … ADD COLUMN IF NOT EXISTS` — the reconciliation primitive 1.9 proves re-runnable.
+`update_verification` was rewritten as one static statement (NULL = leave alone) because the
+assembled version tripped `TestStaticSafety::test_no_interpolated_sql`.
+
 ## Next actions (in order)
 
-1. **6.1**: wire redundant execution into placement (sampling exists; the second run is not dispatched).
+1. **6.1**: close the remaining clauses — an unpredictable sample seed (commitment-derived, not
+   `salt + job_id`), the 3 % default, and an SDK-mode path (a commitment-only re-scoring run, since
+   the coordinator has no plaintext).
 2. **5.5**: SAST, Trivy (make `container-scan` blocking), ZAP and the full fuzz budget; only then can
    "no open critical/high" be asserted.
 3. **10.2**: capacity run with many keys (ramp, 30-min sustain, 10× spike).
@@ -363,4 +393,4 @@ TEST_POSTGRES_URL=postgresql://user:ci-test-password@127.0.0.1:5432/torrentcdn \
 5. **12.4 / 12.3**: push the branch, get every Level-1 workflow green on GitHub, then open the draft PR.
 
 Closed in this pass: 1.13 (contracts, M3), 1.10–1.12, 2.1, 2.2, 2.5, 4.5, 4.6, 5.6, 5.8, 5.10,
-6.2, 6.3, 7.1, 8.1, 8.2, 10.3, 11.1, 12.2.
+6.2, 6.3, 7.1, 8.1, 8.2, 10.3, 11.1, 12.2. Row 6.1 advanced from `MISSING` to `PARTIAL`.
