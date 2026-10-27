@@ -91,6 +91,17 @@ is placed atomically. Insufficient balance → `402 insufficient_credits`.
 {"job_id": "…", "tokens_received": 120, "output_sha256": "…", "acked_at": 1760000003}
 ```
 
+In gateway mode the `usage` in every response is the **gateway's own measurement**
+of the prompt it encrypted and the tokens it delivered, not the worker's claim:
+where the two disagree beyond tolerance the lower count is billed and the node is
+flagged. In SDK mode the receipt is the only count there is.
+
+The receipt settles the job by itself: it is the worker's signed claim, and it is
+billed on its own token counts (capped at the placed hold) **whether or not the
+client ever acks** — a client that never acks, or acks a different hash, cannot
+make the completion free. The ack is evidence, not a payment trigger: a hash or
+count mismatch records a review flag on the job while the charge stands.
+
 Settlement (both endpoints return the same shape):
 
 ```json
@@ -100,8 +111,12 @@ Settlement (both endpoints return the same shape):
  "platform_micro": 168, "reason": null}
 ```
 
-`status` is `running` while awaiting the other side, `settled` when hashes agree
-within tolerance, `disputed` (nothing charged, review required) otherwise.
+`status` is `running` only while no receipt exists (nothing is billed yet),
+then `settled` — including when the client's ack disagrees, in which case
+`reason` says so (`billed from the worker receipt; flagged for review:
+output_hash_mismatch`). `reason` also reports `already settled` for a retried
+receipt or a late ack, and `settled with no billable tokens` for a receipt that
+reports zero tokens.
 
 ### Node registry
 

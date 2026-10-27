@@ -48,15 +48,32 @@ sequenceDiagram
         S-->>W: shards (hash-verified, corrupt senders banned)
     end
     W-->>D: encrypted token frames + signed receipt
-    W->>C: POST /jobs/{id}/receipt (signed)
+    W->>C: POST /jobs/{id}/receipt (signed) → bills the job, cap = the hold
     D->>C: POST /jobs/{id}/ack {tokens, output hash}
-    C->>C: reconcile, settle hold, split 70/10/20, audit
+    C->>C: reconcile (evidence only), split 70/10/20, audit, flag if mismatched
 ```
 
+**Billing authority in gateway mode.** The gateway holds the plaintext of the
+request and the completion, so it measures both itself: the prompt it encrypted
+and the token frames it decrypted and delivered (`GatewayMeasurement`). Where
+that measurement and the receipt disagree beyond tolerance, the **lower** count
+is billed and the node's counters are updated; the receipt stays authority only
+where no measurement exists (SDK mode, or a job no gateway handled). Both are
+recorded as evidence for review, never as a verdict. A node whose receipts bill
+above the gateway's count in more than `node_overclaim_rate_pct` of its settled
+jobs (once it has `node_overclaim_min_samples` of them) is suspended and its
+pending payouts are held for an operator.
+
 **Ordering that matters:** the hold is placed before the job row exists; the
-receipt is verified against the node that was assigned the job; settlement bills
-`min(worker, client)` on any mismatch and marks the job disputed instead of
-charging.
+receipt is verified against the node that was assigned the job; and the receipt
+— not the client's ack — is what settles. Billing on the ack made revenue
+optional for the payer: a client that never acked left the job unsettled, and
+the expiry sweep then released the hold, so the completion was free. Settlement
+now bills the receipt's own token counts capped at the placed hold, and the ack
+is evidence: a hash or count mismatch flags the job for review while the charge
+stands (the admin refund path is the only way money moves back). Settlement also
+runs once per job whichever order the receipt and the measurement arrive in, and
+neither can re-price a job that has already settled.
 
 ## 3. Trust boundaries and tiers
 

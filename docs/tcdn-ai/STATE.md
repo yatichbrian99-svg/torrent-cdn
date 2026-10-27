@@ -25,8 +25,11 @@ run in CI): full suite flag **on** **1056 passed, 21 skipped**, 97 s, exit 0; fl
   **1020 passed, 21 skipped** in 81 s, flag off **961 passed, 80 skipped** in 99 s;
   AI subset **303 passed, 21 skipped**; the new `test_ai_redundant_execution.py`
   **7 passed**. `ruff check` + `ruff format --check` clean on every touched file.
-- Break tests: **13/13 CAUGHT** (was 12/13 with the 13th silently unproven — the
-  harness's mutation target had drifted and it never printed the error).
+- Break tests: **22/22 CAUGHT, 0 unproven** (was 12/13 with the 13th silently
+  unproven — the harness's mutation target had drifted and it never printed the
+  error; nine controls were added with the audit fixes: billing authority
+  (three), the SSRF pin, the JWT-only admin money routes, the schema gate,
+  atomic nonces in both stores, and job ownership on ack).
 - Official **JavaScript** OpenAI client: **19/19 checks** against a live uvicorn
   gateway (`evidence/09-openai-gateway/js-client.json`), now a committed, CI-gated check.
 - Boundary contracts: `CONTRACTS.md` TB1–TB7 + **23** contract tests.
@@ -44,7 +47,7 @@ this file is the short, current status.
 | M3 Coordinator: auth, registry, scheduler, placement | **Done and verified** | Live journey `JOURNEY OK` |
 | M4 Worker: ticket validation, AEAD, receipts | **Done and verified** | Live journey; e2e test; F-04/F-05 fixed |
 | M5 Python SDK + e2e streaming | **Done and verified** | 221 tests; live journey |
-| M6 Ledger, credits, holds, settlement | **Done and verified** | Live invariants; H-1 (disputed jobs leaking the hold) is **fixed**: `service.py:721-728` releases the hold, `test_ai_service.py:429` proves it; Postgres lane 7/7 |
+| M6 Ledger, credits, holds, settlement | **Done and verified** | Live invariants; in gateway mode the gateway's **own measurement** of the prompt and delivered tokens outranks an overclaiming receipt (the lower count is billed) and per-node overclaim rates suspend a node and hold its payouts (`test_ai_node_billing.py`, 14 tests); billing is driven by the worker's **signed receipt** (the settlement bypass that made completions free for a client that never acked is fixed: `TestEncryptedJob::test_placement_worker_receipt_ack_settlement`); the hold is a hard billing ceiling, over-hold receipts are capped and flagged, and an over-held or mismatched ack flags review without undoing the charge; Postgres lane 7/7 |
 | M7 P2P weight streaming | **Partial** | Manifest/Merkle/fetch tested; no real WebRTC/libtorrent transport; no direct-to-VRAM |
 | M8 Seeder receipts + payout split | **Partial** | Math/fraud controls unit-tested; no ingestion or payout issuance |
 | M9 Result verification (Part 3) | **Partial — wired, keyed and paid in gateway mode** | Placement issues a second signed ticket to a *different* operator and records it in `ai_verifications`; the gateway dispatches it in the background and compares the two output hashes as soon as both receipts land (`test_ai_redundant_execution.py`). Since M4 the sample is `HMAC-SHA-256(coordinator_secret, domain \|\| job_id)` at a **3 %** default (`test_sample_is_not_derivable_from_the_job_id`), and the shadow operator is **paid** the compute share of its own tokens from `platform:revenue`, capped and idempotent per shadow job (`TestShadowPayout`). Still missing: a decision taken **after** a commitment, any SDK-mode path (no plaintext at the coordinator), and real tolerance profiles — 6.1 stays `PARTIAL` with those two clauses named |
@@ -98,7 +101,7 @@ each, no hang: `925 passed, 11 skipped` (flag on) and `879 passed, 57 skipped`
   whenever Redis was configured. The stores now derive a blocking client from the
   pool's own connection settings. Without the fix the live file fails 2 of 6;
   with it, 6/6.
-- Break tests `13/13` CAUGHT.
+- Break tests `22/22` CAUGHT, 0 unproven.
 - `ruff` clean; SQL-injection audit clean; gitleaks history 0 findings;
   `secret_scan.sh --full` clean; `pip-audit` no known vulnerabilities.
 - Frontend `tsc --noEmit` clean, `179` Vitest tests pass.
@@ -182,13 +185,21 @@ each, no hang: `925 passed, 11 skipped` (flag on) and `879 passed, 57 skipped`
 1. **Nothing is on `main`**: the AI code is committed on
    `fix/tcdn-ai-redis-replay-nonce` (`7b4df67`); a fresh clone of `main` has no
    AI code. Owner action O4 (branch protection) governs how it gets there.
-2. **Feature flag is ineffective** and defaults on; schema/routes unconditional.
+2. ~~Feature flag is ineffective~~ **Fixed**: `ENABLE_TCDN_AI` defaults **off**,
+gates the `/api/ai/v1` routes, and now also gates the startup `ai_*` schema
+migration — a flag-off deployment no longer creates 17 AI tables
+(`test_the_ai_schema_is_only_migrated_when_the_flag_is_on` records the
+statements startup issues in both positions; break-tested).
 3. **Production env trap**: `TCDN_AI_ENVIRONMENT` defaults to `development`
    under `APP_ENV=production`, allowing simulated attestation / fake payments.
-4. ~~Disputed jobs freeze the hold forever~~ **Fixed** (H-1): settling as
-   disputed releases the reservation; nobody is paid until review. Break-tested.
-   The related hold-underestimation bug found with a real engine is also fixed
-   (reservation headroom for chat-template tokens).
+4. ~~Disputed jobs freeze the hold forever~~ **Fixed** (H-1), and the dispute
+   path is now a **review** path: a receipt that exceeds the hold is billed *at*
+   the hold and flagged, a mismatched client ack flags the job without cancelling
+   the charge, and the reservation is always settled or released — nothing is
+   left open. Break-tested (`an over-hold receipt is capped at the hold and
+   flagged`, `a worker receipt bills the job with no client ack`). The related
+   hold-underestimation bug found with a real engine is also fixed (reservation
+   headroom for chat-template tokens).
 5. **OpenAI gateway covers chat completions only** — no tools, JSON mode,
    embeddings, or `n > 1` (Section C item 11).
 6. **Verification is wired for gateway jobs only, and its sample is predictable.**
@@ -260,7 +271,7 @@ ENABLE_TCDN_AI=true TEST_POSTGRES_URL=postgresql://tcdn:tcdn@127.0.0.1:5432/tcdn
 
 # --- lint / audits ---
 .venv/bin/python -m ruff check app tests scripts
-ENABLE_TCDN_AI=true .venv/bin/python scripts/break_tests.py   # 13/13 controls
+ENABLE_TCDN_AI=true .venv/bin/python scripts/break_tests.py   # 22/22 controls
 
 # --- real engine (Ollama) — see DEV_SETUP.md §6 for the full bring-up ---
 TCDN_AI_ENGINE_URL=http://127.0.0.1:11434 TCDN_AI_ENGINE_MODEL=qwen2.5:0.5b \
