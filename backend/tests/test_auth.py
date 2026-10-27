@@ -548,6 +548,57 @@ class TestAccessTokenClaimRequirements:
         })
         assert resp.status_code == 401
 
+    def test_every_mint_path_emits_the_claims_the_decoder_requires(self):
+        """No app-issued token may be rejected by the tightened decoder.
+
+        F-10's blast radius is exactly "tokens this app mints that lack exp/sub/iat".
+        Both mint functions are checked here, and each token's lifetime is checked
+        against the decoder's own ceiling, so adding a mint path without `iat` — or
+        raising the policy past the cap — fails here rather than in production as a
+        login lockout.
+        """
+        import jwt as pyjwt
+
+        from app.auth import (
+            _max_token_lifetime_secs,
+            create_access_token,
+            decode_access_token,
+        )
+        from app.config import get_settings
+        from app.mfa import create_mfa_token
+
+        settings = get_settings()
+        minted = {
+            "create_access_token(remember_me=False)": (
+                create_access_token({"sub": self.USER_ID}),
+                True,
+            ),
+            "create_access_token(remember_me=True)": (
+                create_access_token({"sub": self.USER_ID}, expires_minutes=14 * 24 * 60),
+                True,
+            ),
+            # The decoder rejects mfa_pending on purpose (it is a login step, not a
+            # session), so only the claim shape and lifetime are checked for it.
+            "create_mfa_token": (create_mfa_token(self.USER_ID), False),
+        }
+        for name, (token, decodable) in minted.items():
+            claims = pyjwt.decode(
+                token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
+            )
+            assert {"exp", "sub", "iat"} <= claims.keys(), (
+                f"{name} does not emit every claim decode_access_token requires"
+            )
+            lifetime = float(claims["exp"]) - float(claims["iat"])
+            assert lifetime <= _max_token_lifetime_secs(), (
+                f"{name} mints a {lifetime:,.0f}s token the decoder rejects "
+                f"(cap {_max_token_lifetime_secs():,.0f}s)"
+            )
+            # The decoder is the authority: every session token must pass it.
+            if decodable:
+                assert decode_access_token(token) is not None, (
+                    f"{name} is rejected by its own decoder"
+                )
+
 
 class TestDeleteMe:
     """Tests for DELETE /auth/me — self-account deletion."""
