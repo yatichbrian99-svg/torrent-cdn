@@ -227,10 +227,9 @@ class TestVerificationRefusals:
         assert await ai_env.store.get_verification(stream.job_id) is None
 
 
-async def _unreachable(url: str, payload: dict):
+def _unreachable(url: str, payload: dict):
     """A transport that must not be used: these tests never stream a job."""
     raise AssertionError("no worker call expected in this test")
-    yield b""  # pragma: no cover - makes this an async generator
 
 
 class TestShadowPayout:
