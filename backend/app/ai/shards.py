@@ -20,12 +20,13 @@ import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, Self
 from urllib.parse import quote
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from ..pinned_http import PinnedHTTPTransport
 from . import crypto
 from .errors import UnavailableError, ValidationError
 from .keyring import KeyRing
@@ -377,6 +378,10 @@ class HttpsOriginPeer:
     * HTTPS only — plain HTTP would put weights on the wire in clear;
     * an explicit host allowlist — otherwise a hostile manifest turns a worker
       into an SSRF proxy against the metadata service or an internal host;
+    * the address that was validated is the address that is dialed — ``validate_url``
+      resolves once and ``PinnedHTTPTransport`` connects to that IP, so DNS that
+      answers public at construction and private at fetch time cannot rebind the
+      connection (the same control the import-by-URL guard uses);
     * no redirects — a 302 to another host would walk around that allowlist;
     * a response size cap — a shard is declared in the manifest, not negotiated.
 
@@ -392,6 +397,7 @@ class HttpsOriginPeer:
         allowed_hosts: Iterable[str],
         timeout_seconds: float = 30.0,
         client: httpx.AsyncClient | None = None,
+        verify: bool | str = True,
         peer_id: str = "origin",
         reputation: int = 100,
     ) -> None:
@@ -408,8 +414,36 @@ class HttpsOriginPeer:
         self.timeout_seconds = timeout_seconds
         self.peer_id = peer_id
         self.reputation = reputation
-        self._client = client
         self._shard_sizes = {shard.index: shard.size for shard in manifest.shards}
+        # The validated address is what the socket connects to. Pinning here is
+        # what makes the resolution above worth anything: without it, httpx (or
+        # an HTTP proxy) would resolve ``self._target.host`` again at connect
+        # time and a rebinding answer would reach an internal address that the
+        # check had already rejected. ``client`` exists so a caller (tests, or a
+        # deployment with its own pinned transport) can supply the connection —
+        # it must be pinned too, and the response-host check below keeps a
+        # redirect-following client honest.
+        self._client = client or httpx.AsyncClient(
+            timeout=timeout_seconds,
+            follow_redirects=False,
+            trust_env=False,
+            # ``verify`` belongs on the transport: with an explicit transport,
+            # a client-level verify is not consulted.
+            transport=PinnedHTTPTransport(self._target.ip, verify=verify),
+        )
+
+    async def aclose(self) -> None:
+        """Close the origin connection pool (a no-op for an injected client,
+        which its owner closes)."""
+        client = getattr(self, "_client", None)
+        if client is not None:
+            await client.aclose()
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        await self.aclose()
 
     def _url(self, index: int) -> str:
         # Both components are safe by construction: the model id is validated by
@@ -426,15 +460,7 @@ class HttpsOriginPeer:
                 "origin asked for a shard the manifest does not declare",
                 code="unknown_shard",
             )
-        owned = self._client is None
-        client = self._client or httpx.AsyncClient(
-            timeout=self.timeout_seconds, follow_redirects=False
-        )
-        try:
-            response = await client.get(self._url(index))
-        finally:
-            if owned:
-                await client.aclose()
+        response = await self._client.get(self._url(index))
         if response.url.host and response.url.host.lower() != self._target.host:
             # Only reachable if a caller injected a redirect-following client;
             # the allowlist must survive that too.
