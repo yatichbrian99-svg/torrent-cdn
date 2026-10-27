@@ -216,7 +216,9 @@ class TestPinnedNetworkBackend:
 
         import anyio
 
-        from app.routes.upload import _PinnedNetworkBackend
+        # The backend lives in one shared module now: the same transport serves
+        # this import guard and the AI origin fetch (audit F-3).
+        from app.pinned_http import PinnedNetworkBackend
 
         connected = []
 
@@ -236,7 +238,7 @@ class TestPinnedNetworkBackend:
         monkeypatch.setattr(anyio, "fail_after", fake_fail_after)
 
         async def run():
-            backend = _PinnedNetworkBackend("93.184.216.34")
+            backend = PinnedNetworkBackend("93.184.216.34")
             await backend.connect_tcp("evil.example.com", 443)
 
         asyncio.run(run())

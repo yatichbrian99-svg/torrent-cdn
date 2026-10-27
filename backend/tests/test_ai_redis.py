@@ -513,3 +513,76 @@ class TestCoordinatorReplayAndRateLimit:
             clock=now_unix,
         )
 
+
+class TestRedisFailuresAreVisible:
+    """A Redis failure weakens a control, so it must be an incident, not a log line.
+
+    Everything on the fail-open path (rate limiting) and the fail-closed paths
+    (ticket claim, nonce consume) reports through one seam: an ERROR log, a
+    per-operation counter for a metrics scrape, and an optional alert hook. The
+    tests below pin all three, and that the log carries a key fingerprint rather
+    than the key itself — the key is a ticket id or a nonce, and a log that spilled
+    it would hand a reader the credential the control exists to protect.
+    """
+
+    def test_a_failure_is_logged_counted_and_reported_to_the_hook(self, caplog):
+        from app.ai.redis_cache import (
+            note_redis_failure,
+            redis_failure_counts,
+            reset_redis_failure_state,
+            set_redis_failure_hook,
+        )
+
+        reset_redis_failure_state()
+        alerts: list[dict[str, Any]] = []
+        set_redis_failure_hook(alerts.append)
+        try:
+            with caplog.at_level("ERROR", logger="app.ai.redis_cache"):
+                note_redis_failure("nonce_consume", "nonce-secret-abc", RuntimeError("boom"))
+                note_redis_failure("nonce_consume", "nonce-secret-def", None)
+
+            assert redis_failure_counts() == {"nonce_consume": 2}
+            assert [alert["operation"] for alert in alerts] == [
+                "nonce_consume",
+                "nonce_consume",
+            ]
+            assert alerts[0]["error"] == "RuntimeError"
+            # A missing exception is still an event, not a silent hole.
+            assert alerts[1]["error"] == "unavailable"
+            # The key is fingerprinted, never echoed.
+            assert "nonce-secret-abc" not in caplog.text
+            assert "nonce-secret-def" not in caplog.text
+            assert all(len(alert["key_fingerprint"]) == 12 for alert in alerts)
+        finally:
+            reset_redis_failure_state()
+        # The reset seam actually resets: no counter and no hook survives it.
+        assert redis_failure_counts() == {}
+        note_redis_failure("ticket_claim", "jti-1", None)
+        assert len(alerts) == 2, "the cleared hook must not be called again"
+        assert redis_failure_counts() == {"ticket_claim": 1}
+        reset_redis_failure_state()
+
+    def test_a_broken_alert_hook_cannot_mask_the_failure(self, caplog):
+        """The caller is already losing a control; an alert sink that raises must
+        not turn a fail-closed 503 into an unhandled crash."""
+        from app.ai.redis_cache import (
+            note_redis_failure,
+            redis_failure_counts,
+            reset_redis_failure_state,
+            set_redis_failure_hook,
+        )
+
+        reset_redis_failure_state()
+
+        def broken_hook(event: dict[str, Any]) -> None:
+            raise RuntimeError("pager is down")
+
+        set_redis_failure_hook(broken_hook)
+        try:
+            note_redis_failure("ticket_claim", "jti-2", RuntimeError("redis down"))
+            # The failure was still recorded even though the alert sink threw.
+            assert redis_failure_counts() == {"ticket_claim": 1}
+        finally:
+            reset_redis_failure_state()
+        assert redis_failure_counts() == {}
+
