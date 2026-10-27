@@ -138,6 +138,14 @@ All require the existing admin JWT.
 
 - `POST /admin/api-keys?account_id=<uuid>&scopes=inference,worker` — returns the
   raw key once.
+- `GET /admin/kill-switch` — `{"paused": bool, "state": {…}}`, the money-out
+  switch every coordinator instance honours.
+- `POST /admin/kill-switch` with body `{"paused": true|false, "reason": "…"}` —
+  stops or resumes **refunds and payouts** immediately, persisted in `ai_controls`
+  (so a redeploy cannot clear it) and audited as `admin.payout_kill_switch` with
+  the operator and the reason. A paused switch makes `POST /admin/refunds` and
+  payout recording fail with `409 payouts_paused`; job settlement and existing
+  credits are unaffected.
 - `POST /admin/verification?job_id=…` with body `{"node_a": "<hash>", "node_b": "<hash>"}`
   — records sampled execution hashes, resolves majority and penalises/suspends the
   faulty worker. This is the manual path; a sampled **gateway** request is

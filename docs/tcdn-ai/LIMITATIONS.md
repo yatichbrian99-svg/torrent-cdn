@@ -112,8 +112,10 @@ your deployment, the corresponding guarantee does not exist.
 Verification of inferenced output is **probabilistic, not a proof**. What the
 design does:
 
-- a deterministic sample of jobs (default `TCDN_AI_VERIFICATION_SAMPLE_PCT=5`,
-  bucket-based on the job id) is chosen for redundant execution;
+- a deterministic sample of jobs (default `TCDN_AI_VERIFICATION_SAMPLE_PCT=3`)
+  is chosen for redundant execution. The bucket is
+  `HMAC-SHA-256(coordinator_secret, domain || job_id)`, so the job id alone does
+  not reveal the decision;
 - the sampled job is re-executed on a *different* operator, and the transcript
   commitments are compared (majority wins, disagreeing node loses reputation
   and can be suspended);
@@ -124,7 +126,7 @@ What it does **not** do:
 
 - it cannot detect a wrong answer that *every* sampled executor agrees on, or a
   model that is systematically biased rather than tampered with;
-- it says nothing about the 95 % of jobs that are never sampled — those are
+- it says nothing about the 97 % of jobs that are never sampled — those are
   trusted as reported;
 - the **second execution is dispatched automatically in gateway mode** and
   cannot be dispatched in SDK mode, where the coordinator never holds the
@@ -132,10 +134,16 @@ What it does **not** do:
   and the two receipts are compared as soon as both arrive; in SDK mode the
   sample is recorded as `not_dispatched_sdk_mode` and nothing is compared, so
   the guarantee does not exist for SDK jobs at all;
-- the sample is predictable to the node: it is bucketed on `sha256(salt + job_id)`
-  with a salt that ships in the code, and it is decided at placement, before any
-  commitment. A worker that wants to avoid the check can compute which of its
-  jobs will be sampled;
+- the sample is **not** derivable by the node from the job id (it is keyed with
+  a coordinator secret), but it is still decided at placement, **before any commitment**:
+  a compromised gateway — the one process that sees the decision and the
+  plaintext — could learn which jobs are checked, and the decision does not bind
+  the operator's transcript root;
+- the shadow execution is paid: the second operator earns the compute share of
+  its own token counts, funded from `platform:revenue` (never from the customer,
+  who paid once) and capped per run by
+  `TCDN_AI_VERIFICATION_PAYOUT_CAP_MICRO`. At 3 % sampling that is ~2.1 % of
+  gross margin at the default 70 % compute share;
 - the comparison is exact-hash with two executions, so a disagreement produces
   `inconclusive` and penalises nobody. It detects a *deterministic* divergence
   (a substituted model or binary), not a subtly wrong answer, and the tolerance
