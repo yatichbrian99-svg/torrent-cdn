@@ -42,6 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.ai import crypto
 from app.ai.config import get_ai_settings
 from app.ai.models import Confidentiality, NodeType
+from app.ai.supervision import supervise
 from app.ai.worker import (
     EchoBackend,
     OllamaBackend,
@@ -75,7 +76,9 @@ def _parse_models(raw: str) -> dict[str, str]:
         if not item.strip():
             continue
         if "=" not in item:
-            raise SystemExit(f"malformed model mapping: {item!r} (expected model=manifest_hash)")
+            raise SystemExit(
+                f"malformed model mapping: {item!r} (expected model=manifest_hash)"
+            )
         model_id, digest = item.split("=", 1)
         if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
             raise SystemExit(f"invalid manifest hash for {model_id!r}")
@@ -91,7 +94,9 @@ def _backend(name: str, settings):
     if name == "vllm":
         return VLLMBackend(os.environ.get("TCDN_AI_VLLM_URL", "http://127.0.0.1:8000"))
     if name == "ollama":
-        return OllamaBackend(os.environ.get("TCDN_AI_OLLAMA_URL", "http://127.0.0.1:11434"))
+        return OllamaBackend(
+            os.environ.get("TCDN_AI_OLLAMA_URL", "http://127.0.0.1:11434")
+        )
     raise SystemExit(f"unknown backend {name!r}")
 
 
@@ -103,7 +108,14 @@ async def _heartbeat_loop(
     api_key: str,
     interval_seconds: int = 30,
 ) -> None:
-    """Keep this node's last_heartbeat fresh. Failures are logged, never fatal."""
+    """Keep this node's last_heartbeat fresh.
+
+    A failed beat is reported and re-raised rather than swallowed: the caller
+    runs this under ``supervise``, which restarts it with capped exponential
+    backoff. Swallowing the error here meant a node whose beats never landed
+    kept printing to stderr while the coordinator's liveness gate quietly
+    dropped it from placement — the failure looked exactly like an idle node.
+    """
     while True:
         try:
             payload = {
@@ -118,7 +130,9 @@ async def _heartbeat_loop(
                 "payload": payload,
                 "key_id": identity.identity_key_id,
                 "alg": "Ed25519",
-                "sig": crypto.sign(HEARTBEAT_DOMAIN, payload, identity.identity_private_key),
+                "sig": crypto.sign(
+                    HEARTBEAT_DOMAIN, payload, identity.identity_private_key
+                ),
             }
             async with httpx.AsyncClient(timeout=20.0) as client:
                 response = await client.post(
@@ -127,8 +141,9 @@ async def _heartbeat_loop(
                     headers={"Authorization": f"Bearer {api_key}"},
                 )
                 response.raise_for_status()
-        except Exception as exc:  # pragma: no cover - network conditions
+        except Exception as exc:  # the supervisor's restart is the recovery
             print(f"heartbeat failed: {type(exc).__name__}", file=sys.stderr)
+            raise
         await asyncio.sleep(interval_seconds)
 
 
@@ -149,9 +164,7 @@ async def _register(
         "vram_gb": int(template.get("vram_gb", 0)),
         "region": template.get("region", "unknown"),
         "price_micro_per_mtok": int(template.get("price_micro_per_mtok", 0)),
-        "confidentiality": template.get(
-            "confidentiality", Confidentiality.NONE.value
-        ),
+        "confidentiality": template.get("confidentiality", Confidentiality.NONE.value),
         "software_version": "0.1.0",
         "endpoint": template.get("endpoint", ""),
     }
@@ -198,7 +211,8 @@ async def main_async(args: argparse.Namespace) -> WorkerAgent:
         config=WorkerConfig(
             models=models,
             confidentiality=confidentiality,
-            attested=os.environ.get("TCDN_AI_WORKER_ATTESTED", "false").lower() == "true",
+            attested=os.environ.get("TCDN_AI_WORKER_ATTESTED", "false").lower()
+            == "true",
             # Declared environment committed into every verification receipt.
             # Undeclared values stay "unknown" and cannot match a tolerance
             # profile once calibration exists.
@@ -220,19 +234,33 @@ async def main_async(args: argparse.Namespace) -> WorkerAgent:
         models=models,
         template=template,
     )
-    agent.enable_reporting(os.environ["TCDN_AI_COORDINATOR_URL"], os.environ["TCDN_AI_WORKER_API_KEY"])
+    agent.enable_reporting(
+        os.environ["TCDN_AI_COORDINATOR_URL"], os.environ["TCDN_AI_WORKER_API_KEY"]
+    )
     print(f"registered as {node_id}")
     # Liveness: without heartbeats the coordinator cannot tell a running node
     # from one that died after registering, and keeps routing jobs to the dead
-    # one. Every 30s, signed with the node identity key.
-    asyncio.create_task(
-        _heartbeat_loop(
-            identity,
-            agent,
-            coordinator_url=os.environ["TCDN_AI_COORDINATOR_URL"],
-            api_key=os.environ["TCDN_AI_WORKER_API_KEY"],
-        )
+    # one. Every 30s, signed with the node identity key — supervised, so a crash
+    # restarts it with capped backoff instead of ending the beats silently.
+    heartbeat = asyncio.create_task(
+        supervise(
+            lambda: _heartbeat_loop(
+                identity,
+                agent,
+                coordinator_url=os.environ["TCDN_AI_COORDINATOR_URL"],
+                api_key=os.environ["TCDN_AI_WORKER_API_KEY"],
+            ),
+            on_crash=lambda exc, failures, delay: print(
+                f"heartbeat crashed ({type(exc).__name__}); restart {failures} "
+                f"in {delay:.0f}s",
+                file=sys.stderr,
+            ),
+        ),
+        name="heartbeat-supervisor",
     )
+    # Keep a strong reference: an unreferenced task can be garbage-collected
+    # mid-flight, which would stop the beats without any error at all.
+    agent.background_tasks.append(heartbeat)
     return agent
 
 
@@ -252,7 +280,9 @@ class KeyRingForCoordinator:
             response.raise_for_status()
             document = response.json()["bundle"]
         payload = document["payload"]
-        signing = next(key for key in payload["keys"] if key["key_id"] == document["key_id"])
+        signing = next(
+            key for key in payload["keys"] if key["key_id"] == document["key_id"]
+        )
         if not crypto.verify(
             "tcdn-ai/keys/v1", payload, document["sig"], signing["public_key"]
         ):
@@ -277,7 +307,9 @@ def main() -> None:
     settings = get_ai_settings()
     if not args.tls_cert or not args.tls_key:
         loopback = args.host in {"127.0.0.1", "localhost"}
-        if not (args.allow_plaintext_loopback and loopback and not settings.is_production):
+        if not (
+            args.allow_plaintext_loopback and loopback and not settings.is_production
+        ):
             raise SystemExit(
                 "TLS is required: pass --tls-cert/--tls-key (plaintext is only allowed "
                 "for a loopback development listener with --allow-plaintext-loopback)"
