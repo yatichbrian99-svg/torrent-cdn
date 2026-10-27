@@ -337,6 +337,14 @@ class CoordinatorKeyResponse(_Strict):
     revocations: dict[str, Any]
 
 
+class KillSwitchRequest(_Strict):
+    """Flip the money-out switch (checklist 5.9). A reason is mandatory: an
+    unexplained stop on refunds and payouts is unreviewable afterwards."""
+
+    paused: bool
+    reason: str = Field(min_length=3, max_length=300)
+
+
 class RefundRequest(_Strict):
     """An admin credit adjustment. Money only moves as a ledger entry (4.6)."""
 

@@ -161,8 +161,13 @@ class Coordinator:
             settings.verification_sample_pct,
             secret=settings.verification_sampling_secret(),
         )
+        # Kept for the shared daily-cap counter (and for anything else that needs
+        # cross-instance state); None in dev/test without Redis.
+        self._redis = redis_client
         # Daily dispatch cap so a sample rate cannot turn into an unbounded
-        # second-inference bill. Process-local: one coordinator per deployment.
+        # second-inference bill. Shared through Redis when present, so two
+        # coordinator instances cannot each spend the whole cap (checklist 5.4);
+        # the process-local fallback is for deployments without Redis.
         self._verification_count = 0
         self._verification_day = -1
         self.payment_provider = payment_provider or get_payment_provider(
@@ -527,11 +532,7 @@ class Coordinator:
         decision = self.verification.decide(job_id)
         if not decision.sampled:
             return
-        today = int(now) // 86_400
-        if today != self._verification_day:
-            self._verification_day = today
-            self._verification_count = 0
-        if self._verification_count >= self.settings.verification_daily_cap:
+        if not await self._claim_verification_slot(now):
             await self.store.save_verification(
                 VerificationRecord(
                     job_id=job_id,
@@ -599,7 +600,6 @@ class Coordinator:
                 ticket=ticket_document,
             )
         )
-        self._verification_count += 1
         await self.store.audit(
             "job.verification_scheduled",
             actor=account_id,
@@ -611,6 +611,35 @@ class Coordinator:
                 "verification_job_id": verification_job_id,
             },
         )
+
+    async def _claim_verification_slot(self, now: int) -> bool:
+        """Take one slot from the shared per-UTC-day dispatch budget.
+
+        Redis-backed when available (INCR + a TTL past midnight), so N coordinator
+        instances share one cap instead of N caps. Without Redis the in-process
+        counter is used, which is the documented single-instance limitation.
+        """
+        cap = self.settings.verification_daily_cap
+        if cap <= 0:
+            return False
+        if self._redis is not None:
+            key = f"tcdn:ai:verification:dispatches:{int(now) // 86_400}"
+            try:
+                claimed = await self._redis.incr(key)
+                if claimed == 1:
+                    await self._redis.expire(key, 2 * 86_400)
+                return int(claimed) <= cap
+            except Exception:
+                logger.warning(
+                    "verification dispatch counter unavailable in Redis; "
+                    "falling back to the process-local counter"
+                )
+        today = int(now) // 86_400
+        if today != self._verification_day:
+            self._verification_day = today
+            self._verification_count = 0
+        self._verification_count += 1
+        return self._verification_count <= cap
 
     async def verification_assignment(self, job_id: str) -> dict[str, Any] | None:
         """Hand the caller a ready-to-send verification run, once.
@@ -1352,6 +1381,7 @@ class Coordinator:
         account (the customer), so the ledger still sums to zero and a
         reconciliation export can tell a refund from a purchase.
         """
+        await self._refuse_when_payouts_are_paused("refund")
         await self.store.credit(
             account_id,
             amount_micro,
@@ -1365,6 +1395,67 @@ class Coordinator:
             account_id,
             amount_micro,
             reason,
+        )
+
+    # ── operator controls (kill switch) ────────────────────────────────────
+
+    #: Name of the switch row shared by every coordinator instance.
+    PAYOUT_SWITCH = "payouts"
+
+    async def _refuse_when_payouts_are_paused(self, action: str) -> None:
+        state = await self.store.get_control(self.PAYOUT_SWITCH)
+        if state and state.get("paused"):
+            raise ConflictError(
+                f"{action} is paused by an operator: {state.get('reason', 'no reason')}",
+                code="payouts_paused",
+                details={"reason": state.get("reason", "")},
+            )
+
+    async def set_payout_kill_switch(
+        self, *, paused: bool, reason: str, actor: str
+    ) -> dict[str, Any]:
+        """Stop or resume every money-out action, recorded with who and why.
+
+        Stored in the shared control row (not in process memory) so a switch
+        flipped on one instance is honoured by all of them, and it survives a
+        restart — a kill switch that a deploy can silently clear is not one.
+        """
+        if not reason.strip():
+            raise ValidationError(
+                "a kill-switch change needs a reason", code="missing_reason"
+            )
+        value = {
+            "paused": bool(paused),
+            "reason": reason.strip()[:300],
+            "changed_at": int(self.clock()),
+        }
+        await self.store.set_control(self.PAYOUT_SWITCH, value, actor=actor)
+        await self.store.audit(
+            "admin.payout_kill_switch",
+            actor=actor,
+            subject=self.PAYOUT_SWITCH,
+            detail=value,
+        )
+        return value
+
+    async def payout_status(self) -> dict[str, Any]:
+        state = await self.store.get_control(self.PAYOUT_SWITCH)
+        return {"paused": bool(state and state.get("paused")), "state": state}
+
+    async def record_payout(self, record: dict[str, Any], *, actor: str = "") -> None:
+        """Persist a payout record unless an operator has paused payouts."""
+        await self._refuse_when_payouts_are_paused("payout")
+        await self.store.save_payout(record)
+        await self.store.audit(
+            "payout.recorded",
+            actor=actor,
+            subject=str(record.get("node_id", "")),
+            detail={
+                "amount_micro": record.get("amount_micro"),
+                "component": record.get("component"),
+                "period_start": record.get("period_start"),
+                "period_end": record.get("period_end"),
+            },
         )
 
     # ── redundant-execution verification ───────────────────────────────────

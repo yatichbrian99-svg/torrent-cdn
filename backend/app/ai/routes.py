@@ -38,6 +38,7 @@ from .models import (
     AckPayload,
     BalanceResponse,
     CoordinatorKeyResponse,
+    KillSwitchRequest,
     ModelInfo,
     NodeRegistrationResponse,
     PlacementRequest,
@@ -383,6 +384,32 @@ async def create_api_key(
     )
     # Shown exactly once; never logged.
     return {"api_key": raw, "account_id": account_id, "scopes": list(requested)}
+
+
+@admin_router.get("/kill-switch")
+async def read_kill_switch(
+    admin_uid: Annotated[object, Depends(require_admin)],
+    coordinator: Annotated[Coordinator, Depends(get_coordinator)],
+) -> dict:
+    """Current state of the money-out switch (checklist 5.9)."""
+    return await coordinator.payout_status()
+
+
+@admin_router.post("/kill-switch")
+async def set_kill_switch(
+    body: KillSwitchRequest,
+    admin_uid: Annotated[object, Depends(require_admin)],
+    coordinator: Annotated[Coordinator, Depends(get_coordinator)],
+) -> dict:
+    """Pause or resume refunds and payouts, with an audited reason.
+
+    The switch is stored in the shared ``ai_controls`` row, so every coordinator
+    instance honours it and a redeploy cannot quietly clear it.
+    """
+    state = await coordinator.set_payout_kill_switch(
+        paused=body.paused, reason=body.reason, actor=str(admin_uid)
+    )
+    return {"paused": state["paused"], "state": state}
 
 
 @admin_router.post("/refunds")

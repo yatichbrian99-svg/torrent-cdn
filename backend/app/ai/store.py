@@ -252,6 +252,16 @@ CREATE TABLE IF NOT EXISTS ai_verifications (
 ALTER TABLE ai_verifications ADD COLUMN IF NOT EXISTS ticket JSONB;
 ALTER TABLE ai_verifications ADD COLUMN IF NOT EXISTS shadow_output_sha256 CHAR(64);
 
+-- Operator switches that must survive a restart and be visible to every
+-- coordinator instance (checklist 5.9). The value is JSON so a switch can carry
+-- its own reason and the identity that set it.
+CREATE TABLE IF NOT EXISTS ai_controls (
+    name VARCHAR(64) PRIMARY KEY,
+    value JSONB NOT NULL,
+    updated_by TEXT,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS ai_audit_log (
     id BIGSERIAL PRIMARY KEY,
     event VARCHAR(64) NOT NULL,
@@ -526,6 +536,12 @@ class Store(Protocol):
 
     async def save_payout(self, record: dict[str, Any]) -> None: ...
 
+    async def set_control(
+        self, name: str, value: dict[str, Any], *, actor: str
+    ) -> None: ...
+
+    async def get_control(self, name: str) -> dict[str, Any] | None: ...
+
     async def audit(
         self,
         event: str,
@@ -559,6 +575,7 @@ class MemoryStore:
         self.verifications: dict[str, VerificationRecord] = {}
         self.transfers: list[dict] = []
         self.payouts: list[dict] = []
+        self.controls: dict[str, dict[str, Any]] = {}
         self.audit_log: list[dict] = []
         self.attestations: list[dict] = []
         self.price_locks: dict[str, int] = {}
@@ -844,6 +861,15 @@ class MemoryStore:
 
     async def save_payout(self, record: dict[str, Any]) -> None:
         self.payouts.append(record)
+
+    async def set_control(
+        self, name: str, value: dict[str, Any], *, actor: str
+    ) -> None:
+        self.controls[name] = {"value": value, "updated_by": actor}
+
+    async def get_control(self, name: str) -> dict[str, Any] | None:
+        record = self.controls.get(name)
+        return dict(record["value"]) if record else None
 
     async def audit(
         self,
@@ -1764,6 +1790,34 @@ class PostgresStore:
                 record["amount_micro"],
                 record.get("status", "pending"),
             )
+
+    async def set_control(
+        self, name: str, value: dict[str, Any], *, actor: str
+    ) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO ai_controls (name, value, updated_by, updated_at)
+                VALUES ($1, $2::jsonb, $3, NOW())
+                ON CONFLICT (name) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    updated_by = EXCLUDED.updated_by,
+                    updated_at = NOW()
+                """,
+                name,
+                json.dumps(value),
+                actor,
+            )
+
+    async def get_control(self, name: str) -> dict[str, Any] | None:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT value FROM ai_controls WHERE name = $1", name
+            )
+        if row is None:
+            return None
+        value = row["value"]
+        return json.loads(value) if isinstance(value, str) else dict(value)
 
     async def audit(
         self,

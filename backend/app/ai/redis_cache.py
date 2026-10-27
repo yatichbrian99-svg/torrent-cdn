@@ -187,7 +187,13 @@ class RedisNonceStore(
                 "redis nonce consume failed for %s — in-process state may be stale",
                 nonce,
             )
-        super().consume(nonce, node_id)
+        # Redis is the authority. The inherited ``consume`` requires the nonce to
+        # be in THIS process's dict, which is false when a second coordinator
+        # instance issued the nonce — attestation then failed closed across
+        # instances (checklist 5.4). Drop the local copy if this instance has one;
+        # never require it.
+        with self._lock:
+            self._nonces.pop(nonce, None)
 
     async def _forget(self, key: str) -> None:
         try:
