@@ -187,10 +187,36 @@ crash/restart matrix), **4.4** (no Paystack sandbox run, M-Pesa not enabled),
 | 12.1 | This checklist complete, counts, "Level 1 ready" line | P1 | **VERIFIED** | this file | says **NO** with reasons |
 | 12.2 | `VERIFICATION_REPORT.md` per Appendix 4 §7 | P1 | **VERIFIED** | counts re-measured 2026-10-26 and corrected: flag **on** `1030 passed, 4 skipped`, flag **off** `971 passed, 63 skipped`, AI subset **327 tests**; break tests **13/13**; the OpenAI-client and refund rows corrected from "not implemented" to what is now true. **M3 pass, same day, no Postgres attached:** flag on `1020 passed, 21 skipped` (81 s), flag off `961 passed, 80 skipped` (99 s), AI subset `303 passed, 21 skipped`, new file `7 passed`; `ruff check` clean | the report is a dated record with a revision note; `PUSH_CHECKLIST.md` is the current status. The two runs differ only in the Postgres lanes, which skip without `TEST_POSTGRES_URL` |
 | 12.3 | Draft PR description with all required sections | P1 | **MISSING** | no PR opened | blocked by the items above |
-| 12.4 | After push: CI green, no secrets, PR link | P1 | **MISSING** | pushed: 3 workflows green at `853d8a6` (lint, docker audit incl. `ai-store`, engine), 0 secrets in the full-history scan | **no PR** (a trial push explicitly excluded one) and CI is not green across the whole Level-1 set, so this cannot pass yet |
+| 12.4 | After push: CI green, no secrets, PR link | P1 | **MISSING** | pushed again at `6650419`/`7d3c8d2`: `backend-lint`, full-stack (`ai-store` incl. Postgres + JS client), engine and a dispatched `security.yml` are all green (runs `40473483848`, `40473483798`, `40473483825`, `40473565249`), 0 secrets in the full-history scan | **no PR** (a branch-only push was requested) and CI is not green across the whole Level-1 set (5.5, 10.2 still open), so this cannot pass yet |
 | 12.5 | Temporary trial-push triggers removed, in their own labelled commit, before the PR is marked ready | P1 | **MISSING** | three workflows list `fix/tcdn-ai-redis-replay-nonce` in `push:` — `ci-fullstack.yml`, `backend-lint.yml`, `tcdn-ai-engine.yml`, each marked with a remove-before-merge comment | the triggers exist only to make CI runnable on a branch; shipping them would run CI on that branch forever |
 
 ---
+
+## CI evidence — the M4 push (2026-10-27)
+
+Three commits were pushed to `fix/tcdn-ai-redis-replay-nonce` (`7673a4f..6650419`, no PR,
+no force), and the same product-branch fixes to `fix/product-security-hardening`
+(`520fc12..7d3c8d2`). The feature branch ran every workflow it is wired to; the product
+branch is not listed in any `push:` trigger, so it runs nothing until it opens a PR —
+that is the split working as intended, not a gap.
+
+| Run | Workflow | Result | Detail |
+|---|---|---|---|
+| **40473483848** | `backend-lint` | **success** 26s | `ruff check` + `ruff format --check` + non-strict mypy on the AI package and SDK |
+| **40473483798** | CI: Full-stack Docker audit | **success** 2m48s | `fullstack-audit`, **`ai-store`**, `container-scan` |
+| ↳ `ai-store` | real Postgres + Redis | **success** | `61 passed` (Redis-backed AI tests), **`18 passed`** (Postgres + migrations + schema contract on a fresh DB), **`365 passed, 4 skipped`** (AI suite, flag on) |
+| ↳ `ai-store` | official JS client | **success** | `openai (official, npm)`, node v22.23.3, **19/19 checks**, streamed 66 chars, `ok: true` |
+| ↳ `container-scan` | Trivy | **success** | report-only lane; gnutls CVEs listed, none newly blocking |
+| **40473483825** | TCDN-AI engine (nightly) | **success** 1m26s | real Ollama inference + journey on the pushed commit |
+| **40473565249** | CI: Tests & Security Audits (dispatch) | **success** 1m55s | 10/10 jobs, including `static-audit` |
+| ↳ `tests` | backend suite, flag off | **success** | `997 passed, 81 skipped` in 69 s |
+| ↳ `frontend-checks` | Vitest + tsc | **success** | 20 files, **179 tests**, OG guard OK |
+| ↳ `static-audit` | secret scan, dead code, semgrep/bandit | **success** | the earlier failure in this lane was the dead-code audit at `7673a4f` (1 finding); the pushed commits clear it |
+
+Green-run caveat, stated because the row asks for the whole Level-1 set: `security.yml`
+still has no `push` trigger for this branch, so its ten jobs ran on **dispatch** against
+the same ref and SHA, not as part of the push. 12.4 stays `MISSING` until a PR exists
+(12.3), 5.5 (SAST/ZAP/Trivy blocking) is closed and 10.2 has results.
 
 ## CI evidence — the trial push (2026-10-25)
 

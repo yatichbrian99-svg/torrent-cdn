@@ -1,11 +1,19 @@
 # TCDN-AI — STATE (single source of truth)
 
-Last updated: **2026-10-26** (M3 redundant execution wired into placement)
-Current branch: **`fix/tcdn-ai-redis-replay-nonce`** (nothing pushed, nothing on `main`)
-Last committed revision: **`b06b1ab`** — M1, the M2 data layer and the M2 closure set
-are committed in three commits (`c9b3086` code+tests, `bc267f0` CI+tools, `b06b1ab`
-docs); `main` still carries no TCDN-AI code. The working tree holds the M3 redundant
-execution wiring plus the untracked `frontend/torrentcdn-integration.html` (O2).
+Last updated: **2026-10-27** (M4: authorization matrix, two-instance state, canary scan,
+kill switch, crypto/key artifacts, branch split)
+Branches: **`fix/tcdn-ai-redis-replay-nonce`** (TCDN-AI, pushed, no PR) and
+**`fix/product-security-hardening`** (the CDN-side fixes, branched off `main` at
+`200109e`, pushed, no PR). `main` still carries no TCDN-AI code and **not** the F-10 fix.
+Last committed revision: **`6650419`** on the feature branch (`7d3c8d2` on the product
+branch). The two branches carry byte-identical product fixes.
+
+**Measured 2026-10-27** (this pass, no Postgres or Redis attached locally — those lanes
+run in CI): full suite flag **on** **1056 passed, 21 skipped**, 97 s, exit 0; flag **off**
+**996 passed, 81 skipped**, 81 s, exit 0. CI on the pushed commits (run numbers in
+`PUSH_CHECKLIST.md` §"CI evidence — the M4 push"): `ai-store` 61 + 18 + **365** passed,
+`tests` 997 passed / 81 skipped, frontend 179 passed, JS client **19/19**, real engine
+**success**, `container-scan` and `static-audit` **success**.
 
 **Measured 2026-10-26** (evidence in `PUSH_CHECKLIST.md`, `evidence/06-break-tests/`,
 `evidence/09-openai-gateway/`):
@@ -39,7 +47,7 @@ this file is the short, current status.
 | M6 Ledger, credits, holds, settlement | **Done and verified** | Live invariants; H-1 (disputed jobs leaking the hold) is **fixed**: `service.py:721-728` releases the hold, `test_ai_service.py:429` proves it; Postgres lane 7/7 |
 | M7 P2P weight streaming | **Partial** | Manifest/Merkle/fetch tested; no real WebRTC/libtorrent transport; no direct-to-VRAM |
 | M8 Seeder receipts + payout split | **Partial** | Math/fraud controls unit-tested; no ingestion or payout issuance |
-| M9 Result verification (Part 3) | **Partial — wired in gateway mode** | Placement now issues a second signed ticket to a *different* operator and records it in `ai_verifications`; the gateway dispatches it in the background and the two output hashes are compared as soon as both receipts land (`test_ai_redundant_execution.py`, 7 tests). Still missing: an unpredictable (commitment-derived) sample seed, the 3 % default, any SDK-mode path, and real tolerance profiles — checklist 6.1 is `PARTIAL` with the three clauses named |
+| M9 Result verification (Part 3) | **Partial — wired, keyed and paid in gateway mode** | Placement issues a second signed ticket to a *different* operator and records it in `ai_verifications`; the gateway dispatches it in the background and compares the two output hashes as soon as both receipts land (`test_ai_redundant_execution.py`). Since M4 the sample is `HMAC-SHA-256(coordinator_secret, domain \|\| job_id)` at a **3 %** default (`test_sample_is_not_derivable_from_the_job_id`), and the shadow operator is **paid** the compute share of its own tokens from `platform:revenue`, capped and idempotent per shadow job (`TestShadowPayout`). Still missing: a decision taken **after** a commitment, any SDK-mode path (no plaintext at the coordinator), and real tolerance profiles — 6.1 stays `PARTIAL` with those two clauses named |
 | M10 Confidential tier | **Simulated / interfaces only** | Policy + simulated adapter tested; real SEV-SNP/TDX/NVIDIA verifiers fail closed |
 | M11 Burn module | **Disabled** | Dry-run only, off by default, legal ack required in production |
 | M12 Hardening, docs, full gate | **Partly done** | CI is green on GitHub for the first time (all five workflows at `0360b10`, incl. the AI Postgres/Redis job, `ai-types`, `container-scan` report-only, and the nightly real-engine job); soak/chaos/DAST/pentest still missing; coverage 84 % |
@@ -73,7 +81,15 @@ each, no hang: `925 passed, 11 skipped` (flag on) and `879 passed, 57 skipped`
   node key, the pair is compared once both arrive, the customer is billed once,
   and the refusal paths (`no_alternate_node`, `daily_cap_reached`,
   `not_dispatched_sdk_mode`, `dispatch_failed`) are recorded rather than silent —
-  `tests/test_ai_redundant_execution.py` 7/7.
+  `tests/test_ai_redundant_execution.py`. The sample is keyed with a
+  coordinator-side secret (3 % default, shared daily cap), and the shadow run is
+  paid from `platform:revenue` with one ledger entry per shadow job.
+- **M4 artifacts**: `CRYPTO_REVIEW.md` (16 primitives, citation-checked),
+  `KEY_INVENTORY.md` (9 keys, rotation/revocation), the dependency-derived
+  authorization matrix (68 routes, `unclassified` fails), two coordinators over
+  one Redis (`test_ai_two_instances.py`, 6 tests), the environment-wide canary
+  scanner (`scripts/canary_scan.py`), and the payout kill switch
+  (`ai_controls`, `409 payouts_paused`, audited).
 - Break tests `13/13` CAUGHT.
 - `ruff` clean; SQL-injection audit clean; gitleaks history 0 findings;
   `secret_scan.sh --full` clean; `pip-audit` no known vulnerabilities.
@@ -119,6 +135,13 @@ each, no hang: `925 passed, 11 skipped` (flag on) and `879 passed, 57 skipped`
   `test_ai_postgres.py` on every push to the trial branch and passes in ~50 s
   (run `40184119060`), and the nightly engine job runs real Ollama inference
   (`40184119132`).
+- The canary scanner's **Postgres and Redis modes** have not been executed
+  anywhere: CI has no service container for it and this environment has neither
+  service. The store snapshot it scans is the same object graph those modes
+  persist from, so the assertion is equivalent, not identical.
+- **F-10 is fixed on `fix/product-security-hardening` only** — `main` still has
+  the un-required `decode_access_token`. Nothing is deployed until that branch
+  merges.
 
 ## 4. What is simulated (and labelled)
 
