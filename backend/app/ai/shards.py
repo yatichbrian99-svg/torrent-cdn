@@ -536,7 +536,9 @@ class SwarmFetcher:
                 last_error = exc
             else:
                 if (
-                    crypto.constant_time_eq(hashlib.sha256(data).hexdigest(), spec.sha256)
+                    crypto.constant_time_eq(
+                        hashlib.sha256(data).hexdigest(), spec.sha256
+                    )
                     and len(data) == spec.size
                 ):
                     self.sink.put_shard(spec.index, data)
