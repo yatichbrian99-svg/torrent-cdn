@@ -54,6 +54,12 @@ class SharedRedis:
     async def delete(self, key: str) -> int:
         return 1 if self.state.pop(key, None) is not None else 0
 
+    async def getdel(self, key: str) -> bytes | None:
+        """Atomic fetch-and-delete (Redis 6.2+), used by the nonce store."""
+        record = self._live(key)
+        self.state.pop(key, None)
+        return record[0].encode() if record else None
+
     async def incr(self, key: str) -> int:
         record = self._live(key)
         value = int(record[0]) + 1 if record else 1

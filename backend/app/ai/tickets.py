@@ -88,6 +88,7 @@ class TicketService:
         ttl_seconds: int = 120,
         skew_seconds: int = 5,
         clock=now_unix,
+        on_failure: Any = None,
     ) -> TicketService:
         """Build a TicketService backed by Redis when Redis is available.
 
@@ -95,21 +96,31 @@ class TicketService:
         methods) in which case the service falls back to the in-process
         ``MemoryReplayCache`` rather than crashing.
 
-        The probe is deliberately cheap and non-blocking at import time: we
-        construct the ``RedisReplayCache`` eagerly, but we only discover a
-        broken Redis client when the first real ``verify`` runs, at which point
-        ``claim`` falls back to ``False`` and the in-process cache is swapped
-        in for the remainder of that request. That is enough to keep the
-        coordinator live during a Redis blip; a persistent outage will leave
-        replay protection in-process (per-instance), which is the documented
-        limitation.
+        The probe is deliberately cheap at construction time: a broken Redis
+        client is only discovered when the first real ``verify`` runs, at which
+        point ``claim`` **rejects** (fail closed) and reports the failure through
+        the ``on_failure`` hook — it does not silently fall back to a per-process
+        cache, because a ticket could then be replayed on another instance. A
+        persistent outage therefore refuses every ticket, loudly; that is the
+        deliberate trade-off documented in LIMITATIONS.md.
         """
-        try:
-            replay: ReplayCache = RedisReplayCache(
-                redis_client, key_prefix="ticket", clock=clock
-            )
-        except Exception:
-            replay = MemoryReplayCache(clock=clock)
+        if redis_client is None:
+            # No Redis: the in-process cache IS the implementation. Constructing
+            # RedisReplayCache(None) here used to mean every claim failed closed
+            # ("ticket has already been used") the first time a local verify ran
+            # without Redis — a latent trap for any caller that verifies without
+            # \"claim_replay=False\".
+            replay: ReplayCache = MemoryReplayCache(clock=clock)
+        else:
+            try:
+                replay = RedisReplayCache(
+                    redis_client,
+                    key_prefix="ticket",
+                    clock=clock,
+                    on_failure=on_failure,
+                )
+            except Exception:
+                replay = MemoryReplayCache(clock=clock)
 
         # Redis-backed: verification claims the jti atomically in Redis so two
         # coordinator instances cannot both accept the same ticket. The rest of

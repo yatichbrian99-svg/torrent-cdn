@@ -11,6 +11,7 @@ They do not touch the rest of the AI module's logic — that is covered elsewher
 from __future__ import annotations
 
 import asyncio
+import threading
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -85,6 +86,13 @@ class _FakeRedis:
         self.state.pop(key, None)
         self.ops.append(("delete", (key,)))
         return 1 if existed else 0
+
+    async def getdel(self, key: str) -> bytes | None:
+        """Atomic fetch-and-delete (Redis 6.2+), what the nonce store uses."""
+        value = await self.get(key)
+        self.state.pop(key, None)
+        self.ops.append(("getdel", (key,)))
+        return value
 
     async def incr(self, key: str) -> int:
         value = int(self.state.get(key, (None,))[0]) if self.state.get(key, (None,))[0] is not None else 0
@@ -221,6 +229,122 @@ class TestRedisNonceStore:
         nonce = store.issue("node-a")
         with pytest.raises(AttestationError):
             store.consume(nonce, "node-a")
+
+
+class _SlowGetRedis(_FakeRedis):
+    """A fake whose GET and DELETE are slow enough for consumers to interleave.
+
+    Real Redis runs GETDEL as a single command; this double models that by
+    holding a lock across the delete. Plain GET/DELETE stay deliberately slow:
+    if the nonce store ever regresses to a GET-then-DELETE pair, the slow GETs
+    overlap, every consumer sees the value, and the concurrency tests below
+    fail instead of passing on a lucky ordering.
+    """
+
+    _lock = threading.Lock()
+
+    async def get(self, key: str) -> bytes | None:
+        value = await super().get(key)
+        await asyncio.sleep(0.05)
+        return value
+
+    async def getdel(self, key: str) -> bytes | None:
+        with self._lock:
+            return await super().getdel(key)
+
+
+class TestNonceConsumptionIsAtomic:
+    """One nonce presented N times at once must have exactly ONE winner.
+
+    Sequential reuse tests pass for a non-atomic store: the two calls are
+    ordered, so the second one sees a missing key no matter how the key is
+    removed. The property that actually protects the confidential tier is that
+    simultaneous presentations cannot both succeed — measured 299/300 double
+    successes against a real Redis with the old GET-then-DELETE pair, i.e. a
+    captured nonce could be spent twice by anyone who could race the verifier.
+    """
+
+    RACERS = 8
+
+    @classmethod
+    def _race(cls, store: Any, nonce: str, node_id: str) -> list[str]:
+        outcomes: dict[int, str] = {}
+        ready = threading.Barrier(cls.RACERS)
+
+        def attempt(index: int) -> None:
+            # Every consumer waits here, so the presentations genuinely overlap
+            # instead of queueing behind the test's own setup.
+            ready.wait(timeout=30)
+            try:
+                store.consume(nonce, node_id)
+            except AttestationError as exc:
+                outcomes[index] = f"rejected:{exc.code}"
+            else:
+                outcomes[index] = "consumed"
+
+        threads = [
+            threading.Thread(target=attempt, args=(index,), daemon=True)
+            for index in range(cls.RACERS)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+        assert len(outcomes) == cls.RACERS, "a concurrent consumer never returned"
+        return sorted(outcomes.values())
+
+    def test_the_in_process_store_has_exactly_one_winner(self):
+        store = NonceStore(ttl_seconds=60)
+        nonce = store.issue("node-a")
+        outcomes = self._race(store, nonce, "node-a")
+        assert outcomes.count("consumed") == 1, outcomes
+        assert set(outcomes) == {"consumed", "rejected:stale_nonce"}
+
+    def test_the_redis_store_has_exactly_one_winner(self):
+        redis = _SlowGetRedis()
+        store = RedisNonceStore(redis, ttl_seconds=60)
+        nonce = store.issue("node-a")
+        outcomes = self._race(store, nonce, "node-a")
+        assert outcomes.count("consumed") == 1, outcomes
+        assert set(outcomes) == {"consumed", "rejected:stale_nonce"}
+        # Taken, not merely read: nothing is left for a retry.
+        assert redis.state == {}
+
+    def test_two_instances_sharing_redis_have_exactly_one_winner(self):
+        """Two coordinator instances, one nonce, no in-process fallback.
+
+        Each instance has its own ``NonceStore`` dict, so a store that trusts
+        its local copy would let both instances attest with the same nonce.
+        """
+        redis = _SlowGetRedis()
+        issuer, other = (
+            RedisNonceStore(redis, ttl_seconds=60) for _ in range(2)
+        )
+        nonce = issuer.issue("node-a")
+        outcomes: dict[int, str] = {}
+        ready = threading.Barrier(self.RACERS)
+
+        def attempt(index: int) -> None:
+            store = issuer if index % 2 == 0 else other
+            ready.wait(timeout=30)
+            try:
+                store.consume(nonce, "node-a")
+            except AttestationError as exc:
+                outcomes[index] = f"rejected:{exc.code}"
+            else:
+                outcomes[index] = "consumed"
+
+        threads = [
+            threading.Thread(target=attempt, args=(index,), daemon=True)
+            for index in range(self.RACERS)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+        assert sorted(outcomes.values()) == [
+            "consumed"
+        ] + ["rejected:stale_nonce"] * (self.RACERS - 1)
 
 
 class TestSyncBridgeInsideARunningLoop:

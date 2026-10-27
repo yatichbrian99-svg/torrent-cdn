@@ -30,6 +30,15 @@ class NonceStore:
         return nonce
 
     def consume(self, nonce: str, node_id: str) -> None:
+        """Spend the nonce exactly once, even under concurrent callers.
+
+        The pop happens under the lock and *before* validation, so a loser of a
+        race sees a missing key instead of the record and cannot be attested
+        with the same nonce. ``test_ai_redis.py::TestNonceConsumptionIsAtomic``
+        races eight threads at one nonce and requires exactly one winner; a
+        get-without-pop implementation passes every sequential test and fails
+        that one.
+        """
         now = int(self._clock())
         with self._lock:
             record = self._nonces.pop(nonce, None)

@@ -168,14 +168,29 @@ class AttestationService:
                 AttestationPlatform.NVIDIA_GPU: simulated,
             }
 
-    def configure_redis(self, redis_client: Any) -> None:
+    def configure_redis(
+        self,
+        on_failure: Callable[[dict[str, Any]], None] | None = None,
+        redis_client: Any = None,
+    ) -> None:
         """Swap the nonce store for a Redis-backed one when Redis is available.
 
         ``redis_client`` may be ``None`` or an object lacking the expected
         methods; in either case this is a no-op and the in-process nonce store
-        stays in use.
+        stays in use. ``on_failure`` is the alert seam: the Redis store reports
+        every failed consume/issue through it (the coordinator turns those into
+        an ``ai.redis_unavailable`` audit row).
         """
+        if redis_client is None:
+            return
         try:
+            self.nonces = RedisNonceStore(
+                redis_client,
+                ttl_seconds=self.settings.attestation_nonce_ttl_seconds,
+                on_failure=on_failure,
+            )
+        except TypeError:
+            # Older/duck-typed store without the hook parameter: still usable.
             self.nonces = RedisNonceStore(
                 redis_client, ttl_seconds=self.settings.attestation_nonce_ttl_seconds
             )
