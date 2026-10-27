@@ -90,7 +90,7 @@ class TestPayoutKillSwitch:
     @pytest.mark.asyncio
     async def test_the_admin_route_requires_an_admin(self, ai_env):
         from app.ai import routes as ai_routes
-        from app.routes.admin import require_admin
+        from app.routes.admin import require_admin_jwt
 
 
         @asynccontextmanager
@@ -116,7 +116,10 @@ class TestPayoutKillSwitch:
         if refused.status_code == 404:
             return
 
-        app.dependency_overrides[require_admin] = lambda: UUID(
+        # The admin routes require a session JWT (audit F-6), so the override has
+        # to replace that dependency — the JWT itself is not what this test is
+        # about, the coordinator's switch is.
+        app.dependency_overrides[require_admin_jwt] = lambda: UUID(
             "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
         )
         try:
@@ -127,7 +130,7 @@ class TestPayoutKillSwitch:
                 )
                 read = await c.get("/api/ai/v1/admin/kill-switch")
         finally:
-            app.dependency_overrides.pop(require_admin, None)
+            app.dependency_overrides.pop(require_admin_jwt, None)
         assert accepted.status_code == 200, accepted.text
         assert accepted.json()["paused"] is True
         assert read.status_code == 200
