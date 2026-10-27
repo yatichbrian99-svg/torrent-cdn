@@ -407,6 +407,31 @@ async def get_current_user_id(
     return user_id
 
 
+async def get_current_user_id_jwt_only(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> UUID:
+    """Session-JWT authentication: a ``tcdn_`` API key is refused outright.
+
+    Session tokens are minted for a browser session and die with it; API keys are
+    long-lived secrets that get pasted into a deployment's environment, a CI
+    variable or a script — the ones that leak. An endpoint that moves money must
+    not accept one, because an API key inherits its owner's full authority: an
+    admin's key could otherwise mint credits, create keys or flip the payout
+    kill switch, which is what the routes' "admin JWT" documentation promised it
+    could not (audit F-6).
+
+    The refusal is decided from the credential itself, before any lookup, so an
+    API key cannot be used to probe admin state either.
+    """
+    if credentials.credentials.startswith(API_KEY_PREFIX):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This endpoint requires a session token, not an API key",
+        )
+    return await get_current_user_id(request, credentials)
+
+
 async def get_optional_user_id(
     credentials: HTTPAuthorizationCredentials | None = Depends(
         HTTPBearer(auto_error=False)

@@ -3,9 +3,12 @@
 Receiving money (plans) is handled in billing.py; this module is the other half
 of the Paystack integration: moving money OUT of the Paystack balance to an
 M-PESA wallet. Because payouts move real money, every endpoint is gated behind
-``require_admin`` and every transfer references a recipient that was first
-created (and stored) through this module — an admin can never pay an arbitrary
-recipient code they typed by hand.
+``require_admin``, and the three endpoints that move money or bank details
+(create/deactivate a recipient, initiate a transfer) are gated behind
+``require_admin_jwt`` — a long-lived ``tcdn_`` API key must not be able to send
+money, the same rule audit F-6 applied to the AI admin routes. Every transfer
+also references a recipient that was first created (and stored) through this
+module — an admin can never pay an arbitrary recipient code they typed by hand.
 
 Flows (mirroring Seike's Paystack Transfers email 1:1):
 
@@ -44,7 +47,7 @@ from ..models import (
 )
 from ..security import contains_control_chars
 from ..security_events import record as record_event
-from .admin import require_admin
+from .admin import require_admin, require_admin_jwt
 
 # Same secret key + API base as the payment side (billing.py) — one source of
 # truth; billing does not import this module, so there is no import cycle.
@@ -149,7 +152,7 @@ async def list_recipients(_: UUID = Depends(require_admin)):
 @router.post("/recipients", response_model=PayoutRecipientResponse)
 async def create_recipient(
     data: PayoutRecipientCreate,
-    admin_id: UUID = Depends(require_admin),
+    admin_id: UUID = Depends(require_admin_jwt),
 ):
     """Create an M-PESA transfer recipient on Paystack and store it locally.
 
@@ -237,7 +240,7 @@ async def create_recipient(
 @router.delete("/recipients/{recipient_code}")
 async def deactivate_recipient(
     recipient_code: str,
-    admin_id: UUID = Depends(require_admin),
+    admin_id: UUID = Depends(require_admin_jwt),
 ):
     """Deactivate a transfer recipient (local soft-deactivate + Paystack).
 
@@ -309,7 +312,7 @@ async def list_payouts(_: UUID = Depends(require_admin)):
 @router.post("", response_model=PayoutResponse)
 async def initiate_payout(
     data: PayoutInitiateRequest,
-    admin_id: UUID = Depends(require_admin),
+    admin_id: UUID = Depends(require_admin_jwt),
 ):
     """Initiate a transfer from the Paystack balance to a stored recipient.
 

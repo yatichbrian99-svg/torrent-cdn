@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse
 
 from ..database import get_db_pool, get_redis
-from ..routes.admin import require_admin
+from ..routes.admin import require_admin_jwt
 from ..security import get_client_ip
 from .clock import now_unix
 from .config import AISettings, get_ai_settings
@@ -346,7 +346,7 @@ async def coordinator_keys(
 async def record_verification(
     job_id: str,
     outputs: dict[str, str],
-    admin_uid: Annotated[object, Depends(require_admin)],
+    admin_uid: Annotated[object, Depends(require_admin_jwt)],
     coordinator: Annotated[Coordinator, Depends(get_coordinator)],
 ) -> dict:
     """Record independent execution hashes for a sampled job."""
@@ -367,7 +367,7 @@ async def record_verification(
 @admin_router.post("/api-keys")
 async def create_api_key(
     account_id: str,
-    admin_uid: Annotated[object, Depends(require_admin)],
+    admin_uid: Annotated[object, Depends(require_admin_jwt)],
     coordinator: Annotated[Coordinator, Depends(get_coordinator)],
     scopes: str = "inference",
 ) -> dict:
@@ -388,7 +388,7 @@ async def create_api_key(
 
 @admin_router.get("/kill-switch")
 async def read_kill_switch(
-    admin_uid: Annotated[object, Depends(require_admin)],
+    admin_uid: Annotated[object, Depends(require_admin_jwt)],
     coordinator: Annotated[Coordinator, Depends(get_coordinator)],
 ) -> dict:
     """Current state of the money-out switch (checklist 5.9)."""
@@ -398,7 +398,7 @@ async def read_kill_switch(
 @admin_router.post("/kill-switch")
 async def set_kill_switch(
     body: KillSwitchRequest,
-    admin_uid: Annotated[object, Depends(require_admin)],
+    admin_uid: Annotated[object, Depends(require_admin_jwt)],
     coordinator: Annotated[Coordinator, Depends(get_coordinator)],
 ) -> dict:
     """Pause or resume refunds and payouts, with an audited reason.
@@ -415,7 +415,7 @@ async def set_kill_switch(
 @admin_router.post("/refunds")
 async def refund_credits(
     body: RefundRequest,
-    admin_uid: Annotated[object, Depends(require_admin)],
+    admin_uid: Annotated[object, Depends(require_admin_jwt)],
     coordinator: Annotated[Coordinator, Depends(get_coordinator)],
 ) -> dict:
     """Credit an account as a double-entry ledger transaction (row 4.6).

@@ -8,7 +8,11 @@ from uuid import UUID
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..auth import get_current_user_id, revoke_user_sessions
+from ..auth import (
+    get_current_user_id,
+    get_current_user_id_jwt_only,
+    revoke_user_sessions,
+)
 from ..config import get_settings
 from ..database import get_db_pool
 from ..models import AdminAnalyticsResponse, UpdateUserPlanRequest, UserAdminResponse
@@ -23,8 +27,8 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 _ADMIN_START_TIME = time.time()
 
 
-async def require_admin(user_id: UUID = Depends(get_current_user_id)) -> UUID:
-    """Dependency that ensures the user is an admin."""
+async def _assert_admin(user_id: UUID) -> UUID:
+    """The admin check itself, shared by both credential policies below."""
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         user = await conn.fetchrow(
@@ -33,6 +37,26 @@ async def require_admin(user_id: UUID = Depends(get_current_user_id)) -> UUID:
         if not user or not user["is_admin"]:
             raise HTTPException(status_code=403, detail="Admin access required")
     return user_id
+
+
+async def require_admin(user_id: UUID = Depends(get_current_user_id)) -> UUID:
+    """Dependency that ensures the user is an admin.
+
+    Accepts whatever ``get_current_user_id`` accepts — a session JWT or a
+    ``tcdn_`` API key. Use :func:`require_admin_jwt` for anything that moves
+    money or changes platform-wide controls (audit F-6)."""
+    return await _assert_admin(user_id)
+
+
+async def require_admin_jwt(
+    user_id: UUID = Depends(get_current_user_id_jwt_only),
+) -> UUID:
+    """Admin authority from a session JWT only — an API key is refused.
+
+    Money-moving and kill-switch routes use this: an API key is a long-lived
+    secret built to be embedded in a deployment, so it leaks where a browser
+    session does not, and it used to carry its owner's admin authority."""
+    return await _assert_admin(user_id)
 
 
 @router.get("/stats")
