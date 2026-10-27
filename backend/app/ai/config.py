@@ -96,11 +96,25 @@ class AISettings(BaseSettings):
     # docs/tcdn-ai/evidence/10-real-engine/.
     hold_input_margin_tokens: int = Field(default=64, ge=0, le=8192)
     hold_input_margin_pct: int = Field(default=10, ge=0, le=100)
-    verification_sample_pct: int = Field(default=5, ge=0, le=100)
+    #: Checklist 6.1 specifies 3 %. The sample is keyed (below), so the rate is
+    #: the only knob a deployment needs to tune against its verification budget.
+    verification_sample_pct: int = Field(default=3, ge=0, le=100)
+    #: Secrets used to key the sample MAC. Left unset, the sampler falls back to
+    #: the API-key pepper (already mandatory in production), so an operator does
+    #: not have to add a secret to get an unpredictable sample. Set this to
+    #: separate the sampling key from key hashing (documented in
+    #: ``KEY_INVENTORY.md``); in development with no pepper an ephemeral key is
+    #: generated, which makes the sample unguessable but not reproducible across
+    #: restarts (``verification_decision`` notes that in its audit record).
+    verification_sample_key: str | None = None
     #: Upper bound on redundant executions dispatched per UTC day. Every sampled
     #: job costs a second inference the platform pays for, so the sample rate is
     #: capped even when traffic is high (checklist 6.1).
     verification_daily_cap: int = Field(default=500, ge=0, le=100_000)
+    #: Ceiling on what one shadow execution can earn. The amount is the compute
+    #: share of that run's own token counts, funded from platform revenue; the cap
+    #: bounds a self-reported token count (5 credits = $0.05 at the peg).
+    verification_payout_cap_micro: int = Field(default=5_000_000, ge=0)
     #: How long a worker keeps encrypted per-token records for challenge
     #: opening. Part 3 §3 default is 24 hours.
     transcript_retention_seconds: int = Field(default=86_400, ge=60, le=7 * 86_400)
@@ -203,6 +217,14 @@ class AISettings(BaseSettings):
             if not self.has_secret_source:
                 return False
         return True
+
+    def verification_sampling_secret(self) -> bytes:
+        """Key material for the redundant-execution sample (never leaves the coordinator)."""
+        if self.verification_sample_key:
+            return b"tcdn-ai/verification/sample-key/v1:" + (
+                self.verification_sample_key.encode("utf-8")
+            )
+        return self.pepper_bytes()
 
     def pepper_bytes(self) -> bytes:
         """API-key pepper. Dev-only ephemeral fallback, production enforced above."""

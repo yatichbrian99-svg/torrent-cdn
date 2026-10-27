@@ -13,9 +13,14 @@ import json
 
 import pytest
 
+from app.ai import crypto
 from app.ai.config import AISettings
+from app.ai.errors import ConflictError
 from app.ai.gateway import ChatRequest, Gateway
+from app.ai.ledger import PLATFORM_REVENUE, compute_earnings, split_amounts
 from app.ai.models import PlacementRequest, SignedEnvelope
+from app.ai.pricing import MICRO_PER_MTOK, ceil_div
+from app.ai.receipts import RECEIPT_DOMAIN
 from app.ai.verification import VerificationSampler
 from app.ai.worker import EchoBackend
 from tcdn_ai_sdk.protocol import FINAL_FRAME, decode_frames
@@ -73,7 +78,9 @@ class TestSampledJob:
     async def test_runs_twice_on_two_operators_and_reconciles(
         self, ai_env, ai_worker_factory
     ):
-        ai_env.coordinator.verification = VerificationSampler(100)
+        ai_env.coordinator.verification = VerificationSampler(
+            100, secret=b"unit-test-sampling-key"
+        )
         agents = await _two_nodes(ai_env, ai_worker_factory)
         receipts: list[dict] = []
         gateway = Gateway(ai_env.coordinator, transport=_transport(agents, receipts))
@@ -112,7 +119,9 @@ class TestSampledJob:
     async def test_output_disagreement_is_inconclusive_and_penalises_nobody(
         self, ai_env, ai_worker_factory
     ):
-        ai_env.coordinator.verification = VerificationSampler(100)
+        ai_env.coordinator.verification = VerificationSampler(
+            100, secret=b"unit-test-sampling-key"
+        )
         agents = await _two_nodes(ai_env, ai_worker_factory)
 
         class _Divergent(EchoBackend):
@@ -147,7 +156,9 @@ class TestSampledJob:
 class TestVerificationRefusals:
     @pytest.mark.asyncio
     async def test_assignment_is_handed_out_once(self, ai_env, ai_worker_factory):
-        ai_env.coordinator.verification = VerificationSampler(100)
+        ai_env.coordinator.verification = VerificationSampler(
+            100, secret=b"unit-test-sampling-key"
+        )
         await _two_nodes(ai_env, ai_worker_factory)
         request = _request()
         auth = ai_env.auth
@@ -172,7 +183,9 @@ class TestVerificationRefusals:
     async def test_single_node_records_why_no_verification_ran(
         self, ai_env, ai_worker_factory
     ):
-        ai_env.coordinator.verification = VerificationSampler(100)
+        ai_env.coordinator.verification = VerificationSampler(
+            100, secret=b"unit-test-sampling-key"
+        )
         only = await ai_worker_factory()
         ai_env.store.nodes[only.identity.node_id].endpoint = "http://worker-a"
         receipts: list[dict] = []
@@ -191,7 +204,9 @@ class TestVerificationRefusals:
 
     @pytest.mark.asyncio
     async def test_daily_cap_stops_dispatch(self, ai_env, ai_worker_factory):
-        ai_env.coordinator.verification = VerificationSampler(100)
+        ai_env.coordinator.verification = VerificationSampler(
+            100, secret=b"unit-test-sampling-key"
+        )
         ai_env.settings.verification_daily_cap = 0
         await _two_nodes(ai_env, ai_worker_factory)
         gateway = Gateway(ai_env.coordinator, transport=_unreachable)
@@ -203,7 +218,9 @@ class TestVerificationRefusals:
 
     @pytest.mark.asyncio
     async def test_unsampled_job_schedules_nothing(self, ai_env, ai_worker_factory):
-        ai_env.coordinator.verification = VerificationSampler(0)
+        ai_env.coordinator.verification = VerificationSampler(
+            0, secret=b"unit-test-sampling-key"
+        )
         await ai_worker_factory()
         gateway = Gateway(ai_env.coordinator, transport=_unreachable)
         stream = await gateway.open(ai_env.auth, _request())
@@ -214,6 +231,182 @@ async def _unreachable(url: str, payload: dict):
     """A transport that must not be used: these tests never stream a job."""
     raise AssertionError("no worker call expected in this test")
     yield b""  # pragma: no cover - makes this an async generator
+
+
+class TestShadowPayout:
+    """The second operator is paid by the platform, once, from its own share."""
+
+    @staticmethod
+    def _shadow_amount(job, receipt_payload: dict) -> int:
+        cost = ceil_div(
+            receipt_payload["input_tokens"] * job.input_micro_per_mtok, MICRO_PER_MTOK
+        ) + ceil_div(
+            receipt_payload["output_tokens"] * job.output_micro_per_mtok,
+            MICRO_PER_MTOK,
+        )
+        return split_amounts(cost, job.split).compute_micro
+
+    @pytest.mark.asyncio
+    async def test_shadow_operator_is_paid_from_platform_revenue_once(
+        self, ai_env, ai_worker_factory
+    ):
+        ai_env.coordinator.verification = VerificationSampler(
+            100, secret=b"unit-test-sampling-key"
+        )
+        agents = await _two_nodes(ai_env, ai_worker_factory)
+        receipts: list[dict] = []
+        gateway = Gateway(ai_env.coordinator, transport=_transport(agents, receipts))
+        stream = await gateway.open(ai_env.auth, _request())
+        await gateway.complete(ai_env.auth, stream)
+        await stream.verification_task
+
+        record = await ai_env.store.get_verification(stream.job_id)
+        assert record is not None
+        shadow_receipt = receipts[-1]
+        assert shadow_receipt["payload"]["job_id"] == record.verification_job_id
+        job = await ai_env.store.get_job(stream.job_id)
+        assert job is not None
+        expected = self._shadow_amount(job, shadow_receipt["payload"])
+        assert (
+            expected > 0
+        )  # The gateway submits the shadow receipt itself (it is the only party
+        # holding the plaintext), so the payment is already recorded here; a
+        # retried submission must not add another.
+        result = await ai_env.coordinator.submit_verification_receipt(
+            _envelope(shadow_receipt)
+        )
+        assert result["payout_micro"] == expected
+
+        payouts = [
+            entry
+            for entry in ai_env.store.ledger.entries
+            if entry.kind == "verification_compute"
+        ]
+        assert len(payouts) == 1
+        entry = payouts[0]
+        assert entry.debit == PLATFORM_REVENUE
+        assert entry.credit == compute_earnings(record.verification_node_id)
+        assert entry.amount_micro == expected
+        assert (
+            entry.job_id == stream.job_id
+        )  # The platform paid and nobody else did: the shadow run has no hold, so
+        # at this point the platform's balance is exactly minus the payout and
+        # the customer's credits are untouched.
+        assert ai_env.store.ledger.balance(PLATFORM_REVENUE) == -expected
+        assert ai_env.store.ledger.balance(f"account:{ai_env.account_id}:credits") == (
+            1_000_000_000
+        )
+        assert ai_env.store.ledger.invariant_ok()
+        events = [entry["event"] for entry in ai_env.store.audit_log]
+        assert "job.verification_paid" in events
+
+        # A retried receipt (the worker did not hear the 200) pays once.
+        replay = await ai_env.coordinator.submit_verification_receipt(
+            _envelope(shadow_receipt)
+        )
+        assert replay["payout_micro"] == expected
+        assert (
+            len(
+                [
+                    entry
+                    for entry in ai_env.store.ledger.entries
+                    if entry.kind == "verification_compute"
+                ]
+            )
+            == 1
+        )
+
+        # And the primary job still settles exactly once, to the primary node:
+        # the platform ends with its own share of the job minus the shadow payout.
+        await ai_env.coordinator.submit_receipt(_envelope(receipts[0]))
+        settlements = [
+            entry
+            for entry in ai_env.store.ledger.entries
+            if entry.kind == "job_compute"
+        ]
+        assert len(settlements) == 1
+        assert settlements[0].credit == compute_earnings(record.primary_node_id)
+        settled = await ai_env.store.get_job(stream.job_id)
+        assert settled is not None and settled.status == "settled"
+        assert ai_env.store.ledger.balance(PLATFORM_REVENUE) == (
+            settled.platform_micro - expected
+        )
+        assert ai_env.store.ledger.balance(f"account:{ai_env.account_id}:credits") == (
+            1_000_000_000 - settled.total_micro
+        )
+        assert ai_env.store.ledger.invariant_ok()
+
+    @pytest.mark.asyncio
+    async def test_the_cap_bounds_one_shadow_payment(self, ai_env, ai_worker_factory):
+        ai_env.coordinator.verification = VerificationSampler(
+            100, secret=b"unit-test-sampling-key"
+        )
+        ai_env.settings.verification_payout_cap_micro = 1
+        agents = await _two_nodes(ai_env, ai_worker_factory)
+        receipts: list[dict] = []
+        gateway = Gateway(ai_env.coordinator, transport=_transport(agents, receipts))
+        stream = await gateway.open(ai_env.auth, _request())
+        await gateway.complete(ai_env.auth, stream)
+        await stream.verification_task
+
+        result = await ai_env.coordinator.submit_verification_receipt(
+            _envelope(receipts[-1])
+        )
+        assert result["payout_micro"] == 1
+        paid = [
+            entry["detail"]
+            for entry in ai_env.store.audit_log
+            if entry["event"] == "job.verification_paid"
+        ]
+        assert paid and paid[0]["capped"] is True
+        assert paid[0]["amount_micro"] == 1
+
+    @pytest.mark.asyncio
+    async def test_a_second_different_shadow_receipt_is_refused(
+        self, ai_env, ai_worker_factory
+    ):
+        ai_env.coordinator.verification = VerificationSampler(
+            100, secret=b"unit-test-sampling-key"
+        )
+        agents = await _two_nodes(ai_env, ai_worker_factory)
+        receipts: list[dict] = []
+        gateway = Gateway(ai_env.coordinator, transport=_transport(agents, receipts))
+        stream = await gateway.open(ai_env.auth, _request())
+        await gateway.complete(ai_env.auth, stream)
+        await stream.verification_task
+
+        first = receipts[-1]
+        await ai_env.coordinator.submit_verification_receipt(_envelope(first))
+
+        # Re-signed, so the signature check passes and the *content* rule is what
+        # refuses it: one shadow job cannot swap its output after the fact.
+        record = await ai_env.store.get_verification(stream.job_id)
+        assert record is not None
+        agent = agents[record.verification_node_id]
+        payload = dict(first["payload"])
+        payload["output_sha256"] = "b" * 64
+        signed = crypto.sign(
+            RECEIPT_DOMAIN, payload, agent.identity.identity_private_key
+        )
+        forged = SignedEnvelope(
+            payload=payload,
+            key_id=agent.identity.identity_key_id,
+            alg=first["alg"],
+            sig=signed,
+        )
+        with pytest.raises(ConflictError):
+            await ai_env.coordinator.submit_verification_receipt(forged)
+        # The single payment recorded is for the first, genuine receipt.
+        assert (
+            len(
+                [
+                    entry
+                    for entry in ai_env.store.ledger.entries
+                    if entry.kind == "verification_compute"
+                ]
+            )
+            == 1
+        )
 
 
 def test_default_sample_rate_and_cap_are_bounded():

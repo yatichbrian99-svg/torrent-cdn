@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
@@ -228,12 +229,76 @@ class TestStaticSafety:
 
 class TestVerification:
     def test_sampling_is_deterministic(self):
-        sampler = VerificationSampler(25)
+        sampler = VerificationSampler(25, secret=b"unit-test-sampling-key")
         first = sampler.decide("job-abc")
         second = sampler.decide("job-abc")
         assert first == second
-        assert VerificationSampler(100).decide("job-abc").sampled
-        assert not VerificationSampler(0).decide("job-abc").sampled
+        assert (
+            VerificationSampler(100, secret=b"unit-test-sampling-key")
+            .decide("job-abc")
+            .sampled
+        )
+        assert (
+            not VerificationSampler(0, secret=b"unit-test-sampling-key")
+            .decide("job-abc")
+            .sampled
+        )
+
+    def test_sample_is_not_derivable_from_the_job_id(self):
+        """A node holds the job id; knowing it must not predict the sample.
+
+        The old scheme was ``sha256(public-salt || job_id)``, which any worker can
+        recompute. This checks three things against the real sampler at the
+        shipping 3 % rate: the rate is right, the public-salt construction has no
+        predictive power over the jobs actually sampled, and a coordinator with a
+        different secret disagrees on them.
+        """
+        sampler = VerificationSampler(3, secret=b"coordinator-only-key")
+        job_ids = [f"job_{index:04d}" for index in range(2000)]
+        sampled = [job for job in job_ids if sampler.decide(job).sampled]
+        # ~3 % of 2000 = 60. Bounds are wide enough to absorb hash noise but
+        # would fail if the rate were read as a percentage of 100 or ignored.
+        assert 20 <= len(sampled) <= 120, f"3 % of 2000 sampled {len(sampled)} jobs"
+
+        def public_salt_predicts(job: str) -> bool:
+            digest = hashlib.sha256(
+                f"tcdn-ai/verification/v1:{job}".encode()
+            ).hexdigest()
+            return int(digest[:8], 16) % 10_000 < 300
+
+        guessed = sum(1 for job in sampled if public_salt_predicts(job))
+        assert guessed < len(sampled) // 3, (
+            "the public-salt construction still predicts the sample: "
+            f"{guessed}/{len(sampled)}"
+        )
+
+        other = VerificationSampler(3, secret=b"a-different-coordinator")
+        agreed = sum(1 for job in sampled if other.decide(job).sampled)
+        assert agreed < len(sampled) // 3, (
+            f"another key sampled {agreed}/{len(sampled)} of the same jobs"
+        )
+
+    def test_the_shipping_rate_is_three_percent_and_needs_a_secret(self):
+        settings = AISettings(
+            environment="development",
+            api_key_pepper="unit-test-pepper-not-a-real-secret",
+            coordinator_key_file=None,
+        )
+        assert settings.verification_sample_pct == 3
+        # The key is coordinator-side and never empty: with no dedicated key the
+        # pepper stands in, so a worker cannot recompute the bucket either way.
+        assert settings.verification_sampling_secret()
+        assert (
+            AISettings(
+                environment="development",
+                api_key_pepper="p",
+                verification_sample_key="dedicated",
+                coordinator_key_file=None,
+            ).verification_sampling_secret()
+            != settings.verification_sampling_secret()
+        )
+        with pytest.raises(ValueError):
+            VerificationSampler(3, secret=b"")
 
     def test_all_executions_agree(self):
         outcome = resolve_executions(
