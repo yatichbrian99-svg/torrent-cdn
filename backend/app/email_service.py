@@ -30,6 +30,23 @@ def _get_resend() -> Any | None:
         return None
 
 
+def transactional_from_address() -> str:
+    """From: address for every system/transactional email.
+
+    RESEND_FROM (set in the Render dashboard) always wins, so the sender can be
+    changed without a deploy; otherwise the verified-domain default applies.
+    Resend accepts any local part on the verified domain, so this is NOT tied
+    to a mailbox — and it is deliberately not the human addresses (hello@,
+    yatich@, partnerships@): a password-reset or verification mail must not
+    look like a person who can be replied to.
+
+    One helper for the whole backend — the welcome mail used to hardcode a
+    different sender (hello@) than the auth mails (noreply@), which split the
+    domain's sending identity for no reason.
+    """
+    return os.getenv("RESEND_FROM") or settings.resend_from
+
+
 def is_email_service_configured() -> bool:
     """True when a usable Resend API key is present, regardless of whether a
     specific send succeeds.
@@ -261,10 +278,7 @@ async def send_password_reset_email(email: str, user_id: UUID) -> bool:
     reset_url = build_reset_url(token)
     html = build_reset_email_html(email, reset_url)
 
-    from_email = os.getenv(
-        "RESEND_FROM",
-        "TorrentCDN <noreply@torrentcdn.store>",
-    )
+    from_email = transactional_from_address()
     try:
         params = {
             "from": from_email,
@@ -303,10 +317,7 @@ async def send_mfa_enabled_email(email: str) -> bool:
     dashboard_url = settings.app_url.rstrip("/") + "/dashboard"
     html = build_mfa_enabled_email_html(email, dashboard_url)
 
-    from_email = os.getenv(
-        "RESEND_FROM",
-        "TorrentCDN <noreply@torrentcdn.store>",
-    )
+    from_email = transactional_from_address()
     try:
         params = {
             "from": from_email,
@@ -349,10 +360,7 @@ async def send_verification_email(email: str, user_id: UUID) -> bool:
     html = build_verification_email_html(email, verify_url)
 
     # Default to Resend's pre-verified test sender until the user configures their domain
-    from_email = os.getenv(
-        "RESEND_FROM",
-        "TorrentCDN <noreply@torrentcdn.store>",
-    )
+    from_email = transactional_from_address()
     try:
         params = {
             "from": from_email,
