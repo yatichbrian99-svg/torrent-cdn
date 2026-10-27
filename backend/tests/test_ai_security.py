@@ -506,9 +506,11 @@ class TestDisclosureDocs:
         # plaintext), so the guarantee cannot be read as universal.
         assert "dispatched automatically in gateway mode" in section
         assert "not_dispatched_sdk_mode" in section
-        # …and the sampling weakness: predictable to the node, decided before
+        # …and the remaining sampling weakness: keyed, but still decided before
         # any commitment.
-        assert "predictable to the node" in section
+        assert "HMAC-SHA-256" in section
+        assert "before any commitment" in section
+        assert "predictable to the node" not in section
 
     def test_tiers_are_disclosed_with_gateway_visibility(self):
         limitations, api = self._docs()
