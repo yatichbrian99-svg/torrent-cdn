@@ -33,6 +33,64 @@ logger = logging.getLogger(__name__)
 REDIS_PREFIX = "tcdn-ai:"
 
 
+#: Connection kwargs a blocking twin may inherit. The asyncio pool carries more
+#: (single_connection_client, protocol, retry objects); passing those to the
+#: blocking client is either invalid or changes semantics, so they are dropped.
+_TWIN_KWARGS = (
+    "host",
+    "port",
+    "db",
+    "username",
+    "password",
+    "ssl",
+    "ssl_cert_reqs",
+    "ssl_ca_certs",
+    "socket_timeout",
+    "socket_connect_timeout",
+    "client_name",
+)
+
+
+def _blocking_twin(client: Any) -> Any | None:
+    """A blocking redis client equivalent to an ``redis.asyncio`` one.
+
+    The sync bridge below runs each coroutine on a **fresh** event loop in a
+    helper thread. An ``redis.asyncio`` client cannot be used that way: its
+    connection pool is bound to the loop that opened the connections, so every
+    command raises ``got Future attached to a different loop``. That exception
+    was swallowed by the fail-closed branch, which meant that with Redis
+    configured — the only configuration that gives cross-instance replay
+    protection — *every* ticket claim and nonce consume failed, so placement
+    refused every ticket as a replay.
+
+    The fix keeps the synchronous call sites: for an asyncio client, derive a
+    blocking client from the same connection pool settings and use it in the
+    calling thread (no loop at all). Clients that are not ``redis.asyncio``
+    (the in-process doubles used by tests) return None and keep the old path.
+
+    Returns None when the settings cannot be derived, so the caller can fall
+    back instead of pretending the claim succeeded.
+    """
+    kwargs = getattr(
+        getattr(client, "connection_pool", None), "connection_kwargs", None
+    )
+    if not kwargs:
+        return None
+    try:
+        import redis as blocking_redis
+    except Exception:  # pragma: no cover - redis is a hard dependency of this module
+        return None
+    allowed = {key: value for key, value in kwargs.items() if key in _TWIN_KWARGS}
+    if not allowed.get("host"):
+        return None
+    allowed.setdefault("decode_responses", False)
+    try:
+        allowed["db"] = int(allowed.get("db") or 0)
+        return blocking_redis.Redis(**allowed)
+    except Exception:  # pragma: no cover - malformed pool settings
+        return None
+
+
 def _run_sync(coro: Any) -> Any:
     """Drive a Redis coroutine to completion from synchronous code.
 
@@ -84,9 +142,17 @@ class RedisReplayCache:  # pragma: no cover - exercised through coordinator brea
         self._redis = redis_client
         self._key_prefix = key_prefix
         self._clock = clock
+        self._twin: Any | None = None
+        self._twin_checked = False
 
     def _key(self, key: str) -> str:
         return f"{REDIS_PREFIX}{self._key_prefix}:replay:{key}"
+
+    def _blocking(self) -> Any | None:
+        if not self._twin_checked:
+            self._twin = _blocking_twin(self._redis)
+            self._twin_checked = True
+        return self._twin
 
     def claim(self, ticket_jti: str, expires_at: int) -> bool:
         """Return True the first time ``ticket_jti`` is seen, False afterwards.
@@ -94,6 +160,18 @@ class RedisReplayCache:  # pragma: no cover - exercised through coordinator brea
         The expiry is the same as the in-process version — the ticket's own TTL
         plus skew — so a replay window cannot outlive the ticket it protects.
         """
+        twin = self._blocking()
+        if twin is not None:
+            key = self._key(ticket_jti)
+            ttl = max(1, expires_at - int(self._clock()))
+            try:
+                return twin.set(key, "1", nx=True, ex=ttl) is not None
+            except Exception:  # Redis is optional by design
+                logger.warning(
+                    "redis replay claim failed for %s — falling back to reject",
+                    ticket_jti,
+                )
+                return False
         return _run_sync(self._claim(ticket_jti, expires_at))
 
     async def _claim(self, ticket_jti: str, expires_at: int) -> bool:
@@ -131,12 +209,33 @@ class RedisNonceStore(
         super().__init__(ttl_seconds=ttl_seconds, clock=clock)
         self._redis = redis_client
         self._key_prefix = key_prefix
+        self._twin: Any | None = None
+        self._twin_checked = False
 
     def _key(self, nonce: str) -> str:
         return f"{REDIS_PREFIX}{self._key_prefix}:{nonce}"
 
+    def _blocking(self) -> Any | None:
+        if not self._twin_checked:
+            self._twin = _blocking_twin(self._redis)
+            self._twin_checked = True
+        return self._twin
+
     def issue(self, node_id: str) -> str:
         nonce = super().issue(node_id)
+        twin = self._blocking()
+        if twin is not None:
+            expires_at = int(self._clock()) + self.ttl_seconds
+            try:
+                twin.set(
+                    self._key(nonce), f"{node_id}:{expires_at}", ex=self.ttl_seconds
+                )
+            except Exception:  # pragma: no cover - Redis outage path
+                logger.warning(
+                    "redis nonce issuance failed for node %s — nonce is in-process only",
+                    node_id,
+                )
+            return nonce
         _run_sync(self._publish(node_id, nonce))
         return nonce
 
@@ -153,7 +252,49 @@ class RedisNonceStore(
             )
 
     def consume(self, nonce: str, node_id: str) -> None:
+        twin = self._blocking()
+        if twin is not None:
+            self._consume_blocking(twin, nonce, node_id)
+            return
         _run_sync(self._consume(nonce, node_id))
+
+    def _consume_blocking(self, twin: Any, nonce: str, node_id: str) -> None:
+        """The synchronous half of ``_consume``, for a blocking client."""
+        key = self._key(nonce)
+        try:
+            value = twin.get(key)
+        except Exception:
+            value = None
+        if value is None:
+            raise AttestationError(
+                "unknown or already-used attestation nonce", code="stale_nonce"
+            )
+        try:
+            expected_node, expires_at = value.decode("utf-8").split(":", 1)
+            expires_at = int(expires_at)
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise AttestationError(
+                "malformed nonce record", code="stale_nonce"
+            ) from exc
+        if expected_node != node_id:
+            raise AttestationError(
+                "nonce was issued for a different node", code="nonce_node_mismatch"
+            )
+        if int(self._clock()) > expires_at:
+            try:
+                twin.delete(key)
+            except Exception:
+                pass
+            raise AttestationError("attestation nonce has expired", code="stale_nonce")
+        try:
+            twin.delete(key)
+        except Exception:  # pragma: no cover - Redis outage path
+            logger.warning(
+                "redis nonce consume failed for %s — in-process state may be stale",
+                nonce,
+            )
+        with self._lock:
+            self._nonces.pop(nonce, None)
 
     async def _consume(self, nonce: str, node_id: str) -> None:
         key = self._key(nonce)

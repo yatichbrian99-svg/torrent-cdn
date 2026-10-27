@@ -87,9 +87,17 @@ each, no hang: `925 passed, 11 skipped` (flag on) and `879 passed, 57 skipped`
 - **M4 artifacts**: `CRYPTO_REVIEW.md` (16 primitives, citation-checked),
   `KEY_INVENTORY.md` (9 keys, rotation/revocation), the dependency-derived
   authorization matrix (68 routes, `unclassified` fails), two coordinators over
-  one Redis (`test_ai_two_instances.py`, 6 tests), the environment-wide canary
-  scanner (`scripts/canary_scan.py`), and the payout kill switch
+  one Redis (`test_ai_two_instances.py`, 6 tests) **and over a real Redis**
+  (`test_ai_two_instances_live.py`, 6 tests, database 15), the environment-wide
+  canary scanner (`scripts/canary_scan.py`), and the payout kill switch
   (`ai_controls`, `409 payouts_paused`, audited).
+- **Blocker-class defect found by the live lane and fixed**: the Redis-backed
+  replay/nonce stores drove an `redis.asyncio` client through a sync bridge that
+  ran on a fresh event loop, so every command raised `got Future attached to a
+  different loop` and the fail-closed branch refused **every ticket as a replay**
+  whenever Redis was configured. The stores now derive a blocking client from the
+  pool's own connection settings. Without the fix the live file fails 2 of 6;
+  with it, 6/6.
 - Break tests `13/13` CAUGHT.
 - `ruff` clean; SQL-injection audit clean; gitleaks history 0 findings;
   `secret_scan.sh --full` clean; `pip-audit` no known vulnerabilities.
