@@ -23,15 +23,22 @@ the audit.
 | F-6 admin money endpoints accept CDN API keys | **Fixed** | New `get_current_user_id_jwt_only` (refuses any `tcdn_` credential from the token itself, before any lookup — no admin oracle) and `require_admin_jwt`. Every AI admin route (`refunds`, `api-keys`, `kill-switch` read/write, `verification`) and the three CDN payout routes that move money or bank details (create/deactivate recipient, initiate transfer) now depend on it; `require_admin` stays for read-only admin views | `test_admin_jwt_only.py` — a valid admin-owning API key is 403 on all 8 money routes **and** the mocked DB is asserted not to have been queried for `is_admin`; a session JWT still reaches the same routes (control); a non-admin JWT is still 403; a structural sweep fails if any money route's dependency tree loses `require_admin_jwt`, in both flag positions. Break control *a CDN API key cannot spend admin money authority (F-6)* |
 | Billing authority (extends the F-1 fix) | **Added** | In gateway mode the gateway counts the plaintext it holds — prompt tokens it encrypted, completion token frames it decrypted and delivered — and records that as an internal `GatewayMeasurement` (no HTTP route: the payer cannot price its own job). Settlement bills the **lower** of gateway count and worker receipt when they differ beyond the tolerance, flags the node (`node_overclaim` / `node_receipt_underclaim`), and leaves the receipt as authority in SDK mode or when no measurement exists. Per-node overclaim rate is tracked over settled jobs; at or above the configured share with the sample floor met, the node is suspended, its pending payouts are recorded as `held_for_review` (not paid, money stays the node's) and it is no longer scheduled | `test_ai_node_billing.py` (overclaim billed at the gateway's 100 instead of the claimed 3000; underclaim keeps its own lower count; inside-tolerance keeps the claim; no measurement still settles; suspension + payout hold + not scheduled; honest-node control), plus the gateway-drives-a-lying-worker test; ledger evidence in `evidence/12-billing-authority/overclaim-tests.txt` (three postings, 504 compute + 72 seeder + 144 platform = 720 µ, not the 18 120 µ claimed). Break controls *the gateway's own count outranks an overclaiming receipt*, *an overclaiming node is suspended for review*, *payouts of a node under review are held, not paid* |
 
-Break-test harness after the fixes: **22/22 CAUGHT, 0 unproven**
+| Level 1 rows 2.3 / 2.6 / 3.2 (the auditor agreed these were `PARTIAL`) | **Closed** | **2.3** — one test now proves both halves of "confidential needs SDK mode": a confidential job runs end to end in SDK mode (canary in the answer, absent from the coordinator's job row and audit log) and the same flag on the plaintext gateway path is refused with a pointer to the SDK. **2.6** — `max_concurrent_jobs_per_key` is enforced from the job table (`count_active_jobs`), so the count is the account's on every instance, and the refusal is `429 too_many_concurrent_jobs` with the limit and in-flight count, raised before any pricing/hold work. **3.2** — the worker heartbeat runs under `app/ai/supervision.py::supervise` (restart with capped exponential backoff 1 s → 60 s, backoff reset after a healthy run, clean stop, cancellation honoured) and re-raises a failed beat instead of printing to stderr and continuing | `test_ai_sdk_e2e.py::test_confidential_is_sdk_mode_only_and_the_coordinator_stays_blind`; `test_ai_service.py::TestConcurrentJobCap` (4 tests) + the store's `count_active_jobs` in both backends; `test_ai_supervision.py` (6 tests); break controls *the per-key concurrency cap is enforced*, *the background-loop supervisor backs off and restarts* |
+
+Break-test harness after the fixes: **24/24 CAUGHT, 0 unproven**
 (`evidence/06-break-tests/break-tests.txt`, regenerated). Three harness drifts were also
 repaired: the admin-JWT control's expected occurrence count (3 → 5 admin routes), a
 `ruff format` reflow in `gateway.py`, and the stale `require_admin` count after the
 JWT-only split.
 
-Suites re-run on this tree (2026-10-28): flag off **1045 passed, 98 skipped**; flag on
-**1114 passed, 29 skipped**; `ruff check .`, `ruff format --check app/ai tcdn_ai_sdk` and
-`mypy --config-file mypy-ai.ini` clean.
+Suites re-run on this tree (2026-10-28, after the Level 1 work): flag off **1057
+passed, 99 skipped**; flag on **1127 passed, 29 skipped**; `ruff check .`,
+`ruff format --check app/ai tcdn_ai_sdk`, `mypy --config-file mypy-ai.ini`, the dead-code
+audit, the SQL-injection audit and the static security-header audit are clean. Four
+workflows green on the pushed commit (`backend-lint`, full-stack Docker, the AI engine
+job, and a dispatched *Tests & Security Audits* run). The unfinished [P1] set is 10 rows:
+2.3/2.6/3.2 closed here; 3.3, 4.4, 6.1, 7.2, 10.1 remain `PARTIAL` and 5.5, 10.2,
+12.3, 12.4, 12.5 remain `MISSING`.
 
 ---
 

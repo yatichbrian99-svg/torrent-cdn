@@ -15,6 +15,21 @@ run in CI): full suite flag **on** **1056 passed, 21 skipped**, 97 s, exit 0; fl
 `tests` 997 passed / 81 skipped, frontend 179 passed, JS client **19/19**, real engine
 **success**, `container-scan` and `static-audit` **success**.
 
+**Measured 2026-10-28** (independent-audit fixes F-1…F-6 and Level 1 rows 2.3, 2.6,
+3.2; no Postgres/Redis attached, so those lanes skip):
+- Full suite, flag **off**: **1057 passed, 99 skipped**, 102 s, exit 0. Flag **on**:
+  **1127 passed, 29 skipped**, 70 s, exit 0. One invocation each, no per-file split.
+- Break tests **24/24 CAUGHT, 0 unproven** (`evidence/06-break-tests/`).
+- Route matrix **112 routes** (public 20 / jwt 45 / admin 23 / api-key 10 / signature 1 /
+  viewer 7 / internal-hook 6); flag-off OpenAPI **79 paths**, flag on **97** (**18** AI
+  paths); schema **17** `ai_*` tables / 8 `ALTER` statements.
+- `ruff check .`, `ruff format --check app/ai tcdn_ai_sdk`, `mypy --config-file
+  mypy-ai.ini`, the dead-code audit, the SQL-injection audit and the static
+  security-header audit all clean.
+- Evidence added this pass: `evidence/12-billing-authority/overclaim-tests.txt`
+  (ledger postings for a worker that claims 3 000 output tokens and is billed for the
+  100 the gateway counted), `evidence/03-security/gitleaks-value-scoped-2026-10-27.txt`.
+
 **Measured 2026-10-26** (evidence in `PUSH_CHECKLIST.md`, `evidence/06-break-tests/`,
 `evidence/09-openai-gateway/`):
 - Full suite, flag **on** (real Postgres attached): **1030 passed, 4 skipped**, 108 s, exit 0.
@@ -25,15 +40,18 @@ run in CI): full suite flag **on** **1056 passed, 21 skipped**, 97 s, exit 0; fl
   **1020 passed, 21 skipped** in 81 s, flag off **961 passed, 80 skipped** in 99 s;
   AI subset **303 passed, 21 skipped**; the new `test_ai_redundant_execution.py`
   **7 passed**. `ruff check` + `ruff format --check` clean on every touched file.
-- Break tests: **22/22 CAUGHT, 0 unproven** (was 12/13 with the 13th silently
+- Break tests: **24/24 CAUGHT, 0 unproven** (was 12/13 with the 13th silently
   unproven — the harness's mutation target had drifted and it never printed the
-  error; nine controls were added with the audit fixes: billing authority
-  (three), the SSRF pin, the JWT-only admin money routes, the schema gate,
-  atomic nonces in both stores, and job ownership on ack).
+  error; eleven controls were added with the audit and Level 1 fixes: billing
+  authority (three), the SSRF pin, the JWT-only admin money routes, the schema
+  gate, atomic nonces in both stores, job ownership on ack, the per-key
+  concurrency cap, and the supervisor's backoff).
 - Official **JavaScript** OpenAI client: **19/19 checks** against a live uvicorn
   gateway (`evidence/09-openai-gateway/js-client.json`), now a committed, CI-gated check.
 - Boundary contracts: `CONTRACTS.md` TB1–TB7 + **23** contract tests.
-- Open blockers for Level 1: see `PUSH_CHECKLIST.md` (6 `MISSING` [P1] items).
+- Open blockers for Level 1: see `PUSH_CHECKLIST.md` — 10 unfinished [P1] rows
+  (5 `MISSING`: 5.5, 10.2, 12.3, 12.4, 12.5; 5 `PARTIAL`: 3.3, 4.4, 6.1, 7.2,
+  10.1). Rows 2.3, 2.6 and 3.2 closed on 2026-10-28.
 
 Read this first, then `HANDOFF_AUDIT.md`. The authoritative detail is the audit;
 this file is the short, current status.
@@ -101,7 +119,7 @@ each, no hang: `925 passed, 11 skipped` (flag on) and `879 passed, 57 skipped`
   whenever Redis was configured. The stores now derive a blocking client from the
   pool's own connection settings. Without the fix the live file fails 2 of 6;
   with it, 6/6.
-- Break tests `22/22` CAUGHT, 0 unproven.
+- Break tests `24/24` CAUGHT, 0 unproven.
 - `ruff` clean; SQL-injection audit clean; gitleaks history 0 findings;
   `secret_scan.sh --full` clean; `pip-audit` no known vulnerabilities.
 - Frontend `tsc --noEmit` clean, `179` Vitest tests pass.
@@ -271,7 +289,7 @@ ENABLE_TCDN_AI=true TEST_POSTGRES_URL=postgresql://tcdn:tcdn@127.0.0.1:5432/tcdn
 
 # --- lint / audits ---
 .venv/bin/python -m ruff check app tests scripts
-ENABLE_TCDN_AI=true .venv/bin/python scripts/break_tests.py   # 22/22 controls
+ENABLE_TCDN_AI=true .venv/bin/python scripts/break_tests.py   # 24/24 controls
 
 # --- real engine (Ollama) — see DEV_SETUP.md §6 for the full bring-up ---
 TCDN_AI_ENGINE_URL=http://127.0.0.1:11434 TCDN_AI_ENGINE_MODEL=qwen2.5:0.5b \
