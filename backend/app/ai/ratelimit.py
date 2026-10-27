@@ -27,6 +27,7 @@ import time
 from typing import Any, Protocol
 
 from .clock import now_unix
+from .redis_cache import note_redis_failure
 
 
 class RateLimitResult(Protocol):
@@ -163,7 +164,10 @@ class RedisRateLimiter:
                     allowed=False, retry_after_seconds=retry_after
                 )
             return RateLimitResultValue(allowed=True, retry_after_seconds=None)
-        except (
-            Exception
-        ):  # Redis is optional; never crash a money endpoint on a Redis blip
+        except Exception as exc:
+            # Fail OPEN here (documented: a Redis blip must not stop honest
+            # traffic) — but never silently. This is the one Redis path where a
+            # failure weakens the control instead of refusing, so it must be
+            # visible in logs and counters rather than looking like `allowed`.
+            note_redis_failure("rate_limit", key, exc)
             return RateLimitResultValue(allowed=True, retry_after_seconds=None)

@@ -20,8 +20,11 @@ Assumptions recorded in LIMITATIONS.md:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import threading
+from collections import Counter
+from collections.abc import Callable
 from typing import Any
 
 from . import clock
@@ -31,6 +34,91 @@ from .nonce_store import NonceStore
 logger = logging.getLogger(__name__)
 
 REDIS_PREFIX = "tcdn-ai:"
+
+#: Atomic fetch-and-delete for servers/clients without ``GETDEL`` (Redis < 6.2).
+#: ``consume`` used to issue GET and then DEL, which is a race: two concurrent
+#: consumers both read the value and both succeed. Measured against a real Redis
+#: with two barrier-released consumers: 122/300 trials at no gap, 299/300 with
+#: the window widened to 5 ms — the window is the two round trips, so an
+#: attacker only has to race the verifier, not guess a secret. GETDEL is one
+#: round trip and one server-side operation, so the window does not exist.
+_GETDEL_LUA = """
+local value = redis.call('GET', KEYS[1])
+if value then
+  redis.call('DEL', KEYS[1])
+end
+return value
+""".strip()
+
+#: Per-operation failure counters. With Redis configured these code paths ARE
+#: the security control (single-use tickets/nonces, shared caps), so a failure
+#: is an incident a deployment must be able to alert on, not a debug detail.
+#: Export this from wherever the deployment scrapes metrics, e.g.
+#: ``for op, n in redis_failure_counts().items(): gauge("tcdn_ai_redis_failures",
+#: n, operation=op)``.
+_FAILURE_COUNTS: Counter[str] = Counter()
+
+#: Process-wide alert seam. The coordinator registers a hook that writes an
+#: ``ai.redis_unavailable`` audit row; a deployment can register its own
+#: (Sentry, PagerDuty, a Prometheus counter) instead of or as well.
+_failure_hook: Callable[[dict[str, Any]], None] | None = None
+
+
+def redis_failure_counts() -> dict[str, int]:
+    """Snapshot of the per-operation failure counters (metrics/alerting)."""
+    return dict(_FAILURE_COUNTS)
+
+
+def set_redis_failure_hook(hook: Callable[[dict[str, Any]], None] | None) -> None:
+    """Register (or clear) the process-wide failure hook."""
+    global _failure_hook
+    _failure_hook = hook
+
+
+def reset_redis_failure_state() -> None:
+    """Clear the counters and the hook. Tests only."""
+    _FAILURE_COUNTS.clear()
+    set_redis_failure_hook(None)
+
+
+def _key_fingerprint(key: str) -> str:
+    """A stable, non-reversible label for a key, so logs carry no key material."""
+    return hashlib.sha256(str(key).encode("utf-8")).hexdigest()[:12]
+
+
+def note_redis_failure(
+    operation: str,
+    key: str,
+    error: BaseException | None,
+    hook: Callable[[dict[str, Any]], None] | None = None,
+) -> None:
+    """Record one Redis failure: ERROR log + counter + alert hook.
+
+    Never raises: the caller is already on a fail-closed path and must not lose
+    its own error to a broken alert sink. No secret or key material is logged —
+    only a fingerprint of the key and the exception class name.
+    """
+    fingerprint = _key_fingerprint(key)
+    error_name = type(error).__name__ if error is not None else "unavailable"
+    logger.error(
+        "tcdn-ai redis %s failed (key_fingerprint=%s, error=%s) — failing closed",
+        operation,
+        fingerprint,
+        error_name,
+    )
+    _FAILURE_COUNTS[operation] += 1
+    sink = hook or _failure_hook
+    if sink is not None:
+        try:
+            sink(
+                {
+                    "operation": operation,
+                    "key_fingerprint": fingerprint,
+                    "error": error_name,
+                }
+            )
+        except Exception:  # a broken alert hook must not mask the failure
+            logger.exception("tcdn-ai redis failure hook raised")
 
 
 #: Connection kwargs a blocking twin may inherit. The asyncio pool carries more
@@ -137,22 +225,35 @@ class RedisReplayCache:  # pragma: no cover - exercised through coordinator brea
     """
 
     def __init__(
-        self, redis_client: Any, *, key_prefix: str = "ticket", clock=clock.now_unix
+        self,
+        redis_client: Any,
+        *,
+        key_prefix: str = "ticket",
+        clock=clock.now_unix,
+        on_failure: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self._redis = redis_client
         self._key_prefix = key_prefix
         self._clock = clock
         self._twin: Any | None = None
         self._twin_checked = False
+        #: ``claim``/``consume`` are synchronous, so concurrent threads can call
+        #: them at once. Without this lock, a second thread can see
+        #: ``_twin_checked`` set before ``_twin`` is assigned and fall through to
+        #: the event-loop bridge — which fails closed, turning a race into
+        #: "every ticket is a replay".
+        self._twin_lock = threading.Lock()
+        self._on_failure = on_failure
 
     def _key(self, key: str) -> str:
         return f"{REDIS_PREFIX}{self._key_prefix}:replay:{key}"
 
     def _blocking(self) -> Any | None:
-        if not self._twin_checked:
-            self._twin = _blocking_twin(self._redis)
-            self._twin_checked = True
-        return self._twin
+        with self._twin_lock:
+            if not self._twin_checked:
+                self._twin = _blocking_twin(self._redis)
+                self._twin_checked = True
+            return self._twin
 
     def claim(self, ticket_jti: str, expires_at: int) -> bool:
         """Return True the first time ``ticket_jti`` is seen, False afterwards.
@@ -166,11 +267,12 @@ class RedisReplayCache:  # pragma: no cover - exercised through coordinator brea
             ttl = max(1, expires_at - int(self._clock()))
             try:
                 return twin.set(key, "1", nx=True, ex=ttl) is not None
-            except Exception:  # Redis is optional by design
-                logger.warning(
-                    "redis replay claim failed for %s — falling back to reject",
-                    ticket_jti,
-                )
+            except Exception as exc:  # Redis is optional by design
+                # Fail closed AND signal it: with Redis configured, this branch
+                # refusing every claim is indistinguishable from every ticket
+                # being a replay, which is exactly the outage that used to be a
+                # warning nobody saw.
+                note_redis_failure("ticket_claim", ticket_jti, exc, self._on_failure)
                 return False
         return _run_sync(self._claim(ticket_jti, expires_at))
 
@@ -180,10 +282,8 @@ class RedisReplayCache:  # pragma: no cover - exercised through coordinator brea
         ttl = max(1, expires_at - now)
         try:
             ok = await self._redis.set(key, "1", nx=True, ex=ttl)
-        except Exception:  # Redis is optional by design; never crash the coordinator
-            logger.warning(
-                "redis replay claim failed for %s — falling back to reject", ticket_jti
-            )
+        except Exception as exc:  # never crash the coordinator; fail closed
+            note_redis_failure("ticket_claim", ticket_jti, exc, self._on_failure)
             return False
         return ok is not None
 
@@ -205,21 +305,27 @@ class RedisNonceStore(
         ttl_seconds: int = 300,
         key_prefix: str = "nonce",
         clock=clock.now_unix,
+        on_failure: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         super().__init__(ttl_seconds=ttl_seconds, clock=clock)
         self._redis = redis_client
         self._key_prefix = key_prefix
         self._twin: Any | None = None
         self._twin_checked = False
+        #: See ``RedisReplayCache._twin_lock``: the sync path is reachable from
+        #: concurrent threads (the concurrency tests below drive it that way).
+        self._twin_lock = threading.Lock()
+        self._on_failure = on_failure
 
     def _key(self, nonce: str) -> str:
         return f"{REDIS_PREFIX}{self._key_prefix}:{nonce}"
 
     def _blocking(self) -> Any | None:
-        if not self._twin_checked:
-            self._twin = _blocking_twin(self._redis)
-            self._twin_checked = True
-        return self._twin
+        with self._twin_lock:
+            if not self._twin_checked:
+                self._twin = _blocking_twin(self._redis)
+                self._twin_checked = True
+            return self._twin
 
     def issue(self, node_id: str) -> str:
         nonce = super().issue(node_id)
@@ -230,11 +336,10 @@ class RedisNonceStore(
                 twin.set(
                     self._key(nonce), f"{node_id}:{expires_at}", ex=self.ttl_seconds
                 )
-            except Exception:  # pragma: no cover - Redis outage path
-                logger.warning(
-                    "redis nonce issuance failed for node %s — nonce is in-process only",
-                    node_id,
-                )
+            except Exception as exc:  # pragma: no cover - Redis outage path
+                # Degraded, not refused: the nonce is still in this process's
+                # store, so the same instance can spend it. Say so loudly.
+                note_redis_failure("nonce_issue", nonce, exc, self._on_failure)
             return nonce
         _run_sync(self._publish(node_id, nonce))
         return nonce
@@ -245,26 +350,63 @@ class RedisNonceStore(
         value = f"{node_id}:{expires_at}"
         try:
             await self._redis.set(key, value, ex=self.ttl_seconds)
-        except Exception:
-            logger.warning(
-                "redis nonce issuance failed for node %s — nonce is in-process only",
-                node_id,
-            )
+        except Exception as exc:
+            note_redis_failure("nonce_issue", nonce, exc, self._on_failure)
 
     def consume(self, nonce: str, node_id: str) -> None:
         twin = self._blocking()
         if twin is not None:
-            self._consume_blocking(twin, nonce, node_id)
+            value = self._take_blocking(twin, nonce)
+            self._accept(value, nonce, node_id)
             return
         _run_sync(self._consume(nonce, node_id))
 
-    def _consume_blocking(self, twin: Any, nonce: str, node_id: str) -> None:
-        """The synchronous half of ``_consume``, for a blocking client."""
+    def _take_blocking(self, twin: Any, nonce: str) -> Any:
+        """Atomically fetch AND delete the nonce, in one server-side operation.
+
+        ``GETDEL`` exists in Redis 6.2+/redis-py 4.2+; the Lua script is the same
+        operation for anything older. The previous GET-then-DELETE pair was two
+        round trips, so two concurrent consumers both read the value and both
+        were accepted: measured 122/300 trials against a real Redis (299/300 with
+        a 5 ms window). See ``_GETDEL_LUA``. This is checklist 5.4's single-use
+        claim, which the ticket cache already met via SET NX.
+        """
         key = self._key(nonce)
         try:
-            value = twin.get(key)
-        except Exception:
-            value = None
+            getdel = getattr(twin, "getdel", None)
+            if getdel is not None:
+                return getdel(key)
+            return twin.eval(_GETDEL_LUA, 1, key)
+        except Exception as exc:
+            note_redis_failure("nonce_consume", nonce, exc, self._on_failure)
+            raise AttestationError(
+                "attestation nonce store is unavailable",
+                code="nonce_store_unavailable",
+            ) from exc
+
+    async def _take_async(self, nonce: str) -> Any:
+        key = self._key(nonce)
+        try:
+            getdel = getattr(self._redis, "getdel", None)
+            if getdel is not None:
+                return await getdel(key)
+            return await self._redis.eval(_GETDEL_LUA, 1, key)
+        except Exception as exc:
+            note_redis_failure("nonce_consume", nonce, exc, self._on_failure)
+            raise AttestationError(
+                "attestation nonce store is unavailable",
+                code="nonce_store_unavailable",
+            ) from exc
+
+    def _accept(self, value: Any, nonce: str, node_id: str) -> None:
+        """Validate a nonce that has ALREADY been taken from Redis.
+
+        Taking it first means every failure below has burned the nonce. That is
+        the point: a concurrent pair cannot both see it —
+        ``test_ai_redis.py::TestNonceConsumptionIsAtomic`` races eight consumers
+        at one nonce and requires exactly one winner — and a wrong-node or
+        expired presentation cannot leave it behind for a retry.
+        """
         if value is None:
             raise AttestationError(
                 "unknown or already-used attestation nonce", code="stale_nonce"
@@ -272,7 +414,7 @@ class RedisNonceStore(
         try:
             expected_node, expires_at = value.decode("utf-8").split(":", 1)
             expires_at = int(expires_at)
-        except (ValueError, UnicodeDecodeError) as exc:
+        except (ValueError, UnicodeDecodeError, AttributeError) as exc:
             raise AttestationError(
                 "malformed nonce record", code="stale_nonce"
             ) from exc
@@ -281,53 +423,7 @@ class RedisNonceStore(
                 "nonce was issued for a different node", code="nonce_node_mismatch"
             )
         if int(self._clock()) > expires_at:
-            try:
-                twin.delete(key)
-            except Exception:
-                pass
             raise AttestationError("attestation nonce has expired", code="stale_nonce")
-        try:
-            twin.delete(key)
-        except Exception:  # pragma: no cover - Redis outage path
-            logger.warning(
-                "redis nonce consume failed for %s — in-process state may be stale",
-                nonce,
-            )
-        with self._lock:
-            self._nonces.pop(nonce, None)
-
-    async def _consume(self, nonce: str, node_id: str) -> None:
-        key = self._key(nonce)
-        try:
-            value = await self._redis.get(key)
-        except Exception:
-            value = None
-        if value is None:
-            raise AttestationError(
-                "unknown or already-used attestation nonce", code="stale_nonce"
-            )
-        try:
-            expected_node, expires_at = value.decode("utf-8").split(":", 1)
-            expires_at = int(expires_at)
-        except (ValueError, UnicodeDecodeError) as exc:
-            raise AttestationError(
-                "malformed nonce record", code="stale_nonce"
-            ) from exc
-        now = int(self._clock())
-        if expected_node != node_id:
-            raise AttestationError(
-                "nonce was issued for a different node", code="nonce_node_mismatch"
-            )
-        if now > expires_at:
-            await self._forget(key)
-            raise AttestationError("attestation nonce has expired", code="stale_nonce")
-        try:
-            await self._redis.delete(key)
-        except Exception:
-            logger.warning(
-                "redis nonce consume failed for %s — in-process state may be stale",
-                nonce,
-            )
         # Redis is the authority. The inherited ``consume`` requires the nonce to
         # be in THIS process's dict, which is false when a second coordinator
         # instance issued the nonce — attestation then failed closed across
@@ -336,11 +432,9 @@ class RedisNonceStore(
         with self._lock:
             self._nonces.pop(nonce, None)
 
-    async def _forget(self, key: str) -> None:
-        try:
-            await self._redis.delete(key)
-        except Exception:
-            pass
+    async def _consume(self, nonce: str, node_id: str) -> None:
+        value = await self._take_async(nonce)
+        self._accept(value, nonce, node_id)
 
 
 async def setifempty(
@@ -365,5 +459,9 @@ async def setifempty(
     try:
         ok = await redis_client.set(redis_key, value, nx=True, ex=ex)
         return ok is not None
-    except Exception:
+    except Exception as exc:
+        # Returning False is the documented fallback, but it must not be silent:
+        # the caller cannot tell "someone else won the race" from "Redis is
+        # gone", and both used to look identical in the logs (nothing).
+        note_redis_failure("setifempty", key, exc)
         return False

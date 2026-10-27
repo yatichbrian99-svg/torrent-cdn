@@ -16,7 +16,9 @@ database 0.
 
 from __future__ import annotations
 
+import asyncio
 import os
+import threading
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -80,7 +82,68 @@ def instance(ai_env: Any, redis: Any, **settings_overrides: Any) -> Coordinator:
     )
 
 
+def race_nonce_spend(stores: list[Any], nonce: str, node_id: str) -> list[str]:
+    """Present ``nonce`` from every store at once, through the production path.
+
+    Threads, not ``asyncio.gather``: the stores are consumed by *synchronous*
+    verification code (the worker and the gateway need a verdict before they
+    continue), so this is the path a deployment actually takes — it is also the
+    path that exercises the blocking twin, which is what a real coordinator uses.
+    """
+    outcomes: dict[int, str] = {}
+    ready = threading.Barrier(len(stores))
+
+    def attempt(index: int) -> None:
+        ready.wait(timeout=30)
+        try:
+            stores[index].consume(nonce, node_id)
+        except AttestationError as exc:
+            outcomes[index] = f"rejected:{exc.code}"
+        else:
+            outcomes[index] = "consumed"
+
+    threads = [
+        threading.Thread(target=attempt, args=(index,), daemon=True)
+        for index in range(len(stores))
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    assert len(outcomes) == len(stores), "a concurrent consumer never returned"
+    return sorted(outcomes.values())
+
+
 class TestLiveSharedState:
+    @pytest.mark.asyncio
+    async def test_concurrent_spends_of_one_live_nonce_produce_one_winner(self, ai_env):
+        """Single-use nonces under concurrency, against a real server.
+
+        Eight consumers across two instances present one nonce at once. Exactly
+        one may win, and the key must be gone afterwards.
+
+        What this lane does NOT prove: that a *narrow* regression to a
+        GET-then-DELETE take would be caught. Measured on this server with two
+        consumers, that shape double-succeeds in 122/300 trials at no gap (299/300
+        with the window widened to 5 ms) — the loopback window is the two round
+        trips, and a test cannot schedule into it. The deterministic proof lives
+        in ``test_ai_redis.py::TestNonceConsumptionIsAtomic``, where the fake's
+        GET is slow enough that the window is always open whether the take is
+        atomic or not.
+        """
+        async with live_redis() as redis:
+            first = instance(ai_env, redis)
+            second = instance(ai_env, redis)
+            nonce = await first.issue_attestation_nonce("node_race")
+            stores = [first.attestation.nonces, second.attestation.nonces] * 4
+
+            outcomes = await asyncio.to_thread(race_nonce_spend, stores, nonce, "node_race")
+            assert outcomes.count("consumed") == 1, outcomes
+            assert set(outcomes) == {"consumed", "rejected:stale_nonce"}
+            # Taken, not merely read: the key is gone, so no retry can find it.
+            key = first.attestation.nonces._key(nonce)
+            assert await redis.get(key) is None
+
     @pytest.mark.asyncio
     async def test_a_nonce_issued_by_one_instance_is_consumed_once_by_the_other(
         self, ai_env
