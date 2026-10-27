@@ -123,10 +123,20 @@ def create_access_token(data: dict, expires_minutes: int | None = None) -> str:
     )
 
 
-# Longest lifetime this app ever mints is the 14-day "remember me" session
-# (_REMEMBER_ME_MINUTES in routes/auth.py). Anything beyond this is malformed by
-# definition; the day of slack absorbs clock differences between minters.
-_MAX_TOKEN_LIFETIME_SECS = 15 * 24 * 60 * 60
+# Longest lifetime this app mints: the 14-day "remember me" session
+# (_REMEMBER_ME_MINUTES in routes/auth.py), or a longer jwt_expire_minutes that an
+# operator configured. The ceiling follows the configured policy instead of a
+# fixed number so a deployment with JWT_EXPIRE_MINUTES above 15 days cannot end
+# up rejecting its own freshly minted tokens; the extra day absorbs clock
+# differences between minters. A ~100-year token is still malformed, which is
+# what this bounds.
+_REMEMBER_ME_MINUTES = 14 * 24 * 60
+_MIN_MAX_TOKEN_LIFETIME_SECS = 15 * 24 * 60 * 60
+
+
+def _max_token_lifetime_secs() -> float:
+    policy_minutes = max(settings.jwt_expire_minutes, _REMEMBER_ME_MINUTES)
+    return max(_MIN_MAX_TOKEN_LIFETIME_SECS, (policy_minutes + 24 * 60) * 60)
 
 
 def decode_access_token(token: str) -> dict | None:
@@ -156,7 +166,7 @@ def decode_access_token(token: str) -> dict | None:
         lifetime = float(payload["exp"]) - float(payload["iat"])
     except (KeyError, TypeError, ValueError):
         return None
-    if lifetime > _MAX_TOKEN_LIFETIME_SECS:
+    if lifetime > _max_token_lifetime_secs():
         return None
     # A token minted for the MFA second-factor step (create_mfa_token) shares
     # this signing secret, so it would otherwise pass signature/exp here and

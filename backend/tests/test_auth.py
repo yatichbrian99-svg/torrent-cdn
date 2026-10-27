@@ -524,6 +524,30 @@ class TestAccessTokenClaimRequirements:
         })
         assert resp.status_code == 200
 
+    def test_a_longer_configured_lifetime_is_accepted(self, client, mock_conn, monkeypatch):
+        """Backward compatibility: the cap follows JWT_EXPIRE_MINUTES.
+
+        The ceiling has to cover whatever this deployment's own policy mints. An
+        operator running 30-day sessions (a supported setting) would otherwise be
+        locked out by tokens the app itself just issued — a rollout that breaks
+        every login rather than one malformed credential.
+        """
+        import time
+
+        from app import auth as auth_module
+        monkeypatch.setattr(auth_module.settings, "jwt_expire_minutes", 30 * 24 * 60)
+        now = int(time.time())
+        resp = self._get(client, mock_conn, {
+            "sub": self.USER_ID, "iat": now, "exp": now + 30 * self.DAY,
+        })
+        assert resp.status_code == 200
+
+        # The ceiling moved with the policy, it did not disappear.
+        resp = self._get(client, mock_conn, {
+            "sub": self.USER_ID, "iat": now, "exp": now + 100 * 365 * self.DAY,
+        })
+        assert resp.status_code == 401
+
 
 class TestDeleteMe:
     """Tests for DELETE /auth/me — self-account deletion."""

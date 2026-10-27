@@ -35,6 +35,23 @@ def contains_control_chars(value: str) -> bool:
     """
     return any(c in _CONTROL_CHARS for c in value)
 
+
+async def set_if_absent(
+    redis_client, key: str, value: str, *, ex: int | None = None
+) -> bool:
+    """Claim ``key`` with SET NX; True only for the caller that created it.
+
+    Redis is optional in this app, so a client that is None is the caller's own
+    concern (it falls back to the database path), and a failing SET means "not
+    claimed" rather than raising into the request. Used by the email-verification
+    paths: two concurrent requests for the same account during a provider outage
+    must not both flip ``users.verified``.
+    """
+    try:
+        return await redis_client.set(key, value, nx=True, ex=ex) is not None
+    except Exception:  # pragma: no cover - a Redis outage falls back to the DB
+        return False
+
 # Magic bytes (file signatures) for supported media formats
 FILE_SIGNATURES: dict[str, list[tuple[int, bytes, str]]] = {
     ".mp4": [

@@ -19,7 +19,6 @@ from fastapi import (
     status,
 )
 
-from ..ai.redis_cache import setifempty
 from ..auth import (
     API_KEY_PREFIX,
     create_access_token,
@@ -62,7 +61,12 @@ from ..models import (
     UserLogin,
     UserRegister,
 )
-from ..security import contains_control_chars, enforce_max_size, get_client_ip
+from ..security import (
+    contains_control_chars,
+    enforce_max_size,
+    get_client_ip,
+    set_if_absent,
+)
 from ..security_events import record as record_event
 from ..services.email import send_welcome_email
 
@@ -451,7 +455,7 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks, reques
                 redis = await get_redis()
                 auto_verified = False
                 if redis is not None:
-                    auto_verified = await setifempty(
+                    auto_verified = await set_if_absent(
                         redis,
                         f"email-verify:auto:{user['id']}",
                         "1",

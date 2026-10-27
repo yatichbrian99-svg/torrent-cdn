@@ -3,7 +3,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..ai.redis_cache import setifempty
 from ..auth import get_current_user_id
 from ..database import get_db_pool, get_redis
 from ..email_service import (
@@ -12,6 +11,7 @@ from ..email_service import (
     send_verification_email,
 )
 from ..models import EmailVerifyRequest
+from ..security import set_if_absent
 
 # Simple in-memory rate limiting for resend (Redis not required)
 # Bounded: entries older than the 60s cooldown window are dropped on every
@@ -97,7 +97,7 @@ async def resend_verification(user_id: UUID = Depends(get_current_user_id)):
         if redis is not None:
             # Atomic first-wins gate: two concurrent registrations from the same
             # inbox during a provider outage cannot both mark the account verified.
-            auto_verified = await setifempty(
+            auto_verified = await set_if_absent(
                 redis,
                 f"email-verify:auto:{user_id}",
                 "1",
