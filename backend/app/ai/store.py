@@ -487,6 +487,25 @@ class Store(Protocol):
         kind: str,
     ) -> None: ...
 
+    async def post_ledger(
+        self,
+        *,
+        debit: str,
+        credit: str,
+        amount_micro: int,
+        idempotency_key: str,
+        kind: str,
+        job_id: str | None = None,
+    ) -> None:
+        """Post one balanced entry between two arbitrary accounts.
+
+        ``credit`` only ever credits an account's credit balance, which cannot
+        express a payout into a node's earnings account (verification runs are
+        funded by the platform, not by a customer). This is the general form, and
+        it is what the ledger's double-entry invariant is checked against.
+        """
+        ...
+
     async def list_models(self) -> list[ModelRecord]: ...
 
     async def get_model(self, model_id: str) -> ModelRecord | None: ...
@@ -771,6 +790,26 @@ class MemoryStore:
             source=source,
             idempotency_key=idempotency_key,
             kind=kind,
+            at=int(self._clock()),
+        )
+
+    async def post_ledger(
+        self,
+        *,
+        debit: str,
+        credit: str,
+        amount_micro: int,
+        idempotency_key: str,
+        kind: str,
+        job_id: str | None = None,
+    ) -> None:
+        self.ledger.post(
+            debit=debit,
+            credit=credit,
+            amount_micro=amount_micro,
+            idempotency_key=idempotency_key,
+            kind=kind,
+            job_id=job_id,
             at=int(self._clock()),
         )
 
@@ -1568,6 +1607,36 @@ class PostgresStore:
                 amount_micro,
                 idempotency_key,
                 kind,
+                int(time.time()),
+            )
+
+    async def post_ledger(
+        self,
+        *,
+        debit: str,
+        credit: str,
+        amount_micro: int,
+        idempotency_key: str,
+        kind: str,
+        job_id: str | None = None,
+    ) -> None:
+        if amount_micro <= 0:
+            raise ValidationError("post_ledger amount must be > 0")
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO ai_ledger_entries (
+                    debit_account, credit_account, amount_micro,
+                    idempotency_key, kind, job_id, created_at
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7)
+                ON CONFLICT (idempotency_key) DO NOTHING
+                """,
+                debit,
+                credit,
+                amount_micro,
+                idempotency_key,
+                kind,
+                job_id,
                 int(time.time()),
             )
 

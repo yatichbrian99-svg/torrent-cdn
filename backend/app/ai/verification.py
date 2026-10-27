@@ -1,11 +1,16 @@
 """Result verification — deterministic sampling entry point.
 
-The coordinator-side sampler here is the *job selection* layer only, and it is
-the old exact-hash scheme: its seed is ``sha256(salt + job_id)``, which the
-worker can compute. The Part 3 commitment protocol, tolerance re-scoring and
-verdict shapes live in :mod:`app.ai.verification2`; placement still calls this
-sampler (checklist 6.1), so its predictability is a stated limitation rather
-than a fixed property — ``LIMITATIONS.md`` says so where a buyer reads it.
+The coordinator-side sampler here is the *job selection* layer. Its bucket is
+``HMAC-SHA-256(coordinator_secret, domain || job_id)``, not ``sha256(salt ||
+job_id)``: the job id alone is not enough to recompute it, and the operator
+always knows the job id (it has to run the job). A fixed public salt let a node
+predict which jobs would be checked and behave honestly only for those.
+
+The Part 3 commitment protocol, tolerance re-scoring and verdict shapes live in
+:mod:`app.ai.verification2`; placement still calls this sampler (checklist 6.1),
+whose remaining limits — the decision is taken at placement rather than after a
+commitment, and the sample only covers gateway-mode jobs — are stated in
+``LIMITATIONS.md`` where a buyer reads them.
 
 This module is retained so existing coordinator paths and audit tooling that
 already import ``VerificationSampler`` / ``VerificationOutcome`` keep working.
@@ -19,13 +24,16 @@ and what it claimed; they cannot prove an output is correct.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 from dataclasses import dataclass
 
-from . import crypto
-
-#: Tolerance is exact-hash for deterministic replays. A fuzzy comparison would
-#: let a wrong worker hide inside the tolerance, so it is deliberately absent.
-DEFAULT_SALT = "tcdn-ai/verification/v1"
+#: Domain separation: the same secret may also key other coordinator functions,
+#: so the sample MAC is bound to its own label (and to nothing else).
+SAMPLE_DOMAIN = b"tcdn-ai/verification/sample/v1"
+#: Bucket resolution. ``sample_pct`` is expressed in percent, so each percent is
+#: 100 buckets; 3 % is 300 of 10,000.
+BUCKETS = 10_000
 
 
 @dataclass(frozen=True)
@@ -43,20 +51,33 @@ class VerificationOutcome:
 
 
 class VerificationSampler:
-    def __init__(self, sample_pct: int, *, salt: str = DEFAULT_SALT) -> None:
+    """Keyed sample selection.
+
+    ``secret`` is coordinator-side and never sent to a worker, so two
+    coordinators with different secrets sample different jobs and a node cannot
+    derive the decision from the job id it was handed.
+    """
+
+    def __init__(self, sample_pct: int, *, secret: bytes) -> None:
         if not 0 <= sample_pct <= 100:
             raise ValueError("sample_pct must be between 0 and 100")
+        if not secret:
+            raise ValueError("sampling secret must be non-empty")
         self.sample_pct = sample_pct
-        self.salt = salt
+        self._secret = bytes(secret)
 
     def decide(self, job_id: str) -> VerificationDecision:
-        digest = crypto.sha256_hex(f"{self.salt}:{job_id}".encode())
-        bucket = int(digest[:8], 16) % 10_000
+        mac = hmac.new(
+            self._secret,
+            SAMPLE_DOMAIN + b":" + job_id.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+        bucket = int.from_bytes(mac[:8], "big") % BUCKETS
         sampled = bucket < self.sample_pct * 100
         return VerificationDecision(
             sampled=sampled,
             bucket=bucket,
-            reason="deterministic_sample" if sampled else "outside_sample",
+            reason="keyed_sample" if sampled else "outside_sample",
         )
 
 

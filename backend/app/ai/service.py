@@ -38,7 +38,13 @@ from .errors import (
     ValidationError,
 )
 from .keyring import KeyRing
-from .ledger import PLATFORM_REVENUE, SIGNUP_GRANTS, Split
+from .ledger import (
+    PLATFORM_REVENUE,
+    SIGNUP_GRANTS,
+    Split,
+    compute_earnings,
+    split_amounts,
+)
 from .models import (
     AckPayload,
     AttestationEvidencePayload,
@@ -151,7 +157,10 @@ class Coordinator:
             if redis_client is not None
             else NoOpRateLimiter()
         )
-        self.verification = VerificationSampler(settings.verification_sample_pct)
+        self.verification = VerificationSampler(
+            settings.verification_sample_pct,
+            secret=settings.verification_sampling_secret(),
+        )
         # Daily dispatch cap so a sample rate cannot turn into an unbounded
         # second-inference bill. Process-local: one coordinator per deployment.
         self._verification_count = 0
@@ -657,12 +666,96 @@ class Coordinator:
             raise ReceiptError(
                 "verification receipt is missing output_sha256", code="bad_receipt"
             )
+        if record.shadow_output_sha256 is not None and not crypto.constant_time_eq(
+            record.shadow_output_sha256, shadow_hash
+        ):
+            raise ConflictError(
+                "a different verification receipt already exists for this job",
+                code="duplicate_receipt",
+            )
+        input_tokens = envelope.payload.get("input_tokens")
+        output_tokens = envelope.payload.get("output_tokens")
+        for name, value in (
+            ("input_tokens", input_tokens),
+            ("output_tokens", output_tokens),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ReceiptError(
+                    f"verification receipt is missing {name}", code="bad_receipt"
+                )
         await self.store.update_verification(
             record.job_id, shadow_output_sha256=shadow_hash
         )
+        paid = await self._pay_verification_node(
+            record,
+            node,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
         # Whichever run finishes second triggers the comparison; the hash is
         # persisted so a restart between the two does not lose the sample.
-        return await self._reconcile_verification(record.job_id)
+        result = await self._reconcile_verification(record.job_id)
+        result["payout_micro"] = paid
+        return result
+
+    async def _pay_verification_node(
+        self,
+        record: VerificationRecord,
+        node: NodeRecord,
+        *,
+        input_tokens: int,
+        output_tokens: int,
+    ) -> int:
+        """Pay the operator that ran the shadow execution, out of platform revenue.
+
+        The verification run is a real inference on a real machine, so paying
+        nobody would make honesty a loss for the operator being checked. It is
+        funded by ``platform:revenue`` — never by the customer, who paid once, and
+        never out of another node's earnings — using the shadow receipt's own
+        token counts at the primary job's locked rates, capped per run by
+        ``verification_payout_cap_micro`` so a self-reported token count cannot
+        turn into an unbounded transfer. One idempotency key per shadow job, so a
+        retried receipt pays once.
+        """
+        job = await self.store.get_job(record.job_id)
+        if job is None:
+            await self.store.audit(
+                "job.verification_pay_skipped",
+                subject=record.job_id,
+                detail={"reason": "primary_job_missing"},
+            )
+            return 0
+        cost = self._cost(job, input_tokens, output_tokens)
+        earned = split_amounts(cost, job.split).compute_micro
+        amount = min(earned, self.settings.verification_payout_cap_micro)
+        if amount <= 0:
+            await self.store.audit(
+                "job.verification_pay_skipped",
+                subject=record.job_id,
+                detail={"reason": "nothing_to_pay", "shadow_cost_micro": cost},
+            )
+            return 0
+        await self.store.post_ledger(
+            debit=PLATFORM_REVENUE,
+            credit=compute_earnings(node.node_id),
+            amount_micro=amount,
+            idempotency_key=f"verification:{record.verification_job_id}:compute",
+            kind="verification_compute",
+            job_id=record.job_id,
+        )
+        await self.store.audit(
+            "job.verification_paid",
+            subject=record.job_id,
+            detail={
+                "verification_job_id": record.verification_job_id,
+                "verification_node_id": node.node_id,
+                "amount_micro": amount,
+                "shadow_cost_micro": cost,
+                "funded_from": PLATFORM_REVENUE,
+                "capped": amount != earned,
+            },
+        )
+        return amount
 
     async def _reconcile_verification(self, job_id: str) -> dict:
         """Compare the two outputs once both receipts are known."""
