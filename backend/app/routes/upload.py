@@ -17,7 +17,6 @@ from urllib.parse import unquote, urlparse
 from uuid import UUID
 
 import boto3
-import httpcore
 import httpx
 from asyncpg.exceptions import UniqueViolationError
 from botocore.config import Config as BotoConfig
@@ -32,14 +31,6 @@ from fastapi import (
     status,
 )
 
-# httpcore's network-backend hook is what lets us pin the import fetch's TCP
-# connect to a pre-validated IP (closing the DNS-rebinding window). The
-# AnyIOBackend subclass below is imported from httpcore's private module and
-# httpx's private create_ssl_context — both pinned by the requirements lock
-# (httpcore 1.0.9 / httpx 0.28.1), so a version bump must re-verify this.
-from httpcore._backends.anyio import AnyIOBackend
-from httpx._config import create_ssl_context
-
 from ..auth import get_current_user_id
 from ..config import get_settings
 from ..database import get_db_pool, get_redis
@@ -52,6 +43,15 @@ from ..models import (
     UploadResponse,
     UploadSessionRequest,
     UploadSessionResponse,
+)
+
+# The pinning transport (httpcore's network-backend hook, which is what lets
+# the import fetch dial the validated address and nothing else) is shared with
+# the AI engine's origin fetch — one implementation, so the two cannot drift.
+# Imported under the historical private aliases because this module's call
+# sites and tests use them.
+from ..pinned_http import (
+    PinnedHTTPTransport as _PinnedHTTPTransport,
 )
 from ..security import (
     EXTENSION_MIME_MAP,
@@ -116,15 +116,38 @@ settings = get_settings()
 ORPHAN_SWEEP_INTERVAL_SECONDS = settings.orphan_sweep_interval_seconds
 router = APIRouter(prefix="/upload", tags=["upload"])
 
-ALLOWED_EXTS = {".mp4", ".webm", ".ogv", ".mov", ".mp3", ".ogg", ".wav", ".m4a", ".avi", ".mkv"}
+ALLOWED_EXTS = {
+    ".mp4",
+    ".webm",
+    ".ogv",
+    ".mov",
+    ".mp3",
+    ".ogg",
+    ".wav",
+    ".m4a",
+    ".avi",
+    ".mkv",
+}
 
 VIDEO_EXTS = {".mp4", ".webm", ".ogv", ".mov", ".avi", ".mkv"}
 
 # Usage-alert thresholds: (fraction of plan limit, notification type, message)
 USAGE_THRESHOLDS = [
-    (0.50, "usage_50", "You've used 50% of your monthly bandwidth. Upgrade to avoid interruption."),
-    (0.80, "usage_80", "You've used 80% of your monthly bandwidth. Upgrade now to keep delivering."),
-    (0.95, "usage_95", "You're almost out of bandwidth. Upgrade immediately to avoid service interruption."),
+    (
+        0.50,
+        "usage_50",
+        "You've used 50% of your monthly bandwidth. Upgrade to avoid interruption.",
+    ),
+    (
+        0.80,
+        "usage_80",
+        "You've used 80% of your monthly bandwidth. Upgrade now to keep delivering.",
+    ),
+    (
+        0.95,
+        "usage_95",
+        "You're almost out of bandwidth. Upgrade immediately to avoid service interruption.",
+    ),
 ]
 
 # In-memory fallback for the per-IP upload rate limit (used when Redis is down)
@@ -146,6 +169,7 @@ _chunk_sessions: dict[str, dict] = {}
 def _chunk_session_key(upload_id: str) -> str:
     return f"chunk_session:{upload_id}"
 
+
 # Presigned-upload sessions (primary direct-to-storage path). Holds the object
 # key + declared size so finalize can verify the browser's PUT without trusting
 # client-supplied metadata. Expired via _prune_presign_sessions (no temp files
@@ -161,7 +185,11 @@ def _prune_presign_sessions(now: float | None = None) -> None:
     FINALIZED user file. Object GC is the orphan sweep's job (sweep_orphan_objects),
     which checks the uploads table first so a finalized object is never deleted."""
     now = now or time.time()
-    expired = [k for k, s in _presign_sessions.items() if now - s["created_at"] > PRESIGN_SESSION_TTL]
+    expired = [
+        k
+        for k, s in _presign_sessions.items()
+        if now - s["created_at"] > PRESIGN_SESSION_TTL
+    ]
     for k in expired:
         _presign_sessions.pop(k, None)
 
@@ -174,7 +202,9 @@ def _presign_session_idx_key(user_id, idempotency_key: str) -> str:
     return f"presign_idx:{user_id}:{idempotency_key}"
 
 
-async def _load_presign_session(upload_id: str, raise_on_error: bool = False) -> dict | None:
+async def _load_presign_session(
+    upload_id: str, raise_on_error: bool = False
+) -> dict | None:
     """Load a presign session: the in-memory copy first (fast, always current),
     then Redis (survives instance recycling — the JSON round-trip stores
     user_id as str).
@@ -214,7 +244,9 @@ async def _save_presign_session(upload_id: str, session: dict) -> None:
             )
             if session.get("idempotency_key"):
                 await redis.setex(
-                    _presign_session_idx_key(session["user_id"], session["idempotency_key"]),
+                    _presign_session_idx_key(
+                        session["user_id"], session["idempotency_key"]
+                    ),
                     PRESIGN_SESSION_TTL,
                     upload_id,
                 )
@@ -231,7 +263,9 @@ async def _delete_presign_session(upload_id: str) -> None:
             await redis.delete(_presign_session_key(upload_id))
             if session and session.get("idempotency_key"):
                 await redis.delete(
-                    _presign_session_idx_key(session["user_id"], session["idempotency_key"])
+                    _presign_session_idx_key(
+                        session["user_id"], session["idempotency_key"]
+                    )
                 )
     except Exception:
         pass
@@ -242,12 +276,17 @@ async def _find_presign_session_by_key(user_id: UUID, idempotency_key: str):
     upload_id/object key, fresh URL. Checks the in-memory dict first, then the
     Redis index (covers a fresh instance whose memory is cold)."""
     for uid, s in _presign_sessions.items():
-        if str(s.get("user_id")) == str(user_id) and s.get("idempotency_key") == idempotency_key:
+        if (
+            str(s.get("user_id")) == str(user_id)
+            and s.get("idempotency_key") == idempotency_key
+        ):
             return uid, s
     try:
         redis = await get_redis()
         if redis is not None:
-            found_id = await redis.get(_presign_session_idx_key(user_id, idempotency_key))
+            found_id = await redis.get(
+                _presign_session_idx_key(user_id, idempotency_key)
+            )
             if found_id:
                 session = await _load_presign_session(found_id)
                 if session:
@@ -274,7 +313,11 @@ async def _prune_chunk_sessions(now: float | None = None) -> None:
     backstop still expires the keys. Runs lazily on upload activity, matching
     the previous behavior."""
     now = now or time.time()
-    expired = [k for k, s in _chunk_sessions.items() if now - s["created_at"] > CHUNK_SESSION_TTL]
+    expired = [
+        k
+        for k, s in _chunk_sessions.items()
+        if now - s["created_at"] > CHUNK_SESSION_TTL
+    ]
     for k in expired:
         s = _chunk_sessions.pop(k)
         _remove_chunk_temp_file(s.get("path"))
@@ -359,14 +402,19 @@ async def _active_chunk_sessions(user_id) -> list:
         if uid not in seen and str(s.get("user_id")) == str(user_id):
             sessions.append(s)
     return [
-        s for s in sessions
+        s
+        for s in sessions
         if len(s.get("received") or set()) < s.get("total_chunks", 0)
     ]
 
 
 def _prune_upload_requests(now: float) -> None:
     """Drop keys whose newest entry has expired (keeps dict bounded)."""
-    expired = [k for k, v in _upload_requests.items() if not v or now - v[-1] > settings.rate_limit_uploads_window]
+    expired = [
+        k
+        for k, v in _upload_requests.items()
+        if not v or now - v[-1] > settings.rate_limit_uploads_window
+    ]
     for k in expired:
         del _upload_requests[k]
     enforce_max_size(_upload_requests)
@@ -449,7 +497,9 @@ def _ensure_bucket(s3) -> None:
             },
         )
     except Exception as e:
-        logger.warning("Bucket CORS bootstrap skipped for %s: %s", settings.minio_bucket, e)
+        logger.warning(
+            "Bucket CORS bootstrap skipped for %s: %s", settings.minio_bucket, e
+        )
 
 
 def _upload_response_from_row(row) -> UploadResponse:
@@ -511,16 +561,22 @@ async def _dedup_content(
     except Exception as e:
         # Keep THIS object as the upload's own copy rather than orphaning it
         # forever (its row is about to reference it).
-        logger.warning("Content dedup: failed to delete duplicate %s: %s", object_key, e)
+        logger.warning(
+            "Content dedup: failed to delete duplicate %s: %s", object_key, e
+        )
         return minio_http_url
     logger.info(
         "Content dedup: upload %s reuses stored copy %s (sha256 %s…)",
-        file_id, existing_url, content_hash[:12],
+        file_id,
+        existing_url,
+        content_hash[:12],
     )
     return existing_url
 
 
-async def _check_usage_limit(pool, user_id: UUID, month: str, file_size_mb: float) -> tuple:
+async def _check_usage_limit(
+    pool, user_id: UUID, month: str, file_size_mb: float
+) -> tuple:
     """Authoritative plan-limit check for a NEW file about to be accounted.
     Returns (limit_gb, used_gb); raises 402 when the file would exceed the cap."""
     async with pool.acquire() as conn:
@@ -531,11 +587,14 @@ async def _check_usage_limit(pool, user_id: UUID, month: str, file_size_mb: floa
             raise HTTPException(status_code=404, detail="User not found")
 
         plan_limits = {"free": 100, "pro": 1024, "business": float("inf")}
-        limit_gb = plan_limits.get(user["plan"], 100) + (user.get("referral_bonus_gb") or 0)
+        limit_gb = plan_limits.get(user["plan"], 100) + (
+            user.get("referral_bonus_gb") or 0
+        )
 
         usage = await conn.fetchrow(
             "SELECT total_gb_used FROM usage_records WHERE user_id = $1 AND month = $2",
-            user_id, month,
+            user_id,
+            month,
         )
         used_gb = usage["total_gb_used"] if usage else 0
         if used_gb + file_size_mb / 1024 > limit_gb:
@@ -565,7 +624,11 @@ async def _check_upload_rate_limit(request: Request) -> None:
     else:
         now = time.time()
         _prune_upload_requests(now)
-        recent = [t for t in _upload_requests.get(ip, []) if now - t < settings.rate_limit_uploads_window]
+        recent = [
+            t
+            for t in _upload_requests.get(ip, [])
+            if now - t < settings.rate_limit_uploads_window
+        ]
         if len(recent) >= settings.rate_limit_uploads:
             raise HTTPException(status_code=429, detail=_upload_limit_detail())
         recent.append(now)
@@ -588,12 +651,18 @@ async def _check_upload_rate_limit_peek(request: Request) -> None:
     else:
         now = time.time()
         _prune_upload_requests(now)
-        recent = [t for t in _upload_requests.get(ip, []) if now - t < settings.rate_limit_uploads_window]
+        recent = [
+            t
+            for t in _upload_requests.get(ip, [])
+            if now - t < settings.rate_limit_uploads_window
+        ]
         if len(recent) >= settings.rate_limit_uploads:
             raise HTTPException(status_code=429, detail=_upload_limit_detail())
 
 
-def _generate_thumbnail(s3, temp_path: str, ext: str, user_id: UUID, file_id: str) -> str | None:
+def _generate_thumbnail(
+    s3, temp_path: str, ext: str, user_id: UUID, file_id: str
+) -> str | None:
     """Best-effort ffmpeg thumbnail for a video file (never fails the upload).
     Returns the public URL, or None on any failure. FAST SEEK: `-ss` BEFORE
     `-i` jumps to ~2s via the container's keyframes instead of decoding every
@@ -604,7 +673,19 @@ def _generate_thumbnail(s3, temp_path: str, ext: str, user_id: UUID, file_id: st
     try:
         thumb_path = f"/tmp/{file_id}_thumb.jpg"
         proc = subprocess.run(
-            ["ffmpeg", "-y", "-ss", "00:00:02", "-i", temp_path, "-frames:v", "1", "-vf", "scale=640:360", thumb_path],
+            [
+                "ffmpeg",
+                "-y",
+                "-ss",
+                "00:00:02",
+                "-i",
+                temp_path,
+                "-frames:v",
+                "1",
+                "-vf",
+                "scale=640:360",
+                thumb_path,
+            ],
             capture_output=True,
             timeout=60,
             check=False,  # ffmpeg failure is handled via returncode below
@@ -621,13 +702,17 @@ def _generate_thumbnail(s3, temp_path: str, ext: str, user_id: UUID, file_id: st
             thumbnail_url = f"{settings.minio_public_url}/{thumb_key}"
             os.remove(thumb_path)
             return thumbnail_url
-        logger.warning("ffmpeg thumbnail failed for %s (rc=%s)", temp_path, proc.returncode)
+        logger.warning(
+            "ffmpeg thumbnail failed for %s (rc=%s)", temp_path, proc.returncode
+        )
     except Exception as e:
         logger.warning("Thumbnail generation skipped for %s: %s", temp_path, e)
     return None
 
 
-def _torrent_and_thumbnail(file_stream, safe_filename: str, user_id: UUID, file_id: str, s3) -> tuple:
+def _torrent_and_thumbnail(
+    file_stream, safe_filename: str, user_id: UUID, file_id: str, s3
+) -> tuple:
     """Generate the magnet link, (best-effort) video thumbnail, and the file's
     SHA-256 content hash from a seekable file-like object. The stream is
     written ONCE to a temp file whose basename == safe_filename (so the torrent
@@ -666,12 +751,14 @@ def _torrent_and_thumbnail(file_stream, safe_filename: str, user_id: UUID, file_
 
         sha256 = hashlib.sha256()
         with open(temp_path, "wb") as tf:
+
             def reader():
                 chunk = file_stream.read(CHUNK_SIZE)
                 if chunk:
                     tf.write(chunk)
                     sha256.update(chunk)
                 return chunk
+
             pieces = hash_pieces_from_stream(reader, file_size)
         content_hash = sha256.hexdigest()
 
@@ -743,7 +830,11 @@ async def _insert_upload_record(
                 idempotency_key,
             )
         if existing:
-            logger.info("Upload idempotency race resolved for key %s (user %s)", idempotency_key, user_id)
+            logger.info(
+                "Upload idempotency race resolved for key %s (user %s)",
+                idempotency_key,
+                user_id,
+            )
             return _upload_response_from_row(existing)
         raise
 
@@ -767,7 +858,9 @@ async def _insert_upload_record(
     )
 
 
-async def check_usage_thresholds(pool, user_id: UUID, used_gb: float, limit_gb: float) -> None:
+async def check_usage_thresholds(
+    pool, user_id: UUID, used_gb: float, limit_gb: float
+) -> None:
     """Insert usage-alert notifications when usage crosses 50/80/95% of the plan limit.
 
     Each threshold fires at most once per month per user — we check the
@@ -812,10 +905,12 @@ async def upload_file(
         raise HTTPException(status_code=400, detail="No file provided")
 
     if idempotency_key and len(idempotency_key) > 64:
-        raise HTTPException(status_code=400, detail="idempotency_key too long (max 64 chars)")
+        raise HTTPException(
+            status_code=400, detail="idempotency_key too long (max 64 chars)"
+        )
 
     # Sanitize filename — replace dangerous characters
-    safe_filename = re.sub(r'[^a-zA-Z0-9._-]', '_', os.path.basename(file.filename))
+    safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", os.path.basename(file.filename))
 
     # Validate by file extension
     ext = os.path.splitext(safe_filename)[1].lower()
@@ -823,7 +918,7 @@ async def upload_file(
         raise HTTPException(status_code=400, detail="Unsupported file type")
 
     # --- Validate Content-Type (but don't reject on it alone) ---
-    content_type = file.content_type if hasattr(file, 'content_type') else None
+    content_type = file.content_type if hasattr(file, "content_type") else None
     ct_valid, ct_msg = validate_content_type(content_type, safe_filename)
     if not ct_valid:
         raise HTTPException(status_code=400, detail=ct_msg)
@@ -869,7 +964,9 @@ async def upload_file(
     )
 
 
-async def _alert_admins_malware(pool, user_id: UUID, filename: str, file_stream=None) -> None:
+async def _alert_admins_malware(
+    pool, user_id: UUID, filename: str, file_stream=None
+) -> None:
     """Best-effort alert when VirusTotal flags a file as malicious.
 
     Inserts a notification for every admin user so they can investigate the
@@ -895,7 +992,9 @@ async def _alert_admins_malware(pool, user_id: UUID, filename: str, file_stream=
 
         logger.warning(
             "MALWARE DETECTED: user=%s filename='%s' sha256=%s action=rejected+notified",
-            user_id, filename, content_hash,
+            user_id,
+            filename,
+            content_hash,
         )
 
         async with pool.acquire() as conn:
@@ -908,7 +1007,8 @@ async def _alert_admins_malware(pool, user_id: UUID, filename: str, file_stream=
                 # already exists (e.g. presigned finalize re-scanned after storage)
                 existing = await conn.fetchrow(
                     "SELECT 1 FROM notifications WHERE user_id = $1 AND type = 'malware_detected' AND message LIKE $2 LIMIT 1",
-                    admin["id"], f"%{filename}%",
+                    admin["id"],
+                    f"%{filename}%",
                 )
                 if existing:
                     continue
@@ -945,7 +1045,9 @@ async def _store_and_finalize(
     if idempotency_key:
         existing = await _find_completed_by_key(pool, user_id, idempotency_key)
         if existing:
-            logger.info("Upload idempotency hit for key %s (user %s)", idempotency_key, user_id)
+            logger.info(
+                "Upload idempotency hit for key %s (user %s)", idempotency_key, user_id
+            )
             return _upload_response_from_row(existing)
 
     # --- Check usage limit ---
@@ -980,7 +1082,9 @@ async def _store_and_finalize(
 
         # Initiate multipart upload with an explicit, extension-derived ContentType
         # so the stored object is never served as a sniffed/ambiguous type
-        content_type = mimetypes.guess_type(safe_filename)[0] or "application/octet-stream"
+        content_type = (
+            mimetypes.guess_type(safe_filename)[0] or "application/octet-stream"
+        )
         mpu = s3.create_multipart_upload(
             Bucket=settings.minio_bucket,
             Key=minio_key,
@@ -1016,7 +1120,9 @@ async def _store_and_finalize(
         minio_http_url = f"{settings.minio_public_url}/{minio_key}"
     except Exception as e:
         logger.error("MinIO upload failed for user %s: %s", user_id, e)
-        raise HTTPException(status_code=500, detail="Storage upload failed. Please try again.")
+        raise HTTPException(
+            status_code=500, detail="Storage upload failed. Please try again."
+        )
 
     # --- Generate .torrent, magnet link, thumbnail, and content hash ---
     # CPU/IO-bound (SHA-1 hashing + ffmpeg) — run in a thread so finalize of a
@@ -1078,20 +1184,20 @@ async def _store_and_finalize(
 _PRIVATE_IP_NETS = [
     ipaddress.ip_network("0.0.0.0/8"),
     ipaddress.ip_network("10.0.0.0/8"),
-    ipaddress.ip_network("100.64.0.0/10"),      # CGNAT
+    ipaddress.ip_network("100.64.0.0/10"),  # CGNAT
     ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("169.254.0.0/16"),     # link-local incl. cloud metadata
+    ipaddress.ip_network("169.254.0.0/16"),  # link-local incl. cloud metadata
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.0.0.0/24"),
     ipaddress.ip_network("192.168.0.0/16"),
-    ipaddress.ip_network("198.18.0.0/15"),      # benchmarking
-    ipaddress.ip_network("224.0.0.0/4"),        # multicast
-    ipaddress.ip_network("240.0.0.0/4"),        # reserved
+    ipaddress.ip_network("198.18.0.0/15"),  # benchmarking
+    ipaddress.ip_network("224.0.0.0/4"),  # multicast
+    ipaddress.ip_network("240.0.0.0/4"),  # reserved
     ipaddress.ip_network("::/128"),
     ipaddress.ip_network("::1/128"),
-    ipaddress.ip_network("fc00::/7"),           # unique-local IPv6
-    ipaddress.ip_network("fe80::/10"),          # link-local IPv6
-    ipaddress.ip_network("100::/64"),           # discard-only IPv6
+    ipaddress.ip_network("fc00::/7"),  # unique-local IPv6
+    ipaddress.ip_network("fe80::/10"),  # link-local IPv6
+    ipaddress.ip_network("100::/64"),  # discard-only IPv6
 ]
 
 # Hostname suffixes that must never be imported regardless of what they resolve
@@ -1104,78 +1210,6 @@ IMPORT_MAX_REDIRECTS = 5
 # Enforced with asyncio.timeout around the full fetch+stream.
 IMPORT_MAX_TOTAL_SECONDS = 600
 IMPORT_USER_AGENT = "TorrentCDN-Import/1.0"
-
-
-class _PinnedNetworkBackend(AnyIOBackend):
-    """httpcore network backend that pins every TCP connect to a PRE-RESOLVED,
-    SSRF-validated IP. The `host` argument (the attacker-controlled hostname
-    from the request URL) is deliberately ignored — it must never be resolved
-    again at connect time. Everything else — timeouts, error mapping, socket
-    options, unix sockets, sleep — is inherited from AnyIOBackend."""
-
-    def __init__(self, pinned_ip: str) -> None:
-        self._pinned_ip = pinned_ip
-
-    async def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
-        return await super().connect_tcp(
-            self._pinned_ip, port,
-            timeout=timeout, local_address=local_address, socket_options=socket_options,
-        )
-
-
-# Shared default for _PinnedHTTPTransport: httpx.Limits is a plain config
-# object (no per-instance state), so one instance is safe to reuse across
-# transports. Module-level instead of a call in the signature default.
-_DEFAULT_HTTPX_LIMITS = httpx.Limits()
-
-
-class _PinnedHTTPTransport(httpx.AsyncHTTPTransport):
-    """httpx async transport whose connection pool connects ONLY to a pinned
-    address (via _PinnedNetworkBackend). The request URL is never rewritten, so
-    httpcore still derives the Host header and TLS SNI/server-hostname from the
-    original hostname — certificate validation is unchanged, only the TCP
-    target is pinned. httpx 0.28's AsyncHTTPTransport doesn't forward a
-    network_backend kwarg, so the pool is rebuilt here (the rest of the
-    transport — request mapping, timeouts, redirects — is untouched).
-
-    NOTE: an explicit transport also means env proxies (HTTP(S)_PROXY) are
-    INTENTIONALLY bypassed — a proxy resolves the hostname itself at connect
-    time, which would re-open the DNS-rebinding window and defeat the pin.
-    Both `self._pool` (httpx private attr) and the imported backend hooks are
-    version-sensitive; requirements pins httpcore==1.0.9/httpx==0.28.1 and a
-    bump must re-verify this class."""
-
-    def __init__(
-        self,
-        pinned_ip: str,
-        verify: bool = True,
-        trust_env: bool = True,
-        http1: bool = True,
-        http2: bool = False,
-        limits: "httpx.Limits" = _DEFAULT_HTTPX_LIMITS,
-        retries: int = 0,
-    ) -> None:
-        super().__init__(
-            verify=verify, trust_env=trust_env, http1=http1, http2=http2,
-            limits=limits, retries=retries,
-        )
-        # Swap in the pinned pool. The default-backend pool built by
-        # super().__init__ is entered but never used (no connections were made)
-        # and is garbage-collected on reassignment — httpcore's async pool has
-        # no sync __exit__, so it is simply dropped.
-        ssl_context = create_ssl_context(verify=verify, trust_env=trust_env)
-        self._pool = httpcore.AsyncConnectionPool(
-            ssl_context=ssl_context,
-            max_connections=limits.max_connections,
-            max_keepalive_connections=limits.max_keepalive_connections,
-            keepalive_expiry=limits.keepalive_expiry,
-            http1=http1,
-            http2=http2,
-            retries=retries,
-            network_backend=_PinnedNetworkBackend(pinned_ip),
-        )
-        # The pool is entered via the transport's __aenter__ (httpcore's async
-        # pool only implements __aenter__/__aexit__, not the sync protocol).
 
 
 def _import_pinned_address(url: str) -> tuple | None:
@@ -1283,7 +1317,8 @@ async def _download_import_url(url: str, dest_path: str, max_bytes: int) -> tupl
                     location = resp.headers.get("location")
                     if not location:
                         raise HTTPException(
-                            status_code=400, detail="Import URL redirected without a target"
+                            status_code=400,
+                            detail="Import URL redirected without a target",
                         )
                     current = str(httpx.URL(current).join(location))
                     continue
@@ -1298,7 +1333,10 @@ async def _download_import_url(url: str, dest_path: str, max_bytes: int) -> tupl
                         status_code=413, detail="Imported file exceeds the size limit"
                     )
                 content_type = (
-                    (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
+                    (resp.headers.get("content-type") or "")
+                    .split(";")[0]
+                    .strip()
+                    .lower()
                 )
                 total = 0
                 with open(dest_path, "wb") as f:
@@ -1383,12 +1421,16 @@ async def import_from_url(
 
         content_type, total = await _download_import_url(body.url, temp_path, max_bytes)
         if total == 0:
-            raise HTTPException(status_code=400, detail="Import URL returned an empty file")
+            raise HTTPException(
+                status_code=400, detail="Import URL returned an empty file"
+            )
 
         safe_filename = _import_filename(body.filename, body.url, content_type)
         ct_valid, ct_msg = validate_content_type(content_type, safe_filename)
         if not ct_valid:
-            raise HTTPException(status_code=400, detail=f"Imported file type mismatch: {ct_msg}")
+            raise HTTPException(
+                status_code=400, detail=f"Imported file type mismatch: {ct_msg}"
+            )
 
         # Byte-level content validation, mirroring the direct/chunked paths
         # (the shared pipeline does NOT do this — its callers do): magic-byte
@@ -1442,7 +1484,7 @@ async def create_upload_session(
     the response was lost), returns it directly so the client skips chunks."""
     await _prune_chunk_sessions()
 
-    safe_filename = re.sub(r'[^a-zA-Z0-9._-]', '_', os.path.basename(body.filename))
+    safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", os.path.basename(body.filename))
     ext = os.path.splitext(safe_filename)[1].lower()
     if ext not in ALLOWED_EXTS:
         raise HTTPException(status_code=400, detail="Unsupported file type")
@@ -1469,7 +1511,9 @@ async def create_upload_session(
 
     key = body.idempotency_key
     if key and len(key) > 64:
-        raise HTTPException(status_code=400, detail="idempotency_key too long (max 64 chars)")
+        raise HTTPException(
+            status_code=400, detail="idempotency_key too long (max 64 chars)"
+        )
 
     # Dedup before any accounting: a retry of an upload that already completed
     # (lost response) should return the stored result, not fail or re-upload.
@@ -1478,7 +1522,9 @@ async def create_upload_session(
         existing = await _find_completed_by_key(pool, user_id, key)
         if existing:
             logger.info("Chunked session dedup hit for key %s (user %s)", key, user_id)
-            return UploadSessionResponse(upload_id=None, result=_upload_response_from_row(existing))
+            return UploadSessionResponse(
+                upload_id=None, result=_upload_response_from_row(existing)
+            )
 
     # Fail-fast usage check — finalize re-checks authoritatively via the shared
     # pipeline (the client shouldn't stream hundreds of chunks for a file that
@@ -1500,16 +1546,19 @@ async def create_upload_session(
         )
 
     upload_id = str(uuid.uuid4())
-    await _save_chunk_session(upload_id, {
-        "user_id": user_id,
-        "filename": safe_filename,
-        "total_chunks": body.total_chunks,
-        "file_size": body.file_size,
-        "idempotency_key": key,
-        "received": set(),
-        "path": None,
-        "created_at": time.time(),
-    })
+    await _save_chunk_session(
+        upload_id,
+        {
+            "user_id": user_id,
+            "filename": safe_filename,
+            "total_chunks": body.total_chunks,
+            "file_size": body.file_size,
+            "idempotency_key": key,
+            "received": set(),
+            "path": None,
+            "created_at": time.time(),
+        },
+    )
     return UploadSessionResponse(upload_id=upload_id, result=None)
 
 
@@ -1557,7 +1606,9 @@ async def upload_chunk(
 
     session["received"].add(index)
     await _save_chunk_session(upload_id, session)
-    return ChunkUploadResponse(received=len(session["received"]), total=session["total_chunks"])
+    return ChunkUploadResponse(
+        received=len(session["received"]), total=session["total_chunks"]
+    )
 
 
 @router.post("/finalize/{upload_id}", response_model=UploadResponse)
@@ -1632,7 +1683,9 @@ async def finalize_upload(
         raise
     except Exception:
         logger.exception("Chunked upload finalize failed for session %s", upload_id)
-        raise HTTPException(status_code=500, detail="Storage upload failed. Please try again.")
+        raise HTTPException(
+            status_code=500, detail="Storage upload failed. Please try again."
+        )
 
 
 @router.post("/presign", response_model=UploadPresignResponse)
@@ -1649,7 +1702,7 @@ async def presign_upload(
     upload_id / object key, fresh URL)."""
     _prune_presign_sessions()
 
-    safe_filename = re.sub(r'[^a-zA-Z0-9._-]', '_', os.path.basename(body.filename))
+    safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", os.path.basename(body.filename))
     ext = os.path.splitext(safe_filename)[1].lower()
     if ext not in ALLOWED_EXTS:
         raise HTTPException(status_code=400, detail="Unsupported file type")
@@ -1669,7 +1722,9 @@ async def presign_upload(
 
     key = body.idempotency_key
     if key and len(key) > 64:
-        raise HTTPException(status_code=400, detail="idempotency_key too long (max 64 chars)")
+        raise HTTPException(
+            status_code=400, detail="idempotency_key too long (max 64 chars)"
+        )
 
     pool = await get_db_pool()
 
@@ -1698,7 +1753,11 @@ async def presign_upload(
         # the next prune — a minor undercount (they self-expire in 30 min) that
         # is bounded by the per-IP upload limiter at finalize anyway.
         _prune_presign_sessions()
-        active = [s for s in _presign_sessions.values() if str(s.get("user_id")) == str(user_id)]
+        active = [
+            s
+            for s in _presign_sessions.values()
+            if str(s.get("user_id")) == str(user_id)
+        ]
         if len(active) >= MAX_ACTIVE_PRESIGN_SESSIONS_PER_USER:
             raise HTTPException(
                 status_code=429,
@@ -1706,7 +1765,9 @@ async def presign_upload(
             )
         upload_id = str(uuid.uuid4())
         object_key = f"{user_id}/{upload_id}/{safe_filename}"
-        content_type = mimetypes.guess_type(safe_filename)[0] or "application/octet-stream"
+        content_type = (
+            mimetypes.guess_type(safe_filename)[0] or "application/octet-stream"
+        )
 
     # Fail-fast usage check — finalize re-checks authoritatively; the client
     # shouldn't PUT a multi-GB body for a file that can't be stored.
@@ -1731,15 +1792,18 @@ async def presign_upload(
         HttpMethod="PUT",
     )
 
-    await _save_presign_session(upload_id, {
-        "user_id": user_id,
-        "filename": safe_filename,
-        "file_size": body.file_size,
-        "content_type": content_type,
-        "idempotency_key": key,
-        "object_key": object_key,
-        "created_at": time.time(),
-    })
+    await _save_presign_session(
+        upload_id,
+        {
+            "user_id": user_id,
+            "filename": safe_filename,
+            "file_size": body.file_size,
+            "content_type": content_type,
+            "idempotency_key": key,
+            "object_key": object_key,
+            "created_at": time.time(),
+        },
+    )
     return UploadPresignResponse(
         upload_id=upload_id,
         presigned_url=presigned_url,
@@ -1794,7 +1858,8 @@ async def presign_finalize(
             if row:
                 logger.info(
                     "Presign finalize lost-response retry hit for upload %s (user %s)",
-                    upload_id, user_id,
+                    upload_id,
+                    user_id,
                 )
                 return _upload_response_from_row(row)
         raise HTTPException(status_code=404, detail="Upload session not found")
@@ -1856,12 +1921,14 @@ async def presign_finalize(
             body = obj["Body"]
             sha256 = hashlib.sha256()
             with open(path, "wb") as tf:
+
                 def reader():
                     chunk = body.read(CHUNK_SIZE)
                     if chunk:
                         tf.write(chunk)
                         sha256.update(chunk)
                     return chunk
+
                 return hash_pieces_from_stream(reader, file_size), sha256.hexdigest()
 
         temp_dir = tempfile.mkdtemp(prefix="torrentcd-")
@@ -1902,7 +1969,7 @@ async def presign_finalize(
             # raises below and the except-HttpException handler deletes the
             # object, so malware never gets a finalized uploads row.
             if not await scan_file(temp_path, total_size):
-                await _alert_admins_malware(pool, user_id, session['filename'])
+                await _alert_admins_malware(pool, user_id, session["filename"])
                 raise HTTPException(
                     status_code=422,
                     detail="File failed malware scanning",
@@ -1912,12 +1979,16 @@ async def presign_finalize(
             # Magnet is pure CPU over the already-computed piece hashes (tiny
             # bencode + sha1) — no file I/O. The ffmpeg thumbnail is CPU/IO
             # bound, so it runs in a thread and never blocks the event loop.
-            magnet_link = build_magnet(session["filename"], pieces, session["file_size"])
+            magnet_link = build_magnet(
+                session["filename"], pieces, session["file_size"]
+            )
             thumbnail_url = await asyncio.to_thread(
                 _generate_thumbnail,
-                s3, temp_path,
+                s3,
+                temp_path,
                 os.path.splitext(session["filename"])[1].lower(),
-                user_id, upload_id,
+                user_id,
+                upload_id,
             )
             # Content dedup: identical bytes store once — delete the browser's
             # fresh object and point this row at the existing copy.
@@ -1963,7 +2034,9 @@ async def presign_finalize(
         raise
     except Exception:
         logger.exception("Presign finalize failed for session %s", upload_id)
-        raise HTTPException(status_code=500, detail="Storage upload failed. Please try again.")
+        raise HTTPException(
+            status_code=500, detail="Storage upload failed. Please try again."
+        )
     finally:
         if temp_dir and os.path.isdir(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -2033,9 +2106,13 @@ async def sweep_orphan_objects() -> int:
             # the object — never delete on ambiguity. (The DB check below also
             # skips on error, so both gates are conservative.)
             try:
-                pending = await _load_presign_session(str(upload_id), raise_on_error=True)
+                pending = await _load_presign_session(
+                    str(upload_id), raise_on_error=True
+                )
             except Exception:
-                logger.warning("Orphan sweep: session check failed for %s — skipping", key)
+                logger.warning(
+                    "Orphan sweep: session check failed for %s — skipping", key
+                )
                 continue
             if pending is not None:
                 continue
