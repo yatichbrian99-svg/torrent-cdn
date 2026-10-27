@@ -114,8 +114,21 @@ explicitly after review.
 ## 7. Monitoring
 
 Watch: placement latency and error rate, `no_eligible_worker` rate, hold/settlement
-lag, disputed ratio, hash/attestation failures, shard failure rate, ledger balance
-delta (must be zero), and `ai_audit_log` growth.
+lag, the `job.billing_review` rate (jobs billed from a receipt whose client ack
+disagreed, that overclaimed the gateway's own count, or that reached the hold
+ceiling — the worklist for the refund path), per-node `overclaim_rate_pct` and
+`node.held_for_review` events (a node suspended and its payouts held:
+`SELECT node_id, settled_jobs, overclaim_events, mismatch_events, review_reason
+FROM ai_nodes WHERE review_reason IS NOT NULL`), `payout.held_node_review`,
+hash/attestation failures, shard failure rate, ledger balance delta (must be
+zero), and `ai_audit_log` growth.
+
+**Clearing a node review** (after the operator has seen the jobs): set
+`review_reason = NULL` and `suspended = FALSE` on that `ai_nodes` row, then pay or
+refund the held `ai_payouts` rows explicitly — a hold never releases on its own,
+because the money it protects is the money under suspicion. The node's counters
+are deliberately *not* reset: the next overclaim starts from the same history, so
+a cleared node that reoffends is held again on a much smaller sample.
 
 No prompt content or API key may ever appear in logs; the `TestLogHygiene` suite
 enforces the code-side guarantee, but log shipping configuration is still yours to

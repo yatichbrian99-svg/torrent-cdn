@@ -104,8 +104,19 @@ your deployment, the corresponding guarantee does not exist.
     are not silently dropped. These are Section C item 11 work.
 16. **Gateway streaming errors after the first token are in-band.** Headers are
     already sent when a worker dies mid-stream, so the failure is delivered as an
-    SSE `error` event. Such a job is not acked and therefore never settles; it
-    expires and the hold is released.
+    SSE `error` event. Such a job never produces a (complete) receipt, so nothing
+    is billed for it; it expires and the hold is released. A job that *did*
+    produce a receipt is billed by that receipt regardless of what the client
+    does next, including a truncated stream the client abandoned.
+
+17. **The gateway's token count is a count of frames plus a text estimate, not a
+tokenizer.** No tokenizer ships with this build (row 2.8 is `MISSING`), so the
+gateway measures the completion as the number of token frames the worker
+streamed, floored by `len(text) // 4`. That is enough to catch an overclaim of
+whole tokens (the case that costs money), but a worker whose frames are large
+can bill up to the tolerance above it, and an engine whose own tokenisation
+differs from the estimate is flagged as an under-claim rather than corrected.
+The fix is a real tokenizer at the gateway, which is the same work as row 2.8.
 
 ## Result verification is probabilistic — read this before trusting a result
 

@@ -42,20 +42,26 @@ What it proves with real inference:
 ## Two bugs this run found (both fixed, with regression tests)
 
 1. **The credit hold was below the real settlement cost, so every real-engine
-   job was disputed.** The coordinator reserves credits from the client's token
-   *estimate* (it never sees the prompt). A real engine counts the prompt after
-   applying the model's chat template: a 7-token estimate became **48** input
-   tokens with Qwen2.5. Settlement 240 µ > hold 117 µ → `settlement_exceeds_hold`
-   on all 4 jobs of the first run. Fix: a configurable reservation headroom
-   (`hold_input_margin_tokens=64`, `hold_input_margin_pct=10`) added to the hold
-   only — the quoted price is unchanged. Regression test:
+   job was over its hold.** The coordinator reserves credits from the client's
+   token *estimate* (it never sees the prompt). A real engine counts the prompt
+   after applying the model's chat template: a 7-token estimate became **48**
+   input tokens with Qwen2.5. Settlement 240 µ > hold 117 µ →
+   `settlement_exceeds_hold` on all 4 jobs of the first run. Fix: a configurable
+   reservation headroom (`hold_input_margin_tokens=64`,
+   `hold_input_margin_pct=10`) added to the hold only — the quoted price is
+   unchanged. Regression test:
    `tests/test_ai_service.py::TestHoldHeadroomAndDisputes::test_engine_chat_template_overhead_settles_within_the_hold`.
-2. **A disputed job never released its hold (H-1).** The first run left 4 holds
-   open, freezing the customer's credits. Fix: settle-as-disputed now releases
-   the reservation (nobody is paid until review). Regression test:
-   `...::test_disputed_job_releases_the_hold`.
+2. **A job over its hold never released the reservation (H-1).** The first run
+   left 4 holds open, freezing the customer's credits. Fix: the hold is a hard
+   ceiling on what a receipt can bill, a receipt that reaches it is billed *at*
+   the ceiling and flagged for review rather than refused (refusing it would
+   hand the completion to the customer for free), and the reservation is always
+   settled or released. Regression tests:
+   `...::test_over_hold_receipt_is_capped_and_flagged` (cap + `dispute_reason` +
+   reservation released) and, for the billing change that made a client ack
+   unnecessary for the charge, `...::TestEncryptedJob::test_placement_worker_receipt_ack_settlement`.
 
-Both controls are break-tested (`scripts/break_tests.py`, 13/13 CAUGHT).
+Both controls are break-tested (`scripts/break_tests.py`, 22/22 CAUGHT).
 
 ## Limitation this run exposed (documented, not fixed)
 
