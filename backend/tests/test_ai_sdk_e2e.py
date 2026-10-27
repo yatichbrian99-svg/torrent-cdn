@@ -82,17 +82,23 @@ def build_world(*, confidential: bool = False) -> SimpleNamespace:
         )
         store.models[model.model_id] = model
         coordinator = Coordinator(store=store, keyring=keyring, settings=settings)
-        api_key = await coordinator.provision_api_key(ACCOUNT_ID, scopes=("inference", "worker"))
+        api_key = await coordinator.provision_api_key(
+            ACCOUNT_ID, scopes=("inference", "worker")
+        )
         await store.credit(
-            ACCOUNT_ID, 1_000_000_000, source="gateway:test",
-            idempotency_key="e2e-credits", kind="credit_purchase",
+            ACCOUNT_ID,
+            1_000_000_000,
+            source="gateway:test",
+            idempotency_key="e2e-credits",
+            kind="credit_purchase",
         )
         auth = await coordinator.authenticate(api_key)
 
         identity = WorkerIdentity.generate("pending")
-        identity.node_id = "node_" + hashlib.sha256(
-            identity.identity_public_key.encode()
-        ).hexdigest()[:24]
+        identity.node_id = (
+            "node_"
+            + hashlib.sha256(identity.identity_public_key.encode()).hexdigest()[:24]
+        )
         registration = WorkerRegistrationPayload(
             identity_public_key=identity.identity_public_key,
             session_public_key=identity.session_public_key,
@@ -114,7 +120,9 @@ def build_world(*, confidential: bool = False) -> SimpleNamespace:
                 payload=registration,
                 key_id=identity.identity_key_id,
                 sig=crypto.sign(
-                    "tcdn-ai/node-register/v1", registration, identity.identity_private_key
+                    "tcdn-ai/node-register/v1",
+                    registration,
+                    identity.identity_private_key,
                 ),
             ),
         )
@@ -138,7 +146,9 @@ def build_world(*, confidential: bool = False) -> SimpleNamespace:
                     payload=evidence,
                     key_id=identity.identity_key_id,
                     sig=crypto.sign(
-                        ATTESTATION_EVIDENCE_DOMAIN, evidence, identity.identity_private_key
+                        ATTESTATION_EVIDENCE_DOMAIN,
+                        evidence,
+                        identity.identity_private_key,
                     ),
                 ),
             )
@@ -150,7 +160,9 @@ def build_world(*, confidential: bool = False) -> SimpleNamespace:
             config=WorkerConfig(
                 models={model.model_id: model.manifest_hash},
                 confidentiality=(
-                    Confidentiality.ATTESTED_TEE if confidential else Confidentiality.NONE
+                    Confidentiality.ATTESTED_TEE
+                    if confidential
+                    else Confidentiality.NONE
                 ),
                 attested=confidential,
             ),
@@ -192,7 +204,9 @@ class SyncHTTP:
     def close(self) -> None:
         self._client.close()
 
-    def stream(self, *args, **kwargs):  # pragma: no cover - worker transport is injected
+    def stream(
+        self, *args, **kwargs
+    ):  # pragma: no cover - worker transport is injected
         raise AssertionError("worker calls go through worker_transport in tests")
 
 
@@ -263,9 +277,14 @@ class TestSDKEndToEnd:
         )
         assert reply.object == "chat.completion"
         assert reply.choices[0].message.role == "assistant"
-        assert reply.choices[0].message.content.startswith(f"echo[{world.model.model_id}]")
+        assert reply.choices[0].message.content.startswith(
+            f"echo[{world.model.model_id}]"
+        )
         assert reply.choices[0].finish_reason == "stop"
-        assert reply.usage.total_tokens == reply.usage.prompt_tokens + reply.usage.completion_tokens
+        assert (
+            reply.usage.total_tokens
+            == reply.usage.prompt_tokens + reply.usage.completion_tokens
+        )
         assert reply.tcdn["confidentiality"] == "none"
         assert len(receipts) == 1
 
@@ -351,7 +370,8 @@ class TestSDKEndToEnd:
     def test_tampered_ticket_is_rejected_by_the_sdk(self):
         world = build_world()
         client, _ = make_client(
-            world, tamper=lambda body: body["ticket"]["payload"].update({"max_tokens": 10**6})
+            world,
+            tamper=lambda body: body["ticket"]["payload"].update({"max_tokens": 10**6}),
         )
         with pytest.raises(TicketVerificationError):
             client.chat.completions.create(
@@ -376,6 +396,50 @@ class TestSDKEndToEnd:
         settled = submit_receipt(world, receipts[0])
         assert settled.status.value == "settled"
 
+    def test_confidential_is_sdk_mode_only_and_the_coordinator_stays_blind(self):
+        """The row's last clause: confidential needs SDK mode.
+
+        Both halves in one place. In SDK mode the client encrypts to the worker,
+        so a canary prompt reaches the answer while never appearing in the
+        coordinator's job row or audit log — the confidential tier *is* the
+        encrypted path. In gateway mode the coordinator holds the plaintext, so
+        the same flag cannot be honoured and is refused with a pointer to the
+        SDK; accepting it would silently downgrade the tier it was asked for.
+        """
+        from app.ai.errors import ValidationError
+        from app.ai.gateway import parse_chat_request
+
+        world = build_world(confidential=True)
+        client, receipts = make_client(world)
+        canary = "CANARY-CONF-2-3-prompt"
+        reply = client.chat.completions.create(
+            model=world.model.model_id,
+            messages=[{"role": "user", "content": canary}],
+            max_tokens=8,
+            confidential=True,
+        )
+        assert reply.tcdn["confidentiality"] == "attested-tee"
+        job = asyncio.run(world.store.get_job(reply.tcdn["job_id"]))
+        assert job.tier == "confidential"
+        assert canary not in repr(job)
+        assert canary not in repr(world.store.audit_log)
+        # The worker's echo proves the prompt really travelled.
+        assert canary in reply.choices[0].message.content
+        submit_receipt(world, receipts[0])
+
+        # Gateway mode: the coordinator would hold that plaintext, so it refuses.
+        with pytest.raises(ValidationError) as refused:
+            parse_chat_request(
+                {
+                    "model": world.model.model_id,
+                    "messages": [{"role": "user", "content": "secret"}],
+                    "confidential": True,
+                },
+                world.settings,
+            )
+        assert "SDK" in str(refused.value)
+        assert refused.value.code == "unsupported_parameter"
+
     def test_confidential_requires_pinned_coordinator_keys(self):
         world = build_world(confidential=True)
         ai_routes.reset_for_tests()
@@ -384,7 +448,9 @@ class TestSDKEndToEnd:
             api_key=world.api_key,
             base_url=BASE_URL,
             http_client=SyncHTTP(),
-            worker_transport=lambda url, payload: asyncio.run(world.agent.process(payload)),
+            worker_transport=lambda url, payload: asyncio.run(
+                world.agent.process(payload)
+            ),
         )
         from tcdn_ai_sdk.errors import AttestationRequiredError
 
