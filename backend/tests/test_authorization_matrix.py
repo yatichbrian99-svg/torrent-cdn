@@ -44,8 +44,15 @@ PUBLIC_ROUTES: list[tuple[str, str]] = [
     (r"^/api/share/.*$", "public share API"),
     (r"^/public/.*$", "public assets"),
     (r"^/api/public/.*$", "public CDN API"),
+    (r"^/files/public/.*$", "public download of a shareable file (opaque id)"),
+    (r"^/files/share/.*$", "share-link resolution by token (the token is the auth)"),
+    (r"^/analytics/event$", "viewer analytics beacon (no account, no PII)"),
+    (r"^/analytics/public/.*$", "public analytics for a shareable file"),
     (r"^/api/ai/v1/keys/coordinator$", "public key bundle (signature is the auth)"),
-    (r"^/api/ai/v1/billing/webhook$", "signed payment callback (signature is the auth)"),
+    (
+        r"^/api/ai/v1/billing/webhook$",
+        "signed payment callback (signature is the auth)",
+    ),
     (r"^/api/ai/v1/jobs/\{job_id\}/receipt$", "worker receipt (signature is the auth)"),
     (r"^/api/ai/v1/nodes/heartbeat$", "worker heartbeat (signature is the auth)"),
     (r"^/api/ai/v1/attestations$", "attestation submission (signature is the auth)"),
@@ -122,7 +129,9 @@ def test_every_route_is_either_public_or_requires_auth(client, ai_env):
             failures.append(f"{method} {path} -> {response.status_code} (server error)")
     ai_routes.set_coordinator_for_tests(None)
     assert checked > 20, f"only {checked} routes exercised; route discovery is broken"
-    assert not failures, "unauthenticated 2xx from protected routes:\n" + "\n".join(failures)
+    assert not failures, "unauthenticated 2xx from protected routes:\n" + "\n".join(
+        failures
+    )
 
 
 # Public surfaces that exist in other deployment shapes (CDN front door, metrics
@@ -194,7 +203,9 @@ def ai_http(ai_env):
 @_AI_OFF
 class TestAIRoleMatrix:
     @pytest.mark.asyncio
-    async def test_worker_only_key_cannot_use_inference_endpoints(self, ai_env, ai_http):
+    async def test_worker_only_key_cannot_use_inference_endpoints(
+        self, ai_env, ai_http
+    ):
         worker_key = await ai_env.coordinator.provision_api_key(
             ai_env.account_id, scopes=("worker",)
         )
@@ -214,7 +225,9 @@ class TestAIRoleMatrix:
         assert balance.json()["account_id"] == ai_env.account_id
 
     @pytest.mark.asyncio
-    async def test_foreign_account_gets_404_for_someone_elses_node(self, ai_env, ai_http):
+    async def test_foreign_account_gets_404_for_someone_elses_node(
+        self, ai_env, ai_http
+    ):
         foreign_key = await ai_env.coordinator.provision_api_key(
             "22222222-2222-4222-8222-222222222222", scopes=("worker", "inference")
         )
@@ -291,3 +304,206 @@ class TestAIRoleMatrix:
             )
         assert response.status_code == 401
         assert secret not in response.text
+
+
+# ── the matrix (checklist 5.3) ──────────────────────────────────────────────
+
+
+def _dependency_names(dependant) -> set[str]:
+    names: set[str] = set()
+    stack = [dependant]
+    while stack:
+        node = stack.pop()
+        for dependency in node.dependencies:
+            names.add(getattr(dependency.call, "__name__", ""))
+            stack.append(dependency)
+    return names
+
+
+# Classes are DERIVED from the route's dependency tree, in this order, so an
+# endpoint that forgets its auth dependency cannot be classified. Only the two
+# cases where auth is not a FastAPI dependency need a table entry, and each
+# entry has a probe in TestAuthClassRefusals proving it actually refuses.
+CLASS_RULES = [
+    ("admin", "require_admin", "admin JWT: require_admin() after get_current_user_id"),
+    ("api-key", "authenticate", "AI API key bearer, scope-checked in the coordinator"),
+    ("jwt", "get_current_user_id", "session JWT"),
+]
+
+INTERNAL_HOOK_PREFIX = "/api/internal/mediamtx"
+SIGNATURE_PREFIXES = ("/api/ai/v1/", "/v1/", "/billing/webhook")
+VIEWER_ROUTES = re.compile(
+    r"^/api/live/(play/[^/]+|segments/[^/]+/[^/]+/identity|token|session|heartbeat|leave|segment/availability)$"
+)
+
+
+def _route_class(path: str, names: set[str]) -> tuple[str, str]:
+    for cls, dependency, reason in CLASS_RULES:
+        if dependency in names:
+            return cls, reason
+    if _is_public(path):
+        return "public", "explicit allowlist entry with a reason"
+    if path.startswith(INTERNAL_HOOK_PREFIX):
+        return "internal-hook", "X-Hook-Secret, checked in the handler (probed below)"
+    if path.startswith(SIGNATURE_PREFIXES):
+        return "signature", "signed envelope or webhook HMAC (probed below)"
+    if VIEWER_ROUTES.match(path):
+        return (
+            "viewer",
+            "playback token minted by /play, presented by the viewer (probed below)",
+        )
+    return "unclassified", ""
+
+
+def test_every_route_is_classified_by_the_credential_it_accepts():
+    """The matrix itself: one class per route, derived from the dependency tree.
+
+    A new endpoint with no auth dependency and no allowlist entry lands in
+    ``unclassified`` and fails here — it cannot be forgotten, only classified
+    deliberately with a probe.
+    """
+    counts: dict[str, int] = {}
+    unclassified: list[str] = []
+    for route in _routes():
+        cls, _reason = _route_class(route.path, _dependency_names(route.dependant))
+        counts[cls] = counts.get(cls, 0) + 1
+        if cls == "unclassified":
+            unclassified.append(route.path)
+    assert not unclassified, f"routes with no identifiable credential: {unclassified}"
+    # Vacuity controls: the sweep must see every kind of surface.
+    for cls in ("public", "jwt", "admin", "signature", "viewer"):
+        assert counts.get(cls, 0) > 0, f"no {cls} routes found: {counts}"
+    assert counts.get("internal-hook", 0) > 0, counts
+
+
+def test_viewer_session_endpoints_are_not_jwt_routes(client):
+    """Control for the classification: the viewer endpoints really are public.
+
+    If one of them started requiring a JWT it would be classified ``jwt`` and the
+    refusal probe below would still pass; this pins the intended design so the
+    matrix cannot drift silently.
+    """
+    for path in (
+        "/api/live/token",
+        "/api/live/session",
+        "/api/live/heartbeat",
+        "/api/live/leave",
+        "/api/live/segment/availability",
+    ):
+        route = next(r for r in _routes() if r.path == path)
+        assert "get_current_user_id" not in _dependency_names(route.dependant), path
+
+
+class TestAuthClassRefusals:
+    """Every credential class refuses a caller that does not present it."""
+
+    def test_public_health_answers_without_credentials(self, client):
+        assert client.get("/health").status_code == 200
+
+    def test_jwt_routes_refuse_an_anonymous_caller(self, client):
+        for path in ("/notifications", "/auth/verification-status"):
+            response = client.get(path)
+            assert response.status_code in (401, 403), (path, response.status_code)
+
+    def test_admin_routes_refuse_a_non_admin_session(
+        self, client, auth_headers, mock_conn
+    ):
+        # The DB says this user is not an admin (conftest's fetchrow → None).
+        response = client.get("/admin/health", headers=auth_headers)
+        assert response.status_code == 403, response.text
+
+    def test_internal_hooks_refuse_a_request_without_the_secret(
+        self, client, monkeypatch
+    ):
+        from app.routes import live_internal
+
+        monkeypatch.setattr(live_internal, "_HOOK_SECRET", "unit-test-hook-secret")
+        payload = "slug=live%2Fno-such-channel"
+        headers = {"content-type": "application/x-www-form-urlencoded"}
+        response = client.post(
+            "/api/internal/mediamtx/not-ready", content=payload, headers=headers
+        )
+        assert response.status_code == 403, response.text
+
+        # Control: the same request WITH the secret is accepted, so the 403 above
+        # is the secret check and not a blanket rejection.
+        response = client.post(
+            "/api/internal/mediamtx/not-ready",
+            content=payload,
+            headers={**headers, "X-Hook-Secret": "unit-test-hook-secret"},
+        )
+        assert response.status_code == 200, response.text
+
+    def test_viewer_endpoints_refuse_an_unissued_token(self, client):
+        response = client.post(
+            "/api/live/session",
+            json={"channel_slug": "no-such-channel", "session_id": "session-123"},
+        )
+        # Same-404: an unknown channel and an unauthorised one are indistinguishable.
+        assert response.status_code == 404, response.text
+        assert response.json()["detail"] == "Channel not found"
+
+    @_AI_OFF
+    def test_signature_only_ai_endpoints_refuse_an_unsigned_body(self, client, ai_env):
+        from app.ai import routes as ai_routes
+
+        ai_routes.set_coordinator_for_tests(ai_env.coordinator)
+        try:
+            response = client.post(
+                "/api/ai/v1/jobs/job_unsigned/receipt",
+                # Well-formed envelope, unsigned junk: it must fail the
+                # signature check, not the parser (a 422 would prove nothing).
+                json={
+                    "payload": {"job_id": "job_unsigned"},
+                    "key_id": "nope",
+                    "alg": "Ed25519",
+                    "sig": "A" * 88,
+                },
+            )
+        finally:
+            ai_routes.set_coordinator_for_tests(None)
+        assert response.status_code in (400, 401, 403, 404), response.text
+
+
+class TestTenantScoping:
+    """Object-level authorisation on the legacy CDN routes (no IDOR, no oracle).
+
+    Each test asserts the *query* is scoped by the caller, not merely that the
+    mock returned nothing: a handler that fetches by id and filters afterwards
+    would pass a status-code-only test and still leak existence through timing.
+    """
+
+    def test_live_channel_lookup_binds_the_caller_and_404s(
+        self, client, auth_headers, mock_conn, test_user_id
+    ):
+        channel_id = "11111111-2222-4333-8444-555555555555"
+        mock_conn.fetchrow.return_value = None
+        response = client.get(f"/api/live/channels/{channel_id}", headers=auth_headers)
+        assert response.status_code == 404
+        sql, *args = mock_conn.fetchrow.call_args.args
+        assert "owner_id" in sql.lower(), sql
+        assert test_user_id in args, args
+
+    def test_file_lookup_binds_the_caller_and_404s(
+        self, client, auth_headers, mock_conn, test_user_id
+    ):
+        file_id = "22222222-3333-4444-8555-666666666666"
+        mock_conn.fetchrow.return_value = None
+        response = client.get(f"/files/{file_id}", headers=auth_headers)
+        assert response.status_code == 404
+        sql, *args = mock_conn.fetchrow.call_args.args
+        assert "user_id" in sql.lower(), sql
+        assert test_user_id in args, args
+
+    def test_marking_a_foreign_notification_read_404s(
+        self, client, auth_headers, mock_conn, test_user_id
+    ):
+        mock_conn.execute.return_value = "UPDATE 0"
+        response = client.post(
+            "/notifications/mark-read/33333333-4444-4555-8666-777777777777",
+            headers=auth_headers,
+        )
+        assert response.status_code == 404
+        sql, *args = mock_conn.execute.call_args.args
+        assert "user_id" in sql.lower(), sql
+        assert test_user_id in args, args
