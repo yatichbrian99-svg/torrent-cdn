@@ -1,14 +1,26 @@
-$ .venv/bin/python scripts/break_tests.py --out ../docs/tcdn-ai/evidence/06-break-tests/break-tests.json
+$ ENABLE_TCDN_AI=true .venv/bin/python scripts/break_tests.py --out ../docs/tcdn-ai/evidence/06-break-tests/break-tests.json
 CAUGHT     receipt signature verification
 CAUGHT     signature domain separation
 CAUGHT     AEAD associated data binding
 CAUGHT     ticket replay cache
 CAUGHT     credit hold cannot overdraw
 CAUGHT     simulated attestation refused in production
-CAUGHT     AI admin endpoints require admin JWT
+CAUGHT     AI admin endpoints require an admin a session token can prove
+CAUGHT     a CDN API key cannot spend admin money authority (F-6)
+CAUGHT     the origin shard fetch dials the address that was validated (F-3)
 CAUGHT     Merkle proof verification
 CAUGHT     payment webhook signature
+CAUGHT     gateway rejects unsupported/confidential OpenAI params
+CAUGHT     credit hold carries engine-token headroom
+CAUGHT     a worker receipt bills the job with no client ack
+CAUGHT     an over-hold receipt is capped at the hold and flagged
+CAUGHT     the gateway's own count outranks an overclaiming receipt
+CAUGHT     an overclaiming node is suspended for review
+CAUGHT     payouts of a node under review are held, not paid
+CAUGHT     the AI schema migration is gated on ENABLE_TCDN_AI
+CAUGHT     attestation nonce consumption is atomic (redis)
+CAUGHT     attestation nonce consumption is atomic (in-process)
 CAUGHT     job ownership on client ack
 
-10/10 controls proven; 0 unproven
+22/22 controls proven; 0 unproven
 EXIT=0

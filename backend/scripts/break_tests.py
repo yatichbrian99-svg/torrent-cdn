@@ -69,13 +69,40 @@ MUTATIONS = [
         "test": "tests/test_ai_components.py::TestAttestation::test_simulated_verdict_rejected_in_production",
     },
     {
-        "control": "AI admin endpoints require admin JWT",
+        "control": "AI admin endpoints require an admin a session token can prove",
         "path": "app/ai/routes.py",
-        "find": "Depends(require_admin)",
+        "find": "Depends(require_admin_jwt)",
         "replace": 'Depends(lambda: "mutant")',
         "test": "tests/test_ai_api.py::TestAccountIsolation::test_api_key_cannot_reach_admin",
-        # Every admin route: verification, API-key creation and refunds.
-        "occurrences": 3,
+        # Every admin route in app/ai/routes.py: the refunds queue and decision,
+        # API-key creation, the kill switch, and the verification queue and
+        # decision. The count is pinned so a new admin endpoint that forgets the
+        # dependency shows up as a harness error instead of an untested route.
+        "occurrences": 5,
+    },
+    {
+        "control": "a CDN API key cannot spend admin money authority (F-6)",
+        "path": "app/auth.py",
+        "find": (
+            "    if credentials.credentials.startswith(API_KEY_PREFIX):\n"
+            "        raise HTTPException(\n"
+            "            status_code=status.HTTP_403_FORBIDDEN,\n"
+        ),
+        "replace": "    if False:\n        raise HTTPException(\n            status_code=status.HTTP_403_FORBIDDEN,\n",
+        "test": (
+            "tests/test_admin_jwt_only.py"
+            "::test_an_admin_api_key_is_refused_and_never_reaches_the_admin_lookup"
+        ),
+    },
+    {
+        "control": "the origin shard fetch dials the address that was validated (F-3)",
+        "path": "app/ai/shards.py",
+        "find": "            transport=PinnedHTTPTransport(self._target.ip, verify=verify),\n",
+        "replace": "            transport=None,\n",
+        "test": (
+            "tests/test_ai_ssrf_pinning.py::TestOriginRebindingIsClosed"
+            "::test_rebinding_dns_cannot_move_the_origin_connect"
+        ),
     },
     {
         "control": "Merkle proof verification",
@@ -129,13 +156,115 @@ MUTATIONS = [
         ),
     },
     {
-        "control": "disputed job releases its credit hold",
+        "control": "a worker receipt bills the job with no client ack",
         "path": "app/ai/service.py",
-        "find": "            await self.store.release_hold(job.job_id)\n",
-        "replace": "            pass  # mutation: hold left open\n",
+        "find": (
+            "        job.receipt = document\n"
+            "        return await self._reconcile_and_settle(job, receipt)\n"
+        ),
+        "replace": (
+            "        job.receipt = document\n"
+            "        return self._settlement_response(job, \"awaiting client ack\")\n"
+        ),
+        "test": (
+            "tests/test_ai_service.py::TestEncryptedJob"
+            "::test_placement_worker_receipt_ack_settlement"
+        ),
+    },
+    {
+        "control": "an over-hold receipt is capped at the hold and flagged",
+        "path": "app/ai/service.py",
+        "find": (
+            "            review_reason = (\n"
+            '                f"{review_reason}+settlement_exceeds_hold"\n'
+            "                if review_reason\n"
+            '                else "settlement_exceeds_hold"\n'
+            "            )\n"
+        ),
+        "replace": "            review_reason = review_reason\n",
         "test": (
             "tests/test_ai_service.py::TestHoldHeadroomAndDisputes"
-            "::test_disputed_job_releases_the_hold"
+            "::test_over_hold_receipt_is_capped_and_flagged"
+        ),
+    },
+    {
+        "control": "the gateway's own count outranks an overclaiming receipt",
+        "path": "app/ai/service.py",
+        "find": "        if self.settings.gateway_billing_authority and measurement is not None:\n",
+        "replace": "        if False:\n",
+        "test": (
+            "tests/test_ai_node_billing.py::TestGatewayBillingAuthority"
+            "::test_an_overclaiming_receipt_is_billed_at_the_gateways_count"
+        ),
+    },
+    {
+        "control": "an overclaiming node is suspended for review",
+        "path": "app/ai/service.py",
+        "find": "        held = await self.store.hold_node_for_review(node_id, reason)\n",
+        "replace": "        held = node\n",
+        "test": (
+            "tests/test_ai_node_billing.py::TestNodeOverclaimReview"
+            "::test_an_overclaiming_node_is_suspended_and_its_payouts_held"
+        ),
+    },
+    {
+        "control": "payouts of a node under review are held, not paid",
+        "path": "app/ai/service.py",
+        "find": "        if node is not None and node.payouts_held:\n",
+        "replace": "        if False:\n",
+        "test": (
+            "tests/test_ai_node_billing.py::TestNodeOverclaimReview"
+            "::test_held_payouts_are_recorded_but_not_paid"
+        ),
+    },
+    {
+        "control": "the AI schema migration is gated on ENABLE_TCDN_AI",
+        "path": "app/main.py",
+        "find": (
+            "    if _ai_enabled:\n"
+            "        try:\n"
+            "            pool = await get_db_pool()\n"
+            "            async with pool.acquire() as conn:\n"
+            "                await conn.execute(AI_TABLES_DDL)\n"
+        ),
+        "replace": (
+            "    if True:\n"
+            "        try:\n"
+            "            pool = await get_db_pool()\n"
+            "            async with pool.acquire() as conn:\n"
+            "                await conn.execute(AI_TABLES_DDL)\n"
+        ),
+        "test": (
+            "tests/test_ai_migrations.py"
+            "::test_the_ai_schema_is_only_migrated_when_the_flag_is_on"
+        ),
+    },
+    {
+        "control": "attestation nonce consumption is atomic (redis)",
+        "path": "app/ai/redis_cache.py",
+        "find": (
+            '            getdel = getattr(self._redis, "getdel", None)\n'
+            "            if getdel is not None:\n"
+            "                return await getdel(key)\n"
+        ),
+        "replace": (
+            "            value = await self._redis.get(key)\n"
+            "            await self._redis.delete(key)\n"
+            "            return value\n"
+        ),
+        "test": (
+            "tests/test_ai_redis.py::TestNonceConsumptionIsAtomic"
+            "::test_the_redis_store_has_exactly_one_winner"
+        ),
+    },
+    {
+        "control": "attestation nonce consumption is atomic (in-process)",
+        "path": "app/ai/nonce_store.py",
+        "find": "            record = self._nonces.pop(nonce, None)\n",
+        "replace": "            record = self._nonces.get(nonce, None)\n",
+        "test": (
+            "tests/test_ai_redis.py::TestNonceConsumptionIsAtomic"
+            "::test_the_in_process_store_has_exactly_one_winner"
         ),
     },
     {
