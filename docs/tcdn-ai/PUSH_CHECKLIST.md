@@ -213,6 +213,16 @@ that is the split working as intended, not a gap.
 | ↳ `frontend-checks` | Vitest + tsc | **success** | 20 files, **179 tests**, OG guard OK |
 | ↳ `static-audit` | secret scan, dead code, semgrep/bandit | **success** | the earlier failure in this lane was the dead-code audit at `7673a4f` (1 finding); the pushed commits clear it |
 
+Then, after the Redis fix (`af37847`), the same set was run again — this is the state that
+matters, because it is the commit that changes replay handling:
+
+| Run | Workflow | Result | Detail |
+|---|---|---|---|
+| **40476343930** | `backend-lint` | **success** 25s | — |
+| **40476343921** | CI: Full-stack Docker audit | **success** 2m15s | `ai-store` 61 + 18 passed, **AI suite 371 passed, 4 skipped** (+6 = the new live-Redis lane, which ran because the lane sets `REDIS_URL`) |
+| **40476343964** | TCDN-AI engine (nightly) | **success** 1m21s | — |
+| **40476928616** | CI: Tests & Security Audits (dispatch) | **success** 2m5s | 10/10 jobs; `tests` **997 passed, 87 skipped**; `frontend-checks` 179 tests |
+
 Green-run caveat, stated because the row asks for the whole Level-1 set: `security.yml`
 still has no `push` trigger for this branch, so its ten jobs ran on **dispatch** against
 the same ref and SHA, not as part of the push. 12.4 stays `MISSING` until a PR exists
