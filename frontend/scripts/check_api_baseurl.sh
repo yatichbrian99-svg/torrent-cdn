@@ -57,9 +57,25 @@ readarray -t BASE_URLS < <(
     | sort -u
 )
 
+# The minifier no longer always emits a literal: `API_BASE` is an exported const,
+# so chunks can carry `baseURL:<ident>`. That is not a reason to pass blindly —
+# the guard falls back to (a) the source rule that pins production to '' and
+# (b) a direct scan of the chunks for the concrete regression it exists to
+# catch: a backend origin baked into the client bundle.
 if [ "${#BASE_URLS[@]}" -eq 0 ]; then
-  echo "  [FAIL]  No literal baseURL:\"...\" found in the compiled chunks — the guard "
-  echo "      cannot verify what the app calls. Did the axios bundle change shape?"
+  if grep -rqE 'torrent-cdn\.onrender\.com|api\.torrentcdn\.store' "$CHUNKS_DIR" 2>/dev/null; then
+    echo "  [FAIL]  No literal baseURL in the chunks, but a backend origin IS baked into"
+    echo "      the shipped bundle — the browser would call it cross-origin."
+    exit 1
+  fi
+  if grep -qE "API_BASE = isProduction \? '' :" "$FRONTEND_ROOT/lib/api.ts"; then
+    echo "  [OK]  no literal baseURL in the compiled chunks (API_BASE minified to a"
+    echo "      variable reference) and no backend origin baked in; lib/api.ts still"
+    echo "      pins production to '' (same-origin), so this check used the source rule."
+    exit 0
+  fi
+  echo "  [FAIL]  No literal baseURL:\"...\" found in the compiled chunks AND lib/api.ts no"
+  echo "      longer pins production to '' — the guard cannot verify what the app calls."
   exit 1
 fi
 
