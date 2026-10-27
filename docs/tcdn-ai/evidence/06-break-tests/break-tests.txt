@@ -17,10 +17,12 @@ CAUGHT     an over-hold receipt is capped at the hold and flagged
 CAUGHT     the gateway's own count outranks an overclaiming receipt
 CAUGHT     an overclaiming node is suspended for review
 CAUGHT     payouts of a node under review are held, not paid
+CAUGHT     the per-key concurrency cap is enforced
+CAUGHT     the background-loop supervisor backs off and restarts
 CAUGHT     the AI schema migration is gated on ENABLE_TCDN_AI
 CAUGHT     attestation nonce consumption is atomic (redis)
 CAUGHT     attestation nonce consumption is atomic (in-process)
 CAUGHT     job ownership on client ack
 
-22/22 controls proven; 0 unproven
+24/24 controls proven; 0 unproven
 EXIT=0

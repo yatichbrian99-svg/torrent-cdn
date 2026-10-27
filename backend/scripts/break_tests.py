@@ -218,6 +218,31 @@ MUTATIONS = [
         ),
     },
     {
+        "control": "the per-key concurrency cap is enforced",
+        "path": "app/ai/service.py",
+        "find": (
+            "        if active >= self.settings.max_concurrent_jobs_per_key:\n"
+            "            raise ConcurrencyLimitExceeded(\n"
+        ),
+        "replace": (
+            "        if False:\n" "            raise ConcurrencyLimitExceeded(\n"
+        ),
+        "test": (
+            "tests/test_ai_service.py::TestConcurrentJobCap"
+            "::test_the_cap_refuses_before_any_work_and_creates_no_job"
+        ),
+    },
+    {
+        "control": "the background-loop supervisor backs off and restarts",
+        "path": "app/ai/supervision.py",
+        "find": "            delay = min(delay * 2, max_delay)\n",
+        "replace": "            delay = base_delay\n",
+        "test": (
+            "tests/test_ai_supervision.py::TestSupervisor"
+            "::test_the_backoff_doubles_and_is_capped"
+        ),
+    },
+    {
         "control": "the AI schema migration is gated on ENABLE_TCDN_AI",
         "path": "app/main.py",
         "find": (
