@@ -155,17 +155,19 @@ async def run_startup_migrations():
 
     # TCDN-AI: additive, idempotent schema for the coordinator. Kept in its own
     # try block so a failure in the CDN migrations can never leave the AI
-    # feature enabled but schema-less.
-    try:
-        pool = await get_db_pool()
-        async with pool.acquire() as conn:
-            await conn.execute(AI_TABLES_DDL)
-            logger.info("TCDN-AI startup migrations completed")
-    except Exception as e:
-        if _ai_enabled:
+    # feature enabled but schema-less — and gated on the flag, because the
+    # flag-off promise is that this deployment does not touch the AI schema at
+    # all. It used to run unconditionally (and log the failure at DEBUG when the
+    # flag was off), which created 17 ai_* tables in a database that was
+    # supposedly not running TCDN-AI.
+    if _ai_enabled:
+        try:
+            pool = await get_db_pool()
+            async with pool.acquire() as conn:
+                await conn.execute(AI_TABLES_DDL)
+                logger.info("TCDN-AI startup migrations completed")
+        except Exception as e:
             logger.error("TCDN-AI schema migration failed: %s", e)
-        else:
-            logger.debug("TCDN-AI schema migration skipped (feature disabled)")
 
 
 @asynccontextmanager

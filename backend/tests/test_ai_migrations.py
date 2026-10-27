@@ -17,7 +17,9 @@ PROVEN HERE
   and its rows survive the CASCADE, and re-running the block restores the AI
   tables empty (the app is back to "AI enabled, no data", not broken);
 * with the flag off the legacy app boots and serves traffic without the AI
-  schema being involved at all.
+  schema being involved at all, and startup migrations do not issue the
+  ``ai_*`` DDL in that position at all (``run_startup_migrations`` statements
+  are recorded in both flag positions);
 
 NOT AUTOMATIC (pinned by test_missing_column_is_not_reconciled)
 * ``CREATE TABLE IF NOT EXISTS`` does NOT add a missing column to an existing
@@ -42,6 +44,7 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
+from typing import Self
 
 import asyncpg
 import pytest
@@ -205,6 +208,88 @@ async def test_dropping_every_ai_table_is_reversible_for_the_legacy_schema(db):
         assert await conn.fetchval("SELECT count(*) FROM ai_accounts") == 0
 
 
+@requires_db
+@pytest.mark.asyncio
+async def test_a_database_from_before_billing_authority_upgrades_in_place(db):
+    """The billing-integrity columns and the widened receipt kind land on an old DB.
+
+    Both are the kind of change that silently breaks a deployment: a new column
+    needs an explicit ``ALTER`` (``CREATE TABLE IF NOT EXISTS`` does not reconcile
+    it), and the ``kind`` CHECK had to be *replaced* rather than added, because a
+    database created before 'gateway' existed carries the two-value version.
+    """
+    async with db.acquire() as conn:
+        await conn.execute(AI_TABLES_DDL)
+        # Recreate the pre-change schema: no counters, two-value kind check.
+        await conn.execute("""
+            ALTER TABLE ai_nodes
+                DROP COLUMN IF EXISTS settled_jobs,
+                DROP COLUMN IF EXISTS overclaim_events,
+                DROP COLUMN IF EXISTS mismatch_events,
+                DROP COLUMN IF EXISTS review_reason;
+            ALTER TABLE ai_receipts DROP CONSTRAINT IF EXISTS ai_receipts_kind_check;
+            ALTER TABLE ai_receipts ADD CONSTRAINT ai_receipts_kind_check
+                CHECK (kind IN ('worker', 'client'));
+            """)
+        await conn.execute(
+            """
+            INSERT INTO ai_nodes (node_id, identity_public_key, identity_key_id,
+                                  session_public_key)
+            VALUES ('node_old', 'pub', 'key', 'session')
+            """
+        )
+        with pytest.raises(asyncpg.exceptions.CheckViolationError):
+            await conn.execute(
+                """
+                INSERT INTO ai_receipts (job_id, kind, node_id, body)
+                VALUES ('job_old', 'gateway', 'node_old', '{}'::jsonb)
+                """
+            )
+
+        # The upgrade is the same block the app runs at startup.
+        await conn.execute(AI_TABLES_DDL)
+
+        columns = await conn.fetch(
+            """
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = current_schema() AND table_name = 'ai_nodes'
+            """
+        )
+        names = {row["column_name"] for row in columns}
+        assert {
+            "settled_jobs",
+            "overclaim_events",
+            "mismatch_events",
+            "review_reason",
+        } <= names
+        # The old node kept its row and gained zeroed counters.
+        node = await conn.fetchrow(
+            "SELECT settled_jobs, suspended, review_reason FROM ai_nodes"
+        )
+        assert node["settled_jobs"] == 0
+        assert node["suspended"] is False
+        assert node["review_reason"] is None
+        # …and a gateway measurement can now be recorded for it.
+        await conn.execute(
+            """
+            INSERT INTO ai_receipts (job_id, kind, node_id, body)
+            VALUES ('job_old', 'gateway', 'node_old', '{}'::jsonb)
+            """
+        )
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM ai_receipts WHERE kind = 'gateway'"
+            )
+            == 1
+        )
+        # Re-running the whole block (as every startup does) stays idempotent.
+        await conn.execute(AI_TABLES_DDL)
+        assert (
+            await conn.fetchval("SELECT count(*) FROM ai_nodes WHERE node_id = 'node_old'")
+            == 1
+        )
+
+
 def test_legacy_app_does_not_need_the_ai_schema():
     """Flag off: the CDN app boots and serves without any ai_* table existing.
 
@@ -238,3 +323,67 @@ def test_legacy_app_does_not_need_the_ai_schema():
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+class _RecordingPool:
+    """Stands in for asyncpg's pool and records every statement executed."""
+
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+
+    def acquire(self) -> _RecordingConnection:
+        return _RecordingConnection(self)
+
+
+class _RecordingConnection:
+    def __init__(self, pool: _RecordingPool) -> None:
+        self._pool = pool
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *exc: object) -> bool:
+        return False
+
+    async def execute(self, sql: str, *args: object) -> None:
+        self._pool.statements.append(sql)
+
+
+@pytest.mark.asyncio
+async def test_the_ai_schema_is_only_migrated_when_the_flag_is_on(monkeypatch):
+    """ENABLE_TCDN_AI off ⇒ startup migrations never touch the ``ai_*`` schema.
+
+    The block used to run unconditionally, so a flag-off deployment created all
+    17 ``ai_*`` tables in a database that was supposedly not running TCDN-AI,
+    and its failures were logged at DEBUG where nobody would see them. Stating
+    the flag-off promise in a comment is not a gate; this asserts the statements
+    the startup actually issues, in both flag positions so neither half can rot
+    into a no-op.
+    """
+    from app import main
+
+    async def statements_with(flag: bool) -> list[str]:
+        pool = _RecordingPool()
+
+        async def fake_pool() -> _RecordingPool:
+            return pool
+
+        monkeypatch.setattr(main, "get_db_pool", fake_pool)
+        monkeypatch.setattr(main, "_ai_enabled", flag)
+        await main.run_startup_migrations()
+        return pool.statements
+
+    flag_off = await statements_with(False)
+    assert flag_off, "no CDN migration ran at all — this proves nothing"
+    assert AI_TABLES_DDL not in flag_off, (
+        "the AI schema ran with ENABLE_TCDN_AI off"
+    )
+
+    flag_on = await statements_with(True)
+    assert AI_TABLES_DDL in flag_on, (
+        "the AI schema did not run with ENABLE_TCDN_AI on — the feature would "
+        "boot schema-less"
+    )
+    assert flag_on[: len(flag_off)] == flag_off, (
+        "enabling the flag changed the CDN migrations"
+    )
