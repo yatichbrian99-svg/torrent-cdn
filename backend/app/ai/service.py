@@ -15,10 +15,12 @@ Ordering rules that matter for money and security:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
 import uuid
+from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -50,6 +52,7 @@ from .models import (
     AttestationEvidencePayload,
     BalanceResponse,
     Confidentiality,
+    GatewayMeasurement,
     HeartbeatPayload,
     JobStatus,
     ModelInfo,
@@ -128,7 +131,9 @@ class Coordinator:
             keyring=keyring, settings=settings, clock=clock
         )
         if redis_client is not None:
-            self.attestation.configure_redis(redis_client)
+            self.attestation.configure_redis(
+                on_failure=self._note_redis_failure, redis_client=redis_client
+            )
         # Imported here to avoid a module cycle: tickets only needs the keyring.
         from .ratelimit import NoOpRateLimiter, RedisRateLimiter
         from .tickets import TicketService
@@ -140,6 +145,7 @@ class Coordinator:
                 ttl_seconds=settings.ticket_ttl_seconds,
                 skew_seconds=settings.ticket_skew_seconds,
                 clock=clock,
+                on_failure=self._note_redis_failure,
             )
         except Exception:
             self.tickets = TicketService(
@@ -170,6 +176,13 @@ class Coordinator:
         # the process-local fallback is for deployments without Redis.
         self._verification_count = 0
         self._verification_day = -1
+        # Redis failures observed by the synchronous security paths (ticket
+        # claim, nonce consume, set-if-absent). Those paths run either inside
+        # the event loop or on the sync-bridge helper thread, so the audit write
+        # is scheduled when a loop is running locally and otherwise drained by
+        # flush_redis_failures() (the background sweep calls it every tick).
+        self.redis_failures: deque[dict[str, Any]] = deque(maxlen=200)
+        self._redis_audit_tasks: set[asyncio.Task[Any]] = set()
         self.payment_provider = payment_provider or get_payment_provider(
             settings,
             secret_key=os.environ.get("TCDN_AI_PAYSTACK_SECRET_KEY", ""),
@@ -881,8 +894,58 @@ class Coordinator:
             detail={"reason": reason[:300]},
         )
 
+    # ── Redis failure signalling (the paths fail closed; say so) ───────────
+
+    def _note_redis_failure(self, event: dict[str, Any]) -> None:
+        """Alert seam for the Redis-backed security paths.
+
+        ``note_redis_failure`` already logged at ERROR and incremented a
+        counter; a log line alone is not enough when the failure is *why* every
+        ticket suddenly looks like a replay. This queues the event and, when a
+        loop is running here, writes the ``ai.redis_unavailable`` audit row
+        immediately; otherwise the queue is drained by ``flush_redis_failures``.
+        """
+        self.redis_failures.append(dict(event))
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # Helper thread / plain sync context: the background sweep drains.
+            return
+        task = loop.create_task(self.flush_redis_failures())
+        self._redis_audit_tasks.add(task)
+        task.add_done_callback(self._redis_audit_tasks.discard)
+
+    async def flush_redis_failures(self) -> int:
+        """Write one audit row per queued Redis failure; return how many.
+
+        Safe to call from anywhere and to call concurrently: events are removed
+        from the queue before the write, so nothing is audited twice.
+        """
+        written = 0
+        while self.redis_failures:
+            event = self.redis_failures.popleft()
+            detail = {
+                "operation": event.get("operation", "unknown"),
+                "key_fingerprint": event.get("key_fingerprint", ""),
+                "error": event.get("error", "unavailable"),
+                "fail_closed": True,
+            }
+            try:
+                await self.store.audit(
+                    "ai.redis_unavailable",
+                    actor="coordinator",
+                    subject=str(detail["operation"]),
+                    detail=detail,
+                )
+            except Exception:
+                logger.exception("ai.redis_unavailable audit write failed")
+                continue
+            written += 1
+        return written
+
     async def expire_stale_jobs(self) -> list[str]:
         """Fail jobs whose worker never reported and release their holds."""
+        await self.flush_redis_failures()
         expired = await self.store.expire_stale_jobs(JOB_TTL_SECONDS)
         if expired:
             await self.store.audit(
@@ -1130,15 +1193,158 @@ class Coordinator:
             )
         elif existing != ack_payload.model_dump(mode="json"):
             raise ConflictError("a different ack already exists for this job")
-        if job.status == "settled":
-            return self._settlement_response(job, "already settled")
         receipt_doc = job.receipt or await self.store.get_receipt(job_id)
         receipt = (
             ReceiptPayload(**receipt_doc["payload"])
             if receipt_doc is not None
             else None
         )
+        if job.status == "settled":
+            # The normal order: the receipt already billed the job before the
+            # ack arrived. The charge stands, but a contested ack is still
+            # recorded — the operator reviewing the charge needs to know the
+            # payer disputed the output, and the payer cannot retract the charge
+            # by acking late (or not at all).
+            review = await self._record_ack_mismatch(job, receipt, ack_payload)
+            if review:
+                return self._settlement_response(
+                    job, f"already settled; ack flagged for review: {review}"
+                )
+            return self._settlement_response(job, "already settled")
         return await self._reconcile_and_settle(job, receipt)
+
+    async def submit_gateway_measurement(
+        self, job_id: str, measurement: GatewayMeasurement
+    ) -> SettlementResponse:
+        """Record the gateway's own measurement of a completion and settle it.
+
+        Internal to the coordinator: there is **no route** for this, so the
+        measurement is never client-supplied. It is written by ``Gateway.finalize``
+        in gateway mode, at the moment the completion is handed to the customer,
+        and it is what makes billing authoritative — the gateway counted the
+        prompt it encrypted and the tokens it decrypted, so a receipt that bills
+        above that count can be disproved rather than believed.
+        """
+        job = await self.store.get_job(job_id)
+        if job is None:
+            raise NotFoundError("unknown job")
+        if measurement.job_id != job_id:
+            raise ValidationError(
+                "gateway measurement does not match the job",
+                code="measurement_mismatch",
+            )
+        body = measurement.model_dump(mode="json")
+        existing = await self.store.get_gateway_measurement(job_id)
+        if existing is not None:
+            if existing != body:
+                raise ConflictError(
+                    "a different gateway measurement already exists for this job"
+                )
+        else:
+            await self.store.save_receipt(job_id, "gateway", job.node_id, body)
+        await self.store.audit(
+            "job.gateway_measured",
+            subject=job_id,
+            detail={
+                "prompt_tokens": measurement.prompt_tokens,
+                "completion_tokens": measurement.completion_tokens,
+                "token_frames": measurement.token_frames,
+            },
+        )
+
+        receipt_doc = job.receipt or await self.store.get_receipt(job_id)
+        receipt = (
+            ReceiptPayload(**receipt_doc["payload"])
+            if receipt_doc is not None
+            else None
+        )
+        if receipt is None:
+            # The worker has not reported yet. The measurement is stored either
+            # way, so the receipt path settles with it when it arrives — the
+            # customer never has to wait for settlement.
+            return self._settlement_response(
+                job, "measured; awaiting the worker receipt"
+            )
+        if job.status == "settled":
+            return self._settlement_response(job, "already settled")
+        return await self._reconcile_and_settle(job, receipt)
+
+    async def _account_node_billing(
+        self, node_id: str | None, *, overclaim: bool, mismatch: bool
+    ) -> None:
+        """Count a settled job against the node, and hold it for review if it is over.
+
+        The decision is deliberately mechanical and per node (the counters live
+        in the node row, shared by every instance): once a node has
+        ``node_overclaim_min_samples`` settled jobs and its receipts billed above
+        the gateway's own count in more than ``node_overclaim_rate_pct`` of them,
+        it is suspended and its pending payouts are held. Suspending is
+        reversible by an operator; paying an overclaiming node is not.
+        """
+        if not node_id:
+            return
+        try:
+            node = await self.store.record_node_billing(
+                node_id, overclaim=overclaim, mismatch=mismatch
+            )
+        except Exception:
+            logger.exception("node billing counters failed for %s", node_id)
+            return
+        if node.payouts_held:
+            return
+        if node.settled_jobs < self.settings.node_overclaim_min_samples:
+            return
+        if node.overclaim_rate_pct < self.settings.node_overclaim_rate_pct:
+            return
+        reason = (
+            f"receipts overclaimed the gateway measurement in "
+            f"{node.overclaim_rate_pct}% of {node.settled_jobs} settled jobs"
+        )
+        held = await self.store.hold_node_for_review(node_id, reason)
+        await self.store.audit(
+            "node.held_for_review",
+            subject=node_id,
+            detail={
+                "reason": reason,
+                "settled_jobs": held.settled_jobs,
+                "overclaim_events": held.overclaim_events,
+                "mismatch_events": held.mismatch_events,
+                "threshold_pct": self.settings.node_overclaim_rate_pct,
+                "min_samples": self.settings.node_overclaim_min_samples,
+                "payouts_held": True,
+            },
+        )
+
+    async def _record_ack_mismatch(
+        self, job: JobRecord, receipt: ReceiptPayload | None, ack: AckPayload
+    ) -> str | None:
+        """Flag an already-billed job whose ack does not match the receipt.
+
+        Evidence only: nothing is charged again and nothing is refunded here.
+        """
+        if receipt is None:
+            return None
+        decision = reconcile(
+            receipt, ack, tolerance_pct=self.settings.receipt_token_tolerance_pct
+        )
+        if decision.status != "disputed":
+            return None
+        reason = decision.reason or "ack_mismatch"
+        if job.dispute_reason == reason:
+            return reason
+        await self.store.flag_job_for_review(job.job_id, reason)
+        await self.store.audit(
+            "job.billing_review",
+            subject=job.job_id,
+            detail={
+                "reason": reason,
+                "charged_micro": job.total_micro,
+                "receipt_output_tokens": receipt.output_tokens,
+                "ack_tokens_received": ack.tokens_received,
+            },
+        )
+        job.dispute_reason = reason
+        return reason
 
     def _cost(self, job: JobRecord, input_tokens: int, output_tokens: int) -> int:
         return ceil_div(
@@ -1148,12 +1354,21 @@ class Coordinator:
     async def _reconcile_and_settle(
         self, job: JobRecord, receipt: ReceiptPayload | None
     ) -> SettlementResponse:
+        """Bill the job from the WORKER'S SIGNED RECEIPT.
+
+        Billing used to require a matching client ack, which made revenue
+        optional for the payer: a client that never acked, or acked a different
+        hash (or a different token count), left the job unsettled — and the
+        expiry sweep then released the hold, so the completion was free. The
+        signed receipt is the only claim anybody in this system can be held to,
+        so it is what we bill. The client ack is now evidence for review, never
+        a payment trigger: it can flag the job, it cannot cancel the charge.
+        """
         ack_doc = await self.store.get_ack(job.job_id)
         ack = AckPayload(**ack_doc) if ack_doc is not None else None
-        decision: Reconciliation = reconcile(
-            receipt, ack, tolerance_pct=self.settings.receipt_token_tolerance_pct
-        )
-        if decision.status == "awaiting_ack":
+        if receipt is None:
+            # Nothing signed to bill yet. The hold stays until the job expires,
+            # which is correct: no proof of work, no charge.
             return SettlementResponse(
                 job_id=job.job_id,
                 status=JobStatus.RUNNING,
@@ -1163,61 +1378,98 @@ class Coordinator:
                 compute_micro=0,
                 seeder_micro=0,
                 platform_micro=0,
-                reason=decision.reason,
+                reason="no_worker_receipt",
+            )
+        if job.status == "settled":
+            return self._settlement_response(job, "already settled")
+
+        decision: Reconciliation = reconcile(
+            receipt, ack, tolerance_pct=self.settings.receipt_token_tolerance_pct
+        )
+        billed_input = receipt.input_tokens
+        billed_output = receipt.output_tokens
+        total = self._cost(job, billed_input, billed_output)
+        review_reason = decision.reason if decision.status == "disputed" else None
+
+        # Gateway mode: the coordinator's own gateway held the plaintext, so it
+        # counted the completion itself. Where that count and the receipt's
+        # disagree beyond tolerance, bill the LOWER one — a worker cannot bill
+        # what the coordinator can disprove from the text it just served, and a
+        # worker cannot be billed less than it claimed either (that direction is
+        # recorded, not charged). This is the authority the ack must never have:
+        # the ack is client-supplied, the measurement is not (no HTTP route).
+        measurement = await self.store.get_gateway_measurement(job.job_id)
+        overclaim = False
+        if self.settings.gateway_billing_authority and measurement is not None:
+            gateway_input = int(measurement.get("prompt_tokens", 0) or 0)
+            gateway_output = int(measurement.get("completion_tokens", 0) or 0)
+            gateway_total = self._cost(job, gateway_input, gateway_output)
+            tolerance = self.settings.gateway_token_tolerance_pct
+            if total > gateway_total + (gateway_total * tolerance // 100):
+                billed_input, billed_output, total = (
+                    gateway_input,
+                    gateway_output,
+                    gateway_total,
+                )
+                overclaim = True
+                review_reason = review_reason or "node_overclaim"
+            elif gateway_total > total + (total * tolerance // 100):
+                # The gateway counted more than the worker claims. Bill the
+                # worker's (lower) number and keep the discrepancy as evidence:
+                # an under-claiming engine is a correctness signal about the
+                # node, not a reason to charge the customer more.
+                review_reason = review_reason or "node_receipt_underclaim"
+
+        if total > job.hold_micro:
+            # A worker cannot bill past the reservation placed for this job: the
+            # excess is not billed, but it is flagged rather than refused —
+            # refusing it would hand the customer the completion for free. The
+            # cap is recorded alongside whatever else was already wrong with this
+            # bill, so a reviewer sees every reason, not just the first.
+            total = job.hold_micro
+            review_reason = (
+                f"{review_reason}+settlement_exceeds_hold"
+                if review_reason
+                else "settlement_exceeds_hold"
             )
 
-        total = self._cost(job, decision.input_tokens, decision.output_tokens)
-        if total > job.hold_micro:
-            # A worker cannot bill past the reservation that was placed for the
-            # job; treat it as a dispute rather than settling an overage.
-            decision = Reconciliation(
-                "disputed",
-                decision.input_tokens,
-                decision.output_tokens,
-                reason="settlement_exceeds_hold",
-            )
-        if decision.status == "disputed":
-            await self.store.settle_job(
-                job,
-                input_tokens=decision.input_tokens,
-                output_tokens=decision.output_tokens,
-                total_micro=total,
-                dispute_reason=decision.reason,
-            )
-            # A dispute is unresolved, so nobody is paid: the customer is not
-            # charged and the host is not credited until review. The RESERVATION
-            # must still be released — it used to stay open forever (H-1),
-            # freezing the customer's credits for a job that never settled.
+        if total <= 0:
+            # A receipt that reports no tokens: close the job and free the
+            # reservation without a ledger entry (there is no split of zero).
+            await self.store.mark_job(job.job_id, status="settled")
             await self.store.release_hold(job.job_id)
             await self.store.audit(
-                "job.disputed",
+                "job.settled",
                 subject=job.job_id,
-                detail={
-                    "reason": decision.reason,
-                    "total_micro": total,
-                    "hold_released_micro": job.hold_micro,
-                },
+                detail={"total_micro": 0, "reason": "zero_token_receipt"},
             )
             await self._reconcile_verification(job.job_id)
-            return SettlementResponse(
-                job_id=job.job_id,
-                status=JobStatus.DISPUTED,
-                billable_input_tokens=decision.input_tokens,
-                billable_output_tokens=decision.output_tokens,
-                total_micro=0,
-                compute_micro=0,
-                seeder_micro=0,
-                platform_micro=0,
-                reason=decision.reason,
-            )
+            job.status = "settled"
+            return self._settlement_response(job, "settled with no billable tokens")
 
-        await self.store.settle_job(
+        job = await self.store.settle_job(
             job,
-            input_tokens=decision.input_tokens,
-            output_tokens=decision.output_tokens,
+            input_tokens=billed_input,
+            output_tokens=billed_output,
             total_micro=total,
             dispute_reason=None,
         )
+        if review_reason:
+            await self.store.flag_job_for_review(job.job_id, review_reason)
+            await self.store.audit(
+                "job.billing_review",
+                subject=job.job_id,
+                detail={
+                    "reason": review_reason,
+                    "receipt_input_tokens": receipt.input_tokens,
+                    "receipt_output_tokens": receipt.output_tokens,
+                    "charged_input_tokens": billed_input,
+                    "charged_output_tokens": billed_output,
+                    "charged_micro": total,
+                    "gateway_measured": measurement is not None,
+                    "ack_present": ack is not None,
+                },
+            )
         await self.store.audit(
             "job.settled",
             subject=job.job_id,
@@ -1226,10 +1478,19 @@ class Coordinator:
                 "compute_micro": job.compute_micro,
                 "seeder_micro": job.seeder_micro,
                 "platform_micro": job.platform_micro,
+                "billed_from": "gateway_measurement" if overclaim else "worker_receipt",
             },
         )
+        await self._account_node_billing(
+            job.node_id, overclaim=overclaim, mismatch=decision.status == "disputed"
+        )
         await self._reconcile_verification(job.job_id)
-        return self._settlement_response(job, None)
+        if review_reason:
+            return self._settlement_response(
+                job,
+                f"billed from the worker receipt; flagged for review: {review_reason}",
+            )
+        return self._settlement_response(job, "billed from the worker receipt")
 
     @staticmethod
     def _settlement_response(job: JobRecord, reason: str | None) -> SettlementResponse:
@@ -1443,8 +1704,36 @@ class Coordinator:
         return {"paused": bool(state and state.get("paused")), "state": state}
 
     async def record_payout(self, record: dict[str, Any], *, actor: str = "") -> None:
-        """Persist a payout record unless an operator has paused payouts."""
+        """Persist a payout record, unless payouts are paused or the node is held.
+
+        A node under billing review has its payouts **held**, not paid: the row
+        is stored as ``held_for_review`` and the money stays in the ledger, so an
+        operator can release or claw it back instead of finding out afterwards
+        that it is already gone.
+        """
         await self._refuse_when_payouts_are_paused("payout")
+        node_id = str(record.get("node_id", "") or "")
+        node = await self.store.get_node(node_id) if node_id else None
+        if node is not None and node.payouts_held:
+            reason = node.review_reason or "node suspended"
+            held = {
+                **record,
+                "status": "held_for_review",
+                "hold_reason": reason,
+            }
+            await self.store.save_payout(held)
+            await self.store.audit(
+                "payout.held_node_review",
+                actor=actor,
+                subject=node_id,
+                detail={
+                    "amount_micro": record.get("amount_micro"),
+                    "component": record.get("component"),
+                    "hold_reason": reason,
+                    "paid": False,
+                },
+            )
+            return
         await self.store.save_payout(record)
         await self.store.audit(
             "payout.recorded",

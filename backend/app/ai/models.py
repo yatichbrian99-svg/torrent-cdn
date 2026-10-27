@@ -249,6 +249,26 @@ class AckPayload(_Strict):
     acked_at: int
 
 
+class GatewayMeasurement(_Strict):
+    """What the coordinator's own gateway observed, in gateway mode.
+
+    The gateway holds the plaintext completion, so it can count the tokens it
+    actually received instead of accepting the worker's claim. This is an
+    **internal** record: it is written by ``Coordinator.submit_gateway_measurement``
+    and has no HTTP route, so a customer can never assert it (that would let the
+    payer price their own job — exactly the bug the ack-as-authority design had).
+    """
+
+    job_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    prompt_tokens: int = Field(ge=0, le=10**9)
+    completion_tokens: int = Field(ge=0, le=10**9)
+    #: Token frames the worker streamed. A lower bound on the real count: it is
+    #: kept as evidence that the gateway saw a stream, not just a transcript.
+    token_frames: int = Field(ge=0, le=10**9)
+    output_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    measured_at: int
+
+
 class SettlementResponse(_Strict):
     job_id: str
     status: JobStatus

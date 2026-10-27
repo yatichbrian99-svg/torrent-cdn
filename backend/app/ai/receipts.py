@@ -5,13 +5,17 @@ on this model, with these token counts, producing an output with this hash*.
 It does not prove the output is correct — that is what redundant-execution
 sampling is for, and the docs say so plainly.
 
-Billing reconciles the worker's signed claim with the client's acknowledgement:
+Billing is driven by the worker's signed receipt, which is the only claim
+anybody can be held to:
 
-* hashes agree and token counts are within tolerance → settle the worker's
-  counts (the signed side is authoritative, not the client's);
-* hashes disagree, or counts differ beyond tolerance → ``disputed``: bill only
-  ``min(worker, client)`` tokens, settle nothing automatically, and hand the job
-  to human review. Never bill the larger of the two.
+* the job settles on the receipt's own token counts (capped by the placed hold)
+  whether or not the client ever acknowledges — a client that never acks, or
+  acks a different hash/count, cannot make the completion free;
+* the client ack is *evidence*: a hash or count mismatch flags the job for human
+  review (``job.dispute_reason``) while the charge stands. Adjusting it is the
+  admin refund path's job, not the payer's.
+
+``reconcile`` still classifies the pair; ``awaiting_ack`` no longer gates money.
 """
 
 from __future__ import annotations

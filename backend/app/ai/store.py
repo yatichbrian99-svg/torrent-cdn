@@ -77,6 +77,10 @@ CREATE TABLE IF NOT EXISTS ai_nodes (
     software_version VARCHAR(32),
     endpoint TEXT,
     last_heartbeat BIGINT,
+    settled_jobs INTEGER NOT NULL DEFAULT 0,
+    overclaim_events INTEGER NOT NULL DEFAULT 0,
+    mismatch_events INTEGER NOT NULL DEFAULT 0,
+    review_reason TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -138,7 +142,11 @@ CREATE INDEX IF NOT EXISTS idx_ai_ledger_accounts ON ai_ledger_entries(debit_acc
 CREATE TABLE IF NOT EXISTS ai_receipts (
     id BIGSERIAL PRIMARY KEY,
     job_id VARCHAR(64) NOT NULL,
-    kind VARCHAR(8) NOT NULL CHECK (kind IN ('worker', 'client')),
+    -- 'gateway' is the gateway's OWN token measurement of the completion it
+    -- held in plaintext (checklist: gateway-mode billing authority). It is not
+    -- client-supplied: only Coordinator.submit_gateway_measurement writes it.
+    kind VARCHAR(8) NOT NULL CONSTRAINT ai_receipts_kind_check
+        CHECK (kind IN ('worker', 'client', 'gateway')),
     node_id VARCHAR(64),
     body JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -252,6 +260,19 @@ CREATE TABLE IF NOT EXISTS ai_verifications (
 ALTER TABLE ai_verifications ADD COLUMN IF NOT EXISTS ticket JSONB;
 ALTER TABLE ai_verifications ADD COLUMN IF NOT EXISTS shadow_output_sha256 CHAR(64);
 
+-- Billing-integrity columns on ai_nodes (node overclaim review). A database
+-- created before them keeps its rows and gains the columns empty.
+ALTER TABLE ai_nodes ADD COLUMN IF NOT EXISTS settled_jobs INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE ai_nodes ADD COLUMN IF NOT EXISTS overclaim_events INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE ai_nodes ADD COLUMN IF NOT EXISTS mismatch_events INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE ai_nodes ADD COLUMN IF NOT EXISTS review_reason TEXT;
+
+-- The receipt table gained the 'gateway' kind. An older database has the
+-- two-value CHECK, so it is replaced (the constraint is named, not implicit).
+ALTER TABLE ai_receipts DROP CONSTRAINT IF EXISTS ai_receipts_kind_check;
+ALTER TABLE ai_receipts ADD CONSTRAINT ai_receipts_kind_check
+    CHECK (kind IN ('worker', 'client', 'gateway'));
+
 -- Operator switches that must survive a restart and be visible to every
 -- coordinator instance (checklist 5.9). The value is JSON so a switch can carry
 -- its own reason and the identity that set it.
@@ -313,6 +334,24 @@ class NodeRecord:
     software_version: str = "0.1.0"
     endpoint: str = ""
     last_heartbeat: int | None = None
+    # Billing-integrity counters. ``settled_jobs`` is the denominator, so one
+    # bad job on a busy node cannot trip the review threshold on its own.
+    settled_jobs: int = 0
+    overclaim_events: int = 0
+    mismatch_events: int = 0
+    #: Set when the node is under review: pending payouts are held, not paid.
+    review_reason: str | None = None
+
+    @property
+    def overclaim_rate_pct(self) -> int:
+        """Receipts that billed above the gateway's own count, as a percentage."""
+        if self.settled_jobs <= 0:
+            return 0
+        return self.overclaim_events * 100 // self.settled_jobs
+
+    @property
+    def payouts_held(self) -> bool:
+        return self.suspended or self.review_reason is not None
 
     @property
     def key_attestation_ref(self) -> str | None:
@@ -427,6 +466,21 @@ class Store(Protocol):
 
     async def save_attestation(self, node_id: str, **kwargs: Any) -> None: ...
 
+    async def record_node_billing(
+        self, node_id: str, *, overclaim: bool, mismatch: bool
+    ) -> NodeRecord:
+        """Count one settled job against a node's billing-integrity record.
+
+        ``overclaim`` means the worker's receipt billed above the gateway's own
+        count of the same completion; ``mismatch`` means the customer's ack
+        disagreed with the receipt. Both are evidence for a review, not verdicts.
+        """
+
+    async def hold_node_for_review(self, node_id: str, reason: str) -> NodeRecord:
+        """Suspend the node and hold its pending payouts until an operator clears it."""
+
+    async def get_gateway_measurement(self, job_id: str) -> dict | None: ...
+
     async def create_job(self, job: JobRecord) -> None: ...
 
     async def get_job(self, job_id: str) -> JobRecord | None: ...
@@ -480,6 +534,8 @@ class Store(Protocol):
     ) -> JobRecord: ...
 
     async def mark_job(self, job_id: str, **fields: Any) -> None: ...
+
+    async def flag_job_for_review(self, job_id: str, reason: str) -> None: ...
 
     async def expire_stale_jobs(self, ttl_seconds: int) -> list[str]: ...
 
@@ -639,6 +695,27 @@ class MemoryStore:
         node.attestation_ref = kwargs.get("verdict_hash")
         self.attestations.append({"node_id": node_id, **kwargs})
 
+    async def record_node_billing(
+        self, node_id: str, *, overclaim: bool, mismatch: bool
+    ) -> NodeRecord:
+        node = self.nodes.get(node_id)
+        if node is None:
+            raise NotFoundError("unknown node")
+        node.settled_jobs += 1
+        if overclaim:
+            node.overclaim_events += 1
+        if mismatch:
+            node.mismatch_events += 1
+        return node
+
+    async def hold_node_for_review(self, node_id: str, reason: str) -> NodeRecord:
+        node = self.nodes.get(node_id)
+        if node is None:
+            raise NotFoundError("unknown node")
+        node.suspended = True
+        node.review_reason = reason
+        return node
+
     async def create_job(self, job: JobRecord) -> None:
         self.jobs[job.job_id] = job
 
@@ -741,6 +818,10 @@ class MemoryStore:
         record = self.receipts.get((job_id, "client"))
         return record["body"] if record else None
 
+    async def get_gateway_measurement(self, job_id: str) -> dict | None:
+        record = self.receipts.get((job_id, "gateway"))
+        return record["body"] if record else None
+
     async def settle_job(
         self,
         job: JobRecord,
@@ -785,6 +866,17 @@ class MemoryStore:
             if not hasattr(job, key):
                 raise ValidationError(f"unknown job field: {key}")
             setattr(job, key, value)
+
+    async def flag_job_for_review(self, job_id: str, reason: str) -> None:
+        """Mark a *billed* job for human review without changing its status.
+
+        The charge stands; ``dispute_reason`` records why an operator should
+        look at it (the only way money moves back is the admin refund path).
+        """
+        job = self.jobs.get(job_id)
+        if job is None:
+            raise NotFoundError("unknown job")
+        job.dispute_reason = reason
 
     async def balance_micro(self, account_id: str) -> int:
         return self.ledger.balance(account_credits(account_id))
@@ -912,6 +1004,10 @@ def _row_to_node(row: Any) -> NodeRecord:
         software_version=row["software_version"] or "0.1.0",
         endpoint=row["endpoint"] or "",
         last_heartbeat=row["last_heartbeat"],
+        settled_jobs=int(row["settled_jobs"] or 0),
+        overclaim_events=int(row["overclaim_events"] or 0),
+        mismatch_events=int(row["mismatch_events"] or 0),
+        review_reason=row["review_reason"],
     )
 
 
@@ -1133,6 +1229,43 @@ class PostgresStore:
                 reputation_delta,
                 suspend,
             )
+
+    async def record_node_billing(
+        self, node_id: str, *, overclaim: bool, mismatch: bool
+    ) -> NodeRecord:
+        """Counters are incremented in SQL, so concurrent settlements cannot lose one."""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                UPDATE ai_nodes SET
+                    settled_jobs = settled_jobs + 1,
+                    overclaim_events = overclaim_events + $2,
+                    mismatch_events = mismatch_events + $3
+                WHERE node_id = $1
+                RETURNING *
+                """,
+                node_id,
+                1 if overclaim else 0,
+                1 if mismatch else 0,
+            )
+        if row is None:
+            raise NotFoundError("unknown node")
+        return _row_to_node(row)
+
+    async def hold_node_for_review(self, node_id: str, reason: str) -> NodeRecord:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                UPDATE ai_nodes SET suspended = TRUE, review_reason = $2
+                WHERE node_id = $1
+                RETURNING *
+                """,
+                node_id,
+                reason,
+            )
+        if row is None:
+            raise NotFoundError("unknown node")
+        return _row_to_node(row)
 
     async def save_attestation(self, node_id: str, **kwargs: Any) -> None:
         async with self.pool.acquire() as conn, conn.transaction():
@@ -1468,6 +1601,14 @@ class PostgresStore:
             )
         return json.loads(row["body"]) if row else None
 
+    async def get_gateway_measurement(self, job_id: str) -> dict | None:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT body FROM ai_receipts WHERE job_id = $1 AND kind = 'gateway'",
+                job_id,
+            )
+        return json.loads(row["body"]) if row else None
+
     async def settle_job(
         self,
         job: JobRecord,
@@ -1587,6 +1728,18 @@ class PostgresStore:
                 fields.get("status"),
                 fields.get("node_id"),
                 fields.get("ticket_hash"),
+            )
+
+    async def flag_job_for_review(self, job_id: str, reason: str) -> None:
+        """Set the review flag on a billed job; status is left alone."""
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE ai_jobs SET dispute_reason = $2, updated_at = NOW()
+                WHERE job_id = $1
+                """,
+                job_id,
+                reason,
             )
 
     async def balance_micro(self, account_id: str) -> int:

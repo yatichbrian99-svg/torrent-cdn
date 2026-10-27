@@ -325,6 +325,11 @@ def _dependency_names(dependant) -> set[str]:
 # cases where auth is not a FastAPI dependency need a table entry, and each
 # entry has a probe in TestAuthClassRefusals proving it actually refuses.
 CLASS_RULES = [
+    (
+        "admin",
+        "require_admin_jwt",
+        "admin session JWT only: CDN API keys are refused (audit F-6)",
+    ),
     ("admin", "require_admin", "admin JWT: require_admin() after get_current_user_id"),
     ("api-key", "authenticate", "AI API key bearer, scope-checked in the coordinator"),
     ("jwt", "get_current_user_id", "session JWT"),
