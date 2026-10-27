@@ -19,6 +19,7 @@ a labelled development stub and refuses to construct when
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -378,6 +379,11 @@ class WorkerAgent:
         self.backend = backend
         self.settings = settings
         self.clock = clock
+        # Long-lived background tasks this agent started (the heartbeat
+        # supervisor). Held so they cannot be garbage-collected mid-flight — an
+        # unreferenced task is cancelled without an error, which would stop the
+        # heartbeats and look exactly like a healthy idle node.
+        self.background_tasks: list[asyncio.Task] = []
         self.tickets = TicketService(
             coordinator_keys,
             ttl_seconds=settings.ticket_ttl_seconds,
