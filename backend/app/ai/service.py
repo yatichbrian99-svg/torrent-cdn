@@ -673,16 +673,8 @@ class Coordinator:
                 "a different verification receipt already exists for this job",
                 code="duplicate_receipt",
             )
-        input_tokens = envelope.payload.get("input_tokens")
-        output_tokens = envelope.payload.get("output_tokens")
-        for name, value in (
-            ("input_tokens", input_tokens),
-            ("output_tokens", output_tokens),
-        ):
-            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise ReceiptError(
-                    f"verification receipt is missing {name}", code="bad_receipt"
-                )
+        input_tokens = self._receipt_token(envelope.payload, "input_tokens")
+        output_tokens = self._receipt_token(envelope.payload, "output_tokens")
         await self.store.update_verification(
             record.job_id, shadow_output_sha256=shadow_hash
         )
@@ -697,6 +689,15 @@ class Coordinator:
         result = await self._reconcile_verification(record.job_id)
         result["payout_micro"] = paid
         return result
+
+    @staticmethod
+    def _receipt_token(payload: dict[str, Any], name: str) -> int:
+        value = payload.get(name)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ReceiptError(
+                f"verification receipt is missing {name}", code="bad_receipt"
+            )
+        return value
 
     async def _pay_verification_node(
         self,
