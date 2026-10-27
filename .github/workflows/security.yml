@@ -487,11 +487,13 @@ jobs:
       - name: Gitleaks — scan for hardcoded secrets
         uses: gitleaks/gitleaks-action@v3
         with:
-          # Keeps the default rules on and allowlists ONLY the committed env
-          # templates, where `FOO_SECRET=` + `FOO_SECRET_ID=v1` trips the
-          # generic-api-key entropy rule with no secret present. The
-          # high-signal tree scan in secret-scan remains un-allowlisted, so a
-          # real token in a template still fails.
+          # Keeps the default rules on and allowlists only placeholder VALUES:
+          # the published test vectors, doc examples, and the template's
+          # `FOO_SECRET=` + `FOO_SECRET_ID=v1` shape that trips the
+          # generic-api-key entropy rule with no secret present. No path or
+          # whole-file allowlist exists, so a real token pasted into
+          # `.env.example` or a docs page still fails this gate — and the
+          # high-signal tree scan in secret-scan remains un-allowlisted too.
           config-path: .gitleaks.toml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

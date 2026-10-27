@@ -1,0 +1,27 @@
+# gitleaks 8.24.0 against the value-scoped .gitleaks.toml (2026-10-27)
+#
+# Why this file exists: row 1.5 was verified with a blob scanner and the branch's config
+# allowlisted .env.example and two documentation pages BY PATH, which hid a real
+# credential pasted into them (audit F-5). The config is now value/line-scoped; these
+# are the runs that prove the gate is both clean on this tree and still sharp.
+#
+# Scope note: CI (gitleaks-action, git mode) scans COMMITS, so the committed tree and
+# the commit history are the right scope. A naive 'gitleaks dir .' over a working
+# checkout additionally reports build artifacts under frontend/.next and node_modules
+# that are gitignored and never scanned by CI — that is what the 40 findings in
+# gitleaks-worktree.txt are (all in frontend/.next/cache/webpack/.../0.pack).
+
+$ git archive HEAD | tar -x -C /tmp/gl-head2   # the committed tree, what CI actually scans
+$ gitleaks dir /tmp/gl-head2 --config .gitleaks.toml --redact
+[90m4:27PM[0m [32mINF[0m scanned ~4928675 bytes (4.93 MB) in 671ms
+[90m4:27PM[0m [32mINF[0m no leaks found
+
+$ cd /tmp/gl-git && gitleaks git --config .gitleaks.toml --log-opts HEAD^ --redact   # full history, as the daily cron does
+[90m4:27PM[0m [32mINF[0m scanned ~6478160 bytes (6.48 MB) in 1.84s
+[90m4:27PM[0m [32mINF[0m no leaks found
+
+# F-5 contrast: the same token planted in the three files the previous revision allowlisted by path
+$ gitleaks git --config <previous revision> --log-opts 'HEAD~1..HEAD'
+  planted-secret findings: 0
+$ gitleaks git --config <this revision> --log-opts 'HEAD~1..HEAD'
+  planted-secret findings: 3 [('.env.example', 'github-pat'), ('frontend/app/docs/page.tsx', 'github-pat'), ('frontend/app/page.tsx', 'github-pat')]
