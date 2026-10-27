@@ -379,16 +379,42 @@ placement and dispatch does not drop the sample) and `shadow_output_sha256`, bot
 `update_verification` was rewritten as one static statement (NULL = leave alone) because the
 assembled version tripped `TestStaticSafety::test_no_interpolated_sql`.
 
+## The fourteen [P1] `PARTIAL` rows: what is left and what closing costs
+
+State at the start of M4 (2026-10-27) was 14 `PARTIAL` [P1] rows. Six of them closed in
+this pass (**5.1, 5.2, 5.3, 5.4, 5.7, 5.9**), so eight remain. Sizes are engineer-days
+for one developer who knows this code, including the test that makes the row `VERIFIED`.
+
+| ID | Status now | What is still missing | Size |
+|---|---|---|---|
+| 2.3 | `PARTIAL` | No test for the row's last clause: a request marked **confidential** must be refused unless it arrives in SDK mode (the coordinator then holds no plaintext). Code path exists (`prompt_visibility`), only the refusal is unproven | **S — 0.5 d** |
+| 2.6 | `PARTIAL` | `max_concurrent_jobs_per_key` is configured but nothing enforces it. Needs an in-flight counter (Redis `INCR` on accept, `DECR` on settle/expire) and a refusal code, then a two-instance test like `test_ai_two_instances.py` | **S — 0.5–1 d** |
+| 3.2 | `PARTIAL` | The worker loop is a bare `create_task`; no supervision, no restart, no backoff. Wrap it in a supervisor with capped exponential backoff and a liveness timeout, and unit-test the three transitions (crash → restart, backoff grows, clean stop) | **S — 0.5 d** |
+| 3.3 | `PARTIAL` | One test today. The row asks for a matrix: crash mid-stream, node disappears mid-job, coordinator restart (state must survive). The first two are scriptable against the in-process stores; the third needs a second coordinator process over Postgres | **M — 2–3 d** |
+| 4.4 | `PARTIAL` | No Paystack **sandbox** session and the **M-Pesa channel is not enabled on the account**. The signed-fixture code path is tested; what is missing is a real charge, a real failure and a real refund. Blocked on the provider account, not on code | **M — 2 d code, externally blocked** |
+| 5.1 | `VERIFIED (self-review)` | Closed: `CRYPTO_REVIEW.md` + citation test. Residual: it is an internal review, so **5.14** (independent review) stays open by design | — |
+| 5.2 | `VERIFIED` | Closed: `KEY_INVENTORY.md`, rotation overlap, signed revocation list, both production key-source modes | Residual: rotation is an operator action; no scheduler |
+| 5.3 | `VERIFIED (limited)` | Closed: matrix derived from each route's dependency tree (68 routes), refusal probe per class, tenant-scoping asserted on the query | Residual: id-bearing handlers beyond the three object routes are covered structurally, not per handler |
+| 5.4 | `VERIFIED` | Closed: two coordinators over one Redis (replay, nonce binding, rate limit, idempotency, daily cap) | Residual: without Redis the cap is per process |
+| 5.7 | `VERIFIED` | Closed: `canary_scan.py` (every column, Redis, logs, work dir, backups) + end-to-end canary test with a positive control | Residual: the Postgres/Redis scanner modes did not run here (no services) |
+| 5.9 | `VERIFIED` | Closed: payout kill switch (`ai_controls`, `409 payouts_paused`, audited) plus refund idempotency/abuse shapes | Residual: refunds are credit adjustments, not card reversals |
+| 6.1 | `PARTIAL` | Keyed 3 % sample and the paid shadow operator are done. Still untrue: (a) the decision is taken at **placement**, before any commitment — moving it after the receipt exists is a protocol change, though `VerificationRng.sample_decision` already accepts the `transcript_root`; (b) **SDK-mode jobs cannot be re-executed** because the coordinator has no plaintext — needs a client-supplied re-encryption key or a threshold scheme, i.e. a design decision first | **M — 2–3 d (a) · L — 5–10 d (b)** |
+| 7.2 | `PARTIAL` | No cold-start run from an empty cache and no origin-fallback run. Both are drivable on the existing two-peer e2e harness; the "real swarm" clause stays out of scope | **M — 2–3 d** |
+| 10.1 | `PARTIAL` | `DEV_SETUP.md` has never been followed literally end to end (proxy + Redis + coordinator + worker + Postgres). Compose file and non-root images exist; the gap is a run, not code | **S–M — 1–2 d**, blocked on Docker in this environment |
+
+Blocking [P1] `MISSING` rows are unchanged and are 5.5 (SAST/Trivy/ZAP/fuzz budget), 10.2
+(capacity), 12.3 (draft PR), 12.4 (post-push confirmation), 12.5 (temporary triggers).
+
 ## Next actions (in order)
 
-1. **6.1**: close the remaining clauses — an unpredictable sample seed (commitment-derived, not
-   `salt + job_id`), the 3 % default, and an SDK-mode path (a commitment-only re-scoring run, since
-   the coordinator has no plaintext).
-2. **5.5**: SAST, Trivy (make `container-scan` blocking), ZAP and the full fuzz budget; only then can
-   "no open critical/high" be asserted.
-3. **10.2**: capacity run with many keys (ramp, 30-min sustain, 10× spike).
-4. **12.5**: remove the three temporary trial-push triggers, in their own labelled commit.
-5. **12.4 / 12.3**: push the branch, get every Level-1 workflow green on GitHub, then open the draft PR.
+1. **2.3 / 2.6 / 3.2** — three sub-day rows; together they remove the last small `PARTIAL`s.
+2. **6.1(a)** — move the sample decision after the receipt and bind the transcript root (the
+   keyed sampler already takes it), then re-document the remaining SDK-mode gap.
+3. **5.5** — SAST, Trivy (make `container-scan` blocking), ZAP and the full fuzz budget; only then
+   can "no open critical/high" be asserted.
+4. **10.2** — capacity run with many keys (ramp, 30-min sustain, 10× spike).
+5. **12.5** — remove the three temporary trial-push triggers, in their own labelled commit.
+6. **12.4 / 12.3** — CI green on the pushed branch, then the draft PR.
 
-Closed in this pass: 1.13 (contracts, M3), 1.10–1.12, 2.1, 2.2, 2.5, 4.5, 4.6, 5.6, 5.8, 5.10,
+Closed in this pass: 1.13 (contracts, M3), 1.10–1.12, 2.1, 2.2, 2.5, 4.5, 4.6, 5.1–5.4, 5.6–5.10,
 6.2, 6.3, 7.1, 8.1, 8.2, 10.3, 11.1, 12.2. Row 6.1 advanced from `MISSING` to `PARTIAL`.
