@@ -138,6 +138,20 @@ class RateLimitedError(LimitExceeded):
     code = "rate_limited"
 
 
+class ConcurrencyLimitExceeded(LimitExceeded):
+    """The account already has ``max_concurrent_jobs_per_key`` jobs in flight.
+
+    Distinct from ``rate_limited`` on purpose: a client that is over its
+    concurrency cap is not being throttled for sending too fast, it is holding
+    too many un-settled jobs, and the correct reaction is to finish or wait for
+    them (the TTL sweep releases abandoned ones) rather than to back off and
+    retry — retrying only adds load. The detail names the limit and the current
+    in-flight count so the client can act on it.
+    """
+
+    code = "too_many_concurrent_jobs"
+
+
 class BurnDisabled(AIError):
     status_code = 403
     code = "burn_disabled"

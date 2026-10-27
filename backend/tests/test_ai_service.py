@@ -10,6 +10,7 @@ import pytest
 from app.ai import crypto
 from app.ai.errors import (
     AttestationError,
+    ConcurrencyLimitExceeded,
     CryptoError,
     InsufficientCredits,
     NotFoundError,
@@ -25,7 +26,7 @@ from app.ai.models import (
     SignedEnvelope,
 )
 from app.ai.receipts import sign_receipt
-from app.ai.service import ATTESTATION_EVIDENCE_DOMAIN
+from app.ai.service import ATTESTATION_EVIDENCE_DOMAIN, JOB_TTL_SECONDS
 from tcdn_ai_sdk.protocol import (
     FINAL_FRAME,
     TOKEN_FRAME,
@@ -38,7 +39,9 @@ from tcdn_ai_sdk.protocol import (
 )
 
 
-async def run_encrypted_job(env, agent, *, text="hello world", max_tokens=8, confidential=False):
+async def run_encrypted_job(
+    env, agent, *, text="hello world", max_tokens=8, confidential=False
+):
     placement = await env.coordinator.place(
         env.auth,
         PlacementRequest(
@@ -55,7 +58,9 @@ async def run_encrypted_job(env, agent, *, text="hello world", max_tokens=8, con
     client_private, client_public = ephemeral["private_key"], ephemeral["public_key"]
     salt = os.urandom(32)
     shared = crypto.x25519_shared_secret(client_private, payload["worker_public_key"])
-    c2w, w2c = crypto.derive_session_keys(shared, salt=salt, context=session_context(job_id))
+    c2w, w2c = crypto.derive_session_keys(
+        shared, salt=salt, context=session_context(job_id)
+    )
     request_plaintext = canonical_json(
         {
             "model": env.model.model_id,
@@ -68,7 +73,9 @@ async def run_encrypted_job(env, agent, *, text="hello world", max_tokens=8, con
         }
     )
     ticket_digest = crypto.sha256_hex(canonical_json(ticket))
-    ciphertext = crypto.aead_encrypt(c2w, request_plaintext, request_aad(job_id, ticket_digest))
+    ciphertext = crypto.aead_encrypt(
+        c2w, request_plaintext, request_aad(job_id, ticket_digest)
+    )
     frames = await agent.process(
         {
             "job_id": job_id,
@@ -86,7 +93,9 @@ async def run_encrypted_job(env, agent, *, text="hello world", max_tokens=8, con
     for frame in parsed:
         if frame.kind == TOKEN_FRAME:
             tokens.append(
-                crypto.aead_decrypt(w2c, frame.body, stream_aad(job_id, sequence)).decode()
+                crypto.aead_decrypt(
+                    w2c, frame.body, stream_aad(job_id, sequence)
+                ).decode()
             )
             sequence += 1
         elif frame.kind == FINAL_FRAME:
@@ -110,7 +119,9 @@ async def submit_receipt(env, receipt: dict):
 
 class TestEncryptedJob:
     @pytest.mark.asyncio
-    async def test_placement_worker_receipt_ack_settlement(self, ai_env, ai_worker_factory):
+    async def test_placement_worker_receipt_ack_settlement(
+        self, ai_env, ai_worker_factory
+    ):
         agent = await ai_worker_factory()
         placement, text, receipt = await run_encrypted_job(ai_env, agent)
         assert text.startswith(f"echo[{ai_env.model.model_id}]")
@@ -131,7 +142,10 @@ class TestEncryptedJob:
         job = await ai_env.store.get_job(placement.job_id)
         assert job.status == "settled"
         assert job.dispute_reason is None
-        assert ai_env.store.ledger.balance(compute_earnings(job.node_id)) == settled.compute_micro
+        assert (
+            ai_env.store.ledger.balance(compute_earnings(job.node_id))
+            == settled.compute_micro
+        )
         assert ai_env.store.ledger.balance(SEEDER_POOL) == settled.seeder_micro
         assert ai_env.store.ledger.balance(PLATFORM_REVENUE) == settled.platform_micro
         assert await ai_env.store.held_micro(ai_env.account_id) == 0
@@ -144,15 +158,21 @@ class TestEncryptedJob:
             output_sha256=hashlib.sha256(text.encode()).hexdigest(),
             acked_at=1_000,
         )
-        confirmed = await ai_env.coordinator.submit_ack(ai_env.auth, placement.job_id, ack)
+        confirmed = await ai_env.coordinator.submit_ack(
+            ai_env.auth, placement.job_id, ack
+        )
         assert confirmed.status.value == "settled"
         assert confirmed.total_micro == settled.total_micro
         assert (await ai_env.store.get_job(placement.job_id)).dispute_reason is None
-        entries = [e for e in ai_env.store.ledger.entries if e.job_id == placement.job_id]
+        entries = [
+            e for e in ai_env.store.ledger.entries if e.job_id == placement.job_id
+        ]
         assert len(entries) == 3  # the ack posted nothing
 
     @pytest.mark.asyncio
-    async def test_coordinator_never_receives_or_stores_prompt(self, ai_env, ai_worker_factory):
+    async def test_coordinator_never_receives_or_stores_prompt(
+        self, ai_env, ai_worker_factory
+    ):
         agent = await ai_worker_factory()
         canary = "CANARY-PROMPT-9f13-do-not-store"
         placement, _, receipt = await run_encrypted_job(ai_env, agent, text=canary)
@@ -172,14 +192,24 @@ class TestEncryptedJob:
         )
         payload = placement.ticket["payload"]
         ephemeral = crypto.generate_x25519()
-        client_private, client_public = ephemeral["private_key"], ephemeral["public_key"]
+        client_private, client_public = (
+            ephemeral["private_key"],
+            ephemeral["public_key"],
+        )
         salt = os.urandom(32)
-        shared = crypto.x25519_shared_secret(client_private, payload["worker_public_key"])
-        c2w, _ = crypto.derive_session_keys(shared, salt=salt, context=session_context(placement.job_id))
+        shared = crypto.x25519_shared_secret(
+            client_private, payload["worker_public_key"]
+        )
+        c2w, _ = crypto.derive_session_keys(
+            shared, salt=salt, context=session_context(placement.job_id)
+        )
         digest = crypto.sha256_hex(canonical_json(placement.ticket))
         ciphertext = bytearray(
-            crypto.aead_encrypt(c2w, canonical_json({"model": ai_env.model.model_id}),
-                                request_aad(placement.job_id, digest))
+            crypto.aead_encrypt(
+                c2w,
+                canonical_json({"model": ai_env.model.model_id}),
+                request_aad(placement.job_id, digest),
+            )
         )
         ciphertext[-1] ^= 0x01
         with pytest.raises(CryptoError):
@@ -200,11 +230,15 @@ class TestEncryptedJob:
         # A second, independently placed job is fine; replay of the *first*
         # ticket is what the worker rejects.
         with pytest.raises(Exception) as excinfo:
-            await agent.process({"job_id": placement.job_id, "ticket": placement.ticket})
+            await agent.process(
+                {"job_id": placement.job_id, "ticket": placement.ticket}
+            )
         assert "ticket" in str(excinfo.value).lower()
 
     @pytest.mark.asyncio
-    async def test_receipt_from_unassigned_node_rejected(self, ai_env, ai_worker_factory):
+    async def test_receipt_from_unassigned_node_rejected(
+        self, ai_env, ai_worker_factory
+    ):
         first = await ai_worker_factory()
         # Place while `first` is the only eligible node, so the ticket provably
         # belongs to it (the scheduler deliberately randomises among equals).
@@ -221,7 +255,9 @@ class TestEncryptedJob:
             await submit_receipt(ai_env, forged)
 
     @pytest.mark.asyncio
-    async def test_ack_from_another_account_is_not_found(self, ai_env, ai_worker_factory):
+    async def test_ack_from_another_account_is_not_found(
+        self, ai_env, ai_worker_factory
+    ):
         agent = await ai_worker_factory()
         placement, text, _ = await run_encrypted_job(ai_env, agent)
         other_key = await ai_env.coordinator.provision_api_key(
@@ -263,8 +299,13 @@ class TestEncryptedJob:
         job = await ai_env.store.get_job(placement.job_id)
         assert job.status == "settled"
         assert job.dispute_reason == "output_hash_mismatch"
-        assert ai_env.store.ledger.balance(compute_earnings(job.node_id)) == billed.compute_micro
-        events = [e for e in ai_env.store.audit_log if e["event"] == "job.billing_review"]
+        assert (
+            ai_env.store.ledger.balance(compute_earnings(job.node_id))
+            == billed.compute_micro
+        )
+        events = [
+            e for e in ai_env.store.audit_log if e["event"] == "job.billing_review"
+        ]
         assert [e["subject"] for e in events] == [placement.job_id]
         assert ai_env.store.ledger.invariant_ok()
 
@@ -287,13 +328,17 @@ class TestConfidentialTier:
             payload=evidence,
             key_id=agent.identity.identity_key_id,
             sig=crypto.sign(
-                ATTESTATION_EVIDENCE_DOMAIN, evidence, agent.identity.identity_private_key
+                ATTESTATION_EVIDENCE_DOMAIN,
+                evidence,
+                agent.identity.identity_private_key,
             ),
         )
         return await env.coordinator.attest(env.auth, envelope)
 
     @pytest.mark.asyncio
-    async def test_confidential_job_runs_only_on_attested_node(self, ai_env, ai_worker_factory):
+    async def test_confidential_job_runs_only_on_attested_node(
+        self, ai_env, ai_worker_factory
+    ):
         attested = await ai_worker_factory(
             confidentiality=Confidentiality.ATTESTED_TEE, attested=True
         )
@@ -309,8 +354,12 @@ class TestConfidentialTier:
         assert job.tier == "confidential"
 
     @pytest.mark.asyncio
-    async def test_confidential_refused_without_attestation(self, ai_env, ai_worker_factory):
-        await ai_worker_factory(confidentiality=Confidentiality.ATTESTED_TEE, attested=True)
+    async def test_confidential_refused_without_attestation(
+        self, ai_env, ai_worker_factory
+    ):
+        await ai_worker_factory(
+            confidentiality=Confidentiality.ATTESTED_TEE, attested=True
+        )
         from app.ai.errors import NoEligibleWorker
 
         with pytest.raises(NoEligibleWorker):
@@ -346,7 +395,9 @@ class TestConfidentialTier:
 
 class TestLogHygiene:
     @pytest.mark.asyncio
-    async def test_prompt_and_api_key_never_logged(self, ai_env, ai_worker_factory, caplog):
+    async def test_prompt_and_api_key_never_logged(
+        self, ai_env, ai_worker_factory, caplog
+    ):
         import logging as _logging
 
         caplog.set_level(_logging.DEBUG, logger="app.ai")
@@ -405,7 +456,9 @@ class TestMoneyEdges:
         second = await ai_env.coordinator.submit_ack(ai_env.auth, placement.job_id, ack)
         assert first.status.value == second.status.value == "settled"
         assert first.total_micro == second.total_micro
-        entries = [e for e in ai_env.store.ledger.entries if e.job_id == placement.job_id]
+        entries = [
+            e for e in ai_env.store.ledger.entries if e.job_id == placement.job_id
+        ]
         assert len(entries) == 3  # no duplicate postings on replay
 
 
@@ -462,7 +515,9 @@ class TestHoldHeadroomAndDisputes:
         assert ai_env.store.ledger.invariant_ok()
 
     @pytest.mark.asyncio
-    async def test_over_hold_receipt_is_capped_and_flagged(self, ai_env, ai_worker_factory):
+    async def test_over_hold_receipt_is_capped_and_flagged(
+        self, ai_env, ai_worker_factory
+    ):
         agent = await ai_worker_factory()
         placement, text, receipt = await run_encrypted_job(ai_env, agent)
         hold_micro = (await ai_env.store.get_job(placement.job_id)).hold_micro
@@ -486,5 +541,103 @@ class TestHoldHeadroomAndDisputes:
         # The node delivered the completion, so it is paid — capping is a
         # platform decision, not a reason to stiff the worker.
         assert job.compute_micro + job.seeder_micro + job.platform_micro == hold_micro
-        assert ai_env.store.ledger.balance(compute_earnings(job.node_id)) == job.compute_micro
+        assert (
+            ai_env.store.ledger.balance(compute_earnings(job.node_id))
+            == job.compute_micro
+        )
         assert ai_env.store.ledger.invariant_ok()
+
+
+class TestConcurrentJobCap:
+    """Row 2.6: ``max_concurrent_jobs_per_key`` is enforced, not just configured.
+
+    The count comes from the store, so it is the account's number and not
+    whichever process took the request; a settled job and an expired one both
+    free a slot, which is what keeps a crashed client from wedging its own key.
+    """
+
+    async def _place(self, env):
+        return await env.coordinator.place(
+            env.auth, PlacementRequest(model=env.model.model_id, max_tokens=4)
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_cap_refuses_before_any_work_and_creates_no_job(
+        self, ai_env, ai_worker_factory
+    ):
+        await ai_worker_factory()
+        ai_env.settings.max_concurrent_jobs_per_key = 2
+
+        await self._place(ai_env)
+        await self._place(ai_env)
+        jobs_before = len(ai_env.store.jobs)
+        held_before = await ai_env.store.held_micro(ai_env.account_id)
+
+        with pytest.raises(ConcurrencyLimitExceeded) as refused:
+            await self._place(ai_env)
+
+        assert refused.value.status_code == 429, "a cap is a 429, not a 500"
+        assert refused.value.code == "too_many_concurrent_jobs"
+        assert refused.value.details["limit"] == 2
+        assert refused.value.details["in_flight"] == 2
+        # Nothing was created, held or charged by the refusal.
+        assert len(ai_env.store.jobs) == jobs_before
+        assert await ai_env.store.held_micro(ai_env.account_id) == held_before
+        assert await ai_env.store.count_active_jobs(ai_env.account_id) == 2
+
+    @pytest.mark.asyncio
+    async def test_settling_a_job_frees_its_slot(self, ai_env, ai_worker_factory):
+        agent = await ai_worker_factory()
+        ai_env.settings.max_concurrent_jobs_per_key = 1
+
+        _, _, receipt = await run_encrypted_job(ai_env, agent)
+        with pytest.raises(ConcurrencyLimitExceeded):
+            await self._place(ai_env)
+
+        await submit_receipt(ai_env, receipt)
+        assert await ai_env.store.count_active_jobs(ai_env.account_id) == 0
+        # The key works again as soon as it has nothing in flight.
+        assert (await self._place(ai_env)).job_id
+
+    @pytest.mark.asyncio
+    async def test_the_ttl_sweep_frees_an_abandoned_slot(
+        self, ai_env, ai_worker_factory
+    ):
+        """A client that crashes mid-job must not lock itself out forever."""
+        await ai_worker_factory()
+        ai_env.settings.max_concurrent_jobs_per_key = 1
+        await self._place(ai_env)
+        with pytest.raises(ConcurrencyLimitExceeded):
+            await self._place(ai_env)
+
+        # Past the TTL: the sweep expires the abandoned job and releases its hold.
+        store = ai_env.store
+        original_clock = store._clock
+        store._clock = lambda: original_clock() + JOB_TTL_SECONDS + 1
+        try:
+            expired = await store.expire_stale_jobs(JOB_TTL_SECONDS)
+            assert len(expired) == 1
+        finally:
+            store._clock = original_clock
+
+        assert await store.count_active_jobs(ai_env.account_id) == 0
+        assert (await self._place(ai_env)).job_id
+
+    @pytest.mark.asyncio
+    async def test_a_second_coordinator_sees_the_same_in_flight_count(
+        self, ai_env, ai_worker_factory
+    ):
+        """The cap is shared state, not a per-process counter."""
+        from app.ai.service import Coordinator
+
+        await ai_worker_factory()
+        ai_env.settings.max_concurrent_jobs_per_key = 1
+        await self._place(ai_env)
+
+        other = Coordinator(
+            store=ai_env.store, keyring=ai_env.keyring, settings=ai_env.settings
+        )
+        with pytest.raises(ConcurrencyLimitExceeded):
+            await other.place(
+                ai_env.auth, PlacementRequest(model=ai_env.model.model_id, max_tokens=4)
+            )

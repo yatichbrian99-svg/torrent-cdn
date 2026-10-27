@@ -487,6 +487,15 @@ class Store(Protocol):
 
     async def list_jobs(self, account_id: str, limit: int = 100) -> list[JobRecord]: ...
 
+    async def count_active_jobs(self, account_id: str) -> int:
+        """Jobs placed but not yet settled/expired/disputed — the concurrency cap.
+
+        Counted from the job table rather than a separate counter so every
+        instance and every process sees the same number: the cap is a property
+        of the account, not of whichever coordinator took the request.
+        """
+        ...
+
     async def place_hold(
         self, job_id: str, account_id: str, amount_micro: int
     ) -> None: ...
@@ -726,6 +735,15 @@ class MemoryStore:
         jobs = [j for j in self.jobs.values() if j.account_id == account_id]
         jobs.sort(key=lambda j: j.created_at, reverse=True)
         return jobs[:limit]
+
+    async def count_active_jobs(self, account_id: str) -> int:
+        # "placed" is the only non-terminal status a job is created with; the
+        # TTL sweep moves an abandoned one to "expired", which frees the slot.
+        return sum(
+            1
+            for job in self.jobs.values()
+            if job.account_id == account_id and job.status == "placed"
+        )
 
     async def place_hold(self, job_id: str, account_id: str, amount_micro: int) -> None:
         self.ledger.place_hold(
@@ -1344,6 +1362,17 @@ class PostgresStore:
                 limit,
             )
         return [_row_to_job(row) for row in rows]
+
+    async def count_active_jobs(self, account_id: str) -> int:
+        async with self.pool.acquire() as conn:
+            count = await conn.fetchval(
+                """
+                    SELECT count(*) FROM ai_jobs
+                    WHERE account_id = $1 AND status = 'placed'
+                    """,
+                _uuid(account_id),
+            )
+        return int(count or 0)
 
     async def place_hold(self, job_id: str, account_id: str, amount_micro: int) -> None:
         async with self.pool.acquire() as conn, conn.transaction():
