@@ -30,7 +30,7 @@ import logging
 import os
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
 
@@ -50,7 +50,12 @@ from . import crypto
 from .clock import now_unix
 from .config import AISettings
 from .errors import UnavailableError, ValidationError
-from .models import AckPayload, Confidentiality, PlacementRequest, SignedEnvelope
+from .models import (
+    Confidentiality,
+    GatewayMeasurement,
+    PlacementRequest,
+    SignedEnvelope,
+)
 from .service import AuthContext, Coordinator
 
 logger = logging.getLogger(__name__)
@@ -352,6 +357,22 @@ async def http_worker_transport(
 
 
 @dataclass
+class TokenTally:
+    """The gateway's own count of the completion frames it delivered.
+
+    Incremented by the wrapper installed in ``open`` as the route drains the
+    stream, so the count exists even when the customer never finishes reading:
+    the gateway served those tokens and must be able to say how many.
+    """
+
+    frames: int = 0
+
+    def add(self, kind: str) -> None:
+        if kind == "token":
+            self.frames += 1
+
+
+@dataclass
 class GatewayStream:
     job_id: str
     model: str
@@ -366,6 +387,11 @@ class GatewayStream:
     #: Background task that runs the verification and submits its receipt.
     #: Exposed so tests (and a graceful shutdown) can await it.
     verification_task: asyncio.Task | None = None
+    #: Gateway's own count of the request prompt (it holds that plaintext), kept
+    #: for the billing measurement — never read off the worker's receipt.
+    prompt_tokens: int = 0
+    #: Gateway's own count of the completion frames it delivered.
+    tally: TokenTally = field(default_factory=TokenTally)
 
 
 @dataclass
@@ -487,11 +513,15 @@ class Gateway:
             "prompt_visibility": "gateway",
             "coordinator_key_id": placement.coordinator_key_id,
         }
-        events = self._decrypt_frames(
-            placement.worker_endpoint,
-            worker_payload,
-            job_id=placement.job_id,
-            w2c=w2c,
+        tally = TokenTally()
+        events = self._counted(
+            self._decrypt_frames(
+                placement.worker_endpoint,
+                worker_payload,
+                job_id=placement.job_id,
+                w2c=w2c,
+            ),
+            tally,
         )
         pending = await self._collect_verification(
             placement.job_id, request, request_plaintext
@@ -502,7 +532,18 @@ class Gateway:
             tcdn=tcdn,
             events=events,
             pending_verification=pending,
+            prompt_tokens=prompt_estimate,
+            tally=tally,
         )
+
+    @staticmethod
+    async def _counted(
+        events: AsyncGenerator[tuple[str, Any], None], tally: TokenTally
+    ) -> AsyncGenerator[tuple[str, Any], None]:
+        """Pass frames through while counting the tokens the gateway delivered."""
+        async for kind, value in events:
+            tally.add(kind)
+            yield kind, value
 
     # ── redundant execution (checklist 6.1) ────────────────────────────────
 
@@ -670,20 +711,27 @@ class Gateway:
         text: str,
         receipt: dict[str, Any],
     ) -> dict[str, int]:
-        payload = receipt.get("payload", {}) if isinstance(receipt, dict) else {}
-        completion_tokens = int(payload.get("output_tokens", 0) or 0) or max(
-            1, len(text) // 4
-        )
-        prompt_tokens = int(payload.get("input_tokens", 0) or 0)
+        """Hand the completion over and record the gateway's OWN measurement.
+
+        The counts are the gateway's: the prompt is the plaintext it encrypted
+        and sent, the completion is the plaintext it decrypted and delivered
+        (the token frames it streamed, floored by an estimate of the text). It
+        used to read ``output_tokens`` out of the worker's receipt and hand that
+        straight back, which made the worker the author of its own bill — and
+        the customer the author of nothing that could contradict it.
+        """
+        completion_tokens = max(stream.tally.frames, estimate_tokens(text))
+        prompt_tokens = stream.prompt_tokens
         output_sha = crypto.sha256_hex(text.encode("utf-8"))
-        await self.coordinator.submit_ack(
-            auth,
+        await self.coordinator.submit_gateway_measurement(
             stream.job_id,
-            AckPayload(
+            GatewayMeasurement(
                 job_id=stream.job_id,
-                tokens_received=completion_tokens,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                token_frames=stream.tally.frames,
                 output_sha256=output_sha,
-                acked_at=int(self._clock()),
+                measured_at=int(self._clock()),
             ),
         )
         return {

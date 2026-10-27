@@ -116,16 +116,12 @@ class TestEncryptedJob:
         assert text.startswith(f"echo[{ai_env.model.model_id}]")
         assert receipt["payload"]["job_id"] == placement.job_id
 
-        pending = await submit_receipt(ai_env, receipt)
-        assert pending.status.value == "running"  # awaiting client ack
-
-        ack = AckPayload(
-            job_id=placement.job_id,
-            tokens_received=receipt["payload"]["output_tokens"],
-            output_sha256=hashlib.sha256(text.encode()).hexdigest(),
-            acked_at=1_000,
-        )
-        settled = await ai_env.coordinator.submit_ack(ai_env.auth, placement.job_id, ack)
+        # The worker's signed receipt is the billing event: it settles the job on
+        # its own. Billing used to wait for the client's ack, which made revenue
+        # optional for the payer — a client that never acked (or acked a
+        # different hash) left the job unsettled, and the expiry sweep then
+        # released the hold, so the completion was free.
+        settled = await submit_receipt(ai_env, receipt)
         assert settled.status.value == "settled"
         assert settled.total_micro > 0
         assert (
@@ -134,10 +130,26 @@ class TestEncryptedJob:
         )
         job = await ai_env.store.get_job(placement.job_id)
         assert job.status == "settled"
+        assert job.dispute_reason is None
         assert ai_env.store.ledger.balance(compute_earnings(job.node_id)) == settled.compute_micro
         assert ai_env.store.ledger.balance(SEEDER_POOL) == settled.seeder_micro
         assert ai_env.store.ledger.balance(PLATFORM_REVENUE) == settled.platform_micro
+        assert await ai_env.store.held_micro(ai_env.account_id) == 0
         assert ai_env.store.ledger.invariant_ok()
+
+        # A late ack that agrees is confirmation, not a second payment.
+        ack = AckPayload(
+            job_id=placement.job_id,
+            tokens_received=receipt["payload"]["output_tokens"],
+            output_sha256=hashlib.sha256(text.encode()).hexdigest(),
+            acked_at=1_000,
+        )
+        confirmed = await ai_env.coordinator.submit_ack(ai_env.auth, placement.job_id, ack)
+        assert confirmed.status.value == "settled"
+        assert confirmed.total_micro == settled.total_micro
+        assert (await ai_env.store.get_job(placement.job_id)).dispute_reason is None
+        entries = [e for e in ai_env.store.ledger.entries if e.job_id == placement.job_id]
+        assert len(entries) == 3  # the ack posted nothing
 
     @pytest.mark.asyncio
     async def test_coordinator_never_receives_or_stores_prompt(self, ai_env, ai_worker_factory):
@@ -226,10 +238,14 @@ class TestEncryptedJob:
             await ai_env.coordinator.submit_ack(other_auth, placement.job_id, ack)
 
     @pytest.mark.asyncio
-    async def test_disputed_ack_does_not_settle(self, ai_env, ai_worker_factory):
+    async def test_mismatched_ack_flags_for_review_without_cancelling_the_charge(
+        self, ai_env, ai_worker_factory
+    ):
         agent = await ai_worker_factory()
         placement, _, receipt = await run_encrypted_job(ai_env, agent)
-        await submit_receipt(ai_env, receipt)
+        billed = await submit_receipt(ai_env, receipt)
+        assert billed.status.value == "settled"
+
         ack = AckPayload(
             job_id=placement.job_id,
             tokens_received=receipt["payload"]["output_tokens"],
@@ -237,10 +253,20 @@ class TestEncryptedJob:
             acked_at=1_000,
         )
         result = await ai_env.coordinator.submit_ack(ai_env.auth, placement.job_id, ack)
-        assert result.status.value == "disputed"
+
+        # The ack is evidence, never a payment trigger: the receipt's charge
+        # stands, and an operator is asked to look at it. A payer who could undo
+        # the charge by acking would make every completion free.
+        assert result.status.value == "settled"
+        assert result.total_micro == billed.total_micro
+        assert "output_hash_mismatch" in (result.reason or "")
         job = await ai_env.store.get_job(placement.job_id)
-        assert job.status == "disputed"
-        assert ai_env.store.ledger.balance(compute_earnings(job.node_id)) == 0
+        assert job.status == "settled"
+        assert job.dispute_reason == "output_hash_mismatch"
+        assert ai_env.store.ledger.balance(compute_earnings(job.node_id)) == billed.compute_micro
+        events = [e for e in ai_env.store.audit_log if e["event"] == "job.billing_review"]
+        assert [e["subject"] for e in events] == [placement.job_id]
+        assert ai_env.store.ledger.invariant_ok()
 
 
 class TestConfidentialTier:
@@ -392,6 +418,11 @@ class TestHoldHeadroomAndDisputes:
     Ollama + Qwen2.5-0.5B, a 7-token estimate became 48. Before the headroom fix
     every real-engine job settled above its hold, was marked disputed, and the
     reservation stayed open — the customer's credits were frozen (H-1).
+
+    The hold is now a hard ceiling on what a worker's receipt can bill, and a
+    receipt that reaches it is billed to the ceiling and flagged for review
+    rather than refused: refusing it would hand the completion to the customer
+    for free.
     """
 
     async def _settle_with_input_tokens(
@@ -400,14 +431,19 @@ class TestHoldHeadroomAndDisputes:
         payload = dict(receipt["payload"])
         payload["input_tokens"] = input_tokens
         signed = sign_receipt(payload, agent.identity.identity_private_key)
-        await submit_receipt(ai_env, signed)
+        # The receipt is the billing event; the ack that follows only confirms it.
+        billed = await submit_receipt(ai_env, signed)
         ack = AckPayload(
             job_id=placement.job_id,
             tokens_received=payload["output_tokens"],
             output_sha256=payload["output_sha256"],
             acked_at=1_000,
         )
-        return await ai_env.coordinator.submit_ack(ai_env.auth, placement.job_id, ack)
+        confirmed = await ai_env.coordinator.submit_ack(
+            ai_env.auth, placement.job_id, ack
+        )
+        assert confirmed.total_micro == billed.total_micro, "the ack moved money"
+        return billed
 
     @pytest.mark.asyncio
     async def test_engine_chat_template_overhead_settles_within_the_hold(
@@ -426,23 +462,29 @@ class TestHoldHeadroomAndDisputes:
         assert ai_env.store.ledger.invariant_ok()
 
     @pytest.mark.asyncio
-    async def test_disputed_job_releases_the_hold(self, ai_env, ai_worker_factory):
+    async def test_over_hold_receipt_is_capped_and_flagged(self, ai_env, ai_worker_factory):
         agent = await ai_worker_factory()
         placement, text, receipt = await run_encrypted_job(ai_env, agent)
+        hold_micro = (await ai_env.store.get_job(placement.job_id)).hold_micro
 
         # Far beyond any reservation: this is a real overrun, not a rounding
-        # difference, so it must be disputed rather than billed.
+        # difference. The worker cannot bill past the hold it was granted, but
+        # the excess is recorded for review instead of voiding the charge.
         result = await self._settle_with_input_tokens(
             ai_env, agent, placement, text, receipt, input_tokens=100_000
         )
-        assert result.status.value == "disputed"
-        assert result.reason == "settlement_exceeds_hold"
-        assert result.total_micro == 0
+        assert result.status.value == "settled"
+        assert result.total_micro == hold_micro
+        assert "settlement_exceeds_hold" in (result.reason or "")
 
         # H-1: the reservation must not stay open forever.
         assert await ai_env.store.held_micro(ai_env.account_id) == 0
         job = await ai_env.store.get_job(placement.job_id)
-        assert job.status == "disputed"
-        # Nobody was paid: no earnings postings for a disputed job.
-        assert ai_env.store.ledger.balance(compute_earnings(job.node_id)) == 0
+        assert job.status == "settled"
+        assert job.dispute_reason == "settlement_exceeds_hold"
+        assert job.total_micro == hold_micro
+        # The node delivered the completion, so it is paid — capping is a
+        # platform decision, not a reason to stiff the worker.
+        assert job.compute_micro + job.seeder_micro + job.platform_micro == hold_micro
+        assert ai_env.store.ledger.balance(compute_earnings(job.node_id)) == job.compute_micro
         assert ai_env.store.ledger.invariant_ok()

@@ -86,13 +86,30 @@ class AISettings(BaseSettings):
     launch_pricing_until: str = "2027-04-01"
     price_lock_days: int = Field(default=180, ge=0)
     receipt_token_tolerance_pct: int = Field(default=2, ge=0, le=100)
+    # ── Gateway-mode billing authority ──────────────────────────────────────
+    # In gateway mode the coordinator's own gateway holds the plaintext, so it
+    # can count the tokens it received instead of trusting the worker's receipt.
+    # When the two disagree by more than this percentage the LOWER count is
+    # billed and the node is flagged: the payer is never charged a claim the
+    # coordinator can disprove, and the worker is never charged less than it said
+    # (a worker that under-claims, e.g. because its engine tokens and the
+    # gateway's estimate differ, is flagged too but keeps its own lower number).
+    gateway_billing_authority: bool = True
+    gateway_token_tolerance_pct: int = Field(default=25, ge=0, le=100)
+    # ── Per-node billing-integrity review ───────────────────────────────────
+    # A node whose receipts bill above the gateway's own count in more than this
+    # share of its settled jobs is suspended and its pending payouts are held
+    # until an operator clears it. The sample floor keeps a single odd job on a
+    # quiet node from tripping it.
+    node_overclaim_rate_pct: int = Field(default=25, ge=0, le=100)
+    node_overclaim_min_samples: int = Field(default=5, ge=1, le=1000)
     # ── Credit-hold headroom ────────────────────────────────────────────────
     # The coordinator never sees the prompt (Part 1 invariant), so it prices the
     # reservation from the client's token ESTIMATE. A real engine counts the
     # prompt AFTER applying the model's chat template, which adds tens of tokens
     # the estimate cannot know about (Qwen2.5 added 41 in testing). Without
-    # headroom every real-engine job settles above its hold, is disputed, and
-    # the customer's credits stay reserved — observed live, see
+    # headroom every real-engine job bills at the hold ceiling instead of its
+    # real cost and is flagged for review — observed live, see
     # docs/tcdn-ai/evidence/10-real-engine/.
     hold_input_margin_tokens: int = Field(default=64, ge=0, le=8192)
     hold_input_margin_pct: int = Field(default=10, ge=0, le=100)
