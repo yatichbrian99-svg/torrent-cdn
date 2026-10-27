@@ -32,6 +32,7 @@ from .config import AISettings
 from .errors import (
     AuthenticationError,
     AuthorizationError,
+    ConcurrencyLimitExceeded,
     ConflictError,
     NoEligibleWorker,
     NotFoundError,
@@ -351,6 +352,22 @@ class Coordinator:
         self, auth: AuthContext, request: PlacementRequest
     ) -> TicketResponse:
         self.require_scope(auth, "inference")
+        # Concurrency cap (row 2.6): a key may hold at most
+        # ``max_concurrent_jobs_per_key`` un-settled jobs. Counted from the store
+        # so it is the account's number on every instance, and placed before any
+        # pricing or hold work so a capped client cannot spend anything to be
+        # told to stop. Abandoned jobs stop counting when the TTL sweep expires
+        # them, which is what keeps a crashed client from wedging its own key.
+        active = await self.store.count_active_jobs(auth.account_id)
+        if active >= self.settings.max_concurrent_jobs_per_key:
+            raise ConcurrencyLimitExceeded(
+                "too many jobs in flight for this key",
+                details={
+                    "limit": self.settings.max_concurrent_jobs_per_key,
+                    "in_flight": active,
+                    "ttl_seconds": JOB_TTL_SECONDS,
+                },
+            )
         rate_result = await self._rate_limiter.allow(
             f"placement:{auth.account_id}:{request.model}", cost=1
         )
