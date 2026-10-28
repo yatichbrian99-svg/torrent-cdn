@@ -109,7 +109,7 @@ def verification_link_from_email(path: Path, recipient: str) -> str:
                 index = haystack.find(VERIFICATION_LINK)
                 if index < 0:
                     continue
-                tail = haystack[index + len(VERIFICATION_LINK):]
+                tail = haystack[index + len(VERIFICATION_LINK) :]
                 token = ""
                 for char in tail:
                     if char.isalnum() or char in "-_.~":
@@ -142,7 +142,9 @@ async def run(args: argparse.Namespace) -> dict:
     worker = None
 
     def step(name: str, detail: object = None) -> None:
-        results.setdefault("steps", []).append({"step": name, "ok": True, "detail": detail})
+        results.setdefault("steps", []).append(
+            {"step": name, "ok": True, "detail": detail}
+        )
         print(f"PASS {name}" + (f" :: {detail}" if detail else ""))
 
     try:
@@ -156,12 +158,16 @@ async def run(args: argparse.Namespace) -> dict:
             "/auth/register",
             json={"email": email, "password": password, "terms_accepted": True},
         )
-        check(register.status_code in (200, 201), f"register {register.status_code}: {register.text}")
+        check(
+            register.status_code in (200, 201),
+            f"register {register.status_code}: {register.text}",
+        )
         body = register.json()
         check("access_token" in body, f"register did not mint a session: {body}")
         token = body["access_token"]
         user = await pool.fetchrow(
-            "SELECT id, verified, mfa_enabled, is_admin FROM users WHERE email = $1", email
+            "SELECT id, verified, mfa_enabled, is_admin FROM users WHERE email = $1",
+            email,
         )
         check(user is not None, "user row missing after registration")
         account_id = str(user["id"])
@@ -220,8 +226,12 @@ async def run(args: argparse.Namespace) -> dict:
         enable = client.post(
             "/auth/mfa/enable", headers=auth_headers(), json={"code": totp(secret)}
         )
-        check(enable.status_code == 200, f"mfa enable {enable.status_code}: {enable.text}")
-        flags = await pool.fetchrow("SELECT mfa_enabled FROM users WHERE id = $1", user["id"])
+        check(
+            enable.status_code == 200, f"mfa enable {enable.status_code}: {enable.text}"
+        )
+        flags = await pool.fetchrow(
+            "SELECT mfa_enabled FROM users WHERE id = $1", user["id"]
+        )
         check(bool(flags["mfa_enabled"]), "mfa_enabled is still false after enable")
         # Prove it is enforced: a fresh password login must stop at the gate.
         login = client.post("/auth/login", json={"email": email, "password": password})
@@ -232,7 +242,10 @@ async def run(args: argparse.Namespace) -> dict:
             "/auth/mfa/confirm",
             json={"mfa_token": gate["mfa_token"], "code": totp(secret)},
         )
-        check(confirm.status_code == 200, f"mfa confirm {confirm.status_code}: {confirm.text}")
+        check(
+            confirm.status_code == 200,
+            f"mfa confirm {confirm.status_code}: {confirm.text}",
+        )
         token = confirm.json()["access_token"]
         step("2FA enrolled and enforced at login")
 
@@ -240,7 +253,9 @@ async def run(args: argparse.Namespace) -> dict:
         # Fixture: make this account an admin so the real admin endpoint can be
         # exercised over HTTP (no key is inserted behind the API).
         await pool.execute("UPDATE users SET is_admin = TRUE WHERE id = $1", user["id"])
-        gate = client.post("/auth/login", json={"email": email, "password": password}).json()
+        gate = client.post(
+            "/auth/login", json={"email": email, "password": password}
+        ).json()
         token = client.post(
             "/auth/mfa/confirm",
             json={"mfa_token": gate["mfa_token"], "code": totp(secret)},
@@ -250,14 +265,20 @@ async def run(args: argparse.Namespace) -> dict:
             headers=auth_headers(),
             params={"account_id": account_id, "scopes": "inference"},
         )
-        check(dev_key.status_code == 200, f"admin api-keys {dev_key.status_code}: {dev_key.text}")
+        check(
+            dev_key.status_code == 200,
+            f"admin api-keys {dev_key.status_code}: {dev_key.text}",
+        )
         api_key = dev_key.json()["api_key"]
         worker_key = client.post(
             "/api/ai/v1/admin/api-keys",
             headers=auth_headers(),
             params={"account_id": account_id, "scopes": "worker"},
         )
-        check(worker_key.status_code == 200, f"worker key {worker_key.status_code}: {worker_key.text}")
+        check(
+            worker_key.status_code == 200,
+            f"worker key {worker_key.status_code}: {worker_key.text}",
+        )
         worker_api_key = worker_key.json()["api_key"]
         results["api_key_prefix"] = api_key[:16] + "…"
         step("API key created (developer + worker scopes)")
@@ -305,10 +326,24 @@ async def run(args: argparse.Namespace) -> dict:
             "provisioning failed: "
             + (err.decode(errors="replace") or provision_stdout)[-500:],
         )
-        check(f"registered model {model}" in provision_stdout, "model registration not confirmed")
+        check(
+            f"registered model {model}" in provision_stdout,
+            "model registration not confirmed",
+        )
         step("model registered", model)
 
         # 5 ── buy credits through the fake provider webhook ─────────────
+        #
+        # Read the balance first: the account already carries the signup credit
+        # (it was granted when the emailed link verified the address), so an
+        # absolute "balance == purchase" assertion was only ever true while that
+        # grant had no production trigger. "Start + one purchase" also proves the
+        # duplicate callback was ignored (start + two would fail the check).
+        before = client.get(
+            "/api/ai/v1/balance", headers={"Authorization": f"Bearer {api_key}"}
+        )
+        check(before.status_code == 200, f"balance {before.status_code}: {before.text}")
+        starting_micro = int(before.json()["micro_credits"])
         amount_micro = 5_000_000  # $0.05 of credits
         reference = "journey-" + uuid.uuid4().hex
         event = json.dumps(
@@ -334,14 +369,29 @@ async def run(args: argparse.Namespace) -> dict:
             content=event,
             headers={"x-tcdn-signature": signature, "content-type": "application/json"},
         )
-        check(duplicate.status_code == 200, f"duplicate webhook {duplicate.status_code}")
-        balance = client.get("/api/ai/v1/balance", headers={"Authorization": f"Bearer {api_key}"})
-        check(balance.status_code == 200, f"balance {balance.status_code}: {balance.text}")
         check(
-            int(balance.json()["micro_credits"]) == amount_micro,
-            f"balance after one purchase (and a duplicate) is {balance.json()}",
+            duplicate.status_code == 200, f"duplicate webhook {duplicate.status_code}"
         )
-        step("credits purchased; duplicate callback was idempotent", amount_micro)
+        balance = client.get(
+            "/api/ai/v1/balance", headers={"Authorization": f"Bearer {api_key}"}
+        )
+        check(
+            balance.status_code == 200, f"balance {balance.status_code}: {balance.text}"
+        )
+        check(
+            int(balance.json()["micro_credits"]) == starting_micro + amount_micro,
+            f"balance after one purchase (and a duplicate) is {balance.json()}; "
+            f"started at {starting_micro} and bought {amount_micro}",
+        )
+        pre_inference_micro = int(balance.json()["micro_credits"])
+        step(
+            "credits purchased; duplicate callback was idempotent",
+            {
+                "purchase_micro": amount_micro,
+                "balance_micro": pre_inference_micro,
+                "signup_grant_micro": starting_micro,
+            },
+        )
 
         # 6 ── worker comes online (echo stub or a real engine) ────────
         worker_env = {
@@ -361,7 +411,9 @@ async def run(args: argparse.Namespace) -> dict:
             "TCDN_AI_GPU_VRAM_GB": str(args.gpu_vram_gb),
             "TCDN_AI_GPU_MODEL": args.gpu_model,
             "TCDN_AI_IDENTITY_FILE": f"/tmp/tcdn-ai-worker-{uuid.uuid4().hex[:6]}.json",
-            "TCDN_AI_API_KEY_PEPPER": os.environ.get("TCDN_AI_API_KEY_PEPPER", "dev-pepper-change-me"),
+            "TCDN_AI_API_KEY_PEPPER": os.environ.get(
+                "TCDN_AI_API_KEY_PEPPER", "dev-pepper-change-me"
+            ),
             "TCDN_AI_ENVIRONMENT": "development",
         }
         worker_log = open("/tmp/tcdn-ai-worker.log", "w")
@@ -396,7 +448,9 @@ async def run(args: argparse.Namespace) -> dict:
                 node_id = str(row["node_id"])
                 break
             await asyncio.sleep(1)
-        check(node_id is not None, "worker never registered (see /tmp/tcdn-ai-worker.log)")
+        check(
+            node_id is not None, "worker never registered (see /tmp/tcdn-ai-worker.log)"
+        )
         await asyncio.sleep(2)  # let one heartbeat land so scheduling sees it online
         step("worker registered", node_id)
 
@@ -417,7 +471,10 @@ async def run(args: argparse.Namespace) -> dict:
             max_tokens=16,
         )
         gateway_text = gateway_completion.choices[0].message.content or ""
-        check(gateway_completion.object == "chat.completion", "not a chat.completion object")
+        check(
+            gateway_completion.object == "chat.completion",
+            "not a chat.completion object",
+        )
         check(bool(gateway_text), "gateway completion carried no content")
         gateway_tcdn = (gateway_completion.model_extra or {}).get("tcdn") or {}
         check(
@@ -442,14 +499,19 @@ async def run(args: argparse.Namespace) -> dict:
             )
         )
         gateway_stream_text = "".join(
-            chunk.choices[0].delta.content or "" for chunk in gateway_chunks if chunk.choices
+            chunk.choices[0].delta.content or ""
+            for chunk in gateway_chunks
+            if chunk.choices
         )
         gateway_usage = next(
-            (chunk.usage for chunk in gateway_chunks if getattr(chunk, "usage", None)), None
+            (chunk.usage for chunk in gateway_chunks if getattr(chunk, "usage", None)),
+            None,
         )
         check(bool(gateway_stream_text), "gateway stream produced no content")
         check(gateway_usage is not None, "gateway stream emitted no usage chunk")
-        check(int(gateway_usage.total_tokens) > 0, "gateway stream reported zero tokens")
+        check(
+            int(gateway_usage.total_tokens) > 0, "gateway stream reported zero tokens"
+        )
         official.close()
         results["openai_client_compatibility"] = {
             "verdict": "IMPLEMENTED (gateway mode, official client)",
@@ -475,7 +537,10 @@ async def run(args: argparse.Namespace) -> dict:
         )
         step(
             "non-streaming inference (TCDN-AI SDK, OpenAI-shaped response)",
-            {"tokens": completion.usage.total_tokens, "finish": completion.choices[0].finish_reason},
+            {
+                "tokens": completion.usage.total_tokens,
+                "finish": completion.choices[0].finish_reason,
+            },
         )
         check(completion.usage.total_tokens > 0, "completion reported zero tokens")
         check(
@@ -506,7 +571,10 @@ async def run(args: argparse.Namespace) -> dict:
             after = client.get(
                 "/api/ai/v1/balance", headers={"Authorization": f"Bearer {api_key}"}
             ).json()
-            if int(after.get("held_micro", 0)) == 0 and int(after.get("micro_credits", 0)) < amount_micro:
+            if (
+                int(after.get("held_micro", 0)) == 0
+                and int(after.get("micro_credits", 0)) < pre_inference_micro
+            ):
                 break
             await asyncio.sleep(1)
         usage = client.get(
@@ -519,10 +587,13 @@ async def run(args: argparse.Namespace) -> dict:
             "/api/ai/v1/balance", headers={"Authorization": f"Bearer {api_key}"}
         ).json()
         check(
-            int(after["micro_credits"]) < amount_micro,
-            f"balance did not decrease after inference: {after}",
+            int(after["micro_credits"]) < pre_inference_micro,
+            f"balance did not decrease after inference: {after} "
+            f"(was {pre_inference_micro} before the jobs)",
         )
-        check(int(after["held_micro"]) == 0, f"holds left open after settlement: {after}")
+        check(
+            int(after["held_micro"]) == 0, f"holds left open after settlement: {after}"
+        )
         results["balance_after"] = after
         step("usage and balance updated", after)
 
@@ -555,17 +626,22 @@ async def run(args: argparse.Namespace) -> dict:
         )
         for row in splits:
             check(
-                int(row["compute_micro"]) + int(row["seeder_micro"]) + int(row["platform_micro"])
+                int(row["compute_micro"])
+                + int(row["seeder_micro"])
+                + int(row["platform_micro"])
                 == int(row["total_micro"]),
                 f"split does not sum to the job total: {dict(row)}",
             )
         jobs = await pool.fetch(
             "SELECT job_id, status FROM ai_jobs WHERE account_id = $1", user["id"]
         )
-        check(all(j["status"] in {"settled", "refunded", "failed"} for j in jobs),
-              f"job left non-terminal: {[dict(j) for j in jobs]}")
+        check(
+            all(j["status"] in {"settled", "refunded", "failed"} for j in jobs),
+            f"job left non-terminal: {[dict(j) for j in jobs]}",
+        )
         open_holds = await pool.fetchval(
-            "SELECT COUNT(*) FROM ai_holds WHERE account_id = $1 AND status = 'open'", user["id"]
+            "SELECT COUNT(*) FROM ai_holds WHERE account_id = $1 AND status = 'open'",
+            user["id"],
         )
         check(int(open_holds) == 0, f"{open_holds} orphaned holds remain")
         # Privacy: the canary prompt must not be stored anywhere in the DB.
@@ -581,9 +657,11 @@ async def run(args: argparse.Namespace) -> dict:
             CANARY,
         )
         check(int(leaked) == 0, "canary prompt found in AI tables")
-        log_text = Path("/tmp/tcdn-coordinator.log").read_text(errors="replace") if Path(
-            "/tmp/tcdn-coordinator.log"
-        ).exists() else ""
+        log_text = (
+            Path("/tmp/tcdn-coordinator.log").read_text(errors="replace")
+            if Path("/tmp/tcdn-coordinator.log").exists()
+            else ""
+        )
         check(CANARY not in log_text, "canary prompt found in coordinator log")
         results["invariants"] = {
             "ledger_entries": int(ledger["entries"]),
@@ -592,7 +670,10 @@ async def run(args: argparse.Namespace) -> dict:
             "open_holds": int(open_holds),
             "canary_leaks": int(leaked),
         }
-        step("invariants: ledger, holds, job states, no canary retention", results["invariants"])
+        step(
+            "invariants: ledger, holds, job states, no canary retention",
+            results["invariants"],
+        )
 
         results["ok"] = True
         return results
@@ -617,7 +698,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument(
-        "--database-url", default=os.environ.get("DATABASE_URL", "postgresql://tcdn:tcdn@127.0.0.1:5432/tcdn")
+        "--database-url",
+        default=os.environ.get(
+            "DATABASE_URL", "postgresql://tcdn:tcdn@127.0.0.1:5432/tcdn"
+        ),
     )
     parser.add_argument("--out", default="")
     parser.add_argument(
