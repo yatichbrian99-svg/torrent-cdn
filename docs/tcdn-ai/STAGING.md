@@ -282,12 +282,21 @@ it: staging uses a reachable worker.
 From the Render shell (has `DATABASE_URL`) or locally with the three env vars:
 
 ```bash
-cd backend
+cd /app
 export STAGING_BASE_URL=https://torrentcdn-staging-ai.onrender.com
 export TCDN_AI_API_KEY=tcdn_ai_…
-export DATABASE_URL=…        # required for steps 4 and 8 (the shell already has it)
-.venv/bin/python scripts/staging_smoke.py
+# DATABASE_URL is already exported in the shell; export it yourself locally.
+
+# The runtime image ships no dev dependencies, so install the official client
+# once in the shell (it is the point of steps 5-6).
+python -m pip install --user 'openai>=3,<4'
+python scripts/staging_smoke.py
 ```
+
+If pip refuses to write in the shell, run the script from a local checkout
+against the staging URL instead — steps 1-3, 5-7 work, and 4/8 will fail with a
+message saying `DATABASE_URL` is required (the database is not exposed to the
+internet, by design).
 
 Each step prints its own verdict; the exit code is 0 only if all pass.
 
