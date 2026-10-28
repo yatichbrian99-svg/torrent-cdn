@@ -186,7 +186,9 @@ async def _register(
     return identity.node_id
 
 
-async def main_async(args: argparse.Namespace) -> WorkerAgent:
+async def main_async(
+    args: argparse.Namespace, *, heartbeat_interval: int = 30
+) -> WorkerAgent:
     ai_settings = get_ai_settings()
     identity_path = Path(os.environ.get("TCDN_AI_IDENTITY_FILE", DEFAULT_IDENTITY_FILE))
     identity = _load_or_create_identity(identity_path)
@@ -249,6 +251,7 @@ async def main_async(args: argparse.Namespace) -> WorkerAgent:
                 agent,
                 coordinator_url=os.environ["TCDN_AI_COORDINATOR_URL"],
                 api_key=os.environ["TCDN_AI_WORKER_API_KEY"],
+                interval_seconds=heartbeat_interval,
             ),
             on_crash=lambda exc, failures, delay: print(
                 f"heartbeat crashed ({type(exc).__name__}); restart {failures} "
@@ -302,6 +305,13 @@ def main() -> None:
     parser.add_argument("--tls-cert")
     parser.add_argument("--tls-key")
     parser.add_argument("--allow-plaintext-loopback", action="store_true")
+    parser.add_argument(
+        "--heartbeat-interval",
+        type=int,
+        default=30,
+        help="seconds between signed heartbeats (the coordinator's liveness gate "
+        "is 120 s, so anything well under that works)",
+    )
     args = parser.parse_args()
 
     settings = get_ai_settings()
@@ -315,7 +325,6 @@ def main() -> None:
                 "for a loopback development listener with --allow-plaintext-loopback)"
             )
 
-    agent = asyncio.run(main_async(args))
     import ssl
 
     import uvicorn
@@ -337,14 +346,29 @@ def main() -> None:
             "ssl_keyfile": args.tls_key,
             "ssl_context_factory": _tls13_context,
         }
-    config = uvicorn.Config(
-        create_worker_app(agent),
-        host=args.host,
-        port=args.port,
-        log_level="info",
-        **tls_kwargs,
-    )
-    uvicorn.Server(config).run()
+
+    async def _serve() -> None:
+        """Register, then serve on the SAME event loop the heartbeat started on.
+
+        The heartbeat task used to be created inside ``asyncio.run(main_async(...))``
+        and the server then ran on a second, fresh loop. Closing the first loop
+        cancelled the heartbeat task, so the node registered, beat once (or not
+        at all) and then went silent while still serving jobs: the coordinator's
+        liveness gate dropped it after 120 s and every placement failed with
+        ``no_eligible_worker``. Found on the first staging run; pinned by
+        ``tests/test_ai_worker_launcher.py``.
+        """
+        agent = await main_async(args, heartbeat_interval=args.heartbeat_interval)
+        config = uvicorn.Config(
+            create_worker_app(agent),
+            host=args.host,
+            port=args.port,
+            log_level="info",
+            **tls_kwargs,
+        )
+        await uvicorn.Server(config).serve()
+
+    asyncio.run(_serve())
 
 
 if __name__ == "__main__":
