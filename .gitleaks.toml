@@ -53,4 +53,11 @@ regexes = [
   # The throwaway probe account password from an earlier commit of
   # scripts/live_ai_journey.py; the script now generates it per run.
   '''^Journey-pass-9812$''',
+  # Test fixtures for the staging money guard (app/config.py). Any literal that
+  # exercises the sk_live_/sk_test_ branch is shaped like a Paystack key by
+  # definition, so the values below are the deliberate minimum: obviously fake,
+  # asserted to be *refused*, and useless as credentials. A real key is a
+  # different string and still fails the scan.
+  '''^sk_(live|test)_abc123$''',
+  '''^sk_test_def456$''',
 ]
