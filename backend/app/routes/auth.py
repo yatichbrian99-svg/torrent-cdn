@@ -468,6 +468,13 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks, reques
                     logger.info(
                         "No email service configured — auto-verified new user %s", user["id"]
                     )
+                    # The account is verified now, which is the signup-credit
+                    # gate. Without this call the free credit had no trigger at
+                    # all (see app/ai/signup.py); it no-ops when the AI flag is
+                    # off and can never fail registration.
+                    from ..ai.signup import grant_signup_credit
+
+                    await grant_signup_credit(user["id"], get_client_ip(request))
         except Exception as e:
             logger.warning("Verification email failed after registration: %s", e)
 

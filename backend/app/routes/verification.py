@@ -1,8 +1,9 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from ..ai.signup import grant_signup_credit
 from ..auth import get_current_user_id
 from ..database import get_db_pool, get_redis
 from ..email_service import (
@@ -11,7 +12,7 @@ from ..email_service import (
     send_verification_email,
 )
 from ..models import EmailVerifyRequest
-from ..security import set_if_absent
+from ..security import get_client_ip, set_if_absent
 
 # Simple in-memory rate limiting for resend (Redis not required)
 # Bounded: entries older than the 60s cooldown window are dropped on every
@@ -32,7 +33,7 @@ router = APIRouter(prefix="/auth", tags=["verification"])
 
 
 @router.post("/verify-email")
-async def verify_email(data: EmailVerifyRequest):
+async def verify_email(data: EmailVerifyRequest, request: Request):
     """Verify a user's email using a token sent via email."""
     user_id_str = decode_verification_token(data.token)
     if not user_id_str:
@@ -54,12 +55,19 @@ async def verify_email(data: EmailVerifyRequest):
             UUID(user_id_str),
         )
 
+    # Verification is the signup-credit gate: the moment the inbox is proven,
+    # the free credit is issued (idempotent per account, capped per IP and per
+    # month). No-ops when the AI flag is off; never raises into verification.
+    await grant_signup_credit(user_id_str, get_client_ip(request))
+
     logger.info("Email verified for user %s", user_id_str)
     return {"detail": "Email verified successfully"}
 
 
 @router.post("/resend-verification")
-async def resend_verification(user_id: UUID = Depends(get_current_user_id)):
+async def resend_verification(
+    request: Request, user_id: UUID = Depends(get_current_user_id)
+):
     """Resend the verification email to the current user (max once per 60 seconds)."""
     # Rate limit: check cooldown (bounded store — expired entries pruned first)
     now = time()
@@ -108,6 +116,7 @@ async def resend_verification(user_id: UUID = Depends(get_current_user_id)):
                 await conn.execute(
                     "UPDATE users SET verified = TRUE WHERE id = $1", user_id
                 )
+            await grant_signup_credit(user_id, get_client_ip(request))
             return {"detail": "Email verified automatically (email service not configured)"}
         # Another concurrent caller won the atomic race and already verified this
         # account; nothing more to do.

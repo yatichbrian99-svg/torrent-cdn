@@ -1,7 +1,7 @@
 # TCDN-AI — STATE (single source of truth)
 
-Last updated: **2026-10-27** (M4: authorization matrix, two-instance state, canary scan,
-kill switch, crypto/key artifacts, branch split)
+Last updated: **2026-10-28** (staging deployment kit `render.staging.yaml` +
+`docs/tcdn-ai/STAGING.md`; worker launcher heartbeat bug found and fixed)
 Branches: **`fix/tcdn-ai-redis-replay-nonce`** (TCDN-AI, pushed, no PR) and
 **`fix/product-security-hardening`** (the CDN-side fixes, branched off `main` at
 `200109e`, pushed, no PR). `main` still carries no TCDN-AI code and **not** the F-10 fix.
@@ -15,14 +15,31 @@ run in CI): full suite flag **on** **1056 passed, 21 skipped**, 97 s, exit 0; fl
 `tests` 997 passed / 81 skipped, frontend 179 passed, JS client **19/19**, real engine
 **success**, `container-scan` and `static-audit` **success**.
 
+**Measured 2026-10-28, after the staging kit** (no Postgres/Redis attached, so those
+lanes skip): full suite flag **on** **1148 passed, 29 skipped**, 152 s, exit 0; flag
+**off** **1072 passed, 105 skipped**, 80 s, exit 0. Route matrix **113 routes**
+(public 21 / jwt 45 / admin 23 / api-key 10 / signature 1 / viewer 7 / internal-hook
+6). Staging kit verified end to end on a **local production-mode deployment**
+(Postgres 16 container, Redis container, `APP_ENV=production`,
+`TCDN_AI_ENVIRONMENT=production`, real Ollama `qwen2.5:0.5b` worker): bootstrap
+registered the account, the signup grant landed (`credits 500.00`), and
+`scripts/staging_smoke.py` printed **PASS — 8/8** twice, exit 0, with the ledger
+invariant and `ledger balance == /balance` both asserted against the database.
+That run found and fixed the launcher heartbeat bug (checklist row 3.2).
+New files: `render.staging.yaml`, `docs/tcdn-ai/STAGING.md`,
+`docs/tcdn-ai/WORKER_NETWORKING.md` (design for checklist 3.4, P2),
+`backend/scripts/{staging_bootstrap,staging_smoke,ai_keyring_init}.py`,
+`app/ai/{status,signup}.py`.
+
 **Measured 2026-10-28** (independent-audit fixes F-1…F-6 and Level 1 rows 2.3, 2.6,
 3.2; no Postgres/Redis attached, so those lanes skip):
 - Full suite, flag **off**: **1057 passed, 99 skipped**, 102 s, exit 0. Flag **on**:
   **1127 passed, 29 skipped**, 70 s, exit 0. One invocation each, no per-file split.
 - Break tests **24/24 CAUGHT, 0 unproven** (`evidence/06-break-tests/`).
-- Route matrix **112 routes** (public 20 / jwt 45 / admin 23 / api-key 10 / signature 1 /
-  viewer 7 / internal-hook 6); flag-off OpenAPI **79 paths**, flag on **97** (**18** AI
-  paths); schema **17** `ai_*` tables / 8 `ALTER` statements.
+- Route matrix **112 routes** at that point (public 20 / jwt 45 / admin 23 / api-key 10 /
+  signature 1 / viewer 7 / internal-hook 6; the `/api/ai/v1/status` route added by the
+  staging kit took it to 113 — see the block above); flag-off OpenAPI **79 paths**,
+  flag on **97** (**18** AI paths); schema **17** `ai_*` tables / 8 `ALTER` statements.
 - `ruff check .`, `ruff format --check app/ai tcdn_ai_sdk`, `mypy --config-file
   mypy-ai.ini`, the dead-code audit, the SQL-injection audit and the static
   security-header audit all clean.
