@@ -243,6 +243,23 @@ still has no `push` trigger for this branch, so its ten jobs ran on **dispatch**
 the same ref and SHA, not as part of the push. 12.4 stays `MISSING` until a PR exists
 (12.3), 5.5 (SAST/ZAP/Trivy blocking) is closed and 10.2 has results.
 
+## CI evidence — the staging-kit push (2026-10-28)
+
+Three commits to `fix/tcdn-ai-redis-replay-nonce` (`1cfaf73..1a789aa`, no PR, no
+force): the launcher heartbeat fix, the staging kit, and the journey's balance
+assertion. The two failures below are reported because they happened, not hidden.
+
+| Run | Workflow | Result | Detail |
+|---|---|---|---|
+| **40642539205** | `backend-lint` | **success** | `ruff check` + `ruff format --check` + mypy, at the staging-kit commit |
+| **40642539113** | Full-stack Docker audit | **success** | build, `ai-store`, container scan |
+| **40642539114** | TCDN-AI engine | **failure** | real Ollama inference passed the first four journey steps, then **FAIL balance after one purchase … 505.0** — the journey asserted `balance == purchase`, which was only true while the signup credit had no trigger |
+| **586364a** | the fix | — | the journey now reads the starting balance and asserts `start + one purchase` (which also proves the duplicate webhook was ignored) |
+| **40644645986** | TCDN-AI engine | **success** | journey **12/12** with real inference and the real verification link |
+| **40644646094** / **40644646064** | `backend-lint` / full-stack | **success** | after the journey fix |
+| **40645090291** | Tests & Security Audits (dispatch) | **failure** | `tests` and `frontend-checks` green; `static-audit` failed on **gitleaks** flagging the `sk_live_`/`sk_test_` fixtures of the staging money guard (`generic-api-key`, 5 findings) |
+| **40645797653** | Tests & Security Audits (dispatch, at `1a789aa`) | **success** | **10/10 jobs** after allowlisting those three obviously-fake values by value (never by path) |
+
 ## CI evidence — the trial push (2026-10-25)
 
 Branch `fix/tcdn-ai-redis-replay-nonce`, pushed to GitHub **without a pull request** and without
