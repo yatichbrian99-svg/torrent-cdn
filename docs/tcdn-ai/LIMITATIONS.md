@@ -109,7 +109,15 @@ your deployment, the corresponding guarantee does not exist.
     produce a receipt is billed by that receipt regardless of what the client
     does next, including a truncated stream the client abandoned.
 
-17. **The gateway's token count is a count of frames plus a text estimate, not a
+17. **A worker must be reachable from the coordinator; NAT/CGNAT workers cannot
+    receive jobs.** The coordinator dials `POST {endpoint}/v1/jobs`, so a worker
+    behind a home router registers, heartbeats and looks healthy, then fails
+    every placement with `worker_unreachable`. Staging works around it with a
+    public VM or a tunnel (`STAGING.md` §5); the outbound-connection mode that
+    removes the requirement is design-only (`WORKER_NETWORKING.md`, checklist
+    row **3.4**, P2).
+
+18. **The gateway's token count is a count of frames plus a text estimate, not a
 tokenizer.** No tokenizer ships with this build (row 2.8 is `MISSING`), so the
 gateway measures the completion as the number of token frames the worker
 streamed, floored by `len(text) // 4`. That is enough to catch an overclaim of

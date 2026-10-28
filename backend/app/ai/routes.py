@@ -50,6 +50,7 @@ from .models import (
 )
 from .ratelimit import TokenBucketLimiter
 from .service import AuthContext, Coordinator
+from .status import build_status
 from .store import PostgresStore
 
 logger = logging.getLogger(__name__)
@@ -189,6 +190,19 @@ async def authenticate(
 
 
 # ── catalogue ───────────────────────────────────────────────────────────────
+
+
+@router.get("/status")
+async def deployment_status(
+    coordinator: Annotated[Coordinator, Depends(get_coordinator)],
+) -> dict:
+    """Unauthenticated liveness surface: build, flag, dependencies, workers.
+
+    Public on purpose and detail-free (counts and ages, never node ids or
+    endpoints) so an owner can check staging from a browser or curl. See
+    ``app/ai/status.py`` for what is deliberately absent.
+    """
+    return await build_status(coordinator)
 
 
 @router.get("/models", response_model=list[ModelInfo])

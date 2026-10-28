@@ -261,6 +261,27 @@ def get_settings() -> Settings:
             (settings.jwt_secret + "__reset__").encode()
         ).hexdigest()
     if settings.app_env == "production":
+        # ── Staging safety gate ─────────────────────────────────────────────
+        # Staging runs the same production gates on purpose (APP_ENV=production,
+        # TCDN_AI_ENVIRONMENT=production) so the deployed code path is the one
+        # that ships. That removes the one signal config could otherwise use to
+        # tell "this must never touch real money" apart from production, so
+        # render.staging.yaml sets STAGING_DEPLOYMENT=true and this gate refuses
+        # to boot with a Paystack LIVE key in either key slot. A live key here
+        # would take real card payments and, with the payout code enabled, sign
+        # real transfers — a staging flag is exactly the mistake this prevents.
+        if os.environ.get("STAGING_DEPLOYMENT", "").strip().lower() in {"1", "true", "yes"}:
+            live = [
+                name
+                for name in ("PAYSTACK_SECRET_KEY", "TCDN_AI_PAYSTACK_SECRET_KEY")
+                if os.environ.get(name, "").strip().startswith("sk_live_")
+            ]
+            if live:
+                raise ValueError(
+                    "STAGING_DEPLOYMENT is on but "
+                    + " and ".join(live)
+                    + " holds a Paystack LIVE key; staging must use sk_test_ keys"
+                )
         # Warn loudly (but don't crash) if placeholder credentials are detected
         if settings.minio_secret_key == "minioadmin":
             logger.warning(

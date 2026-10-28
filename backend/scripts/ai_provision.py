@@ -41,7 +41,21 @@ from app.database import get_db_pool, get_redis
 HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
-async def seed_models(store: PostgresStore, entries: list[dict]) -> None:
+#: Formats this script will register by default. ``safetensors`` only, because
+#: P2P weight serving (``shards.py::ALLOWED_FORMATS``) can serve nothing else,
+#: and pickle-based formats must never be registered at all. A staging box that
+#: runs Ollama needs ``gguf`` in the registry to place jobs honestly (the model
+#: really is a GGUF file); that caller passes a widened set explicitly rather
+#: than this default quietly becoming permissive.
+DEFAULT_FORMATS = frozenset({"safetensors"})
+
+
+async def seed_models(
+    store: PostgresStore,
+    entries: list[dict],
+    *,
+    allowed_formats: frozenset[str] = DEFAULT_FORMATS,
+) -> None:
     pool = store.pool
     for entry in entries:
         manifest_hash = entry["manifest_hash"]
@@ -50,8 +64,12 @@ async def seed_models(store: PostgresStore, entries: list[dict]) -> None:
         price_class = entry.get("price_class", "small")
         if price_class not in LAUNCH_PRICES_MICRO:
             raise SystemExit(f"unknown price class {price_class!r}")
-        if entry.get("format", "safetensors") != "safetensors":
-            raise SystemExit("only safetensors models may be registered")
+        model_format = entry.get("format", "safetensors")
+        if model_format not in allowed_formats:
+            raise SystemExit(
+                f"format {model_format!r} is not allowed here (allowed: "
+                f"{sorted(allowed_formats)})"
+            )
         input_rate, output_rate = LAUNCH_PRICES_MICRO[price_class]
         async with pool.acquire() as conn, conn.transaction():
             await conn.execute(
@@ -71,7 +89,7 @@ async def seed_models(store: PostgresStore, entries: list[dict]) -> None:
                 """,
                 entry["model_id"],
                 entry["name"],
-                "safetensors",
+                model_format,
                 manifest_hash,
                 int(entry["size_bytes"]),
                 int(entry["required_vram_gb"]),
@@ -115,7 +133,9 @@ async def main() -> None:
 
     raw = await coordinator.provision_api_key(args.account_id, scopes=scopes)
     await store.audit(
-        "provision.api_key", actor="provision-script", subject=args.account_id,
+        "provision.api_key",
+        actor="provision-script",
+        subject=args.account_id,
         detail={"scopes": list(scopes)},
     )
     print("\nAPI key (shown once, copy it now):")

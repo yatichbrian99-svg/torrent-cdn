@@ -50,6 +50,10 @@ PUBLIC_ROUTES: list[tuple[str, str]] = [
     (r"^/analytics/public/.*$", "public analytics for a shareable file"),
     (r"^/api/ai/v1/keys/coordinator$", "public key bundle (signature is the auth)"),
     (
+        r"^/api/ai/v1/status$",
+        "deployment liveness: counts and heartbeat ages only, no ids or secrets",
+    ),
+    (
         r"^/api/ai/v1/billing/webhook$",
         "signed payment callback (signature is the auth)",
     ),
