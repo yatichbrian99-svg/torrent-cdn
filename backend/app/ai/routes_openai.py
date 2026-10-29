@@ -248,6 +248,23 @@ async def chat_completions(
             yield _sse("[DONE]")
             return
 
+        if not receipt:
+            # A clean end of stream with no final frame is a worker that died
+            # mid-answer. Headers are sent, so the error event is the only
+            # signal left; the job has no receipt and therefore never settles.
+            yield _sse(
+                {
+                    "error": {
+                        "message": "worker stream ended before its receipt",
+                        "type": "server_error",
+                        "param": None,
+                        "code": "worker_stream_incomplete",
+                    }
+                }
+            )
+            yield _sse("[DONE]")
+            return
+
         text = "".join(pieces)
         try:
             usage = await gateway.finalize(auth, stream, text, receipt)
