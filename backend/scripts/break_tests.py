@@ -293,6 +293,102 @@ MUTATIONS = [
         ),
     },
     {
+        "control": "a disposable inbox cannot claim the signup credit",
+        "path": "app/ai/service.py",
+        "find": (
+            "        if self.settings.signup_block_disposable_email"
+            " and is_disposable_domain(\n"
+        ),
+        "replace": "        if False and is_disposable_domain(\n",
+        "test": (
+            "tests/test_ai_signup_abuse.py::TestFarmingAttempts"
+            "::test_disposable_inbox_is_refused"
+        ),
+    },
+    {
+        "control": "one verified identity claims one signup credit (plus-addressing)",
+        "path": "app/ai/service.py",
+        "find": "        if await self.store.count_grants_for_identity(identity_hash):\n",
+        "replace": "        if False:\n",
+        "test": (
+            "tests/test_ai_signup_abuse.py::TestFarmingAttempts"
+            "::test_plus_addressing_cannot_claim_a_second_grant"
+        ),
+    },
+    {
+        "control": "the signup credit has a daily rate ceiling",
+        "path": "app/ai/service.py",
+        "find": (
+            "        if (\n"
+            "            await self.store.count_signup_grants_since(day_start)\n"
+            "            >= self.settings.signup_daily_cap\n"
+            "        ):\n"
+        ),
+        "replace": "        if False:\n",
+        "test": (
+            "tests/test_ai_signup_abuse.py::TestFarmingAttempts"
+            "::test_daily_cap_bounds_the_rate_and_resets_the_next_day"
+        ),
+    },
+    {
+        "control": "production refuses an auto-verified address for the signup credit",
+        "path": "app/ai/service.py",
+        "find": (
+            "        auto_proof_ok = proof == \"auto\" and (\n"
+            "            not self.settings.is_production or "
+            "self.settings.signup_allow_auto_verified\n"
+            "        )\n"
+            "        if proof != \"link\" and not auto_proof_ok:\n"
+        ),
+        "replace": "        if False:\n",
+        "test": (
+            "tests/test_ai_signup_abuse.py::TestFarmingAttempts"
+            "::test_production_refuses_an_auto_verified_address"
+        ),
+    },
+    {
+        "control": "a gateway stream cut before the worker receipt is a failure",
+        "path": "app/ai/gateway.py",
+        "find": (
+            "        if not receipt:\n"
+            "            # The worker's final frame carries the signed receipt."
+        ),
+        "replace": (
+            "        if False:\n"
+            "            # The worker's final frame carries the signed receipt."
+        ),
+        "test": (
+            "tests/test_ai_openai_compat.py::TestOfficialClient"
+            "::test_a_worker_that_dies_mid_stream_is_an_error_not_a_truncated_answer"
+        ),
+    },
+    {
+        "control": "an SSE stream cut before the worker receipt is an error event",
+        "path": "app/ai/routes_openai.py",
+        "find": (
+            "        if not receipt:\n"
+            "            # A clean end of stream with no final frame is a worker that died"
+        ),
+        "replace": (
+            "        if False:\n"
+            "            # A clean end of stream with no final frame is a worker that died"
+        ),
+        "test": (
+            "tests/test_ai_openai_compat.py::TestOfficialClient"
+            "::test_a_worker_that_dies_mid_stream_is_an_error_not_a_truncated_answer"
+        ),
+    },
+    {
+        "control": "customer credits cannot be cashed out (inference-only debits)",
+        "path": "app/ai/ledger.py",
+        "find": "        and kind not in CREDIT_ACCOUNT_DEBIT_KINDS\n",
+        "replace": "        and False\n",
+        "test": (
+            "tests/test_ai_signup_abuse.py::TestSignupCreditIsNotWithdrawable"
+            "::test_the_ledger_refuses_a_cash_out_debit"
+        ),
+    },
+    {
         "control": "job ownership on client ack",
         "path": "app/ai/service.py",
         "find": "        if job.account_id != auth.account_id:",
