@@ -1,0 +1,67 @@
+{
+  "origin": {
+    "host": "models.tcdn.store",
+    "tls": true,
+    "connect_targets": [
+      "93.184.216.34"
+    ]
+  },
+  "shards": 6,
+  "bytes": 786480,
+  "verified_shards": 6,
+  "cold_run": {
+    "shards_written": 6,
+    "shards_resumed": 0,
+    "origin_shards": 3,
+    "peers_used": [
+      "honest-peer"
+    ],
+    "corrupt_peers": [
+      "corrupt-peer"
+    ],
+    "failed_shards": [],
+    "penalties": [
+      [
+        "corrupt-peer",
+        "corrupt shard 0"
+      ]
+    ],
+    "honest_peer_shards": 3,
+    "corrupt_peer_shards": 1
+  },
+  "warm_run": {
+    "shards_written": 0,
+    "shards_resumed": 6,
+    "origin_shards": 0,
+    "failed_shards": []
+  },
+  "elapsed_seconds": 0.09,
+  "ok": true,
+  "shard_sha256": [
+    "5419474691907b456a8cc24f22c5c1d5e2dfa45acd3eb455c7eb298ac9f16438",
+    "48c9c68a70d41d9704d9267645e979362f89cdb552d65ced0cef263c5cae5a0e",
+    "af062cdca1a4d0e964e69369486aca84712b1bea4369c5f555d097de7fdd7515",
+    "2a404904255f707caed3c2fa4f9479ebf00af7fbbfaf6947707390cfdea94b67",
+    "17512041fc883bc08892dae8f5fdbff893565d05ceee55cfc88c50f0867a397f",
+    "c9400da6524ddfc1bd98daef2e993abf05916d7183cec0ad9cc66549fc324079"
+  ],
+  "manifest_hash": "c958db76063b39af2129ecb574799a495f108c4061fd4c412bcf27a46b36337b",
+  "cache_files": [
+    "shard-00000.safetensors",
+    "shard-00001.safetensors",
+    "shard-00002.safetensors",
+    "shard-00003.safetensors",
+    "shard-00004.safetensors",
+    "shard-00005.safetensors"
+  ],
+  "cache_dir_bytes": 786480,
+  "payload_sha256": [
+    "5419474691907b45",
+    "48c9c68a70d41d97",
+    "af062cdca1a4d0e9",
+    "2a404904255f707c",
+    "17512041fc883bc0",
+    "c9400da6524ddfc1"
+  ],
+  "corrupt_origin_refused": true
+}
