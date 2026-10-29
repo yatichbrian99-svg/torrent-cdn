@@ -692,6 +692,16 @@ class Gateway:
                 pieces.append(value)
             else:
                 receipt = value
+        if not receipt:
+            # The worker's final frame carries the signed receipt. A stream that
+            # ends without one means the worker died mid-answer: the text is
+            # partial, nothing settled it, and treating it as a completed
+            # completion would tell the caller a truncated answer is the whole
+            # answer.
+            raise UnavailableError(
+                "worker stream ended before its receipt",
+                code="worker_stream_incomplete",
+            )
         text = "".join(pieces)
         self._start_verification(stream)
         usage = await self._finalize(auth, stream, text, receipt)
