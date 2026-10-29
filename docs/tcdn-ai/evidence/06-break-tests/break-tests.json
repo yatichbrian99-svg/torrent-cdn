@@ -6,7 +6,7 @@
       "test": "tests/test_ai_components.py::TestReceipts::test_flipped_signature_rejected",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E       Failed: DID NOT RAISE ReceiptError\n\ntests/test_ai_components.py:188: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_components.py::TestReceipts::test_flipped_signature_rejected\n1 failed in 0.74s",
+      "mutated_output": "E       Failed: DID NOT RAISE ReceiptError\n\ntests/test_ai_components.py:188: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_components.py::TestReceipts::test_flipped_signature_rejected\n1 failed in 0.84s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -17,7 +17,7 @@
       "test": "tests/test_ai_core.py::TestCrypto",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E        +    where <function verify at 0x7f887490c510> = crypto.verify\n\ntests/test_ai_core.py:60: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_core.py::TestCrypto::test_sign_verify_and_tamper - Asser...\n1 failed, 7 passed in 0.88s",
+      "mutated_output": "E        +    where <function verify at 0x7f6c70058510> = crypto.verify\n\ntests/test_ai_core.py:60: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_core.py::TestCrypto::test_sign_verify_and_tamper - Asser...\n1 failed, 7 passed in 0.88s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -28,7 +28,7 @@
       "test": "tests/test_ai_core.py::TestCrypto::test_aead_roundtrip_and_tamper",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E           app.ai.errors.CryptoError: AEAD authentication failed\n\napp/ai/crypto.py:247: CryptoError\n=========================== short test summary info ============================\nFAILED tests/test_ai_core.py::TestCrypto::test_aead_roundtrip_and_tamper - ap...\n1 failed in 0.73s",
+      "mutated_output": "E           app.ai.errors.CryptoError: AEAD authentication failed\n\napp/ai/crypto.py:247: CryptoError\n=========================== short test summary info ============================\nFAILED tests/test_ai_core.py::TestCrypto::test_aead_roundtrip_and_tamper - ap...\n1 failed in 0.74s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -39,7 +39,7 @@
       "test": "tests/test_ai_core.py::TestTickets::test_replay_is_rejected",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E       Failed: DID NOT RAISE ReplayError\n\ntests/test_ai_core.py:149: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_core.py::TestTickets::test_replay_is_rejected - Failed: ...\n1 failed in 0.73s",
+      "mutated_output": "E       Failed: DID NOT RAISE ReplayError\n\ntests/test_ai_core.py:149: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_core.py::TestTickets::test_replay_is_rejected - Failed: ...\n1 failed in 0.77s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -50,7 +50,7 @@
       "test": "tests/test_ai_core.py::TestLedger::test_hold_cannot_exceed_available",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E       Failed: DID NOT RAISE InsufficientCredits\n\ntests/test_ai_core.py:273: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_core.py::TestLedger::test_hold_cannot_exceed_available\n1 failed in 0.72s",
+      "mutated_output": "E       Failed: DID NOT RAISE InsufficientCredits\n\ntests/test_ai_core.py:273: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_core.py::TestLedger::test_hold_cannot_exceed_available\n1 failed in 0.75s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -61,7 +61,7 @@
       "test": "tests/test_ai_components.py::TestAttestation::test_simulated_verdict_rejected_in_production",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E       Failed: DID NOT RAISE AttestationError\n\ntests/test_ai_components.py:489: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_components.py::TestAttestation::test_simulated_verdict_rejected_in_production\n1 failed in 0.73s",
+      "mutated_output": "E       Failed: DID NOT RAISE AttestationError\n\ntests/test_ai_components.py:489: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_components.py::TestAttestation::test_simulated_verdict_rejected_in_production\n1 failed in 0.80s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -72,7 +72,7 @@
       "test": "tests/test_ai_api.py::TestAccountIsolation::test_api_key_cannot_reach_admin",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E        +  where 200 = <Response [200 OK]>.status_code\n\ntests/test_ai_api.py:208: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_api.py::TestAccountIsolation::test_api_key_cannot_reach_admin\n1 failed in 0.88s",
+      "mutated_output": "E        +  where 200 = <Response [200 OK]>.status_code\n\ntests/test_ai_api.py:208: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_api.py::TestAccountIsolation::test_api_key_cannot_reach_admin\n1 failed in 0.90s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -83,7 +83,7 @@
       "test": "tests/test_admin_jwt_only.py::test_an_admin_api_key_is_refused_and_never_reaches_the_admin_lookup",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "FAILED tests/test_admin_jwt_only.py::test_an_admin_api_key_is_refused_and_never_reaches_the_admin_lookup[POST-/api/ai/v1/admin/kill-switch-body2]\nFAILED tests/test_admin_jwt_only.py::test_an_admin_api_key_is_refused_and_never_reaches_the_admin_lookup[POST-/api/ai/v1/admin/verification-body3]\nFAILED tests/test_admin_jwt_only.py::test_an_admin_api_key_is_refused_and_never_reaches_the_admin_lookup[POST-/billing/payouts/recipients-body4]\nFAILED tests/test_admin_jwt_only.py::test_an_admin_api_key_is_refused_and_never_reaches_the_admin_lookup[DELETE-/billing/payouts/recipients/RCP_f6-None]\nFAILED tests/test_admin_jwt_only.py::test_an_admin_api_key_is_refused_and_never_reaches_the_admin_lookup[POST-/billing/payouts-body6]\n7 failed in 15.34s",
+      "mutated_output": "FAILED tests/test_admin_jwt_only.py::test_an_admin_api_key_is_refused_and_never_reaches_the_admin_lookup[POST-/api/ai/v1/admin/kill-switch-body2]\nFAILED tests/test_admin_jwt_only.py::test_an_admin_api_key_is_refused_and_never_reaches_the_admin_lookup[POST-/api/ai/v1/admin/verification-body3]\nFAILED tests/test_admin_jwt_only.py::test_an_admin_api_key_is_refused_and_never_reaches_the_admin_lookup[POST-/billing/payouts/recipients-body4]\nFAILED tests/test_admin_jwt_only.py::test_an_admin_api_key_is_refused_and_never_reaches_the_admin_lookup[DELETE-/billing/payouts/recipients/RCP_f6-None]\nFAILED tests/test_admin_jwt_only.py::test_an_admin_api_key_is_refused_and_never_reaches_the_admin_lookup[POST-/billing/payouts-body6]\n7 failed in 16.15s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -94,7 +94,7 @@
       "test": "tests/test_ai_ssrf_pinning.py::TestOriginRebindingIsClosed::test_rebinding_dns_cannot_move_the_origin_connect",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E           httpx.ConnectError: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1127)\n\n.venv/lib/python3.14/site-packages/httpx/_transports/default.py:118: ConnectError\n=========================== short test summary info ============================\nFAILED tests/test_ai_ssrf_pinning.py::TestOriginRebindingIsClosed::test_rebinding_dns_cannot_move_the_origin_connect\n1 failed in 1.10s",
+      "mutated_output": "E           httpx.ConnectError: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1127)\n\n.venv/lib/python3.14/site-packages/httpx/_transports/default.py:118: ConnectError\n=========================== short test summary info ============================\nFAILED tests/test_ai_ssrf_pinning.py::TestOriginRebindingIsClosed::test_rebinding_dns_cannot_move_the_origin_connect\n1 failed in 1.12s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -105,7 +105,7 @@
       "test": "tests/test_ai_components.py::TestShards::test_manifest_merkle_and_signature",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E            +    and   '1118eee6f7818995eb5c7ff5a77baced6242fa10ad89273e24e11d770faf7002' = ModelManifestPayload(model_id='m', name='M', format='safetensors', version='1', total_size=21, shards=[ShardSpec(index...edd96cf160bfb', size=7)], merkle_root='1118eee6f7818995eb5c7ff5a77baced6242fa10ad89273e24e11d770faf7002', created_at=1).merkle_root\n\ntests/test_ai_components.py:269: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_components.py::TestShards::test_manifest_merkle_and_signature\n1 failed in 0.74s",
+      "mutated_output": "E            +    and   '1118eee6f7818995eb5c7ff5a77baced6242fa10ad89273e24e11d770faf7002' = ModelManifestPayload(model_id='m', name='M', format='safetensors', version='1', total_size=21, shards=[ShardSpec(index...edd96cf160bfb', size=7)], merkle_root='1118eee6f7818995eb5c7ff5a77baced6242fa10ad89273e24e11d770faf7002', created_at=1).merkle_root\n\ntests/test_ai_components.py:269: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_components.py::TestShards::test_manifest_merkle_and_signature\n1 failed in 0.77s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -116,7 +116,7 @@
       "test": "tests/test_ai_billing.py::TestFakeProvider::test_bad_signature_rejected",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E       Failed: DID NOT RAISE AuthenticationError\n\ntests/test_ai_billing.py:73: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_billing.py::TestFakeProvider::test_bad_signature_rejected\n1 failed in 0.71s",
+      "mutated_output": "E       Failed: DID NOT RAISE AuthenticationError\n\ntests/test_ai_billing.py:73: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_billing.py::TestFakeProvider::test_bad_signature_rejected\n1 failed in 0.75s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -127,7 +127,7 @@
       "test": "tests/test_ai_openai_compat.py::TestOfficialClient::test_tools_are_rejected_not_silently_ignored",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E           Failed: DID NOT RAISE BadRequestError\n\ntests/test_ai_openai_compat.py:219: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_openai_compat.py::TestOfficialClient::test_tools_are_rejected_not_silently_ignored\n1 failed in 1.35s",
+      "mutated_output": "E           Failed: DID NOT RAISE BadRequestError\n\ntests/test_ai_openai_compat.py:219: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_openai_compat.py::TestOfficialClient::test_tools_are_rejected_not_silently_ignored\n1 failed in 1.53s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -138,7 +138,7 @@
       "test": "tests/test_ai_service.py::TestHoldHeadroomAndDisputes::test_engine_chat_template_overhead_settles_within_the_hold",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E        +  and   63 = JobRecord(job_id='a7b9d365e20042e48eef597ecf4a36c4', account_id='11111111-1111-4111-8111-111111111111', node_id='node_... seeder_micro=0, platform_micro=0, created_at=1793140029, settled_at=None, dispute_reason=None, receipt=None, ack=None).max_price_micro\n\ntests/test_ai_service.py:508: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_service.py::TestHoldHeadroomAndDisputes::test_engine_chat_template_overhead_settles_within_the_hold\n1 failed in 0.86s",
+      "mutated_output": "E        +  and   63 = JobRecord(job_id='7e24abb557f54d888a3e27c12fdaa5ab', account_id='11111111-1111-4111-8111-111111111111', node_id='node_... seeder_micro=0, platform_micro=0, created_at=1793267964, settled_at=None, dispute_reason=None, receipt=None, ack=None).max_price_micro\n\ntests/test_ai_service.py:508: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_service.py::TestHoldHeadroomAndDisputes::test_engine_chat_template_overhead_settles_within_the_hold\n1 failed in 0.85s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -149,7 +149,7 @@
       "test": "tests/test_ai_service.py::TestEncryptedJob::test_placement_worker_receipt_ack_settlement",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E         + placed\n\ntests/test_ai_service.py:136: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_service.py::TestEncryptedJob::test_placement_worker_receipt_ack_settlement\n1 failed in 0.78s",
+      "mutated_output": "E         + placed\n\ntests/test_ai_service.py:136: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_service.py::TestEncryptedJob::test_placement_worker_receipt_ack_settlement\n1 failed in 0.76s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -160,7 +160,7 @@
       "test": "tests/test_ai_service.py::TestHoldHeadroomAndDisputes::test_over_hold_receipt_is_capped_and_flagged",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E        +  where 'billed from the worker receipt' = SettlementResponse(job_id='532b09505d89413281a289ae0e25fd38', status=<JobStatus.SETTLED: 'settled'>, billable_input_to...ens=3, total_micro=255, compute_micro=178, seeder_micro=25, platform_micro=52, reason='billed from the worker receipt').reason\n\ntests/test_ai_service.py:533: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_service.py::TestHoldHeadroomAndDisputes::test_over_hold_receipt_is_capped_and_flagged\n1 failed in 0.78s",
+      "mutated_output": "E        +  where 'billed from the worker receipt' = SettlementResponse(job_id='139df29ad7f44e36819a0d1986ade05a', status=<JobStatus.SETTLED: 'settled'>, billable_input_to...ens=3, total_micro=255, compute_micro=178, seeder_micro=25, platform_micro=52, reason='billed from the worker receipt').reason\n\ntests/test_ai_service.py:533: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_service.py::TestHoldHeadroomAndDisputes::test_over_hold_receipt_is_capped_and_flagged\n1 failed in 0.77s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -171,7 +171,7 @@
       "test": "tests/test_ai_node_billing.py::TestGatewayBillingAuthority::test_an_overclaiming_receipt_is_billed_at_the_gateways_count",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E        +  where 'billed from the worker receipt' = SettlementResponse(job_id='2a3cdb08360f49a7b0e8061d4f03d85f', status=<JobStatus.SETTLED: 'settled'>, billable_input_to...otal_micro=18120, compute_micro=12684, seeder_micro=1812, platform_micro=3624, reason='billed from the worker receipt').reason\n\ntests/test_ai_node_billing.py:128: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_node_billing.py::TestGatewayBillingAuthority::test_an_overclaiming_receipt_is_billed_at_the_gateways_count\n1 failed in 0.77s",
+      "mutated_output": "E        +  where 'billed from the worker receipt' = SettlementResponse(job_id='2328ae011a0548cba9c347040c2cad8b', status=<JobStatus.SETTLED: 'settled'>, billable_input_to...otal_micro=18120, compute_micro=12684, seeder_micro=1812, platform_micro=3624, reason='billed from the worker receipt').reason\n\ntests/test_ai_node_billing.py:128: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_node_billing.py::TestGatewayBillingAuthority::test_an_overclaiming_receipt_is_billed_at_the_gateways_count\n1 failed in 0.78s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -182,7 +182,7 @@
       "test": "tests/test_ai_node_billing.py::TestNodeOverclaimReview::test_an_overclaiming_node_is_suspended_and_its_payouts_held",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E        +  where False = NodeRecord(node_id='node_fca4f48096c956e1c10f898f', owner_id='11111111-1111-4111-8111-111111111111', identity_public_k...p://127.0.0.1:9', last_heartbeat=1793140047, settled_jobs=5, overclaim_events=5, mismatch_events=0, review_reason=None).suspended\n\ntests/test_ai_node_billing.py:305: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_node_billing.py::TestNodeOverclaimReview::test_an_overclaiming_node_is_suspended_and_its_payouts_held\n1 failed in 0.76s",
+      "mutated_output": "E        +  where False = NodeRecord(node_id='node_77ed5af206b3a1cfdcc22be7', owner_id='11111111-1111-4111-8111-111111111111', identity_public_k...p://127.0.0.1:9', last_heartbeat=1793267982, settled_jobs=5, overclaim_events=5, mismatch_events=0, review_reason=None).suspended\n\ntests/test_ai_node_billing.py:305: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_node_billing.py::TestNodeOverclaimReview::test_an_overclaiming_node_is_suspended_and_its_payouts_held\n1 failed in 0.80s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -193,7 +193,7 @@
       "test": "tests/test_ai_node_billing.py::TestNodeOverclaimReview::test_held_payouts_are_recorded_but_not_paid",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E       KeyError: 'status'\n\ntests/test_ai_node_billing.py:350: KeyError\n=========================== short test summary info ============================\nFAILED tests/test_ai_node_billing.py::TestNodeOverclaimReview::test_held_payouts_are_recorded_but_not_paid\n1 failed in 0.79s",
+      "mutated_output": "E       KeyError: 'status'\n\ntests/test_ai_node_billing.py:350: KeyError\n=========================== short test summary info ============================\nFAILED tests/test_ai_node_billing.py::TestNodeOverclaimReview::test_held_payouts_are_recorded_but_not_paid\n1 failed in 0.78s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -204,7 +204,7 @@
       "test": "tests/test_ai_service.py::TestConcurrentJobCap::test_the_cap_refuses_before_any_work_and_creates_no_job",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E       Failed: DID NOT RAISE ConcurrencyLimitExceeded\n\ntests/test_ai_service.py:576: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_service.py::TestConcurrentJobCap::test_the_cap_refuses_before_any_work_and_creates_no_job\n1 failed in 0.85s",
+      "mutated_output": "E       Failed: DID NOT RAISE ConcurrencyLimitExceeded\n\ntests/test_ai_service.py:576: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_service.py::TestConcurrentJobCap::test_the_cap_refuses_before_any_work_and_creates_no_job\n1 failed in 0.79s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -215,7 +215,7 @@
       "test": "tests/test_ai_supervision.py::TestSupervisor::test_the_backoff_doubles_and_is_capped",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E         Use -v to get more diff\n\ntests/test_ai_supervision.py:80: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_supervision.py::TestSupervisor::test_the_backoff_doubles_and_is_capped\n1 failed in 0.76s",
+      "mutated_output": "E         Use -v to get more diff\n\ntests/test_ai_supervision.py:80: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_supervision.py::TestSupervisor::test_the_backoff_doubles_and_is_capped\n1 failed in 0.73s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -226,7 +226,7 @@
       "test": "tests/test_ai_migrations.py::test_the_ai_schema_is_only_migrated_when_the_flag_is_on",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E       assert \"\\nCREATE TABLE IF NOT EXISTS ai_accounts (\\n    account_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,\\n...HAR(128),\\n    detail JSONB NOT NULL DEFAULT '{}'::jsonb,\\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()\\n);\\n\" not in ['\\nCREATE TABLE IF NOT EXISTS users (\\n    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\\n    email VARCHAR(255) UNI...\\nCREATE INDEX IF NOT EXISTS idx_live_analytics_channel ON live_analytics_events(channel_id, created_at DESC);\\n', ...]\n\ntests/test_ai_migrations.py:378: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_migrations.py::test_the_ai_schema_is_only_migrated_when_the_flag_is_on\n1 failed in 0.74s",
+      "mutated_output": "E       assert \"\\nCREATE TABLE IF NOT EXISTS ai_accounts (\\n    account_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,\\n...HAR(128),\\n    detail JSONB NOT NULL DEFAULT '{}'::jsonb,\\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()\\n);\\n\" not in ['\\nCREATE TABLE IF NOT EXISTS users (\\n    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\\n    email VARCHAR(255) UNI...\\nCREATE INDEX IF NOT EXISTS idx_live_analytics_channel ON live_analytics_events(channel_id, created_at DESC);\\n', ...]\n\ntests/test_ai_migrations.py:378: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_migrations.py::test_the_ai_schema_is_only_migrated_when_the_flag_is_on\n1 failed in 0.75s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -237,7 +237,7 @@
       "test": "tests/test_ai_redis.py::TestNonceConsumptionIsAtomic::test_the_redis_store_has_exactly_one_winner",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E        +    where <built-in method count of list object at 0x7f4c3d4935c0> = ['consumed', 'consumed', 'consumed', 'consumed', 'consumed', 'consumed', ...].count\n\ntests/test_ai_redis.py:308: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_redis.py::TestNonceConsumptionIsAtomic::test_the_redis_store_has_exactly_one_winner\n1 failed in 0.82s",
+      "mutated_output": "E        +    where <built-in method count of list object at 0x7f487d2de500> = ['consumed', 'consumed', 'consumed', 'consumed', 'consumed', 'consumed', ...].count\n\ntests/test_ai_redis.py:308: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_redis.py::TestNonceConsumptionIsAtomic::test_the_redis_store_has_exactly_one_winner\n1 failed in 0.80s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -248,7 +248,62 @@
       "test": "tests/test_ai_redis.py::TestNonceConsumptionIsAtomic::test_the_in_process_store_has_exactly_one_winner",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E        +    where <built-in method count of list object at 0x7fc0e8c79d40> = ['consumed', 'consumed', 'consumed', 'consumed', 'consumed', 'consumed', ...].count\n\ntests/test_ai_redis.py:300: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_redis.py::TestNonceConsumptionIsAtomic::test_the_in_process_store_has_exactly_one_winner\n1 failed in 0.73s",
+      "mutated_output": "E        +    where <built-in method count of list object at 0x7fd49ee94cc0> = ['consumed', 'consumed', 'consumed', 'consumed', 'consumed', 'consumed', ...].count\n\ntests/test_ai_redis.py:300: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_ai_redis.py::TestNonceConsumptionIsAtomic::test_the_in_process_store_has_exactly_one_winner\n1 failed in 0.81s",
+      "restored": true,
+      "after_restore": "pass",
+      "status": "CAUGHT"
+    },
+    {
+      "control": "a disposable inbox cannot claim the signup credit",
+      "file": "app/ai/service.py",
+      "test": "tests/test_ai_signup_abuse.py::TestFarmingAttempts::test_disposable_inbox_is_refused",
+      "baseline": "pass",
+      "mutated_exit": 1,
+      "mutated_output": "E       Failed: DID NOT RAISE ConflictError\n\ntests/test_ai_signup_abuse.py:178: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_signup_abuse.py::TestFarmingAttempts::test_disposable_inbox_is_refused\n1 failed in 0.80s",
+      "restored": true,
+      "after_restore": "pass",
+      "status": "CAUGHT"
+    },
+    {
+      "control": "one verified identity claims one signup credit (plus-addressing)",
+      "file": "app/ai/service.py",
+      "test": "tests/test_ai_signup_abuse.py::TestFarmingAttempts::test_plus_addressing_cannot_claim_a_second_grant",
+      "baseline": "pass",
+      "mutated_exit": 1,
+      "mutated_output": "E       Failed: DID NOT RAISE ConflictError\n\ntests/test_ai_signup_abuse.py:154: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_signup_abuse.py::TestFarmingAttempts::test_plus_addressing_cannot_claim_a_second_grant\n1 failed in 0.75s",
+      "restored": true,
+      "after_restore": "pass",
+      "status": "CAUGHT"
+    },
+    {
+      "control": "the signup credit has a daily rate ceiling",
+      "file": "app/ai/service.py",
+      "test": "tests/test_ai_signup_abuse.py::TestFarmingAttempts::test_daily_cap_bounds_the_rate_and_resets_the_next_day",
+      "baseline": "pass",
+      "mutated_exit": 1,
+      "mutated_output": "E       Failed: DID NOT RAISE ConflictError\n\ntests/test_ai_signup_abuse.py:238: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_signup_abuse.py::TestFarmingAttempts::test_daily_cap_bounds_the_rate_and_resets_the_next_day\n1 failed in 0.79s",
+      "restored": true,
+      "after_restore": "pass",
+      "status": "CAUGHT"
+    },
+    {
+      "control": "production refuses an auto-verified address for the signup credit",
+      "file": "app/ai/service.py",
+      "test": "tests/test_ai_signup_abuse.py::TestFarmingAttempts::test_production_refuses_an_auto_verified_address",
+      "baseline": "pass",
+      "mutated_exit": 1,
+      "mutated_output": "E       Failed: DID NOT RAISE AuthorizationError\n\ntests/test_ai_signup_abuse.py:261: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_signup_abuse.py::TestFarmingAttempts::test_production_refuses_an_auto_verified_address\n1 failed in 0.76s",
+      "restored": true,
+      "after_restore": "pass",
+      "status": "CAUGHT"
+    },
+    {
+      "control": "customer credits cannot be cashed out (inference-only debits)",
+      "file": "app/ai/ledger.py",
+      "test": "tests/test_ai_signup_abuse.py::TestSignupCreditIsNotWithdrawable::test_the_ledger_refuses_a_cash_out_debit",
+      "baseline": "pass",
+      "mutated_exit": 1,
+      "mutated_output": "E       Failed: DID NOT RAISE ValidationError\n\ntests/test_ai_signup_abuse.py:395: Failed\n=========================== short test summary info ============================\nFAILED tests/test_ai_signup_abuse.py::TestSignupCreditIsNotWithdrawable::test_the_ledger_refuses_a_cash_out_debit\n1 failed in 0.75s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
@@ -259,7 +314,7 @@
       "test": "tests/test_authorization_matrix.py::TestAIRoleMatrix::test_foreign_account_cannot_ack_another_tenants_job",
       "baseline": "pass",
       "mutated_exit": 1,
-      "mutated_output": "E        +  where 200 = <Response [200 OK]>.status_code\n\ntests/test_authorization_matrix.py:272: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_authorization_matrix.py::TestAIRoleMatrix::test_foreign_account_cannot_ack_another_tenants_job\n1 failed in 0.96s",
+      "mutated_output": "E        +  where 200 = <Response [200 OK]>.status_code\n\ntests/test_authorization_matrix.py:276: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_authorization_matrix.py::TestAIRoleMatrix::test_foreign_account_cannot_ack_another_tenants_job\n1 failed in 0.91s",
       "restored": true,
       "after_restore": "pass",
       "status": "CAUGHT"
