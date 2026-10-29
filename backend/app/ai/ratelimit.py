@@ -36,9 +36,19 @@ class RateLimitResult(Protocol):
 
 
 class TokenBucketLimiter:
-    """In-process token-bucket limiter used by test doubles and the OpenAI-compat
-    path. Not the Redis-backed production limiter; kept here so the tests and the
-    compat layer can assert rate-limit behaviour without depending on Redis.
+    """In-process token-bucket limiter used by the coordinator's HTTP surface.
+
+    **One bucket per key.** The first version kept a single bucket and ignored
+    the ``key`` argument, so every API key and every client address shared one
+    allowance: one busy key could 429 the whole deployment, and "per-key" was
+    only true when a test used exactly one key. The capacity run (row 10.2)
+    found it — four independent keys saturated a 2 req/s allowance. Buckets are
+    dropped once they have refilled to the burst cap, which is indistinguishable
+    from having no bucket, so pruning cannot change a decision.
+
+    Memory is bounded by ``max_buckets``; the full-bucket prune runs when that
+    bound is crossed. A deployment with Redis uses the shared limiter for
+    cross-instance limits; this one is per process by construction.
     """
 
     def __init__(
@@ -47,31 +57,45 @@ class TokenBucketLimiter:
         rate_per_minute: float = 1200.0,
         burst: int = 40,
         clock=None,
+        max_buckets: int = 50_000,
     ) -> None:
         # Configured per minute (AISettings.rate_limit_per_minute / _burst); the
         # bucket refills per second.
         self._max_per_second = float(rate_per_minute) / 60.0
         self._max_burst = int(burst)
         self._clock = clock or time.monotonic
-        self._tokens = float(self._max_burst)
-        self._last = self._clock()
+        self._max_buckets = max(1, int(max_buckets))
+        # key -> (tokens, last_refill)
+        self._buckets: dict[str, tuple[float, float]] = {}
         self._lock = threading.Lock()
 
     async def allow(self, key: str, *, cost: int = 1) -> RateLimitResult:
         with self._lock:
             now = self._clock()
-            elapsed = now - self._last
-            self._last = now
-            self._tokens = min(
-                float(self._max_burst), self._tokens + elapsed * self._max_per_second
+            tokens, last = self._buckets.get(key, (float(self._max_burst), now))
+            tokens = min(
+                float(self._max_burst),
+                tokens + max(0.0, now - last) * self._max_per_second,
             )
-            if self._tokens >= cost:
-                self._tokens -= cost
+            if tokens >= cost:
+                self._buckets[key] = (tokens - cost, now)
+                if len(self._buckets) > self._max_buckets:
+                    self._prune(now)
                 return RateLimitResultValue(allowed=True, retry_after_seconds=None)
-            delay = max(0.0, (cost - self._tokens) / self._max_per_second)
+            self._buckets[key] = (tokens, now)
+            delay = max(0.0, (cost - tokens) / self._max_per_second)
             return RateLimitResultValue(
                 allowed=False, retry_after_seconds=int(delay) + 1
             )
+
+    def _prune(self, now: float) -> None:
+        """Drop buckets that are back at (or above) the burst cap."""
+        full = float(self._max_burst)
+        self._buckets = {
+            key: (tokens, last)
+            for key, (tokens, last) in self._buckets.items()
+            if tokens + max(0.0, now - last) * self._max_per_second < full
+        }
 
     allowed: bool
     retry_after_seconds: int | None

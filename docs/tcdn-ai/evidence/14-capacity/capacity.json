@@ -1,0 +1,173 @@
+{
+  "base_url": "http://127.0.0.1:8000",
+  "model": "capacity-model",
+  "keys": 144,
+  "machine": {
+    "cpu_count": 8,
+    "memory_gb": 15.0,
+    "platform": "Linux-7.0.12+kali-amd64-x86_64-with-glibc2.43",
+    "python": "3.14.7",
+    "load_average": [
+      4.07,
+      3.68,
+      3.54
+    ]
+  },
+  "server": {
+    "commit": null,
+    "database": "ok",
+    "redis": "ok",
+    "workers_registered": 1,
+    "workers_healthy": 1,
+    "web_concurrency": "1"
+  },
+  "phases": {
+    "ramp": [
+      {
+        "concurrency": 1,
+        "ok_rate_pct": 100.0,
+        "requests": 18,
+        "rps": 0.9,
+        "ok_2xx": 18,
+        "errors_5xx_or_conn": 0,
+        "throttled_429": 0,
+        "error_pct": 0.0,
+        "status_counts": {
+          "200": 18
+        },
+        "latency_ms": {
+          "p50": 82.8,
+          "p95": 195.9,
+          "p99": 430.3,
+          "max": 430.3
+        },
+        "elapsed_seconds": 20.2
+      },
+      {
+        "concurrency": 2,
+        "ok_rate_pct": 100.0,
+        "requests": 36,
+        "rps": 1.8,
+        "ok_2xx": 36,
+        "errors_5xx_or_conn": 0,
+        "throttled_429": 0,
+        "error_pct": 0.0,
+        "status_counts": {
+          "200": 36
+        },
+        "latency_ms": {
+          "p50": 101.8,
+          "p95": 205.4,
+          "p99": 260.2,
+          "max": 260.2
+        },
+        "elapsed_seconds": 20.3
+      },
+      {
+        "concurrency": 4,
+        "ok_rate_pct": 100.0,
+        "requests": 69,
+        "rps": 3.4,
+        "ok_2xx": 69,
+        "errors_5xx_or_conn": 0,
+        "throttled_429": 0,
+        "error_pct": 0.0,
+        "status_counts": {
+          "200": 69
+        },
+        "latency_ms": {
+          "p50": 138.3,
+          "p95": 211.8,
+          "p99": 838.0,
+          "max": 842.7
+        },
+        "elapsed_seconds": 20.2
+      },
+      {
+        "concurrency": 8,
+        "ok_rate_pct": 100.0,
+        "requests": 120,
+        "rps": 5.9,
+        "ok_2xx": 120,
+        "errors_5xx_or_conn": 0,
+        "throttled_429": 0,
+        "error_pct": 0.0,
+        "status_counts": {
+          "200": 120
+        },
+        "latency_ms": {
+          "p50": 303.0,
+          "p95": 954.9,
+          "p99": 966.9,
+          "max": 967.0
+        },
+        "elapsed_seconds": 20.3
+      },
+      {
+        "concurrency": 16,
+        "ok_rate_pct": 100.0,
+        "requests": 218,
+        "rps": 10.2,
+        "ok_2xx": 218,
+        "errors_5xx_or_conn": 0,
+        "throttled_429": 0,
+        "error_pct": 0.0,
+        "status_counts": {
+          "200": 218
+        },
+        "latency_ms": {
+          "p50": 532.2,
+          "p95": 866.9,
+          "p99": 906.9,
+          "max": 947.9
+        },
+        "elapsed_seconds": 21.4
+      }
+    ],
+    "sustain": {
+      "concurrency": 16,
+      "ok_rate_pct": 39.69,
+      "requests": 23337,
+      "rps": 13.0,
+      "ok_2xx": 9263,
+      "errors_5xx_or_conn": 201,
+      "throttled_429": 13873,
+      "error_pct": 0.86,
+      "status_counts": {
+        "200": 9263,
+        "429": 13873,
+        "ERR:ConnectError": 201
+      },
+      "latency_ms": {
+        "p50": 50.1,
+        "p95": 856.7,
+        "p99": 1232.4,
+        "max": 1779.2
+      },
+      "elapsed_seconds": 1801.6
+    },
+    "spike": {
+      "concurrency": 160,
+      "ok_rate_pct": 100.0,
+      "requests": 1500,
+      "rps": 23.7,
+      "ok_2xx": 1500,
+      "errors_5xx_or_conn": 0,
+      "throttled_429": 0,
+      "error_pct": 0.0,
+      "status_counts": {
+        "200": 1500
+      },
+      "latency_ms": {
+        "p50": 6511.4,
+        "p95": 9221.2,
+        "p99": 10729.4,
+        "max": 12837.0
+      },
+      "elapsed_seconds": 63.2
+    }
+  },
+  "selected_concurrency": 16,
+  "ok": false,
+  "server_size_note": "single uvicorn worker (WEB_CONCURRENCY=1) and one echo worker process on the same machine; the numbers are the whole request path, not a mock"
+}

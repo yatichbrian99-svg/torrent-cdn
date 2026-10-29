@@ -561,10 +561,20 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             try:
                 rate_key = f"ratelimit:{client_ip}:global"
                 count = await redis.get(rate_key)
-                if count and int(count) >= self._limit:
-                    # Check if the window has passed
-                    ttl = await redis.ttl(rate_key)
-                    retry_after = max(1, ttl) if ttl and ttl > 0 else self._window
+                ttl = await redis.ttl(rate_key)
+                # A counter with no expiry is a LATCHED bucket: the window it
+                # was opened in can never end, so once it reaches the limit that
+                # address is refused for ever ("Try again in 10s" that never
+                # clears). It happens when the INCR lands but the EXPIRE does
+                # not — a Redis blip, a connection reset between the two, or a
+                # restored snapshot. The capacity run found it: the loopback
+                # key sat at exactly 300 with TTL -1 and every heartbeat and
+                # job from that address was 429'd until the key was deleted by
+                # hand. Treat an expiry-less key as expired: drop it and make
+                # this request the first of a new window.
+                latched = ttl is None or ttl < 0
+                if count is not None and int(count) >= self._limit and not latched:
+                    retry_after = max(1, ttl)
                     return JSONResponse(
                         status_code=429,
                         content={
@@ -572,7 +582,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                         },
                         headers={"Retry-After": str(retry_after)},
                     )
+                if latched:
+                    await redis.delete(rate_key)
+                    count = None
                 await redis.incr(rate_key)
+                # Refresh the expiry on every latched/missing key, not only
+                # when GET returned None: the window must always have one.
                 if count is None:
                     await redis.expire(rate_key, self._window)
             except Exception:
