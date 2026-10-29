@@ -210,6 +210,35 @@ class TestAccountIsolation:
 
 class TestRateLimit:
     @pytest.mark.asyncio
+    async def test_buckets_are_per_key_not_one_global_allowance(self):
+        """Row 10.2 found this: one bucket ignored the key argument.
+
+        A busy key must not be able to 429 every other key (or every client
+        address), which is exactly what a single shared bucket does.
+        """
+        limiter = TokenBucketLimiter(rate_per_minute=1, burst=1)
+        assert (await limiter.allow("key:a")).allowed
+        assert not (await limiter.allow("key:a")).allowed
+        # A different key and a different address each get their own allowance.
+        assert (await limiter.allow("key:b")).allowed
+        assert (await limiter.allow("ip:198.51.100.1")).allowed
+
+    @pytest.mark.asyncio
+    async def test_idle_buckets_are_pruned_once_they_refill(self):
+        now = [0.0]
+        limiter = TokenBucketLimiter(
+            rate_per_minute=60,
+            burst=1,
+            clock=lambda: now[0],
+            max_buckets=2,
+        )
+        assert (await limiter.allow("key:a")).allowed
+        assert (await limiter.allow("key:b")).allowed
+        now[0] = 10.0  # both buckets have refilled to the cap
+        assert (await limiter.allow("key:c")).allowed
+        assert len(limiter._buckets) <= 2
+
+    @pytest.mark.asyncio
     async def test_api_key_bucket_enforced(self, ai_env):
         async with ai_api(ai_env) as client:
             ai_routes._key_limiter = TokenBucketLimiter(rate_per_minute=1, burst=1)
