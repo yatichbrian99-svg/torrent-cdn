@@ -367,3 +367,49 @@ async def test_expire_stale_jobs_releases_the_hold(store):
                 account_credits(account),
                 source,
             )
+
+
+@pytest.mark.asyncio
+async def test_signup_grants_enforce_one_identity_and_count_velocity(store):
+    """The anti-farming columns are real on Postgres, not only in the memory store.
+
+    A second account with the same canonical email hash must not get a row (the
+    partial unique index), and the velocity counters must respect their window
+    and their grouping columns. This is the lane where "one grant per identity"
+    is an index rather than a Python `if`.
+    """
+    first = str(uuid.uuid4())
+    second = str(uuid.uuid4())
+    identity = "a" * 64
+    try:
+        assert await store.record_signup_grant(
+            first,
+            "ip-one",
+            1_000,
+            email_hash=identity,
+            device_hash="device-one",
+            email_domain="farm.example",
+        )
+        # Same inbox, different account/IP/device: the identity index refuses.
+        assert not await store.record_signup_grant(
+            second,
+            "ip-two",
+            2_000,
+            email_hash=identity,
+            device_hash="device-two",
+            email_domain="farm.example",
+        )
+        assert await store.count_grants_for_identity(identity) == 1
+        assert await store.count_grants_for_account(first) == 1
+        assert await store.count_grants_for_account(second) == 0
+        assert await store.count_grants_for_device("device-one", 0) == 1
+        assert await store.count_grants_for_domain("farm.example", 0) == 1
+        # A window that starts after the grant sees nothing.
+        assert await store.count_grants_for_ip("ip-one", 1_001) == 0
+        assert await store.count_signup_grants_since(2_001) == 0
+    finally:
+        async with store.pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM ai_signup_grants WHERE account_id = ANY($1::uuid[])",
+                [uuid.UUID(first), uuid.UUID(second)],
+            )

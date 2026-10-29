@@ -29,6 +29,7 @@ from .ledger import (
     Ledger,
     Split,
     account_credits,
+    assert_credit_debit_is_inference,
     compute_earnings,
     split_amounts,
 )
@@ -215,12 +216,27 @@ CREATE TABLE IF NOT EXISTS ai_payouts (
     UNIQUE (period_start, period_end, node_id, component)
 );
 
+-- One row per free-credit identity. ``email_hash`` is the canonical identity
+-- (plus-tags and Gmail dots removed) and is unique, so a second account from
+-- the same inbox cannot claim a second grant even from a different network or
+-- device. ``device_hash``, ``email_domain`` and ``granted_at`` feed the
+-- velocity counters; nothing here holds a raw address, IP or device id.
 CREATE TABLE IF NOT EXISTS ai_signup_grants (
     account_id UUID PRIMARY KEY,
     ip_hash TEXT NOT NULL,
+    email_hash TEXT NOT NULL DEFAULT '',
+    device_hash TEXT NOT NULL DEFAULT '',
+    email_domain TEXT NOT NULL DEFAULT '',
     granted_at BIGINT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_ai_signup_grants_ip ON ai_signup_grants(ip_hash);
+-- Upgrades of a database created before the abuse columns existed.
+ALTER TABLE ai_signup_grants ADD COLUMN IF NOT EXISTS email_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE ai_signup_grants ADD COLUMN IF NOT EXISTS device_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE ai_signup_grants ADD COLUMN IF NOT EXISTS email_domain TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_ai_signup_grants_ip ON ai_signup_grants(ip_hash, granted_at);
+CREATE INDEX IF NOT EXISTS idx_ai_signup_grants_device ON ai_signup_grants(device_hash, granted_at);
+CREATE INDEX IF NOT EXISTS idx_ai_signup_grants_domain ON ai_signup_grants(email_domain, granted_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_signup_grants_identity ON ai_signup_grants(email_hash) WHERE email_hash <> '';
 
 -- Idempotency-Key replay store for creation requests (checklist 2.5). The
 -- response is the ORIGINAL reply, kept so a retry after a lost response gets
@@ -586,14 +602,43 @@ class Store(Protocol):
     async def get_model(self, model_id: str) -> ModelRecord | None: ...
 
     async def record_signup_grant(
-        self, account_id: str, ip_hash: str, at: int
-    ) -> bool: ...
+        self,
+        account_id: str,
+        ip_hash: str,
+        at: int,
+        *,
+        email_hash: str = "",
+        device_hash: str = "",
+        email_domain: str = "",
+    ) -> bool:
+        """Record the grant, or return False when the identity is already used."""
+        ...
 
-    async def count_grants_for_ip(self, ip_hash: str) -> int: ...
+    async def count_grants_for_account(self, account_id: str) -> int:
+        """1 when this account already received its grant (a retry, not abuse)."""
+        ...
+
+    async def count_grants_for_ip(self, ip_hash: str, since: int = 0) -> int: ...
+
+    async def count_grants_for_device(
+        self, device_hash: str, since: int = 0
+    ) -> int: ...
+
+    async def count_grants_for_domain(
+        self, email_domain: str, since: int = 0
+    ) -> int: ...
+
+    async def count_grants_for_identity(self, email_hash: str) -> int: ...
 
     async def count_signup_grants_since(self, since: int) -> int: ...
 
-    async def account_email_verified(self, account_id: str) -> bool: ...
+    async def account_identity(self, account_id: str) -> tuple[bool, str]:
+        """The CDN's own verification flag and address for this account.
+
+        Read from ``users``, never from the caller: a request cannot claim
+        someone else's verified inbox. ``(False, "")`` for an unknown account.
+        """
+        ...
 
     async def save_transfer_receipt(self, record: dict[str, Any]) -> None: ...
 
@@ -635,8 +680,9 @@ class MemoryStore:
         self.jobs: dict[str, JobRecord] = {}
         self.receipts: dict[tuple[str, str], dict] = {}
         self.models: dict[str, ModelRecord] = {}
-        self.signup_grants: dict[str, tuple[str, int]] = {}
+        self.signup_grants: dict[str, dict[str, Any]] = {}
         self.verified_accounts: set[str] = set()
+        self.account_emails: dict[str, str] = {}
         self.verifications: dict[str, VerificationRecord] = {}
         self.transfers: list[dict] = []
         self.payouts: list[dict] = []
@@ -946,22 +992,74 @@ class MemoryStore:
     async def get_model(self, model_id: str) -> ModelRecord | None:
         return self.models.get(model_id)
 
-    async def record_signup_grant(self, account_id: str, ip_hash: str, at: int) -> bool:
+    async def record_signup_grant(
+        self,
+        account_id: str,
+        ip_hash: str,
+        at: int,
+        *,
+        email_hash: str = "",
+        device_hash: str = "",
+        email_domain: str = "",
+    ) -> bool:
         if account_id in self.signup_grants:
             return False
-        self.signup_grants[account_id] = (ip_hash, at)
+        if email_hash and any(
+            grant["email_hash"] == email_hash for grant in self.signup_grants.values()
+        ):
+            return False
+        self.signup_grants[account_id] = {
+            "ip_hash": ip_hash,
+            "email_hash": email_hash,
+            "device_hash": device_hash,
+            "email_domain": email_domain,
+            "granted_at": at,
+        }
         return True
 
-    async def count_grants_for_ip(self, ip_hash: str) -> int:
-        return sum(1 for ip, _ in self.signup_grants.values() if ip == ip_hash)
+    async def count_grants_for_account(self, account_id: str) -> int:
+        return 1 if account_id in self.signup_grants else 0
+
+    async def count_grants_for_ip(self, ip_hash: str, since: int = 0) -> int:
+        return sum(
+            1
+            for grant in self.signup_grants.values()
+            if grant["ip_hash"] == ip_hash and grant["granted_at"] >= since
+        )
+
+    async def count_grants_for_device(self, device_hash: str, since: int = 0) -> int:
+        return sum(
+            1
+            for grant in self.signup_grants.values()
+            if grant["device_hash"] == device_hash and grant["granted_at"] >= since
+        )
+
+    async def count_grants_for_domain(self, email_domain: str, since: int = 0) -> int:
+        return sum(
+            1
+            for grant in self.signup_grants.values()
+            if grant["email_domain"] == email_domain and grant["granted_at"] >= since
+        )
+
+    async def count_grants_for_identity(self, email_hash: str) -> int:
+        return sum(
+            1
+            for grant in self.signup_grants.values()
+            if email_hash and grant["email_hash"] == email_hash
+        )
 
     async def count_signup_grants_since(self, since: int) -> int:
-        return sum(1 for _, at in self.signup_grants.values() if at >= since)
+        return sum(
+            1 for grant in self.signup_grants.values() if grant["granted_at"] >= since
+        )
 
-    async def account_email_verified(self, account_id: str) -> bool:
+    async def account_identity(self, account_id: str) -> tuple[bool, str]:
         # The real users table lives in the CDN schema; the memory store has no
         # users table, so tests opt an account in explicitly.
-        return account_id in self.verified_accounts
+        return (
+            account_id in self.verified_accounts,
+            self.account_emails.get(account_id, ""),
+        )
 
     async def save_transfer_receipt(self, record: dict[str, Any]) -> None:
         self.transfers.append(record)
@@ -1685,6 +1783,8 @@ class PostgresStore:
                 "job_platform",
             ),
         ]
+        for debit, _credit, _amount, kind in entries:
+            assert_credit_debit_is_inference(debit, kind)
         async with self.pool.acquire() as conn, conn.transaction():
             await conn.execute(
                 "SELECT pg_advisory_xact_lock(hashtext($1))", job.account_id
@@ -1830,6 +1930,7 @@ class PostgresStore:
     ) -> None:
         if amount_micro <= 0:
             raise ValidationError("post_ledger amount must be > 0")
+        assert_credit_debit_is_inference(debit, kind)
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """
@@ -1889,23 +1990,87 @@ class PostgresStore:
             )
         return _row_to_model(row, history)
 
-    async def record_signup_grant(self, account_id: str, ip_hash: str, at: int) -> bool:
+    async def record_signup_grant(
+        self,
+        account_id: str,
+        ip_hash: str,
+        at: int,
+        *,
+        email_hash: str = "",
+        device_hash: str = "",
+        email_domain: str = "",
+    ) -> bool:
+        """Insert the grant, treating either unique identity as a duplicate.
+
+        The partial unique index on ``email_hash`` is the authoritative
+        one-identity-one-grant check: the pre-check in the service narrows the
+        window, and this insert closes it even under concurrent signups.
+        """
         async with self.pool.acquire() as conn:
             result = await conn.execute(
                 """
-                INSERT INTO ai_signup_grants (account_id, ip_hash, granted_at)
-                VALUES ($1,$2,$3) ON CONFLICT (account_id) DO NOTHING
+                INSERT INTO ai_signup_grants
+                    (account_id, ip_hash, email_hash, device_hash, email_domain, granted_at)
+                VALUES ($1,$2,$3,$4,$5,$6)
+                -- Either unique identity (account, or canonical email) means
+                -- this is not a new grant; the partial identity index only
+                -- applies when an email hash is present.
+                ON CONFLICT DO NOTHING
                 """,
                 _uuid(account_id),
                 ip_hash,
+                email_hash,
+                device_hash,
+                email_domain,
                 at,
             )
         return result.endswith("1")
 
-    async def count_grants_for_ip(self, ip_hash: str) -> int:
+    async def count_grants_for_account(self, account_id: str) -> int:
         async with self.pool.acquire() as conn:
             value = await conn.fetchval(
-                "SELECT COUNT(*) FROM ai_signup_grants WHERE ip_hash = $1", ip_hash
+                "SELECT COUNT(*) FROM ai_signup_grants WHERE account_id = $1",
+                _uuid(account_id),
+            )
+        return int(value or 0)
+
+    async def count_grants_for_ip(self, ip_hash: str, since: int = 0) -> int:
+        async with self.pool.acquire() as conn:
+            value = await conn.fetchval(
+                "SELECT COUNT(*) FROM ai_signup_grants "
+                "WHERE ip_hash = $1 AND granted_at >= $2",
+                ip_hash,
+                since,
+            )
+        return int(value or 0)
+
+    async def count_grants_for_device(self, device_hash: str, since: int = 0) -> int:
+        async with self.pool.acquire() as conn:
+            value = await conn.fetchval(
+                "SELECT COUNT(*) FROM ai_signup_grants "
+                "WHERE device_hash = $1 AND granted_at >= $2",
+                device_hash,
+                since,
+            )
+        return int(value or 0)
+
+    async def count_grants_for_domain(self, email_domain: str, since: int = 0) -> int:
+        async with self.pool.acquire() as conn:
+            value = await conn.fetchval(
+                "SELECT COUNT(*) FROM ai_signup_grants "
+                "WHERE email_domain = $1 AND granted_at >= $2",
+                email_domain,
+                since,
+            )
+        return int(value or 0)
+
+    async def count_grants_for_identity(self, email_hash: str) -> int:
+        if not email_hash:
+            return 0
+        async with self.pool.acquire() as conn:
+            value = await conn.fetchval(
+                "SELECT COUNT(*) FROM ai_signup_grants WHERE email_hash = $1",
+                email_hash,
             )
         return int(value or 0)
 
@@ -1916,18 +2081,21 @@ class PostgresStore:
             )
         return int(value or 0)
 
-    async def account_email_verified(self, account_id: str) -> bool:
-        """Read the CDN's own verification flag — the AI surface does not duplicate it.
+    async def account_identity(self, account_id: str) -> tuple[bool, str]:
+        """Read the CDN's own verification flag and address.
 
         ``users.verified`` is set by the email-verification flow (and by admin
-        verification); granting free credits to an unverified address is the
-        sybil path row 4.5 closes.
+        verification); the address is read here so the identity that owns a
+        grant is the account's, not a caller-supplied string.
         """
         async with self.pool.acquire() as conn:
-            value = await conn.fetchval(
-                "SELECT verified FROM users WHERE id = $1", _uuid(account_id)
+            row = await conn.fetchrow(
+                "SELECT verified, email FROM users WHERE id = $1",
+                _uuid(account_id),
             )
-        return bool(value)
+        if row is None:
+            return (False, "")
+        return (bool(row["verified"]), str(row["email"] or ""))
 
     async def save_transfer_receipt(self, record: dict[str, Any]) -> None:
         async with self.pool.acquire() as conn:

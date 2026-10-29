@@ -42,6 +42,27 @@ PLATFORM_REVENUE = "platform:revenue"
 SEEDER_POOL = "pool:seeders"
 SIGNUP_GRANTS = "platform:signup-grants"
 
+#: The only postings that may debit a customer's credit balance. Free signup
+#: credit is a discount on inference, not a balance a customer can cash out:
+#: there is no withdrawal, transfer or payout route that draws on
+#: ``account:<id>:credits``, and this allowlist makes a future one fail closed
+#: until the change is deliberate (and reviewed as a money-out path).
+CREDIT_ACCOUNT_DEBIT_KINDS = frozenset({"job_compute", "job_seeder", "job_platform"})
+
+
+def assert_credit_debit_is_inference(debit: str, kind: str) -> None:
+    """Refuse any debit of a customer credit balance that is not a settlement."""
+    if (
+        debit.startswith("account:")
+        and debit.endswith(":credits")
+        and kind not in CREDIT_ACCOUNT_DEBIT_KINDS
+    ):
+        raise ValidationError(
+            "customer credits are spendable on inference only; no cash-out path exists",
+            code="credit_not_withdrawable",
+            details={"kind": kind},
+        )
+
 
 # ── split ───────────────────────────────────────────────────────────────────
 
@@ -225,6 +246,7 @@ class Ledger:
             )
         if not idempotency_key:
             raise ValidationError("idempotency_key is required")
+        assert_credit_debit_is_inference(debit, kind)
         with self._lock:
             existing = self._by_idem.get(idempotency_key)
             if existing is not None:

@@ -64,6 +64,13 @@ services:
         value: paystack
       - key: TCDN_AI_SIGNUP_CREDITS
         value: "500"
+      # Staging has no email provider, so registration auto-verifies. That is
+      # NOT proof of an inbox, so the signup credit refuses it in production —
+      # this switch is the only exception, config.py refuses to boot with it
+      # unless STAGING_DEPLOYMENT=true, and production never sets it. The proof
+      # gate itself is covered by tests/test_ai_signup_abuse.py.
+      - key: TCDN_AI_SIGNUP_ALLOW_AUTO_VERIFIED
+        value: "true"
       # Hashes API keys. Generated once by Render and kept stable; every key
       # issued on this deployment is only valid while it is the same value.
       - key: TCDN_AI_API_KEY_PEPPER

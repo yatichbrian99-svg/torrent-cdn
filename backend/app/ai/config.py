@@ -76,7 +76,28 @@ class AISettings(BaseSettings):
 
     # ── Money ──────────────────────────────────────────────────────────────
     signup_credits: int = Field(default=500, ge=0)
+    #: Velocity limits for the free credit. Each counter is per *window*, not
+    #: lifetime, so an established network is not locked out forever by three
+    #: signups in a year: IP, device key and email domain are counted over
+    #: ``signup_velocity_window_seconds`` (30 days by default).
     signup_ip_cap: int = Field(default=3, ge=1)
+    signup_device_cap: int = Field(default=3, ge=1)
+    signup_email_domain_cap: int = Field(default=20, ge=1)
+    signup_velocity_window_seconds: int = Field(default=30 * 86_400, ge=3600)
+    #: Global ceiling on grants per UTC day. The monthly budget bounds the cost;
+    #: this bounds the *rate*, so a scripted run of verified addresses cannot
+    #: drain the month's budget in one hour before anyone notices.
+    signup_daily_cap: int = Field(default=2_000, ge=1)
+    #: Throwaway-inbox providers are refused by default. ``DISPOSABLE_EMAIL_DOMAINS``
+    #: in ``signup_policy`` is the bundled list; this tuple adds operator entries
+    #: and can never unblock a bundled one.
+    signup_block_disposable_email: bool = True
+    signup_extra_blocked_email_domains: tuple[str, ...] = ()
+    #: Staging-only escape: accept the CDN's auto-verified path (no email
+    #: provider configured) as proof for the free credit. Production refuses to
+    #: boot with this on unless ``STAGING_DEPLOYMENT=true``, so it cannot be
+    #: smuggled into a real deployment; render.staging.yaml is its only user.
+    signup_allow_auto_verified: bool = False
     #: Platform-funded ceiling for ALL signup credits issued in a calendar month
     #: (UTC). Free credit is a cost, not income: without a budget, N verified
     #: throwaway addresses drain the platform share at signup_credits each.
@@ -200,6 +221,13 @@ class AISettings(BaseSettings):
                 problems.append(
                     "TCDN_AI_COORDINATOR_KEY_FILE or TCDN_AI_COORDINATOR_KEYRING_JSON must "
                     "supply the coordinator keyring in production"
+                )
+            if self.signup_allow_auto_verified and os.environ.get(
+                "STAGING_DEPLOYMENT", ""
+            ).strip().lower() not in {"1", "true", "yes"}:
+                problems.append(
+                    "TCDN_AI_SIGNUP_ALLOW_AUTO_VERIFIED is staging-only "
+                    "(requires STAGING_DEPLOYMENT=true)"
                 )
             if self.enable_tcdn_burn and not self.burn_legal_review_ack:
                 problems.append(

@@ -55,10 +55,13 @@ async def verify_email(data: EmailVerifyRequest, request: Request):
             UUID(user_id_str),
         )
 
-    # Verification is the signup-credit gate: the moment the inbox is proven,
-    # the free credit is issued (idempotent per account, capped per IP and per
-    # month). No-ops when the AI flag is off; never raises into verification.
-    await grant_signup_credit(user_id_str, get_client_ip(request))
+    # Verification is the signup-credit gate: the moment the inbox is proven by
+    # a signed token, the free credit is issued (one per canonical identity,
+    # velocity-capped per IP/device/domain, daily and monthly ceilings). No-ops
+    # when the AI flag is off; never raises into verification.
+    await grant_signup_credit(
+        user_id_str, get_client_ip(request), proof="link", request=request
+    )
 
     logger.info("Email verified for user %s", user_id_str)
     return {"detail": "Email verified successfully"}
@@ -116,7 +119,11 @@ async def resend_verification(
                 await conn.execute(
                     "UPDATE users SET verified = TRUE WHERE id = $1", user_id
                 )
-            await grant_signup_credit(user_id, get_client_ip(request))
+            # proof="auto": the provider is absent, so nothing was proven about
+            # the inbox. The AI grant refuses that proof in production.
+            await grant_signup_credit(
+                user_id, get_client_ip(request), proof="auto", request=request
+            )
             return {"detail": "Email verified automatically (email service not configured)"}
         # Another concurrent caller won the atomic race and already verified this
         # account; nothing more to do.
