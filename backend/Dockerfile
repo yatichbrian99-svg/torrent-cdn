@@ -5,12 +5,24 @@ FROM python:3.11.9-slim
 
 WORKDIR /app
 
-# Install system dependencies (curl + ffmpeg for video thumbnail generation)
-RUN apt-get update && apt-get install -y curl ffmpeg && rm -rf /var/lib/apt/lists/*
+# Install system dependencies (curl + ffmpeg for video thumbnail generation).
+#
+# The base tag is pinned, but a pinned base ages: 3.11.9-slim's bookworm
+# snapshot carried 67 fixed HIGH/CRITICAL CVEs by 2026-10 (gpgv, libexpat,
+# gnutls, krb5, libcap…), which is what the blocking Trivy gate reported. An
+# explicit upgrade applies the security patches Debian has already published,
+# so the pin still fixes the Python version while the OS packages stay current.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends curl ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
 COPY requirements.txt .
-RUN pip install --upgrade pip && pip install --no-cache-dir --default-timeout=120 -r requirements.txt
+# pip/setuptools/wheel come from the base image and age with it (the blocking
+# scan flagged wheel 0.44.0); upgrade the toolchain before installing anything.
+RUN pip install --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir --default-timeout=120 -r requirements.txt
 
 # Copy source code
 COPY . .
