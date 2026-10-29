@@ -135,8 +135,11 @@ def main() -> int:
                        MEDIAMTX_RTMP_URL=f"rtmp://{RTMP_HOSTPORT}",
                        MEDIAMTX_HLS_URL=f"http://{RTMP_HOSTPORT.split(':')[0]}:8888",
                        APP_ENV="development")
+            # The argv is a fixed list: only the port comes from this file's
+            # constants, and the child env is built here rather than inherited.
             server = subprocess.Popen(
-                [os.path.join(BACKEND_DIR, ".venv/bin/python"), "-m", "uvicorn",
+                [  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
+                    os.path.join(BACKEND_DIR, ".venv/bin/python"), "-m", "uvicorn",
                  "app.main:app", "--host", "127.0.0.1", "--port", str(BACKEND_PORT)],
                 cwd=BACKEND_DIR, env=env,
                 stdout=open(os.path.join(tmp, "uvicorn.log"), "w"),

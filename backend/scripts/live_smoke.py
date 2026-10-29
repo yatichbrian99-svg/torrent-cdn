@@ -128,8 +128,10 @@ def main() -> None:
     # ── 3. publish a synthetic stream with ffmpeg (SIMULATED source) ─────────
     tmpdir = tempfile.mkdtemp(prefix="live-smoke-")
     log("publish", f"SIMULATED: ffmpeg synthetic testsrc → RTMP for {args.duration}s")
+    # argv is a fixed list; publish_url is a local loopback RTMP URL built from
+    # --rtmp plus the stream key this run just created. No shell, no expansion.
     ff = subprocess.Popen(
-        [
+        [  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
             "ffmpeg", "-hide_banner", "-loglevel", "error",
             "-re", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=15",
             "-f", "lavfi", "-i", "sine=frequency=440",

@@ -140,12 +140,14 @@ jobs:
           MEDIAMTX_HOOK_SECRET: "ci-test-hook-secret"
         run: docker compose down -v
 
-  # ── Container image scan (checklist 1.8) ──
-  # Builds the real backend image and scans its OS + language packages. Reported
-  # at CRITICAL/HIGH with exit-code 0 for now: this job's purpose in M1 is to
-  # produce the scan, not to be the blocking gate. The blocking threshold and the
-  # "no open critical/high" claim belong to 5.5 (M7), which is where an accepted
-  # CVE list has to be argued rather than silently tolerated.
+  # ── Container image scan (checklists 1.8 and 5.5) ──
+  # Builds the real backend image and scans its OS + language packages at
+  # CRITICAL/HIGH, fixed-version CVEs only, and **fails the build** on a hit —
+  # this is the blocking Trivy gate 5.5 asks for. `--ignore-unfixed` is not a
+  # suppression: a CVE with no released fix is not actionable by this repo and
+  # is reported in the summary instead of failing forever. A real exception has
+  # to be listed in backend/.trivyignore with a comment saying why, which is a
+  # reviewable diff rather than a silent tolerance.
   container-scan:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -165,14 +167,15 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/trivy" --version
 
-      - name: Scan image (OS + libraries)
+      - name: Scan image (OS + libraries, blocking)
         run: |
           set -euo pipefail
           trivy image --scanners vuln \
             --severity CRITICAL,HIGH \
             --ignore-unfixed \
+            --ignorefile backend/.trivyignore \
             --format table \
-            --exit-code 0 \
+            --exit-code 1 \
             tcdn-backend:ci | tee /tmp/trivy.txt
           {
             echo '## Trivy — backend image (CRITICAL/HIGH, fixed only)'
