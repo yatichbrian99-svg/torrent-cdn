@@ -78,6 +78,13 @@ from .receipts import (
     verify_receipt,
 )
 from .scheduler import Requirements, WorkerCandidate, select_worker
+from .signup_policy import (
+    canonical_email,
+    email_domain,
+    email_hash,
+    is_disposable_domain,
+)
+from .signup_policy import device_hash as device_bucket
 from .store import JobRecord, NodeRecord, Store, VerificationRecord
 from .verification import VerificationOutcome, VerificationSampler, resolve_executions
 
@@ -1558,28 +1565,151 @@ class Coordinator:
             total_micro=sum(record.total_micro for record in records),
         )
 
-    async def grant_signup_credits(self, account_id: str, ip_hash: str) -> int:
+    async def grant_signup_credits(
+        self,
+        account_id: str,
+        ip_hash: str,
+        *,
+        device_hash: str = "",
+        proof: str = "link",
+    ) -> int:
         """Issue the one-time free credit, platform-funded, with every gate on.
 
-        Four gates, all of which have been farmed in comparable products:
-        the address must be verified (a throwaway signup address costs nothing),
-        one grant per account, a per-IP cap, and a monthly platform budget that
-        free credit cannot exceed however many verified accounts appear.
+        Gates, in the order they run (cheapest and most decisive first):
+
+        1. **Proof of an inbox.** ``users.verified`` must be true *and* the
+           verification must have been a signed link (``proof="link"``). The
+           CDN auto-verifies an account when no email provider is configured;
+           that is proof of nothing, so it is refused in production.
+        2. **A real identity.** The address comes from the account row, is
+           canonicalised (plus-tags and Gmail dots removed), and one canonical
+           address may only ever claim one grant.
+        3. **Not a throwaway inbox.** Known disposable providers are refused.
+        4. **Velocity.** Per-IP, per-device and per-email-domain counts over a
+           rolling window, so one network/browser/domain cannot mint accounts.
+        5. **Daily and monthly ceilings.** A UTC-day grant cap bounds the rate;
+           the monthly budget bounds the platform's total cost.
+
+        Every refusal is audited with hashes only (never the raw address, IP or
+        device id), and so is every grant.
         """
         if self.settings.signup_credits <= 0:
             return 0
-        if not await self.store.account_email_verified(account_id):
-            raise AuthorizationError(
+
+        # A caller that forgets the device key shares one conservative bucket
+        # instead of skipping the gate.
+        device_hash = device_hash or device_bucket(None)
+        verified, address = await self.store.account_identity(account_id)
+        canonical = canonical_email(address)
+        identity_hash = email_hash(address)
+        domain = email_domain(address)
+        audit_detail = {
+            "ip_hash": ip_hash,
+            "device_hash": device_hash,
+            "email_hash": identity_hash,
+            "email_domain": domain,
+            "proof": proof,
+        }
+
+        async def audited_refusal(code: str, message: str) -> None:
+            # Expected refusal, not an error path: audited, then raised so the
+            # caller answers with the stable code and the seam logs it once. The
+            # caller never learns which inbox, IP or device tripped it.
+            await self.store.audit(
+                "account.signup_credit_refused",
+                actor=account_id,
+                subject=account_id,
+                detail={**audit_detail, "reason": code},
+            )
+            if code in {
+                "email_not_verified",
+                "signup_identity_missing",
+                "signup_unproven_email",
+            }:
+                raise AuthorizationError(message, code=code)
+            raise ConflictError(message, code=code, details={"reason": code})
+
+        if not verified:
+            await audited_refusal(
+                "email_not_verified",
                 "email must be verified before the signup credit is granted",
-                code="email_not_verified",
             )
-        grants = await self.store.count_grants_for_ip(ip_hash)
-        if grants >= self.settings.signup_ip_cap:
-            raise ConflictError(
-                "signup credit limit reached for this network",
-                code="signup_credit_limit",
+        if await self.store.count_grants_for_account(account_id):
+            # A verification retry (resend, a second click on the link) is not a
+            # farming attempt: answer idempotently and credit nothing again.
+            return 0
+        # Auto-verification means "the deployment has no email provider", not
+        # "this person owns the inbox". It is a development convenience and must
+        # never buy free credit in production; the one exception is a stack
+        # explicitly marked staging (config refuses the flag anywhere else).
+        auto_proof_ok = proof == "auto" and (
+            not self.settings.is_production or self.settings.signup_allow_auto_verified
+        )
+        if proof != "link" and not auto_proof_ok:
+            await audited_refusal(
+                "signup_unproven_email",
+                "the signup credit needs a verified email, not an auto-verified account",
             )
+        if not canonical or not identity_hash:
+            await audited_refusal(
+                "signup_identity_missing",
+                "the account has no usable email identity",
+            )
+        if self.settings.signup_block_disposable_email and is_disposable_domain(
+            domain, extra_blocked=self.settings.signup_extra_blocked_email_domains
+        ):
+            await audited_refusal(
+                "signup_disposable_email",
+                "disposable email providers are not eligible for the signup credit",
+            )
+
+        if await self.store.count_grants_for_identity(identity_hash):
+            await audited_refusal(
+                "signup_identity_already_granted",
+                "this email identity has already received the signup credit",
+            )
+
         now = int(self.clock())
+        window_start = now - self.settings.signup_velocity_window_seconds
+        if (
+            await self.store.count_grants_for_ip(ip_hash, window_start)
+            >= self.settings.signup_ip_cap
+        ):
+            await audited_refusal(
+                "signup_credit_limit",
+                "signup credit limit reached for this network",
+            )
+        if (
+            await self.store.count_grants_for_device(device_hash, window_start)
+            >= self.settings.signup_device_cap
+        ):
+            await audited_refusal(
+                "signup_device_limit",
+                "signup credit limit reached for this device",
+            )
+        if (
+            await self.store.count_grants_for_domain(domain, window_start)
+            >= self.settings.signup_email_domain_cap
+        ):
+            await audited_refusal(
+                "signup_domain_limit",
+                "signup credit limit reached for this email domain",
+            )
+
+        day_start = int(
+            datetime.fromtimestamp(now, tz=UTC)
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .timestamp()
+        )
+        if (
+            await self.store.count_signup_grants_since(day_start)
+            >= self.settings.signup_daily_cap
+        ):
+            await audited_refusal(
+                "signup_daily_cap",
+                "daily signup credit budget is exhausted",
+            )
+
         month_start = int(
             datetime.fromtimestamp(now, tz=UTC)
             .replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -1591,11 +1721,19 @@ class Coordinator:
             budgeted
             and (issued + 1) * self.settings.signup_credits * 1_000_000 > budgeted
         ):
-            raise ConflictError(
+            await audited_refusal(
+                "signup_monthly_cap",
                 "monthly signup credit budget is exhausted",
-                code="signup_monthly_cap",
             )
-        first = await self.store.record_signup_grant(account_id, ip_hash, now)
+
+        first = await self.store.record_signup_grant(
+            account_id,
+            ip_hash,
+            now,
+            email_hash=identity_hash,
+            device_hash=device_hash,
+            email_domain=domain,
+        )
         if not first:
             return 0
         amount = self.settings.signup_credits * 1_000_000
@@ -1610,7 +1748,7 @@ class Coordinator:
             "account.signup_credit",
             actor=account_id,
             subject=account_id,
-            detail={"micro": amount},
+            detail={**audit_detail, "micro": amount},
         )
         return amount
 

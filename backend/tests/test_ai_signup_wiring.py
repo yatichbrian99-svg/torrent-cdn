@@ -21,7 +21,9 @@ class FakeCoordinator:
         self.granted = granted
         self.raises = raises
 
-    async def grant_signup_credits(self, account_id: str, ip_hash: str) -> int:
+    async def grant_signup_credits(
+        self, account_id: str, ip_hash: str, **kwargs: object
+    ) -> int:
         self.calls.append((account_id, ip_hash))
         if self.raises is not None:
             raise self.raises
@@ -100,7 +102,7 @@ class TestVerifyEmailRoute:
         user_id = "11111111-1111-4111-8111-111111111111"
         granted: list[tuple[str, str]] = []
 
-        async def fake_grant(account_id, ip):
+        async def fake_grant(account_id, ip, **_kwargs):
             granted.append((str(account_id), ip))
             return 500_000_000
 
@@ -156,7 +158,7 @@ class TestVerifyEmailRoute:
         user_id = "11111111-1111-4111-8111-111111111111"
         granted: list[str] = []
 
-        async def fake_grant(account_id, _ip):
+        async def fake_grant(account_id, _ip, **_kwargs):
             granted.append(str(account_id))
             return 0
 

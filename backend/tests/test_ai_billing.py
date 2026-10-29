@@ -160,9 +160,19 @@ class TestSignupCredits:
         first = "77777777-7777-4777-8777-777777777777"
         second = "88888888-8888-4888-8888-888888888888"
         ai_env.store.verified_accounts.update({first, second})
-        assert await ai_env.coordinator.grant_signup_credits(first, "ip-a") == 500_000_000
+        ai_env.store.account_emails.update(
+            {first: "first@example.test", second: "second@example.test"}
+        )
+        assert (
+            await ai_env.coordinator.grant_signup_credits(
+                first, "ip-a", device_hash="device-a"
+            )
+            == 500_000_000
+        )
         with pytest.raises(ConflictError) as excinfo:
-            await ai_env.coordinator.grant_signup_credits(second, "ip-b")
+            await ai_env.coordinator.grant_signup_credits(
+                second, "ip-b", device_hash="device-b"
+            )
         assert excinfo.value.code == "signup_monthly_cap"
         # The refused grant left nothing behind: no row, no credit.
         assert await ai_env.store.count_grants_for_ip("ip-b") == 0
@@ -172,9 +182,14 @@ class TestSignupCredits:
     async def test_granted_once_per_account_from_platform_pool(self, ai_env):
         account = "33333333-3333-4333-8333-333333333333"
         ai_env.store.verified_accounts.add(account)
-        granted = await ai_env.coordinator.grant_signup_credits(account, "ip-hash-1")
+        ai_env.store.account_emails[account] = "granted@example.test"
+        granted = await ai_env.coordinator.grant_signup_credits(
+            account, "ip-hash-1", device_hash="device-1"
+        )
         assert granted == 500 * 1_000_000
-        again = await ai_env.coordinator.grant_signup_credits(account, "ip-hash-1")
+        again = await ai_env.coordinator.grant_signup_credits(
+            account, "ip-hash-1", device_hash="device-1"
+        )
         assert again == 0
         assert ai_env.store.ledger.balance(account_credits(account)) == 500_000_000
         # Funded by the grant pool, never by node earnings.
@@ -187,12 +202,18 @@ class TestSignupCredits:
             f"4444444{index}-4444-4444-8444-444444444444" for index in range(3)
         ]
         ai_env.store.verified_accounts.update(accounts)
-        for account in accounts:
-            await ai_env.coordinator.grant_signup_credits(account, "shared-ip")
+        for index, account in enumerate(accounts):
+            ai_env.store.account_emails[account] = f"ip-{index}@example.test"
+            await ai_env.coordinator.grant_signup_credits(
+                account, "shared-ip", device_hash=f"device-{index}"
+            )
         fourth = "55555555-5555-4555-8555-555555555555"
         ai_env.store.verified_accounts.add(fourth)
+        ai_env.store.account_emails[fourth] = "ip-fourth@example.test"
         with pytest.raises(ConflictError) as excinfo:
-            await ai_env.coordinator.grant_signup_credits(fourth, "shared-ip")
+            await ai_env.coordinator.grant_signup_credits(
+                fourth, "shared-ip", device_hash="device-fourth"
+            )
         assert excinfo.value.code == "signup_credit_limit"
 
 

@@ -84,9 +84,23 @@ later config change cannot rewrite history.
 ## A11 — Free signup credit
 
 500 credits ($5), `TCDN_AI_SIGNUP_CREDITS`, funded by a ledger transfer **out of the platform
-revenue account**, never from node earnings. Abuse limits: one grant per account, plus per-IP
-grant cap (`TCDN_AI_SIGNUP_IP_CAP`, default 3) enforced against `ai_signup_grants`. Email/phone
-verification is delegated to the existing account system; the AI module does not re-implement it.
+revenue account**, never from node earnings. Abuse limits, all enforced in
+`Coordinator.grant_signup_credits` against `ai_signup_grants`: a signed email-verification link
+is required (the CDN's auto-verified path — no provider configured — is refused in production
+and only accepted on a stack with `STAGING_DEPLOYMENT=true`), one grant per **canonical
+identity** (plus-tags and Gmail dots removed, so one inbox cannot hold two accounts' grants),
+rolling-window velocity caps per IP (`TCDN_AI_SIGNUP_IP_CAP`, default 3), per device key
+(`…_DEVICE_CAP`, 3) and per email domain (`…_EMAIL_DOMAIN_CAP`, 20), a global UTC-day grant
+ceiling (`…_DAILY_CAP`, 2000) and a monthly platform budget (`…_MONTHLY_CAP_MICRO`). Disposable
+inbox providers are blocked (`TCDN_AI_SIGNUP_BLOCK_DISPOSABLE_EMAIL`, plus an additive operator
+list). Only hashes are stored and audited; every grant and every refusal is an audit row.
+
+Signup credit is **not withdrawable**: no route transfers a customer credit balance to cash,
+and `Ledger` refuses any debit of `account:<id>:credits` whose kind is not a settlement
+(`job_compute`/`job_seeder`/`job_platform`). It is a discount on inference, nothing else. The
+device key is a hash of a client-provided id or the user agent, not a hardware attestation: it
+raises the cost of naive multi-account farming and does not stop a determined attacker who
+rotates it, which is why the per-IP, identity, domain and daily gates exist as well.
 
 ## A12 — SDK transport and TLS
 

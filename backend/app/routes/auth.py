@@ -474,7 +474,16 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks, reques
                     # off and can never fail registration.
                     from ..ai.signup import grant_signup_credit
 
-                    await grant_signup_credit(user["id"], get_client_ip(request))
+                    # proof="auto": no provider was configured, so this account
+                    # was marked verified without proving the inbox. The AI grant
+                    # refuses that proof in production; in development it keeps
+                    # the local signup flow usable.
+                    await grant_signup_credit(
+                        user["id"],
+                        get_client_ip(request),
+                        proof="auto",
+                        request=request,
+                    )
         except Exception as e:
             logger.warning("Verification email failed after registration: %s", e)
 
@@ -550,6 +559,7 @@ async def login(data: UserLogin, request: Request):
         # attacker distinguish registered emails by response timing (a bcrypt
         # check costs ~100-250ms). Verify against a fixed dummy bcrypt hash so
         # the "unknown user" path does the same work as a wrong-password path.
+        # nosemgrep: generic.secrets.security.detected-bcrypt-hash.detected-bcrypt-hash
         _DUMMY_HASH = "$2b$12$C6UzMDM.H6dfI/f/IKcEeO7Dkz9nWlG5vXqgLbB5fQzY3S0YvX9nS"
         if not user:
             verify_password(data.password, _DUMMY_HASH)
