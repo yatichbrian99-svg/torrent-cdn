@@ -40,6 +40,40 @@ cp ../deploy/tcdn-ai/models.example.json /tmp/models.json
   --account-id <uuid> --scopes inference,worker --models-file /tmp/models.json
 ```
 
+### 2b. Fund the account (required — found by following this file literally)
+
+An account with a zero balance places no jobs: step 4 raises
+`InsufficientCreditsError` (`insufficient credit balance for this job`). In a
+deployment, credit arrives from a purchase or the verified-signup grant. Locally,
+post the platform-funded credit the same way the signup grant does:
+
+```bash
+cd backend
+DATABASE_URL="postgresql://tcdn:tcdn@127.0.0.1:5432/tcdn" \
+TCDN_AI_ENVIRONMENT=development TCDN_AI_API_KEY_PEPPER="dev-pepper-change-me" \
+JWT_SECRET="this-is-a-32-char-secret-for-testing-only!!" \
+.venv/bin/python - <<'PY'
+import asyncio, sys
+sys.path.insert(0, ".")
+from app.ai.config import get_ai_settings
+from app.ai.store import PostgresStore
+from app.database import get_db_pool
+
+async def main():
+    store = PostgresStore(await get_db_pool(), get_ai_settings())
+    await store.init()
+    await store.credit(
+        "<users.id>", 500_000_000,  # 500 credits, integer micro-credit
+        source="platform:signup-grants",
+        idempotency_key="dev-setup:fund:1",  # retrying is harmless
+        kind="signup_credit",
+    )
+    print("funded")
+
+asyncio.run(main())
+PY
+```
+
 ## 3. Worker (echo backend, loopback only)
 
 ```bash

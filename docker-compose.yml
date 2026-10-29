@@ -183,6 +183,19 @@ services:
     volumes:
       - ./backend:/app
       - torrent_temp:/tmp
+    # The image has no curl, so the probe is python — the same interpreter the
+    # server runs on. /health is the cheap liveness answer (no DB round trip);
+    # readiness is /api/health/live, which the monitor and Caddy care about.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
 
   frontend:
     build:
