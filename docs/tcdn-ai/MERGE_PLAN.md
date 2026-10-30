@@ -1,9 +1,10 @@
 # TCDN-AI — merge plan for the dark release
 
 **State when this was written (2026-10-30):** `main` = `200109e`. The CDN fixes are on
-`fix/product-security-hardening` (`7d3c8d2`, 5 commits, 33 files) and open as **draft PR #46**.
-The TCDN-AI work is on `fix/tcdn-ai-redis-replay-nonce` (224 files more than the product
-branch) and has **no PR**. Nothing is merged; this file is the plan, not a record of an action.
+`fix/product-security-hardening` (`7d3c8d2`, 5 commits, 33 files) and open as **draft PR #46**.The TCDN-AI work is on
+`fix/tcdn-ai-redis-replay-nonce` (224 files more than the product
+branch) and is open as **draft PR #47** (do not merge). Nothing is merged; this file is the
+plan, not a record of an action.
 
 A **dark release** means: the code ships, the feature does not turn on. `ENABLE_TCDN_AI` is not
 set in `render.yaml` and defaults off, so no `/api/ai/v1/*` route is mounted and the AI startup
@@ -17,7 +18,7 @@ DDL does not run. The CDN behaves exactly as it does today, with the fixes liste
 |---|---|---|---|---|
 | 1 | `fix/product-security-hardening` — **PR #46 (draft)** | `main` | no AI code involved | PR checks green (see §2), owner review, owner un-drafts |
 | 2 | — | production | off | run §4 against production, watch 15 minutes of logs |
-| 3 | `fix/tcdn-ai-redis-replay-nonce` — its own PR (not open yet) | `main` | **off** (dark) | the five P1 rows in §6 closed, §4 re-run |
+| 3 | `fix/tcdn-ai-redis-replay-nonce` — **PR #47 (draft)** | `main` | **off** (dark) | the two P1 rows in §6 closed, §4 re-run, rebased on `main` only **after** step 1 merged |
 | 4 | — | production | **on**, only when the owner decides | a separate decision with its own doc; never bundled with step 3 |
 
 **Why this order.** The AI branch contains every product file *plus* the AI tree: 25 of PR
@@ -144,16 +145,17 @@ flag off) but should be said out loud.
 ## 6. What still blocks Level 1 (and therefore step 3)
 
 Recounted 2026-10-30 from the tables in [`PUSH_CHECKLIST.md`](PUSH_CHECKLIST.md) — P1 is
-**51 verified / 3 partial / 2 missing of 56**. Five P1 rows still have to change (row 12.5,
-the temporary branch push trigger, closed on its own commit while this plan was being written):
+**54 verified / 2 partial / 0 missing of 56**. Two P1 rows still have to change:
 
 | Row | Status | Why it blocks |
 |---|---|---|
-| **4.4** | PARTIAL | No Paystack sandbox session; M-Pesa is not enabled on the account. The billing state machine is tested, the provider is not exercised. |
-| **5.5** | PARTIAL | **ZAP has not run** (see §7). Static, dependency, secret and image scanning are green. |
+| **4.4** | PARTIAL (**owner-blocked**) | No Paystack sandbox session; M-Pesa is not enabled on the account. The billing state machine is tested, the provider is not exercised. |
 | **6.1** | PARTIAL | Redundant execution samples at **placement**, not after a commitment, and SDK-mode jobs cannot be re-executed (no plaintext). |
-| **12.3** | MISSING | No draft PR for the AI branch. |
-| **12.4** | MISSING | Post-push confirmation cannot exist before a push. |
+
+Closed since the first version of this plan: **5.5** (ZAP now runs in CI — `.github/workflows/dast-zap.yml`,
+two passes, 0 HIGH, findings recorded in `evidence/03-security/dast-ci-2026-10-30.md`), **12.3**
+(draft PR #47) and **12.4** (all five PR-triggered workflows green on the pushed branch). Rows
+4.4 and 6.1 are code/account work, not paperwork, and neither is affected by this plan.
 
 Row **3.4** (P2, outbound worker mode for NAT/CGNAT workers) is `MISSING` and does not block
 Level 1.
@@ -165,10 +167,15 @@ Level 1.
   and `/api/ai/v1/status`. Everything verified for this plan was verified on a **local
   production-mode stack** (`APP_ENV=production`, `STAGING_DEPLOYMENT=true`, real Postgres,
   Redis, MinIO, MediaMTX, Paystack test keys), not on a hosted staging box.
-- **ZAP has not run.** The `zaproxy/zap-stable` image could not be pulled in this environment
-  (the registry handshake answered at ~4.5 kB/s and no layer ever started downloading across
-  ~10 minutes; the `ghcr.io` mirror refused anonymous pulls). Row 5.5 stays `PARTIAL` for that
-  reason and the checklist says so.
+- **ZAP runs in CI, not against a hosted stack.** `.github/workflows/dast-zap.yml` builds the
+  backend image from the commit under test and attacks it on the runner (`ENABLE_TCDN_AI=true`,
+  staging gates, throwaway keyring, seeded account). 0 HIGH, one MEDIUM and two LOW types —
+  recorded in `evidence/03-security/dast-ci-2026-10-30.md` rather than triaged away. The frontend
+  and Caddy are still **not** scanned, and the hosted staging blueprint has still never been
+  applied.
+- **`MFA_REQUIRED=false` on the scan stack.** Production requires 2FA enrollment and login then
+  returns only an `mfa_token`; without a TOTP client in CI the authenticated pass could not exist.
+  The 2FA surface is covered by the test suite and the E2E flows, not by ZAP.
 - The smoke list above is a **plan**. It has not been executed against production, because
   production is not what this pass may touch (owner's instruction: do not merge).
 - "Auto-deploy on merge" is Render's blueprint default, not something this repository pins —
