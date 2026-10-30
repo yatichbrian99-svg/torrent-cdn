@@ -676,11 +676,42 @@ app.add_middleware(CSPMiddleware)
 SERVER_HEADER = "torrentcdn"
 
 
-@app.middleware("http")
-async def _server_header(request, call_next):
-    response = await call_next(request)
-    response.headers["server"] = SERVER_HEADER
-    return response
+class _ServerHeaderMiddleware:
+    """Pure ASGI: set the Server header without BaseHTTPMiddleware.
+
+    Every 500 in the 2026-10-30 ZAP run (``/api/live/session``, ``/heartbeat``,
+    ``/segment/availability``, one each per pass) stopped at
+    ``BaseHTTPMiddleware.coro`` inside an ``ExceptionGroup`` raised by its task
+    group, with the application's own frames missing from the log. A plain ASGI
+    wrapper rewrites the ``http.response.start`` message instead: no task group,
+    no response wrapper, and an inner exception keeps its real traceback.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_server(message):
+            if message["type"] == "http.response.start":
+                headers = [
+                    (k, v)
+                    for k, v in message.get("headers", [])
+                    if k.lower() != b"server"
+                ]
+                headers.append((b"server", SERVER_HEADER.encode("ascii")))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_server)
+
+
+# Added after CSPMiddleware, and add_middleware prepends, so this is outermost:
+# the short-circuiting 429/413 rejections carry it too.
+app.add_middleware(_ServerHeaderMiddleware)
 
 
 @app.exception_handler(RequestValidationError)
