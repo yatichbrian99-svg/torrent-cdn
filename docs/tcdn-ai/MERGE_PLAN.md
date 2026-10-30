@@ -145,17 +145,18 @@ flag off) but should be said out loud.
 ## 6. What still blocks Level 1 (and therefore step 3)
 
 Recounted 2026-10-30 from the tables in [`PUSH_CHECKLIST.md`](PUSH_CHECKLIST.md) — P1 is
-**54 verified / 2 partial / 0 missing of 56**. Two P1 rows still have to change:
+**53 verified / 3 partial / 0 missing of 56**. Three P1 rows still have to change:
 
 | Row | Status | Why it blocks |
 |---|---|---|
 | **4.4** | PARTIAL (**owner-blocked**) | No Paystack sandbox session; M-Pesa is not enabled on the account. The billing state machine is tested, the provider is not exercised. |
 | **6.1** | PARTIAL | Redundant execution samples at **placement**, not after a commitment, and SDK-mode jobs cannot be re-executed (no plaintext). |
+| **12.4** | PARTIAL | Post-push confirmation: green at `08fb260`, but the final docs commit `1e17d88` flaked one `ai-store` test (`test_flipped_signature_rejected`, a no-op mutation when the signature already starts with `A`). Not green on the final commit, so not verified. |
 
 Closed since the first version of this plan: **5.5** (ZAP now runs in CI — `.github/workflows/dast-zap.yml`,
 two passes, 0 HIGH, findings recorded in `evidence/03-security/dast-ci-2026-10-30.md`), **12.3**
-(draft PR #47) and **12.4** (all five PR-triggered workflows green on the pushed branch). Rows
-4.4 and 6.1 are code/account work, not paperwork, and neither is affected by this plan.
+(draft PR #47). **12.4** is pending: the last commit re-ran the same jobs and one
+flaked (see the row). Rows 4.4, 6.1 and 12.4 are code/account/CI work, not paperwork.
 
 Row **3.4** (P2, outbound worker mode for NAT/CGNAT workers) is `MISSING` and does not block
 Level 1.

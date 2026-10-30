@@ -82,7 +82,7 @@ New files: `render.staging.yaml`, `docs/tcdn-ai/STAGING.md`,
   gateway (`evidence/09-openai-gateway/js-client.json`), now a committed, CI-gated check.
 - Boundary contracts: `CONTRACTS.md` TB1–TB7 + **23** contract tests.
 - Open blockers for Level 1: see `PUSH_CHECKLIST.md` — **5** unfinished [P1] rows
-  (0 `MISSING`; 2 `PARTIAL`: 4.4, 6.1). Rows 3.3, 4.5, 7.2, 10.1, 10.2 and 12.5 closed on
+  (0 `MISSING`; 3 `PARTIAL`: 4.4, 6.1, 12.4). Rows 3.3, 4.5, 7.2, 10.1, 10.2 and 12.5 closed on
   2026-10-29/30, then 5.5, 12.3 and 12.4 on 2026-10-30; 2.3, 2.6 and 3.2 closed on 2026-10-28.
 - Release shape: **PR #46 (draft)** carries the CDN fixes **alone** — no `app/ai`, no
   `tcdn_ai_sdk`, no `render.staging.yaml` — for a dark merge; **PR #47 (draft)** carries the AI
