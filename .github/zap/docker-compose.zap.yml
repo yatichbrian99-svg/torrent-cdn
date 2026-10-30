@@ -11,6 +11,12 @@
 # one-off command runs.
 services:
   backend:
+    # gunicorn disables its access log by default and the image's CMD sets no
+    # --access-logfile. The workflow needs it to prove the authenticated ZAP
+    # pass really carried the session token (.github/zap/authme.sh), so this
+    # stack turns it on: same server, same workers, one extra log line per
+    # request.
+    command: sh -c "gunicorn app.main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --access-logfile - --timeout 120 --keep-alive 5"
     environment:
       APP_ENV: production
       # Never a real host: this stack answers on 127.0.0.1 only, and nothing it
