@@ -168,6 +168,12 @@ jobs:
             zaproxy/zap-stable zap.sh -cmd -autorun /zap/wrk/plan-unauth.yaml \
             2>&1 | tee "$RUNNER_TEMP/zap/reports/scan-unauth.log"
 
+      # Both passes return similar alert sets, which is exactly what a bearer
+      # header that never got applied would look like. Record the truth before
+      # the second pass rather than assuming the Replacer rule worked.
+      - name: Baseline — authenticated coverage so far
+        run: bash .github/zap/authme.sh before
+
       # The token is passed to ZAP as a Replacer rule, so it exists only in this
       # step's argv and in the container's memory — not in a plan file, not in
       # the checkout, not in the uploaded artifact.
@@ -190,6 +196,11 @@ jobs:
       # still get printed instead of disappearing behind the first error. The
       # summariser exits 2 when a report is missing, so a broken scan cannot
       # pass as a clean one.
+      # Fails when the pass added no successful request to a JWT-only route: an
+      # "authenticated" report that never authenticated is worse than no report.
+      - name: Prove the authenticated pass authenticated
+        run: bash .github/zap/authme.sh after
+
       - name: Summarise and fail on HIGH
         if: always()
         run: |
