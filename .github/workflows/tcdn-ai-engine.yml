@@ -22,12 +22,6 @@ name: "TCDN-AI: real inference engine (nightly)"
 on:
   schedule:
     - cron: "0 3 * * *" # 03:00 UTC daily
-  # Temporary: workflow_dispatch only fires for workflows that exist on the
-  # default branch, and this one does not yet. Listing the trial-push branch
-  # lets the engine job run once against it for checklist 3.1. Remove this
-  # trigger before merge — the schedule and workflow_dispatch are the real ones.
-  push:
-    branches: [fix/tcdn-ai-redis-replay-nonce]
   workflow_dispatch:
 
 permissions:
