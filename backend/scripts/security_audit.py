@@ -137,8 +137,22 @@ for method in ["PUT", "DELETE", "PATCH", "TRACE", "CONNECT"]:
 # ── 7. NO SERVER DISCLOSURE ──
 print("\n── Server Disclosure ──")
 r = client.get("/health")
-check("No server header leak", not r.headers.get("server", ""),
-      f"Server: '{r.headers.get('server', '')}'")
+server = r.headers.get("server", "")
+# The product now answers with SERVER_HEADER = "torrentcdn" (app/main.py), and
+# gunicorn_conf.py replaces gunicorn's own "gunicorn/<version>" header. An
+# empty header is not required — *disclosure* is. So the failure condition is a
+# version-bearing value: a "/" plus version, any digit, or a runtime/framework
+# family name. A bare product name passes; "uvicorn", "gunicorn/21.2.0" and
+# "Python/3.12.3" do not.
+leaks = bool(server) and (
+    "/" in server
+    or any(ch.isdigit() for ch in server)
+    or any(
+        name in server.lower()
+        for name in ("uvicorn", "gunicorn", "starlette", "python", "hypercorn")
+    )
+)
+check("No server header leak", not leaks, f"Server: '{server}'")
 
 # ── 8. PUBLIC ENDPOINTS ──
 print("\n── Public Endpoints ──")
