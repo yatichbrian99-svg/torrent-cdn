@@ -16,7 +16,11 @@ services:
     # pass really carried the session token (.github/zap/authme.sh), so this
     # stack turns it on: same server, same workers, one extra log line per
     # request.
-    command: sh -c "gunicorn app.main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --access-logfile - --timeout 120 --keep-alive 5"
+    # `--config gunicorn_conf.py` is the same flag the image's CMD uses: without
+    # it this override would scan a server that still advertises
+    # `gunicorn/<version>`, and the Server-header fix would look green while the
+    # scanned process never loaded it.
+    command: sh -c "gunicorn app.main:app --config gunicorn_conf.py --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --access-logfile - --timeout 120 --keep-alive 5"
     environment:
       APP_ENV: production
       # Never a real host: this stack answers on 127.0.0.1 only, and nothing it

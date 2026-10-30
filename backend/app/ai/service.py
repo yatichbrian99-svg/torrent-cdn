@@ -67,6 +67,7 @@ from .models import (
     UsageRecord,
     UsageResponse,
     WorkerRegistrationPayload,
+    parse_signed_payload,
 )
 from .payments import PaymentEvent, PaymentProvider, get_payment_provider
 from .pricing import MICRO_PER_MTOK, ModelPrice, PriceTable, ceil_div, micro_to_credits
@@ -1013,7 +1014,10 @@ class Coordinator:
         self, auth: AuthContext, envelope: SignedEnvelope
     ) -> NodeRegistrationResponse:
         self.require_scope(auth, "worker")
-        payload = WorkerRegistrationPayload(**envelope.payload)
+        # Typed, bounded and strict, before the signature check and before any
+        # store access: a hostile payload must be a 422, never a 500 and never a
+        # side effect. See docs/tcdn-ai/SECURITY.md §"signed payloads".
+        payload = parse_signed_payload(WorkerRegistrationPayload, envelope)
         self._verify_self_signed(
             envelope, NODE_REGISTER_DOMAIN, payload.identity_public_key
         )
@@ -1060,7 +1064,10 @@ class Coordinator:
         )
 
     async def heartbeat(self, envelope: SignedEnvelope) -> dict:
-        payload = HeartbeatPayload(**envelope.payload)
+        # First statement on purpose. `HeartbeatPayload(**envelope.payload)` used
+        # to raise pydantic's ValidationError (not an AIError) straight out of the
+        # handler: a 500 on a signature-only route, 156 of them in the ZAP run.
+        payload = parse_signed_payload(HeartbeatPayload, envelope)
         node = await self.store.get_node(payload.node_id)
         if node is None:
             raise NotFoundError("unknown node")
@@ -1079,7 +1086,7 @@ class Coordinator:
 
     async def attest(self, auth: AuthContext, envelope: SignedEnvelope) -> dict:
         self.require_scope(auth, "worker")
-        evidence = AttestationEvidencePayload(**envelope.payload)
+        evidence = parse_signed_payload(AttestationEvidencePayload, envelope)
         node = await self.store.get_node(evidence.node_id)
         if node is None:
             raise NotFoundError("unknown node")

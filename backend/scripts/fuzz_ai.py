@@ -38,7 +38,16 @@ from pydantic import ValidationError
 from app.ai import crypto
 from app.ai.errors import AIError
 from app.ai.keyring import KeyRing
-from app.ai.models import Confidentiality, PlacementRequest
+from app.ai.models import (
+    AckPayload,
+    AttestationEvidencePayload,
+    Confidentiality,
+    HeartbeatPayload,
+    PlacementRequest,
+    SignedEnvelope,
+    WorkerRegistrationPayload,
+    parse_signed_payload,
+)
 from app.ai.payments import PaystackPaymentProvider
 from app.ai.receipts import JobContext, sign_receipt, verify_receipt
 from app.ai.shards import merkle_proof, merkle_root, verify_merkle_proof
@@ -234,6 +243,48 @@ def build_targets(seed: int) -> list[Target]:
             lambda: PlacementRequest.model_validate(candidate),
         )
 
+    # Every route that takes a SignedEnvelope parses its inner payload through
+    # parse_signed_payload. That is what turned 156 × 500 into clean 422s, so it
+    # is fuzzed here with the same contract as the other parsers: an AIError or a
+    # pydantic ValidationError is a correct rejection, anything else is a finding.
+    envelope_seeds = {
+        HeartbeatPayload: {"node_id": "node_fuzz_1", "sent_at": 1_700_000_000},
+        WorkerRegistrationPayload: {
+            "identity_public_key": ring.active.public_key,
+            "session_public_key": ring.active.public_key,
+        },
+        AttestationEvidencePayload: {
+            "node_id": "node_fuzz_1",
+            "platform": "sev-snp",
+            "nonce": "n" * 32,
+            "session_key_sha256": "c" * 64,
+            "report_b64": "r" * 32,
+            "issued_at": 1_700_000_000,
+        },
+        AckPayload: {
+            "job_id": "job_fuzz_1",
+            "tokens_received": 3,
+            "output_sha256": "d" * 64,
+            "acked_at": 1_700_000_000,
+        },
+    }
+
+    def fuzz_envelope_payload(rng: random.Random) -> None:
+        model = rng.choice(list(envelope_seeds))
+        candidate = mutate(rng, envelope_seeds[model])
+        if not isinstance(candidate, dict):
+            # A non-dict payload never reaches parse_signed_payload: the route
+            # rejects the envelope itself (422) and SignedEnvelope refuses to
+            # construct. Unfiltered, the harness reported its own constructor as
+            # a finding — a false positive that would have hidden real ones.
+            return
+        envelope = SignedEnvelope(payload=candidate, key_id="k" * 40, sig="s" * 88)
+        _check(
+            f"models.parse_signed_payload[{model.__name__}]",
+            envelope.payload,
+            lambda: parse_signed_payload(model, envelope),
+        )
+
     def fuzz_webhook(rng: random.Random) -> None:
         body = rng.choice([rng.randbytes(rng.randrange(0, 200)), b"{}", b"null", b'{"event":1}'])
         signature = rng.choice(["", "0" * 64, "0" * 128, rng.randbytes(64).hex()])
@@ -250,6 +301,7 @@ def build_targets(seed: int) -> list[Target]:
         Target("crypto.aead_decrypt", fuzz_aead),
         Target("models.PlacementRequest", fuzz_placement),
         Target("payments.verify_webhook", fuzz_webhook),
+        Target("models.parse_signed_payload", fuzz_envelope_payload),
     ]
 
 

@@ -667,6 +667,22 @@ app.add_middleware(MaxBodySizeMiddleware)
 app.add_middleware(CSPMiddleware)
 
 
+# ── Server header ──────────────────────────────────────────────────────────
+# ZAP's 10036 ("Server leaks version information") fired on every URL in the
+# authenticated pass. The value is not cosmetic: uvicorn advertises `uvicorn` and
+# gunicorn appends `gunicorn/<version>`, so the exact runtime is published to
+# every client. This replaces the ASGI-side header with a product name and no
+# version (backend/gunicorn_conf.py does the same for gunicorn's own header).
+SERVER_HEADER = "torrentcdn"
+
+
+@app.middleware("http")
+async def _server_header(request, call_next):
+    response = await call_next(request)
+    response.headers["server"] = SERVER_HEADER
+    return response
+
+
 @app.exception_handler(RequestValidationError)
 async def _validation_error_handler(request: Request, exc: RequestValidationError):
     """L2 FIX: Return a generic error for JSON parse / validation failures.

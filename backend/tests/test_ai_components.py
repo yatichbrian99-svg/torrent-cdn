@@ -181,10 +181,18 @@ class TestReceipts:
             verify_receipt(document, worker_public_key=keys["public_key"], job=_job())
 
     def test_flipped_signature_rejected(self):
-        """Isolate the signature check: payload is valid, only the signature is bad."""
+        """Isolate the signature check: payload is valid, only the signature is bad.
+
+        The mutation flips a **bit in the decoded signature**. The previous
+        version prepended "A" and dropped the first character, which is a no-op
+        whenever the real signature already starts with "A" — about 1 run in 64,
+        which is exactly how this test flaked in CI run 41046017230.
+        """
         keys = crypto.generate_ed25519()
         document = sign_receipt(_receipt_payload(), keys["private_key"])
-        document["sig"] = "A" + document["sig"][1:]
+        raw = bytearray(crypto.b64d(document["sig"]))
+        raw[0] ^= 0x01
+        document["sig"] = crypto.b64e(bytes(raw))
         with pytest.raises(ReceiptError) as excinfo:
             verify_receipt(document, worker_public_key=keys["public_key"], job=_job())
         assert excinfo.value.code == "bad_signature"

@@ -124,6 +124,31 @@ so an operator cannot accidentally lock the coordinator out of issuing tickets.
 - **Replay protection:** ticket `jti` claimed in a seen-set until expiry; worker-side
   cache; attestation nonces single-use and short-lived; money idempotency keys unique
   in the DB.
+- **Signed payloads — validated before use, not inside the handler.** Every route
+  whose body is a `SignedEnvelope` parses the inner payload through
+  `models.parse_signed_payload` (a strict, bounded pydantic model; `extra="forbid"`)
+  and answers **422 `invalid_payload`** with `details.fields` naming field paths and
+  error *types* only — never the offending values. The sweep covers:
+
+  | Route | Model | When |
+  |---|---|---|
+  | `POST /nodes/heartbeat` | `HeartbeatPayload` | first statement, before the node lookup |
+  | `POST /nodes/register` | `WorkerRegistrationPayload` | after the `worker` scope check, before the signature and any write |
+  | `POST /attestations` | `AttestationEvidencePayload` | after the `worker` scope check, before the node lookup |
+  | `POST /jobs/{id}/receipt` | `ReceiptPayload` | **after** signature verification, by design — the signature covers the raw dict, so parsing first would reject documents whose signature the node never produced; a bad payload is `invalid_receipt` (400), still before any store write |
+  | `POST /jobs/{id}/ack` | `AckPayload` | plain HTTP body, FastAPI-validated |
+
+  Why it matters: `HeartbeatPayload(**envelope.payload)` used to run *inside*
+  `Coordinator.heartbeat`, so pydantic's `ValidationError` (not an `AIError`) escaped
+  the error handler as a 500 — 156 of them in the ZAP run, on a signature-only route
+  reachable without a key — and a payload with a non-string key raised `TypeError`
+  before validation even started. `tests/test_ai_signed_inputs.py` holds the fix:
+  4 routes × 13 hostile payloads (null, list, string, empty, unknown field, wrong
+  types, negative, 10⁶⁰, nested, unicode + NUL, float, bool-as-int, marker value)
+  asserting never 5xx, never 200, no echo of the input, and no change to the node,
+  job or audit tables — plus targeted cases for `invalid_payload`, a non-string key,
+  and the 404 for a well-formed payload naming an unknown node. The same parser is a
+  fuzz target (`scripts/fuzz_ai.py` → `models.parse_signed_payload`).
 - **Fraud controls:** seeder payout only for co-signed transfer receipts from
   Coordinator-ticketed downloaders; same-owner and duplicate claims flagged; per-pair
   byte cap; payout delay.

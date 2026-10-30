@@ -10,8 +10,16 @@ name: "DAST: ZAP scan (staging-shaped stack)"
 # frontend and Caddy are NOT started — Next.js is a separate surface and its
 # own checks live in security.yml / ci-e2e.yml.
 #
-# Two passes: unauthenticated, then authenticated as a seeded account (the
-# token is injected as a ZAP Replacer header; it never touches the checkout).
+# Three passes, because the API has two authentication schemes and a session
+# cannot stand in for the other:
+#   1. unauthenticated;
+#   2. authenticated as a seeded **account** (session JWT) — covers everything
+#      under /auth, /files, /billing, /admin, /api/live;
+#   3. authenticated as a seeded **AI API key** — /api/ai/v1/* refuses a JWT
+#      (`authenticate` wants a scoped `tcdn_ai_` key), so without this pass the
+#      whole AI surface would only ever be scanned as an anonymous caller.
+# Each authenticated pass goes through a loopback proxy that adds the header
+# (`.github/zap/auth_proxy.py`); no credential touches the checkout.
 #
 # Findings are reported as they are. The job fails on any HIGH alert and
 # writes nothing to a rules file to silence one.
@@ -73,9 +81,9 @@ env:
 
 jobs:
   zap:
-    name: ZAP (unauthenticated + authenticated, flag on)
+    name: ZAP (unauthenticated + JWT + AI key, flag on)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -86,7 +94,8 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/zap/reports"
           cp .github/zap/plan-unauth.yaml .github/zap/plan-auth.yaml \
-             .github/zap/seed.py .github/zap/summarise.py "$RUNNER_TEMP/zap/"
+             .github/zap/plan-auth-ai.yaml .github/zap/seed.py \
+             .github/zap/summarise.py "$RUNNER_TEMP/zap/"
           # The ZAP container writes as its own uid; the token lives in this
           # directory, so it is 777 for the scan and never uploaded.
           chmod -R 777 "$RUNNER_TEMP/zap"
@@ -135,6 +144,21 @@ jobs:
           python3 "$RUNNER_TEMP/zap/seed.py" \
             --base-url "$ZAP_TARGET" \
             --token-out "$RUNNER_TEMP/zap/token"
+
+      # /api/ai/v1/* authenticates with a scoped API key, not the session. Issue
+      # one for the same seeded account, inside the container, where the
+      # database, Redis and the keyring already are. Only the key is printed on
+      # stdout; the file is written 0600 and is never uploaded.
+      - name: Seed an AI API key (for the /api/ai/v1 pass)
+        run: |
+          set -euo pipefail
+          key=$(docker compose -f docker-compose.yml -f .github/zap/docker-compose.zap.yml \
+            exec -T backend python - < .github/zap/seed_ai_key.py \
+            | grep -Eo 'tcdn_ai_[A-Za-z0-9_-]+' | tail -1)
+          test -n "$key" || { echo "the AI key seed printed no key" >&2; exit 1; }
+          umask 077
+          printf '%s' "$key" > "$RUNNER_TEMP/zap/ai-key"
+          echo "AI key issued (not printed)"
 
       # Exported from the running app rather than fetched over HTTP: production
       # turns /docs and /openapi.json off, and the spec must describe the routes
@@ -193,13 +217,43 @@ jobs:
           curl -fsS http://127.0.0.1:8001/auth/me >/dev/null 2>&1 \
             && echo "proxy reaches /auth/me"
 
-      - name: ZAP — authenticated pass
+      - name: ZAP — authenticated pass (session JWT)
         run: |
           set -euo pipefail
           docker run --rm --network=host \
             -v "$RUNNER_TEMP/zap:/zap/wrk:rw" \
             zaproxy/zap-stable zap.sh -cmd -autorun /zap/wrk/plan-auth.yaml \
             2>&1 | tee "$RUNNER_TEMP/zap/reports/scan-auth.log"
+
+      # Same proxy, second listener, different credential: the seeded account's
+      # inference-scoped AI key. `/api/ai/v1/balance` is the cheapest route that
+      # proves the key is accepted, so a scan that never authenticated fails here
+      # instead of producing a third report full of 401s.
+      - name: Start the AI-key proxy
+        run: |
+          set -euo pipefail
+          python3 .github/zap/auth_proxy.py \
+            --token-file "$RUNNER_TEMP/zap/ai-key" \
+            --listen 8002 --upstream-port 8000 \
+            > "$RUNNER_TEMP/zap/reports/auth-proxy-ai.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8002/health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8002/api/ai/v1/balance)
+          echo "AI key /api/ai/v1/balance -> $code"
+          test "$code" = "200" || {
+            echo "the seeded AI key was not accepted ("$code") — an 'authenticated' AI scan would be a lie" >&2
+            exit 1
+          }
+
+      - name: ZAP — authenticated pass (AI API key)
+        run: |
+          set -euo pipefail
+          docker run --rm --network=host \
+            -v "$RUNNER_TEMP/zap:/zap/wrk:rw" \
+            zaproxy/zap-stable zap.sh -cmd -autorun /zap/wrk/plan-auth-ai.yaml \
+            2>&1 | tee "$RUNNER_TEMP/zap/reports/scan-auth-ai.log"
 
       # Always runs: if a scan step failed, the findings that *were* produced
       # still get printed instead of disappearing behind the first error. The
@@ -213,11 +267,13 @@ jobs:
       # ZAP's own report only carries passive/active alert rules. The proxy log
       # is where server errors show up: a 5xx on malformed input is a finding
       # even when no rule names it.
-      - name: Tally responses from the auth proxy
+      - name: Tally responses from both proxies
         if: always()
         run: |
           set -euo pipefail
-          python3 - "$RUNNER_TEMP/zap/reports/auth-proxy.log" "$RUNNER_TEMP/zap/reports/coverage.md" <<'PY'
+          for pair in "auth-proxy coverage" "auth-proxy-ai coverage-ai"; do
+          set -- $pair
+          python3 - "$RUNNER_TEMP/zap/reports/$1.log" "$RUNNER_TEMP/zap/reports/$2.md" <<'PY'
           import collections, pathlib, sys
 
           log = pathlib.Path(sys.argv[1])
@@ -243,12 +299,14 @@ jobs:
           if twos:
               lines += ["", "## 2xx responses (what the session could actually reach)", "", "| Method + path | Count |", "|---|---|"]
               lines += [f"| `{p}` | {c} |" for p, c in twos.most_common(15)]
+          lines[0] = lines[0].replace("the authenticated pass", sys.argv[1])
           out.write_text("\n".join(lines) + "\n")
           print("\n".join(lines))
           if total == 0:
-              raise SystemExit("the proxy logged no requests — the authenticated pass did not run")
+              raise SystemExit(f"{sys.argv[1]} logged no requests — the pass did not run")
           PY
-          cat "$RUNNER_TEMP/zap/reports/coverage.md" >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/zap/reports/$2.md" >> "$GITHUB_STEP_SUMMARY"
+          done
 
       - name: Summarise and fail on HIGH
         if: always()
@@ -291,6 +349,7 @@ jobs:
           echo "==== scan logs ===="
           tail -60 "$RUNNER_TEMP/zap/reports/scan-unauth.log" 2>/dev/null || true
           tail -60 "$RUNNER_TEMP/zap/reports/scan-auth.log" 2>/dev/null || true
+          tail -60 "$RUNNER_TEMP/zap/reports/scan-auth-ai.log" 2>/dev/null || true
 
       - name: Cleanup
         if: always()

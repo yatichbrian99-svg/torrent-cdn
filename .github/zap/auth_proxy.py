@@ -36,6 +36,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "tcdn-zap-auth-proxy"
 
+    def version_string(self) -> str:
+        """No interpreter version in the header.
+
+        ``BaseHTTPRequestHandler`` defaults to ``"<server_version> <sys_version>"``,
+        which is ``tcdn-zap-auth-proxy Python/3.12.3``. ZAP's 10036 flagged this
+        header on the *proxy* (the backend's own header is set by
+        ``app/main.py`` and ``backend/gunicorn_conf.py``), so the scan was
+        reporting the scanner's own plumbing rather than the product. Fixing it
+        here is what makes the next 10036 a real finding if one appears.
+        """
+        return self.server_version
+
     token: str = ""
     upstream: tuple[str, int] = ("127.0.0.1", 8000)
 
