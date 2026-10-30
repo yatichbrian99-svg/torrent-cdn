@@ -7,8 +7,10 @@
 env:
   contexts:
     - name: torrentcdn
+      # The context URL is spidered as a seed, so it must answer 200: the
+      # API root is a 404 and ZAP records that as a plan warning.
       urls:
-        - http://127.0.0.1:8000
+        - http://127.0.0.1:8000/health
       includePaths:
         - http://127.0.0.1:8000.*
       excludePaths:
