@@ -1,0 +1,35 @@
+F-3 and F-6 — status with test evidence (2026-10-30)
+====================================================
+
+Both are reported fixed in audit/AUDIT_REPORT.md (lines 22-23). Re-run today from
+branch HEAD, not quoted from the report.
+
+F-3  origin fetch dials the address it validated (SSRF rebinding)
+    ENABLE_TCDN_AI=true pytest tests/test_ai_ssrf_pinning.py -q
+    -> 24 passed, 5 warnings in 1.47s
+    The rebinding case is TestOriginRebindingIsClosed::test_rebinding_dns_cannot_move_the_origin_connect:
+    a resolver that answers public at validation and private on any later lookup; the test
+    asserts the socket went to the validated public IP and the name was resolved exactly
+    once. Passing in the same file: a wrong-host certificate is refused, 14 blocked address
+    ranges and 6 internal hostnames are refused, and a name that cannot resolve at all still
+    fetches (only a pin can do that).
+
+F-6  a tcdn_ API key cannot spend admin money authority
+    ENABLE_TCDN_AI=true pytest tests/test_admin_jwt_only.py -q
+    -> 15 passed, 1 warning in 1.19s
+    Covers: a valid admin-owning API key is 403 on the money routes and the mocked DB is
+    asserted NOT to be queried for is_admin (no admin oracle); a session JWT still reaches
+    the same routes; a non-admin JWT is still 403; and a structural sweep fails if any money
+    route's dependency tree loses require_admin_jwt.
+    Flag off: 6 passed, 9 skipped, 1 warning in 1.02s
+    (9 skip with "ENABLE_TCDN_AI is off: /api/ai/v1 is not mounted" - the AI routes do not
+    exist then; the CDN payout half still runs.)
+
+Product surface (draft PR #46), flag off, re-run today:
+    pytest tests/test_auth.py tests/test_email_sender.py tests/test_payouts.py tests/test_files_dfs.py -q
+    -> 105 passed, 1 warning in 7.21s
+    tests/test_auth.py alone: 51 passed, 20 of them on the token blocklist, the required
+    exp/sub/iat claims and the control-character 400s.
+
+Not re-run: scripts/break_tests.py (29 mutation controls). This pass did not touch the
+guarded code, and the last recorded result is 29/29 CAUGHT in evidence/06-break-tests/.
