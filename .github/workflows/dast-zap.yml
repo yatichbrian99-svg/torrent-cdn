@@ -373,6 +373,12 @@ jobs:
       - name: Logs on failure
         if: failure()
         run: |
+          # A 500 under scan is a finding, and its cause is a traceback that a
+          # plain tail drops (the scan issues thousands of requests). Pull the
+          # tracebacks out of the whole log first, then the tail for context.
+          echo "==== backend tracebacks ===="
+          docker compose -f docker-compose.yml -f .github/zap/docker-compose.zap.yml \
+            logs --no-color backend 2>&1 | grep -B 2 -A 25 "Traceback (most recent call last)" | tail -200 || true
           echo "==== backend ===="
           docker compose -f docker-compose.yml -f .github/zap/docker-compose.zap.yml \
             logs backend --tail 150 2>&1 || true
