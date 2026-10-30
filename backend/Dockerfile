@@ -64,4 +64,7 @@ EXPOSE 8000
 # a Redis-down fallback). Keep workers × DB_POOL_MAX_SIZE under the Supabase
 # pooler's connection cap (free tier ~60). Render sets the PORT env var
 # automatically.
-CMD ["sh", "-c", "gunicorn app.main:app --workers ${WEB_CONCURRENCY:-1} --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000} --timeout 120 --keep-alive 5"]
+# `--config gunicorn_conf.py` replaces gunicorn's `Server: gunicorn/<version>`
+# header with a version-free product name (the app does the same for uvicorn's
+# header). See backend/gunicorn_conf.py.
+CMD ["sh", "-c", "gunicorn app.main:app --config gunicorn_conf.py --workers ${WEB_CONCURRENCY:-1} --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000} --timeout 120 --keep-alive 5"]

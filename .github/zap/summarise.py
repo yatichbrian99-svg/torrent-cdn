@@ -18,7 +18,9 @@ import sys
 
 RISK = {"3": "HIGH", "2": "MEDIUM", "1": "LOW", "0": "INFO"}
 ORDER = ("HIGH", "MEDIUM", "LOW", "INFO")
-EXPECTED = ("unauth", "auth")
+#: Every pass the workflow must produce a report for. A missing report is exit 2
+#: ("the scan produced no evidence"), never a silent pass.
+EXPECTED = ("unauth", "auth", "auth-ai")
 
 
 def load(path: pathlib.Path) -> dict:

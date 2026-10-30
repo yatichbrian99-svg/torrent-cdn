@@ -41,6 +41,24 @@ class ValidationError(AIError):
     code = "invalid_request"
 
 
+class InvalidPayload(ValidationError):
+    """A signed envelope carried a payload the route's model refuses.
+
+    Distinct from ``invalid_request`` (a malformed HTTP body FastAPI already
+    rejected): here the envelope parsed, the signature may even verify, and the
+    *inner* payload is wrong. Raised before any handler logic so a hostile
+    payload can never reach the store and can never surface as a 500 — which is
+    exactly what ``HeartbeatPayload(**payload)`` used to do (ZAP: MEDIUM
+    ``Format String Error`` plus 156 × 500 on ``/nodes/heartbeat``).
+
+    The message names the model; ``details.fields`` carries field **paths and
+    error types only**, never the offending value, so a rejection cannot echo
+    attacker input back or bloat the response.
+    """
+
+    code = "invalid_payload"
+
+
 class AuthenticationError(AIError):
     status_code = 401
     code = "unauthenticated"

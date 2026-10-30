@@ -13,9 +13,20 @@ from __future__ import annotations
 
 import re
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
+from pydantic import (
+    ValidationError as PydanticValidationError,
+)
+
+from .errors import InvalidPayload
 
 MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -49,6 +60,13 @@ class AttestationPlatform(str, Enum):
 
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+class _Empty(_Strict):
+    """Typing-only convenience: no field, never instantiated."""
+
+
+_Payload = TypeVar("_Payload", bound=_Strict)
 
 
 def _validate_model_name(value: str) -> str:
@@ -176,12 +194,44 @@ class SignedEnvelope(_Strict):
     ``payload`` is verified as an opaque dict first, then validated against the
     concrete model by the route — signature verification must not depend on the
     parser accepting attacker-shaped fields.
+
+    Use :func:`parse_signed_payload` for that second step. ``Model(**payload)``
+    must not be used: pydantic's ``ValidationError`` is not an ``AIError``, so it
+    escapes the error handler as a 500, and a non-string key raises ``TypeError``
+    before validation even starts.
     """
 
     payload: dict[str, Any]
     key_id: str = Field(min_length=1, max_length=64)
     alg: Literal["Ed25519"] = "Ed25519"
     sig: str = Field(min_length=16, max_length=256)
+
+
+def parse_signed_payload(model: type[_Payload], envelope: SignedEnvelope) -> _Payload:
+    """Validate an envelope's inner payload, or fail with a clean 422.
+
+    Call this as the **first** statement of the handler: a rejected payload must
+    not reach a store lookup, a signature check or any other logic, so the
+    rejection is identical whether or not the node exists and nothing is read.
+
+    ``details.fields`` lists ``<path>: <error type>`` for at most ten fields.
+    Values are never included — pydantic's raw ``errors()`` echoes the input,
+    which for a 100 kB prompt-shaped field would both bloat the response and copy
+    attacker data into the client's logs.
+    """
+    try:
+        return model.model_validate(envelope.payload)
+    except PydanticValidationError as exc:
+        fields: list[str] = []
+        for error in exc.errors(include_url=False, include_input=False)[:10]:
+            location = (
+                ".".join(str(part) for part in error.get("loc", ())) or "payload"
+            )
+            fields.append(f"{location}: {error.get('type', 'invalid')}")
+        raise InvalidPayload(
+            f"{model.__name__} payload is invalid",
+            details={"fields": fields},
+        ) from None
 
 
 class NodeRegistrationResponse(_Strict):
