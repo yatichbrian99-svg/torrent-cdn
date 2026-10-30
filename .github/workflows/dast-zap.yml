@@ -174,22 +174,31 @@ jobs:
       - name: Baseline — authenticated coverage so far
         run: bash .github/zap/authme.sh before
 
-      # The token is passed to ZAP as a Replacer rule, so it exists only in this
-      # step's argv and in the container's memory — not in a plan file, not in
-      # the checkout, not in the uploaded artifact.
+      # ZAP's Replacer rule did not apply the bearer header (the first run of
+      # this job proved it: 46 requests to /auth/me, all 401). The authenticated
+      # pass therefore goes through a loopback proxy that adds the header to
+      # every request, and the step below re-checks that it actually worked.
+      - name: Start the auth proxy
+        run: |
+          set -euo pipefail
+          python3 .github/zap/auth_proxy.py \
+            --token-file "$RUNNER_TEMP/zap/token" \
+            --listen 8001 --upstream-port 8000 \
+            > "$RUNNER_TEMP/zap/reports/auth-proxy.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8001/health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8001/health
+          curl -fsS http://127.0.0.1:8001/auth/me >/dev/null 2>&1 \
+            && echo "proxy reaches /auth/me"
+
       - name: ZAP — authenticated pass
         run: |
           set -euo pipefail
-          token=$(cat "$RUNNER_TEMP/zap/token")
           docker run --rm --network=host \
             -v "$RUNNER_TEMP/zap:/zap/wrk:rw" \
-            zaproxy/zap-stable zap.sh -cmd \
-            -autorun /zap/wrk/plan-auth.yaml \
-            -config 'replacer.full_list(0).description=zap-seeded-session' \
-            -config 'replacer.full_list(0).enabled=true' \
-            -config 'replacer.full_list(0).matchtype=REQ_HEADER' \
-            -config 'replacer.full_list(0).matchstr=Authorization' \
-            -config "replacer.full_list(0).replacement=Bearer ${token}" \
+            zaproxy/zap-stable zap.sh -cmd -autorun /zap/wrk/plan-auth.yaml \
             2>&1 | tee "$RUNNER_TEMP/zap/reports/scan-auth.log"
 
       # Always runs: if a scan step failed, the findings that *were* produced
@@ -245,4 +254,6 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: docker compose -f docker-compose.yml -f .github/zap/docker-compose.zap.yml down -v
+        run: |
+          pkill -f auth_proxy.py || true
+          docker compose -f docker-compose.yml -f .github/zap/docker-compose.zap.yml down -v
