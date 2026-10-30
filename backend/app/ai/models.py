@@ -62,10 +62,6 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
-class _Empty(_Strict):
-    """Typing-only convenience: no field, never instantiated."""
-
-
 _Payload = TypeVar("_Payload", bound=_Strict)
 
 
