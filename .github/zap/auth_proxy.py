@@ -49,6 +49,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return self.server_version
 
     token: str = ""
+    #: Which header carries the credential, and with what prefix. The session
+    #: pass uses ``Authorization: Bearer <jwt>``; the AI pass uses the API-key
+    #: header the AI surface documents (``X-API-Key: <key>``) so the scan does
+    #: not depend on the bearer parsing path at all.
+    header_name: str = "Authorization"
+    header_prefix: str = "Bearer "
     upstream: tuple[str, int] = ("127.0.0.1", 8000)
 
     # BaseHTTPRequestHandler's default logging is one noisy line per request to
@@ -68,7 +74,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             for key, value in self.headers.items()
             if key.lower() not in HOP_BY_HOP and key.lower() != "host"
         }
-        headers["Authorization"] = f"Bearer {self.token}"
+        headers[self.header_name] = f"{self.header_prefix}{self.token}"
 
         connection = http.client.HTTPConnection(*self.upstream, timeout=120)
         try:
@@ -120,6 +126,8 @@ def main() -> None:
     parser.add_argument("--token-file", required=True)
     parser.add_argument("--listen", type=int, default=8001)
     parser.add_argument("--upstream-port", type=int, default=8000)
+    parser.add_argument("--header-name", default="Authorization")
+    parser.add_argument("--header-prefix", default="Bearer ")
     args = parser.parse_args()
 
     with open(args.token_file) as handle:
@@ -127,11 +135,13 @@ def main() -> None:
     if not Handler.token:
         raise SystemExit("token file is empty")
     Handler.upstream = ("127.0.0.1", args.upstream_port)
+    Handler.header_name = args.header_name
+    Handler.header_prefix = args.header_prefix
 
     server = Server(("127.0.0.1", args.listen), Handler)
     print(
         f"auth proxy: 127.0.0.1:{args.listen} -> {Handler.upstream[0]}:{Handler.upstream[1]} "
-        "(bearer injected per request)",
+        f"({args.header_name} injected per request)",
         flush=True,
     )
     threading.current_thread().name = "auth-proxy"
