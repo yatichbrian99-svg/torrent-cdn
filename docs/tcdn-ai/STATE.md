@@ -82,15 +82,15 @@ New files: `render.staging.yaml`, `docs/tcdn-ai/STAGING.md`,
   gateway (`evidence/09-openai-gateway/js-client.json`), now a committed, CI-gated check.
 - Boundary contracts: `CONTRACTS.md` TB1–TB7 + **23** contract tests.
 - Open blockers for Level 1: see `PUSH_CHECKLIST.md` — **5** unfinished [P1] rows
-  (2 `MISSING`: 12.3, 12.4; 3 `PARTIAL`: 4.4, 5.5, 6.1). Rows 3.3, 4.5, 7.2, 10.1,
-  10.2 and 12.5 closed on 2026-10-29/30; 2.3, 2.6 and 3.2 closed on 2026-10-28.
+  (0 `MISSING`; 2 `PARTIAL`: 4.4, 6.1). Rows 3.3, 4.5, 7.2, 10.1, 10.2 and 12.5 closed on
+  2026-10-29/30, then 5.5, 12.3 and 12.4 on 2026-10-30; 2.3, 2.6 and 3.2 closed on 2026-10-28.
 - Release shape: **PR #46 (draft)** carries the CDN fixes **alone** — no `app/ai`, no
-  `tcdn_ai_sdk`, no `render.staging.yaml` — for a dark merge. Order, auto-deploy
-  surfaces, migration impact, the production smoke list and the one-step rollback are
-  in [`MERGE_PLAN.md`](MERGE_PLAN.md). ZAP has **not** run: the staging blueprint was
-  never applied (its URL answers 404) and the scanner image could not be pulled here;
-  see `evidence/03-security/dast-2026-10-30.txt` for what ran instead and row 5.5 for
-  why it stays `PARTIAL`.
+  `tcdn_ai_sdk`, no `render.staging.yaml` — for a dark merge; **PR #47 (draft)** carries the AI
+  branch. Order, auto-deploy surfaces, migration impact, the production smoke list and the
+  one-step rollback are in [`MERGE_PLAN.md`](MERGE_PLAN.md). ZAP now runs **in CI**
+  (`.github/workflows/dast-zap.yml`: two passes, authenticated pass proven, 0 HIGH, findings
+  recorded in `evidence/03-security/dast-ci-2026-10-30.md`); the hosted staging blueprint has
+  still never been applied.
 
 Read this first, then `HANDOFF_AUDIT.md`. The authoritative detail is the audit;
 this file is the short, current status.
@@ -110,7 +110,7 @@ this file is the short, current status.
 | M9 Result verification (Part 3) | **Partial — wired, keyed and paid in gateway mode** | Placement issues a second signed ticket to a *different* operator and records it in `ai_verifications`; the gateway dispatches it in the background and compares the two output hashes as soon as both receipts land (`test_ai_redundant_execution.py`). Since M4 the sample is `HMAC-SHA-256(coordinator_secret, domain \|\| job_id)` at a **3 %** default (`test_sample_is_not_derivable_from_the_job_id`), and the shadow operator is **paid** the compute share of its own tokens from `platform:revenue`, capped and idempotent per shadow job (`TestShadowPayout`). Still missing: a decision taken **after** a commitment, any SDK-mode path (no plaintext at the coordinator), and real tolerance profiles — 6.1 stays `PARTIAL` with those two clauses named |
 | M10 Confidential tier | **Simulated / interfaces only** | Policy + simulated adapter tested; real SEV-SNP/TDX/NVIDIA verifiers fail closed |
 | M11 Burn module | **Disabled** | Dry-run only, off by default, legal ack required in production |
-| M12 Hardening, docs, full gate | **Partly done** | CI is green on GitHub (all five workflows at `0360b10`, incl. the AI Postgres/Redis job, `ai-types`, and the nightly real-engine job). `container-scan` is now **blocking** and green with 0 fixed CRITICAL/HIGH (run `41013374030`), together with SAST, gitleaks and the full fuzz budget; **ZAP has not run**, and soak/chaos/pentest still missing; coverage 84 % |
+| M12 Hardening, docs, full gate | **Partly done** | CI is green on GitHub (all five workflows at `0360b10`, incl. the AI Postgres/Redis job, `ai-types`, and the nightly real-engine job). `container-scan` is now **blocking** and green with 0 fixed CRITICAL/HIGH (run `41013374030`), together with SAST, gitleaks, the full fuzz budget and **ZAP in CI** (two passes, 0 HIGH, findings in `evidence/03-security/dast-ci-2026-10-30.md`); soak/chaos/pentest still missing; coverage 84 % |
 | Test-harness fix: full-suite hang | **Fixed and verified** | Root cause: every `TestClient` startup opened a real asyncpg pool from `main.py`'s own `get_db_pool` binding (unpatched). Now hermetic; whole suite in one invocation, 4/4 green (`evidence/09-openai-gateway/full-suite*.txt`) |
 | M14 Real engine in CI + real email flow (Section C item 2) | **Done and verified** | Ollama 0.33.2 + `qwen2.5:0.5b` on CPU: `tests/test_ai_engine.py` 4/4; journey 12/12 with real inference and real verification link — `evidence/10-real-engine/`; nightly job `tcdn-ai-engine.yml`. Found and fixed the hold-underestimation bug and H-1 |
 | M13 OpenAI gateway (Section C item 1) | **Done and verified** | `/v1/models`, `/v1/chat/completions` (JSON + SSE); 14 tests incl. official OpenAI Python client; official JS client driven against a live uvicorn server: `evidence/09-openai-gateway/` |
