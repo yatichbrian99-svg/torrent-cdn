@@ -17,7 +17,6 @@ env:
     failOnError: false
     failOnWarning: false
     progressToStdout: true
-    threadPerHost: 5
 
 jobs:
   - type: openapi
@@ -31,10 +30,12 @@ jobs:
       maxAlertsPerRule: 20
       scanOnlyInScope: true
 
+  # Start at a URL that answers 200 (the API root is a 404; a job warning makes
+  # ZAP exit non-zero and would mask a real scanner failure).
   - type: spider
     parameters:
       context: torrentcdn
-      url: http://127.0.0.1:8000
+      url: http://127.0.0.1:8000/health
       maxDuration: 2
 
   - type: passiveScan-wait

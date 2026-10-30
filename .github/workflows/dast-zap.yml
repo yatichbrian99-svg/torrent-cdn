@@ -186,7 +186,12 @@ jobs:
             -config "replacer.full_list(0).replacement=Bearer ${token}" \
             2>&1 | tee "$RUNNER_TEMP/zap/reports/scan-auth.log"
 
+      # Always runs: if a scan step failed, the findings that *were* produced
+      # still get printed instead of disappearing behind the first error. The
+      # summariser exits 2 when a report is missing, so a broken scan cannot
+      # pass as a clean one.
       - name: Summarise and fail on HIGH
+        if: always()
         run: |
           set -euo pipefail
           python3 "$RUNNER_TEMP/zap/summarise.py" \
