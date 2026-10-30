@@ -1,20 +1,21 @@
 # ZAP Automation Framework plan — authenticated pass.
 #
-# Identical to plan-unauth.yaml except for the report names. The session token
-# is injected by the *runner* as a ZAP Replacer rule (-config
-# replacer.full_list(0)…) so it never appears in this file, in the checkout or
-# in the uploaded artifact.
+# Identical to plan-unauth.yaml except that the target is the runner's auth
+# proxy (:8001) instead of the backend (:8000). The proxy adds the seeded
+# account's bearer token to every request on the way through — see
+# auth_proxy.py for why a ZAP Replacer rule was not enough. The token itself
+# never appears in this file, in the checkout or in the uploaded artifact.
 env:
   contexts:
     - name: torrentcdn
       # The context URL is spidered as a seed, so it must answer 200: the
       # API root is a 404 and ZAP records that as a plan warning.
       urls:
-        - http://127.0.0.1:8000/health
+        - http://127.0.0.1:8001/health
       includePaths:
-        - http://127.0.0.1:8000.*
+        - http://127.0.0.1:8001.*
       excludePaths:
-        - http://127.0.0.1:8000/api/internal/.*
+        - http://127.0.0.1:8001/api/internal/.*
   parameters:
     failOnError: false
     failOnWarning: false
@@ -24,7 +25,7 @@ jobs:
   - type: openapi
     parameters:
       apiFile: /zap/wrk/api.json
-      targetUrl: http://127.0.0.1:8000
+      targetUrl: http://127.0.0.1:8001
       context: torrentcdn
 
   - type: passiveScan-config
@@ -37,7 +38,7 @@ jobs:
   - type: spider
     parameters:
       context: torrentcdn
-      url: http://127.0.0.1:8000/health
+      url: http://127.0.0.1:8001/health
       maxDuration: 2
 
   - type: passiveScan-wait
