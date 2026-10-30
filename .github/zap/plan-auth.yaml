@@ -1,0 +1,70 @@
+# ZAP Automation Framework plan — authenticated pass.
+#
+# Identical to plan-unauth.yaml except for the report names. The session token
+# is injected by the *runner* as a ZAP Replacer rule (-config
+# replacer.full_list(0)…) so it never appears in this file, in the checkout or
+# in the uploaded artifact.
+env:
+  contexts:
+    - name: torrentcdn
+      urls:
+        - http://127.0.0.1:8000
+      includePaths:
+        - http://127.0.0.1:8000.*
+      excludePaths:
+        - http://127.0.0.1:8000/api/internal/.*
+  parameters:
+    failOnError: false
+    failOnWarning: false
+    progressToStdout: true
+    threadPerHost: 5
+
+jobs:
+  - type: openapi
+    parameters:
+      apiFile: /zap/wrk/api.json
+      targetUrl: http://127.0.0.1:8000
+      context: torrentcdn
+
+  - type: passiveScan-config
+    parameters:
+      maxAlertsPerRule: 20
+      scanOnlyInScope: true
+
+  - type: spider
+    parameters:
+      context: torrentcdn
+      url: http://127.0.0.1:8000
+      maxDuration: 2
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 5
+
+  - type: activeScan
+    parameters:
+      context: torrentcdn
+      maxRuleDurationInMins: 1
+      maxScanDurationInMins: 6
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 5
+
+  - type: report
+    parameters:
+      template: traditional-json
+      reportDir: /zap/wrk/reports
+      reportFile: auth.json
+
+  - type: report
+    parameters:
+      template: traditional-html
+      reportDir: /zap/wrk/reports
+      reportFile: auth.html
+
+  - type: report
+    parameters:
+      template: traditional-md
+      reportDir: /zap/wrk/reports
+      reportFile: auth.md

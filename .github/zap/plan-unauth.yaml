@@ -1,0 +1,77 @@
+# ZAP Automation Framework plan — unauthenticated pass.
+#
+# The OpenAPI document is exported from the *running* app (see the workflow),
+# so the scan covers the routes this exact commit mounts: with the AI flag on
+# that is ~97 paths, including /api/ai/v1/*. The traditional spider still runs
+# so a real crawl complements the imported surface.
+env:
+  contexts:
+    - name: torrentcdn
+      urls:
+        - http://127.0.0.1:8000
+      includePaths:
+        - http://127.0.0.1:8000.*
+      # MediaMTX hook endpoints take a shared secret over an internal channel;
+      # they are not a client surface and would only add 401 noise.
+      excludePaths:
+        - http://127.0.0.1:8000/api/internal/.*
+  parameters:
+    # An import failure must not hide the rest of the scan, but it is reported
+    # (the workflow fails when a report is missing or empty).
+    failOnError: false
+    failOnWarning: false
+    progressToStdout: true
+    threadPerHost: 5
+
+jobs:
+  - type: openapi
+    parameters:
+      apiFile: /zap/wrk/api.json
+      targetUrl: http://127.0.0.1:8000
+      context: torrentcdn
+
+  - type: passiveScan-config
+    parameters:
+      maxAlertsPerRule: 20
+      scanOnlyInScope: true
+
+  - type: spider
+    parameters:
+      context: torrentcdn
+      url: http://127.0.0.1:8000
+      maxDuration: 2
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 5
+
+  # Active rules on a throwaway stack: a passive-only baseline over a JSON API
+  # produces almost nothing (the passive rules mostly inspect HTML), so the
+  # scan is allowed to attack the endpoints it imported. Bounded hard.
+  - type: activeScan
+    parameters:
+      context: torrentcdn
+      maxRuleDurationInMins: 1
+      maxScanDurationInMins: 6
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 5
+
+  - type: report
+    parameters:
+      template: traditional-json
+      reportDir: /zap/wrk/reports
+      reportFile: unauth.json
+
+  - type: report
+    parameters:
+      template: traditional-html
+      reportDir: /zap/wrk/reports
+      reportFile: unauth.html
+
+  - type: report
+    parameters:
+      template: traditional-md
+      reportDir: /zap/wrk/reports
+      reportFile: unauth.md
