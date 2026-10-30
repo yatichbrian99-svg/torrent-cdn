@@ -22,6 +22,18 @@ env:
         # different label. Logout is still exercised by the unauthenticated
         # pass; here it would only destroy the credential under test.
         - http://127.0.0.1:8001/auth/logout
+        # Measured 2026-10-30: this pass deleted the seeded account. The spec
+        # exposes DELETE /auth/me and the scan calls it; deleting the users row
+        # cascades to ai_accounts and ai_api_keys (both ON DELETE CASCADE), so
+        # the inference key minted for the AI pass was gone by the time that
+        # pass needed it — the run failed with /api/ai/v1/balance -> 401
+        # "invalid API key" about twelve minutes after a key that had just
+        # authenticated in-process. Account deletion is exercised by
+        # tests/test_authorization_matrix.py; here it only destroys the account
+        # the other two passes depend on.
+        - http://127.0.0.1:8001/auth/me
+        # Same reasoning, smaller blast radius: revokes the account's API key.
+        - http://127.0.0.1:8001/auth/api-key
   parameters:
     failOnError: false
     failOnWarning: false

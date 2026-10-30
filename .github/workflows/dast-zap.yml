@@ -214,8 +214,11 @@ jobs:
             sleep 1
           done
           curl -fsS http://127.0.0.1:8001/health
-          curl -fsS http://127.0.0.1:8001/auth/me >/dev/null 2>&1 \
-            && echo "proxy reaches /auth/me"
+          # A read-only JWT route: /auth/me also exposes DELETE, which is
+          # excluded from this context (it deletes the seeded account and
+          # cascades to the AI keys the next pass needs).
+          curl -fsS http://127.0.0.1:8001/auth/referral >/dev/null 2>&1 \
+            && echo "proxy reaches /auth/referral"
 
       - name: ZAP — authenticated pass (session JWT)
         run: |
@@ -254,6 +257,23 @@ jobs:
             echo "--- direct body ---"; head -c 400 "$RUNNER_TEMP/zap/reports/ai-direct.json" || true; echo
             echo "--- proxied body ---"; head -c 400 "$RUNNER_TEMP/zap/reports/ai-proxied.json" || true; echo
             echo "the seeded AI key was not accepted — an 'authenticated' AI scan would be a lie" >&2
+            # "the account is gone" and "the hash does not match" are different
+            # bugs; say which one this is instead of leaving a bare 401.
+            docker compose -f docker-compose.yml -f .github/zap/docker-compose.zap.yml \
+              exec -T backend python - <<'PY' || true
+          import asyncio
+          from app.database import get_db_pool
+
+          async def main() -> None:
+              pool = await get_db_pool()
+              uid = await pool.fetchval(
+                  "SELECT id FROM users WHERE lower(email) = lower('zap-scan@example.test')"
+              )
+              keys = await pool.fetchval("SELECT count(*) FROM ai_api_keys")
+              print(f"diagnostic: seeded account present={uid is not None}, ai_api_keys rows={keys}")
+
+          asyncio.run(main())
+          PY
             exit 1
           fi
 
