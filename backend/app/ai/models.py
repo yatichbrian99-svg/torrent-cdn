@@ -224,9 +224,7 @@ def parse_signed_payload(model: type[_Payload], envelope: SignedEnvelope) -> _Pa
     except PydanticValidationError as exc:
         fields: list[str] = []
         for error in exc.errors(include_url=False, include_input=False)[:10]:
-            location = (
-                ".".join(str(part) for part in error.get("loc", ())) or "payload"
-            )
+            location = ".".join(str(part) for part in error.get("loc", ())) or "payload"
             fields.append(f"{location}: {error.get('type', 'invalid')}")
         raise InvalidPayload(
             f"{model.__name__} payload is invalid",
