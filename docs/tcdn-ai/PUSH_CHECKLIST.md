@@ -64,12 +64,19 @@ of it. Neither is explained away.
 2. **Three 500s, one each** on `POST /api/live/session`,
    `POST /api/live/heartbeat` and `POST /api/live/segment/availability` — the
    same three in both authenticated passes, all outside the AI surface. The
-   common first statement of those handlers is `_check_viewer_rate_limit`, which
-   runs before any channel lookup, so the trigger is not a missing channel.
-   Their traceback was not in the `--tail 150` container log the failing job
-   printed, so the cause is **unattributed**. The workflow now dumps every
-   backend traceback from the whole scan in its *Logs on failure* step, so the
-   next red run names the exception instead of the status code.
+   whole-scan log dump added in `a45403c` captured them: every one is an
+   `ExceptionGroup: unhandled errors in a TaskGroup` whose deepest frame is
+   `starlette/middleware/base.py` `coro` under **this app's
+   `_server_header` middleware**, with no application frame at all — i.e. the
+   exception was raised inside `BaseHTTPMiddleware`'s task group and the real
+   frame was lost. `_server_header` is now a **plain ASGI middleware** (it
+   rewrites `http.response.start` and adds no task group), which removes that
+   failure class and makes any remaining exception carry its route frames;
+   `/health` and a 404 both still answer `server: torrentcdn`. Whether the
+   middleware was the *cause* or only the frame that hid it is **not yet
+   proven**: the next DAST run either loses the 500s (cause was the middleware)
+   or logs the route frame that produced them. This stays open until one of
+   those happens.
 
 ---
 
