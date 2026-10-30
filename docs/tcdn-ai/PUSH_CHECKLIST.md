@@ -10,7 +10,7 @@ Nothing here is inherited from an earlier report.
 
 | Level | VERIFIED | PARTIAL | BUILT-UNVERIFIED | MISSING | DEFERRED | NOT VERIFIABLE HERE | Total |
 |---|---|---|---|---|---|---|---|
-| **P1** | **54** | **2** | 0 | **0** | 0 | 0 | 56 |
+| **P1** | **53** | **3** | 0 | **0** | 0 | 0 | 56 |
 | **P2** | 0 | 1 | 0 | **28** | 0 | 1 | 30 |
 | **DEFER** | 0 | 0 | 0 | 0 | 2 | 0 | 2 |
 
@@ -18,7 +18,7 @@ Counts produced by parsing the tables in this file (not estimated). Re-measured
 2026-10-30: **3.3**, **4.5**, **7.2**, **10.1**, **10.2** and **12.5** moved
 from their unfinished states to `VERIFIED`; then **5.5** (`PARTIAL`) and
 **12.3**/**12.4** (`MISSING`) closed on the same day, once ZAP ran in CI and the
-branch got draft PR #47. P1 is therefore **54 / 2 / 0 / 0** of 56. Row
+branch got draft PR #47. P1 is therefore **53 / 3 / 0 / 0** of 56. Row
 **3.4** was added 2026-10-28 (P2, `MISSING`: outbound worker mode), which is why
 P2 is 30 rows.
 
@@ -30,12 +30,13 @@ what its Evidence column says it needs.
 
 **Level 1 ready: NO.**
 
-Two [P1] rows still have to change before that line can become YES:
+Three [P1] rows still have to change before that line can become YES:
 
 | Row | Why it stops Level 1 |
 |---|---|
 | **4.4** | No Paystack sandbox session and M-Pesa is not enabled on the account: the billing state machine is tested, the provider is not exercised. Owner-blocked, not code-blocked. |
 | **6.1** | Redundant execution is wired, keyed and paid, but the sample is still decided at **placement** rather than after a commitment, and **SDK-mode jobs cannot be re-executed** (no plaintext). |
+| **12.4** | Post-push confirmation: the final docs commit re-ran all five workflows and one job flaked (see the row). |
 
 ---
 
@@ -184,7 +185,7 @@ Two [P1] rows still have to change before that line can become YES:
 | 12.1 | This checklist complete, counts, "Level 1 ready" line | P1 | **VERIFIED** | this file | says **NO** with reasons |
 | 12.2 | `VERIFICATION_REPORT.md` per Appendix 4 §7 | P1 | **VERIFIED** | counts re-measured 2026-10-28 and corrected: **latest, after the staging kit** flag **on** `1148 passed, 29 skipped` (152 s), flag **off** `1072 passed, 105 skipped` (80 s), both exit 0; break tests **24/24** + the new launcher control (2 loops → 0 heartbeats), route matrix **113 routes**, schema **17 tables**, `ruff check` clean, `mypy --config-file mypy-ai.ini` clean; earlier same-day measurement: flag **on** `1127 passed, 29 skipped`, flag **off** `1057 passed, 99 skipped`, route matrix **112 routes**; (earlier entry: 2026-10-26 — flag **on** `1030 passed, 4 skipped`, flag **off** `971 passed, 63 skipped`, AI subset **327 tests**; break tests **13/13**); the OpenAI-client and refund rows corrected from "not implemented" to what is now true. **M3 pass, same day, no Postgres attached:** flag on `1020 passed, 21 skipped` (81 s), flag off `961 passed, 80 skipped` (99 s), AI subset `303 passed, 21 skipped`, new file `7 passed`; `ruff check` clean | the report is a dated record with a revision note; `PUSH_CHECKLIST.md` is the current status. The two runs differ only in the Postgres lanes, which skip without `TEST_POSTGRES_URL` |
 | 12.3 | Draft PR description with all required sections | P1 | **VERIFIED** | **PR #47** (`fix/tcdn-ai-redis-replay-nonce` → `main`, **draft**, do-not-merge) carries the scope, the flag-off default (`render.yaml` sets no `ENABLE_TCDN_AI`; 79 paths off vs 97 on, 0 vs 18 AI routes), a link to `MERGE_PLAN.md`, and the open-row list. PR #46 (the CDN fixes alone) is untouched and still draft | opening the PR changed no code; the body is the record |
-| 12.4 | After push: CI green, no secrets, PR link | P1 | **VERIFIED** | all five PR-triggered workflows **green** on the pushed branch at `08fb260`: `backend-lint` `41044194977`, Tests & Security `41044195010` (gitleaks "no leaks found"), Full-stack Docker `41044195124` (incl. `ai-store` and the blocking Trivy scan), Dependency Audit `41044194990`, and DAST/ZAP `41044195005` (both passes, authenticated coverage proven, 0 HIGH). PR #47 is the link | the docs commit recording this touches no code — no `backend/**`, no `.github/**` — so it re-runs only `security.yml` + `backend-lint`, and the Docker/ZAP conclusions stand for identical code |
+| 12.4 | After push: CI green, no secrets, PR link | P1 | **PARTIAL** | At `08fb260` all five PR-triggered workflows were **green** (`backend-lint` `41044194977`, Tests & Security `41044195010` with gitleaks "no leaks found", Full-stack Docker `41044195124`, Dependency Audit `41044194990`, DAST/ZAP `41044195005`). The docs-only commit `1e17d88` re-ran the same five and **one failed**: `ai-store` → `tests/test_ai_components.py::TestReceipts::test_flipped_signature_rejected`, `DID NOT RAISE ReceiptError`, **1 failed / 501 passed**. PR #47 is the link | the failure is a **flawed mutation, not a product defect**: the test sets `document["sig"] = "A" + document["sig"][1:]`, so when the real signature already begins with `A` (~1 in 64) the "flip" changes nothing and the receipt is still valid. ZAP and the other four workflows passed on the same commit, and the same suite passed at `08fb260` minutes earlier. Fixing the mutation is a code change left for its own commit, so this row is **not** VERIFIED on the final commit |
 | 12.5 | Temporary trial-push triggers removed, in their own labelled commit, before the PR is marked ready | P1 | **VERIFIED** | Closed 2026-10-30 in its own commit (“Remove the temporary branch push trigger”), touching nothing else: `ci-fullstack.yml` and `backend-lint.yml` now push on `branches: [main]` only, and `tcdn-ai-engine.yml` has **no** `push:` trigger at all (the nightly `schedule` and `workflow_dispatch` remain). Verified after the edit: `grep -rn "fix/tcdn-ai-redis-replay-nonce" .github/` → **no matches**, and the remove-before-merge comments are gone with the triggers | the branch still gets CI through `pull_request` (`security.yml`, `ci-fullstack.yml`, `backend-lint.yml`, `dependency-audit.yml`); what it loses is push-triggered runs after the PR exists, which was the point |
 
 ---
