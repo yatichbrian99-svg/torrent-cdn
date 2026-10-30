@@ -16,6 +16,12 @@ env:
         - http://127.0.0.1:8001.*
       excludePaths:
         - http://127.0.0.1:8001/api/internal/.*
+        # The scan enumerated POST /auth/logout and fired it once. That revokes
+        # the seeded session, so every later request in the pass was 401 — the
+        # "authenticated" report was really an unauthenticated one with a
+        # different label. Logout is still exercised by the unauthenticated
+        # pass; here it would only destroy the credential under test.
+        - http://127.0.0.1:8001/auth/logout
   parameters:
     failOnError: false
     failOnWarning: false

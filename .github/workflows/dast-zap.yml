@@ -210,6 +210,46 @@ jobs:
       - name: Prove the authenticated pass authenticated
         run: bash .github/zap/authme.sh after
 
+      # ZAP's own report only carries passive/active alert rules. The proxy log
+      # is where server errors show up: a 5xx on malformed input is a finding
+      # even when no rule names it.
+      - name: Tally responses from the auth proxy
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/zap/reports/auth-proxy.log" "$RUNNER_TEMP/zap/reports/coverage.md" <<'PY'
+          import collections, pathlib, sys
+
+          log = pathlib.Path(sys.argv[1])
+          out = pathlib.Path(sys.argv[2])
+          rows = []
+          for line in log.read_text(errors="replace").splitlines():
+              # auth-proxy <METHOD> <path> -> <status>
+              parts = line.split(" ")
+              if len(parts) != 5 or parts[0] != "auth-proxy" or parts[3] != "->":
+                  continue
+              rows.append((parts[1], parts[2], parts[4]))
+          total = len(rows)
+          status = collections.Counter(r[2] for r in rows)
+          five = collections.Counter(r[1].split("?")[0] for r in rows if r[2].startswith("5"))
+          twos = collections.Counter(r[0] + " " + r[1].split("?")[0] for r in rows if r[2].startswith("2"))
+          lines = ["# Scan coverage (authenticated pass, measured at the proxy)", ""]
+          lines.append(f"{total} requests proxied.")
+          lines += ["", "| Status | Requests |", "|---|---|"]
+          lines += [f"| {code} | {count} |" for code, count in sorted(status.items(), key=lambda kv: -kv[1])]
+          if five:
+              lines += ["", "## 5xx responses (unhandled errors under scan)", "", "| Path | Count |", "|---|---|"]
+              lines += [f"| `{p}` | {c} |" for p, c in five.most_common(15)]
+          if twos:
+              lines += ["", "## 2xx responses (what the session could actually reach)", "", "| Method + path | Count |", "|---|---|"]
+              lines += [f"| `{p}` | {c} |" for p, c in twos.most_common(15)]
+          out.write_text("\n".join(lines) + "\n")
+          print("\n".join(lines))
+          if total == 0:
+              raise SystemExit("the proxy logged no requests — the authenticated pass did not run")
+          PY
+          cat "$RUNNER_TEMP/zap/reports/coverage.md" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Summarise and fail on HIGH
         if: always()
         run: |
