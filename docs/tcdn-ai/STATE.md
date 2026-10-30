@@ -81,9 +81,16 @@ New files: `render.staging.yaml`, `docs/tcdn-ai/STAGING.md`,
 - Official **JavaScript** OpenAI client: **19/19 checks** against a live uvicorn
   gateway (`evidence/09-openai-gateway/js-client.json`), now a committed, CI-gated check.
 - Boundary contracts: `CONTRACTS.md` TB1–TB7 + **23** contract tests.
-- Open blockers for Level 1: see `PUSH_CHECKLIST.md` — **6** unfinished [P1] rows
-  (3 `MISSING`: 12.3, 12.4, 12.5; 3 `PARTIAL`: 4.4, 5.5, 6.1). Rows 3.3, 4.5, 7.2,
-  10.1 and 10.2 closed on 2026-10-29/30; 2.3, 2.6 and 3.2 closed on 2026-10-28.
+- Open blockers for Level 1: see `PUSH_CHECKLIST.md` — **5** unfinished [P1] rows
+  (2 `MISSING`: 12.3, 12.4; 3 `PARTIAL`: 4.4, 5.5, 6.1). Rows 3.3, 4.5, 7.2, 10.1,
+  10.2 and 12.5 closed on 2026-10-29/30; 2.3, 2.6 and 3.2 closed on 2026-10-28.
+- Release shape: **PR #46 (draft)** carries the CDN fixes **alone** — no `app/ai`, no
+  `tcdn_ai_sdk`, no `render.staging.yaml` — for a dark merge. Order, auto-deploy
+  surfaces, migration impact, the production smoke list and the one-step rollback are
+  in [`MERGE_PLAN.md`](MERGE_PLAN.md). ZAP has **not** run: the staging blueprint was
+  never applied (its URL answers 404) and the scanner image could not be pulled here;
+  see `evidence/03-security/dast-2026-10-30.txt` for what ran instead and row 5.5 for
+  why it stays `PARTIAL`.
 
 Read this first, then `HANDOFF_AUDIT.md`. The authoritative detail is the audit;
 this file is the short, current status.

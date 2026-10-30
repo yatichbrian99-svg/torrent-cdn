@@ -1,0 +1,58 @@
+DAST / dynamic-scan record — 2026-10-30
+=======================================
+
+Verdict: **ZAP DID NOT RUN.** Row 5.5 stays PARTIAL. Nothing in this file is a ZAP
+result and nothing here should be read as one.
+
+1. There is no staging stack to attack
+--------------------------------------
+    curl -s -o /dev/null -w '%{http_code}' https://torrentcdn-staging-ai.onrender.com/health           -> 404
+    curl -s -o /dev/null -w '%{http_code}' https://torrentcdn-staging-ai.onrender.com/api/ai/v1/status -> 404
+
+`render.staging.yaml` has never been applied — `docs/tcdn-ai/STAGING.md` §1 ("Create the
+blueprint") is still an owner step, so the documented URL answers 404 on both surfaces.
+
+2. ZAP could not be obtained here either
+----------------------------------------
+    docker images | grep -i zap                     -> (no local ZAP image)
+    docker pull zaproxy/zap-stable                  -> every layer still "Waiting" after 10+ min;
+                                                       zero "Downloading" lines: no layer started
+    curl auth.docker.io/token?...                   -> HTTP 200, 4516 B/s measured
+                                                       (~700 MB at that rate is ~43 hours)
+    docker pull ghcr.io/zaproxy/zap-stable:latest   -> "denied" (anonymous pull refused)
+
+3. What WAS run — a local production-mode stack, NOT ZAP
+---------------------------------------------------------
+Stack: `docker compose` (Postgres 16.4, Redis 7.4.2, MinIO, MediaMTX, backend image built from
+this branch), `APP_ENV=production`, `STAGING_DEPLOYMENT=true`, Paystack **test** key,
+`ENABLE_TCDN_AI` unset. Target `http://127.0.0.1:8000`. Code as of `9b33c78`.
+
+    PASS  GET  /health                              200 {"status":"healthy"}
+    PASS  GET  /api/health/live                     200 redis:true, mediamtx_reachable:true,
+                                                        last_error:null
+    PASS  POST /auth/register                       200 (with terms_accepted:true)
+    PASS  POST /auth/login                          200 -> {mfa_required, mfa_token, needs_setup}
+    n/a   GET  /auth/me with that token             — no session token is issued: THIS deployment
+                                                        requires MFA at login, so the "log out and
+                                                        replay the token" check could not be driven
+                                                        from a script here.
+    PASS  POST /auth/login, NUL byte in email       400 {"detail":"Invalid email address"}
+                                                        (was a 500 + stack trace before the fix)
+    PASS  GET  /api/ai/v1/status                    404 (flag off: the AI surface is not mounted)
+    OBS   POST /auth/register, repeated from one IP 429 "Too many registrations from this IP."
+                                                        (the throttle engages; this is why the run
+                                                        flushed Redis and restarted the backend)
+
+The session-replay half is covered by tests instead of this probe:
+`backend/tests/test_auth.py` — **51 passed**, 20 of them selected on the blocklist /
+required-claims / control-character fixes (`.venv/bin/python -m pytest tests/test_auth.py -q -k
+"block or logout or nul or control or require or exp"` -> 20 passed, 31 deselected).
+
+4. What this run does NOT prove
+-------------------------------
+* No ZAP spider and no active scan: there is no ZAP report, no alert list, no severity count.
+* No authenticated crawl; the upload, share, payout-admin and AI admin surfaces were not fuzzed.
+* One environment (local, single process, no TLS — Caddy and the frontend were not started),
+  one client origin, one session.
+* The MFA-required login path was exercised only as far as "a token is withheld".
+* Repeating this against a hosted staging box is the outstanding work for row 5.5.
