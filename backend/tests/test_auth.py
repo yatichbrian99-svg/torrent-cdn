@@ -336,6 +336,270 @@ class TestGetMe:
         assert resp.json()["detail"] == "User not found"
 
 
+class TestLogoutTokenRevocation:
+    """Regression: POST /auth/logout must actually invalidate the session token.
+
+    Logout writes ``token_block:{jti}`` to Redis. The check in
+    ``get_current_user_id`` used to raise its 401 *inside* a ``try`` whose bare
+    ``except Exception: pass`` caught that same HTTPException (an Exception
+    subclass), so the blocklist was a silent no-op: the key was written, and
+    every request still authenticated. These tests pin both the rejection and
+    the intended fail-open behaviour on a Redis outage.
+    """
+
+    ME_URL = "/auth/me"
+
+    @staticmethod
+    def _jti(headers):
+        from app.auth import decode_access_token
+        token = headers["Authorization"].removeprefix("Bearer ")
+        return decode_access_token(token)["jti"]
+
+    def test_blocklisted_jti_is_rejected(self, client, auth_headers, mock_conn, monkeypatch):
+        """A token whose jti is on the blocklist must 401 (returned 200 pre-fix)."""
+        jti = self._jti(auth_headers)
+        redis = AsyncMock()
+        redis.get = AsyncMock(return_value="1")
+        monkeypatch.setattr("app.auth.get_redis", AsyncMock(return_value=redis))
+        # The user row exists — the blocklist must short-circuit before it is read.
+        mock_conn.fetchrow.return_value = {
+            "id": UUID("11111111-1111-4111-8111-111111111111")
+        }
+
+        resp = client.get(self.ME_URL, headers=auth_headers)
+        assert resp.status_code == 401, (
+            "a logged-out token still authenticated — the blocklist raise is being "
+            "swallowed by its own except Exception"
+        )
+        assert "Session invalidated" in resp.json()["detail"]
+        assert jti  # the token really carried the jti the blocklist keys on
+
+    def test_non_blocklisted_jti_still_authenticates(self, client, auth_headers, mock_conn, monkeypatch):
+        """An unblocked token must keep working — guards against over-blocking."""
+        redis = AsyncMock()
+        redis.get = AsyncMock(return_value=None)
+        monkeypatch.setattr("app.auth.get_redis", AsyncMock(return_value=redis))
+        mock_conn.fetchrow.return_value = {
+            "id": UUID("11111111-1111-4111-8111-111111111111"),
+            "email": "user@example.com",
+            "plan": "free",
+            "created_at": "2026-01-01T00:00:00Z",
+        }
+
+        resp = client.get(self.ME_URL, headers=auth_headers)
+        assert resp.status_code == 200
+
+    def test_redis_failure_fails_open(self, client, auth_headers, mock_conn, monkeypatch):
+        """A Redis outage must not lock users out — fail open, expiry is the backstop.
+
+        This is the behaviour the broad except existed to provide; the fix must
+        keep it while letting the deliberate 401 escape.
+        """
+        async def _boom():
+            raise ConnectionError("redis down")
+
+        monkeypatch.setattr("app.auth.get_redis", _boom)
+        mock_conn.fetchrow.return_value = {
+            "id": UUID("11111111-1111-4111-8111-111111111111"),
+            "email": "user@example.com",
+            "plan": "free",
+            "created_at": "2026-01-01T00:00:00Z",
+        }
+
+        resp = client.get(self.ME_URL, headers=auth_headers)
+        assert resp.status_code == 200
+
+    def test_logout_writes_the_blocklist_key(self, client, auth_headers, monkeypatch):
+        """The other half of the contract: logout must write token_block:{jti}+TTL."""
+        jti = self._jti(auth_headers)
+        redis = AsyncMock()
+        redis.get = AsyncMock(return_value=None)
+        redis.set = AsyncMock(return_value=True)
+        monkeypatch.setattr("app.routes.auth.get_redis", AsyncMock(return_value=redis))
+        monkeypatch.setattr("app.auth.get_redis", AsyncMock(return_value=redis))
+
+        resp = client.post("/auth/logout", headers=auth_headers)
+        assert resp.status_code == 200
+        redis.set.assert_awaited_once()
+        args, kwargs = redis.set.await_args
+        assert args[0] == f"token_block:{jti}"
+        assert kwargs.get("ex", 0) > 0
+
+
+class TestAccessTokenClaimRequirements:
+    """Regression (F-10): a session JWT must carry exp/sub/iat and a bounded lifetime.
+
+    ``decode_access_token`` used to validate these claims only *when present*
+    (``options={"require": ...}`` was absent). A token signed with the real
+    secret and containing only ``sub`` therefore authenticated, never expired,
+    and — because ``_token_revoked_by_password_change`` returns early on a
+    missing ``iat`` — could not be revoked by a password reset or an MFA change
+    either. That is a permanent, non-revocable credential if the signing key is
+    ever leaked or rotated out.
+
+    These tests pin the rejection of every malformed shape AND that normal
+    app-issued tokens, including the longest legitimate one, still work.
+    """
+
+    ME_URL = "/auth/me"
+    USER_ID = "11111111-1111-4111-8111-111111111111"
+    DAY = 60 * 60 * 24
+
+    @staticmethod
+    def _mint(payload: dict) -> str:
+        """Sign `payload` with the app's real secret (the leaked-key scenario)."""
+        import jwt as pyjwt
+
+        from app.config import get_settings
+        return pyjwt.encode(
+            payload, get_settings().jwt_secret, algorithm=get_settings().jwt_algorithm
+        )
+
+    def _user_row(self, mock_conn) -> None:
+        mock_conn.fetchrow.return_value = {
+            "id": UUID(self.USER_ID),
+            "email": "user@example.com",
+            "plan": "free",
+            "created_at": "2026-01-01T00:00:00Z",
+        }
+
+    def _get(self, client, mock_conn, payload: dict):
+        self._user_row(mock_conn)
+        token = self._mint(payload)
+        return client.get(self.ME_URL, headers={"Authorization": f"Bearer {token}"})
+
+    def test_bare_sub_token_is_rejected(self, client, mock_conn):
+        """The exact F-10 PoC — sub only. Returned 200 before the fix."""
+        resp = self._get(client, mock_conn, {"sub": self.USER_ID})
+        assert resp.status_code == 401, (
+            "a sub-only token still authenticated — it never expires and cannot "
+            "be revoked by a password change"
+        )
+
+    def test_token_without_exp_is_rejected(self, client, mock_conn):
+        """No exp means never expires — must fail closed."""
+        import time
+        resp = self._get(client, mock_conn,
+                         {"sub": self.USER_ID, "iat": int(time.time())})
+        assert resp.status_code == 401
+
+    def test_token_without_iat_is_rejected(self, client, mock_conn):
+        """No iat means the revocation check can never match it."""
+        import time
+        resp = self._get(client, mock_conn, {
+            "sub": self.USER_ID,
+            "exp": int(time.time()) + 3600,
+        })
+        assert resp.status_code == 401
+
+    def test_token_without_sub_is_rejected(self, client, mock_conn):
+        """No sub means no identity — must not fall through to a handler."""
+        import time
+        now = int(time.time())
+        resp = self._get(client, mock_conn, {"exp": now + 3600, "iat": now})
+        assert resp.status_code == 401
+
+    def test_far_future_exp_is_rejected(self, client, mock_conn):
+        """A ~100-year lifetime is malformed: the longest real one is 14 days."""
+        import time
+        now = int(time.time())
+        resp = self._get(client, mock_conn, {
+            "sub": self.USER_ID, "iat": now, "exp": now + 100 * 365 * self.DAY,
+        })
+        assert resp.status_code == 401, "an unbounded exp was accepted"
+
+    def test_app_issued_token_still_authenticates(self, client, auth_headers, mock_conn):
+        """Control: tightening the claims must not break real tokens."""
+        self._user_row(mock_conn)
+        resp = client.get(self.ME_URL, headers=auth_headers)
+        assert resp.status_code == 200
+
+    def test_remember_me_lifetime_is_accepted(self, client, mock_conn):
+        """Control: the 14-day "remember me" lifetime is the longest legitimate
+        one and must survive the new cap."""
+        import time
+        now = int(time.time())
+        resp = self._get(client, mock_conn, {
+            "sub": self.USER_ID, "iat": now, "exp": now + 14 * self.DAY,
+        })
+        assert resp.status_code == 200
+
+    def test_a_longer_configured_lifetime_is_accepted(self, client, mock_conn, monkeypatch):
+        """Backward compatibility: the cap follows JWT_EXPIRE_MINUTES.
+
+        The ceiling has to cover whatever this deployment's own policy mints. An
+        operator running 30-day sessions (a supported setting) would otherwise be
+        locked out by tokens the app itself just issued — a rollout that breaks
+        every login rather than one malformed credential.
+        """
+        import time
+
+        from app import auth as auth_module
+        monkeypatch.setattr(auth_module.settings, "jwt_expire_minutes", 30 * 24 * 60)
+        now = int(time.time())
+        resp = self._get(client, mock_conn, {
+            "sub": self.USER_ID, "iat": now, "exp": now + 30 * self.DAY,
+        })
+        assert resp.status_code == 200
+
+        # The ceiling moved with the policy, it did not disappear.
+        resp = self._get(client, mock_conn, {
+            "sub": self.USER_ID, "iat": now, "exp": now + 100 * 365 * self.DAY,
+        })
+        assert resp.status_code == 401
+
+    def test_every_mint_path_emits_the_claims_the_decoder_requires(self):
+        """No app-issued token may be rejected by the tightened decoder.
+
+        F-10's blast radius is exactly "tokens this app mints that lack exp/sub/iat".
+        Both mint functions are checked here, and each token's lifetime is checked
+        against the decoder's own ceiling, so adding a mint path without `iat` — or
+        raising the policy past the cap — fails here rather than in production as a
+        login lockout.
+        """
+        import jwt as pyjwt
+
+        from app.auth import (
+            _max_token_lifetime_secs,
+            create_access_token,
+            decode_access_token,
+        )
+        from app.config import get_settings
+        from app.mfa import create_mfa_token
+
+        settings = get_settings()
+        minted = {
+            "create_access_token(remember_me=False)": (
+                create_access_token({"sub": self.USER_ID}),
+                True,
+            ),
+            "create_access_token(remember_me=True)": (
+                create_access_token({"sub": self.USER_ID}, expires_minutes=14 * 24 * 60),
+                True,
+            ),
+            # The decoder rejects mfa_pending on purpose (it is a login step, not a
+            # session), so only the claim shape and lifetime are checked for it.
+            "create_mfa_token": (create_mfa_token(self.USER_ID), False),
+        }
+        for name, (token, decodable) in minted.items():
+            claims = pyjwt.decode(
+                token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
+            )
+            assert {"exp", "sub", "iat"} <= claims.keys(), (
+                f"{name} does not emit every claim decode_access_token requires"
+            )
+            lifetime = float(claims["exp"]) - float(claims["iat"])
+            assert lifetime <= _max_token_lifetime_secs(), (
+                f"{name} mints a {lifetime:,.0f}s token the decoder rejects "
+                f"(cap {_max_token_lifetime_secs():,.0f}s)"
+            )
+            # The decoder is the authority: every session token must pass it.
+            if decodable:
+                assert decode_access_token(token) is not None, (
+                    f"{name} is rejected by its own decoder"
+                )
+
+
 class TestDeleteMe:
     """Tests for DELETE /auth/me — self-account deletion."""
 
@@ -532,3 +796,64 @@ class TestResetPassword:
 
         assert resp.status_code == 200
         assert "reset successfully" in resp.json()["detail"]
+
+
+class TestUnstorableEmailChars:
+    """A NUL byte is legal JSON/pydantic input but NOT legal Postgres text.
+
+    The driver raises CharacterNotInRepertoireError ("invalid byte sequence for
+    encoding UTF8: 0x00") at bind time, so before the guard every one of these
+    requests answered 500 and logged a stack trace — three unauthenticated
+    endpoints, usable as free error-log noise (found live by
+    scripts/pentest_local.py). The guard must run BEFORE any query: the point of
+    these tests is the 400, and that no DB round-trip happened.
+    """
+
+    NUL_EMAIL = "nul\x00l@t.st"
+
+    def test_register_nul_in_email_is_400_not_500(self, client, mock_conn):
+        resp = client.post("/auth/register", json={
+            "email": self.NUL_EMAIL,
+            "password": "securePass123",
+            "terms_accepted": True,
+        })
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "Invalid email address"
+        assert mock_conn.fetchrow.call_count == 0
+
+    def test_login_nul_in_email_is_400_not_500(self, client, mock_conn):
+        resp = client.post("/auth/login", json={
+            "email": self.NUL_EMAIL,
+            "password": "securePass123",
+        })
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "Invalid email address"
+        assert mock_conn.fetchrow.call_count == 0
+
+    def test_forgot_password_nul_in_email_is_400_not_500(self, client, mock_conn):
+        resp = client.post("/auth/forgot-password", json={"email": self.NUL_EMAIL})
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "Invalid email address"
+        # The raw (pre-normalization) lookup is the FIRST query in this route, so
+        # a guard placed after it would still 500 — assert it ran zero queries.
+        assert mock_conn.fetchrow.call_count == 0
+
+    def test_other_control_chars_are_rejected_too(self, client, mock_conn):
+        """Tab/newline/DEL are control characters as well — same 400."""
+        for bad in ("nul\tl@t.st", "nul\nl@t.st", "nul\x7fl@t.st"):
+            resp = client.post("/auth/login", json={
+                "email": bad, "password": "securePass123",
+            })
+            assert resp.status_code == 400, bad
+        assert mock_conn.fetchrow.call_count == 0
+
+    def test_normal_email_still_reaches_the_database(self, client, mock_conn):
+        """The guard must not reject ordinary addresses (negative control)."""
+        mock_conn.fetchrow.return_value = None  # no such user
+        resp = client.post("/auth/login", json={
+            "email": "normal@example.com", "password": "securePass123",
+        })
+        assert resp.status_code == 401
+        # The lookup itself runs (raw, then the NFC fallback) — i.e. the guard
+        # let this address through to the DB.
+        assert mock_conn.fetchrow.call_count >= 1

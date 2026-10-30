@@ -21,13 +21,10 @@ from pydantic import BaseModel, Field
 MAX_NAME_LEN = 120        # live_channels.name VARCHAR(120)
 MAX_SLUG_LEN = 64         # live_channels.slug VARCHAR(64)
 MAX_DESC_LEN = 500        # live_channels.description VARCHAR(500)
-MAX_STREAM_KEY_LEN = 128  # live_... key transport cap (real keys are 43 chars)
 MAX_SESSION_ID_LEN = 128  # viewer session id transport cap
 MAX_UA_LEN = 300          # live_sessions.user_agent VARCHAR(300)
 MAX_REGION_LEN = 64       # live_sessions.region VARCHAR(64)
 MAX_FILENAME_LEN = 160    # live_segments.filename VARCHAR(160)
-
-VALID_STATUSES = {"OFFLINE", "STARTING", "LIVE", "ERROR"}
 
 
 def new_slug(name: str, existing: set[str] | None = None) -> str:

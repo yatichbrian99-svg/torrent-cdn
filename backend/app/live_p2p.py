@@ -152,12 +152,3 @@ async def get_segment_identity(slug: str, seq: int) -> dict | None:
         lambda r: r.setex(key, min(get_live_settings().segment_retention, 300), payload)
     )
     return ident
-
-
-def identity_now(slug: str, seq: int, data: bytes) -> dict:
-    """Synchronous identity computation (tests / offline tooling)."""
-    return {
-        "infohash": infohash_from_bytes(segment_filename(slug, seq), data),
-        "filename": segment_filename(slug, seq),
-        "size": len(data),
-    }
