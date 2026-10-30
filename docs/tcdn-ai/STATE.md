@@ -1,12 +1,27 @@
 # TCDN-AI — STATE (single source of truth)
 
-Last updated: **2026-10-28** (staging deployment kit `render.staging.yaml` +
-`docs/tcdn-ai/STAGING.md`; worker launcher heartbeat bug found and fixed)
+Last updated: **2026-10-30** (failure-injection matrix, signup-abuse gates,
+cold start, compose walkthrough, capacity run, and the security scanners — the
+blocking image gate is now green)
 Branches: **`fix/tcdn-ai-redis-replay-nonce`** (TCDN-AI, pushed, no PR) and
 **`fix/product-security-hardening`** (the CDN-side fixes, branched off `main` at
 `200109e`, pushed, no PR). `main` still carries no TCDN-AI code and **not** the F-10 fix.
-Last committed revision: **`6650419`** on the feature branch (`7d3c8d2` on the product
+Last committed revision: **`3b3c588`** on the feature branch (`7d3c8d2` on the product
 branch). The two branches carry byte-identical product fixes.
+
+**Measured 2026-10-30, the security scanners** (CI run **41013374030**, all three
+jobs green on `3b3c588`): the blocking Trivy gate reports **0** fixed CRITICAL/HIGH
+findings — debian 12.15 **0**, python-pkg **0** — with `backend/.trivyignore`
+**empty**, so nothing is tolerated. The five HIGHs it had been failing on were
+not installed packages at all: pip ships vendored copies of msgpack, urllib3 and
+setuptools (`pip/_vendor/vendor.txt`) and the scan reads those declarations as
+installed, so no dependency bump could clear them. The image installs nothing at
+run time, so pip is now removed after the dependency install; `constraints.txt`
+keeps a floor under urllib3 (reachable only through botocore's `>=1.25.4`) and
+setuptools. Fuzzing ran the full budget: **6 targets × 60 s, 22.8 M cases, 0
+findings** (`evidence/03-security/fuzz-ai-60s.json`). ZAP is the one scanner that
+has not run — there is no live stack to attack — and that is why row 5.5 stays
+`PARTIAL`.
 
 **Measured 2026-10-27** (this pass, no Postgres or Redis attached locally — those lanes
 run in CI): full suite flag **on** **1056 passed, 21 skipped**, 97 s, exit 0; flag **off**
@@ -66,9 +81,9 @@ New files: `render.staging.yaml`, `docs/tcdn-ai/STAGING.md`,
 - Official **JavaScript** OpenAI client: **19/19 checks** against a live uvicorn
   gateway (`evidence/09-openai-gateway/js-client.json`), now a committed, CI-gated check.
 - Boundary contracts: `CONTRACTS.md` TB1–TB7 + **23** contract tests.
-- Open blockers for Level 1: see `PUSH_CHECKLIST.md` — 10 unfinished [P1] rows
-  (5 `MISSING`: 5.5, 10.2, 12.3, 12.4, 12.5; 5 `PARTIAL`: 3.3, 4.4, 6.1, 7.2,
-  10.1). Rows 2.3, 2.6 and 3.2 closed on 2026-10-28.
+- Open blockers for Level 1: see `PUSH_CHECKLIST.md` — **6** unfinished [P1] rows
+  (3 `MISSING`: 12.3, 12.4, 12.5; 3 `PARTIAL`: 4.4, 5.5, 6.1). Rows 3.3, 4.5, 7.2,
+  10.1 and 10.2 closed on 2026-10-29/30; 2.3, 2.6 and 3.2 closed on 2026-10-28.
 
 Read this first, then `HANDOFF_AUDIT.md`. The authoritative detail is the audit;
 this file is the short, current status.
@@ -88,7 +103,7 @@ this file is the short, current status.
 | M9 Result verification (Part 3) | **Partial — wired, keyed and paid in gateway mode** | Placement issues a second signed ticket to a *different* operator and records it in `ai_verifications`; the gateway dispatches it in the background and compares the two output hashes as soon as both receipts land (`test_ai_redundant_execution.py`). Since M4 the sample is `HMAC-SHA-256(coordinator_secret, domain \|\| job_id)` at a **3 %** default (`test_sample_is_not_derivable_from_the_job_id`), and the shadow operator is **paid** the compute share of its own tokens from `platform:revenue`, capped and idempotent per shadow job (`TestShadowPayout`). Still missing: a decision taken **after** a commitment, any SDK-mode path (no plaintext at the coordinator), and real tolerance profiles — 6.1 stays `PARTIAL` with those two clauses named |
 | M10 Confidential tier | **Simulated / interfaces only** | Policy + simulated adapter tested; real SEV-SNP/TDX/NVIDIA verifiers fail closed |
 | M11 Burn module | **Disabled** | Dry-run only, off by default, legal ack required in production |
-| M12 Hardening, docs, full gate | **Partly done** | CI is green on GitHub for the first time (all five workflows at `0360b10`, incl. the AI Postgres/Redis job, `ai-types`, `container-scan` report-only, and the nightly real-engine job); soak/chaos/DAST/pentest still missing; coverage 84 % |
+| M12 Hardening, docs, full gate | **Partly done** | CI is green on GitHub (all five workflows at `0360b10`, incl. the AI Postgres/Redis job, `ai-types`, and the nightly real-engine job). `container-scan` is now **blocking** and green with 0 fixed CRITICAL/HIGH (run `41013374030`), together with SAST, gitleaks and the full fuzz budget; **ZAP has not run**, and soak/chaos/pentest still missing; coverage 84 % |
 | Test-harness fix: full-suite hang | **Fixed and verified** | Root cause: every `TestClient` startup opened a real asyncpg pool from `main.py`'s own `get_db_pool` binding (unpatched). Now hermetic; whole suite in one invocation, 4/4 green (`evidence/09-openai-gateway/full-suite*.txt`) |
 | M14 Real engine in CI + real email flow (Section C item 2) | **Done and verified** | Ollama 0.33.2 + `qwen2.5:0.5b` on CPU: `tests/test_ai_engine.py` 4/4; journey 12/12 with real inference and real verification link — `evidence/10-real-engine/`; nightly job `tcdn-ai-engine.yml`. Found and fixed the hold-underestimation bug and H-1 |
 | M13 OpenAI gateway (Section C item 1) | **Done and verified** | `/v1/models`, `/v1/chat/completions` (JSON + SSE); 14 tests incl. official OpenAI Python client; official JS client driven against a live uvicorn server: `evidence/09-openai-gateway/` |
