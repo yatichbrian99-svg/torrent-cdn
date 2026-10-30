@@ -226,26 +226,36 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/zap/reports/scan-auth.log"
 
       # Same proxy, second listener, different credential: the seeded account's
-      # inference-scoped AI key. `/api/ai/v1/balance` is the cheapest route that
-      # proves the key is accepted, so a scan that never authenticated fails here
-      # instead of producing a third report full of 401s.
+      # inference-scoped AI key, sent in the header the AI surface documents
+      # (``X-API-Key``) rather than as a bearer token. Two proofs, because a
+      # wrong key and a proxy that drops the header look identical from the
+      # scanner's side: the direct call goes straight to :8000 with the key, the
+      # proxied call goes through :8002 with no credential of its own.
       - name: Start the AI-key proxy
         run: |
           set -euo pipefail
           python3 .github/zap/auth_proxy.py \
             --token-file "$RUNNER_TEMP/zap/ai-key" \
             --listen 8002 --upstream-port 8000 \
+            --header-name X-API-Key --header-prefix "" \
             > "$RUNNER_TEMP/zap/reports/auth-proxy-ai.log" 2>&1 &
           for _ in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8002/health >/dev/null 2>&1; then break; fi
             sleep 1
           done
-          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8002/api/ai/v1/balance)
-          echo "AI key /api/ai/v1/balance -> $code"
-          test "$code" = "200" || {
-            echo "the seeded AI key was not accepted ("$code") — an 'authenticated' AI scan would be a lie" >&2
+          echo "key length: $(wc -c < "$RUNNER_TEMP/zap/ai-key")"
+          direct=$(curl -s -o "$RUNNER_TEMP/zap/reports/ai-direct.json" -w '%{http_code}' \
+            -H "X-API-Key: $(cat "$RUNNER_TEMP/zap/ai-key")" \
+            http://127.0.0.1:8000/api/ai/v1/balance)
+          proxied=$(curl -s -o "$RUNNER_TEMP/zap/reports/ai-proxied.json" -w '%{http_code}' \
+            http://127.0.0.1:8002/api/ai/v1/balance)
+          echo "AI key /api/ai/v1/balance -> direct $direct, proxied $proxied"
+          if [ "$direct" != "200" ] || [ "$proxied" != "200" ]; then
+            echo "--- direct body ---"; head -c 400 "$RUNNER_TEMP/zap/reports/ai-direct.json" || true; echo
+            echo "--- proxied body ---"; head -c 400 "$RUNNER_TEMP/zap/reports/ai-proxied.json" || true; echo
+            echo "the seeded AI key was not accepted — an 'authenticated' AI scan would be a lie" >&2
             exit 1
-          }
+          fi
 
       - name: ZAP — authenticated pass (AI API key)
         run: |
