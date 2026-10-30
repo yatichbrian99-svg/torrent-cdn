@@ -18,11 +18,26 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY requirements.txt .
+COPY requirements.txt constraints.txt ./
 # pip/setuptools/wheel come from the base image and age with it (the blocking
 # scan flagged wheel 0.44.0); upgrade the toolchain before installing anything.
+# constraints.txt carries the security floors for transitive packages the scan
+# flagged — a fresh resolve is not a fix if the index still offers the old one.
 RUN pip install --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir --default-timeout=120 -r requirements.txt
+    && pip install --no-cache-dir --default-timeout=120 \
+        -c constraints.txt -r requirements.txt
+
+# Drop the installer from the runtime image. The service installs nothing at
+# run time, so pip is dead weight — and it is what the blocking Trivy gate kept
+# reporting: pip ships vendored copies of msgpack, urllib3 and setuptools
+# (declared in pip/_vendor/vendor.txt) that the scan reads as installed
+# packages, five HIGH findings in code this container never executes. Removing
+# pip removes the findings at their source rather than suppressing them, and it
+# takes a download-a-payload tool away from anyone who lands in the container.
+# Keep setuptools: some libraries still import `pkg_resources` at import time.
+RUN rm -rf /usr/local/lib/python3.11/site-packages/pip \
+        /usr/local/lib/python3.11/site-packages/pip-*.dist-info \
+        /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.11
 
 # Copy source code
 COPY . .
