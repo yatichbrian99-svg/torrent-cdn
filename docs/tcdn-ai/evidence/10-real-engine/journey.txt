@@ -1,0 +1,15 @@
+TCDN-AI client using plain HTTP against a loopback address
+TCDN-AI coordinator keys pinned via TOFU; pass coordinator_public_keys for confidential workloads
+PASS health :: healthy
+PASS signup + real email verification (unverified until the emailed token was used) :: {'mode': 'provider-link', 'provider': 'http://127.0.0.1:8765', 'verified_before_link': False}
+PASS 2FA enrolled and enforced at login
+PASS API key created (developer + worker scopes)
+PASS model registered :: qwen2.5:0.5b
+PASS credits purchased; duplicate callback was idempotent :: 5000000
+PASS worker registered :: node_243a95878a4a92843eac55da
+PASS official OpenAI client: /v1/models + streaming and non-streaming :: {'verdict': 'IMPLEMENTED (gateway mode, official client)', 'models': ['llama-3.1-8b-instruct', 'qwen2.5:0.5b'], 'non_streaming_tokens': 65, 'streaming_chunks': 19, 'prompt_visibility': 'gateway', 'backend': 'ollama'}
+PASS non-streaming inference (TCDN-AI SDK, OpenAI-shaped response) :: {'tokens': 65, 'finish': 'stop'}
+PASS streaming inference (TCDN-AI SDK) :: {'chunks': 12}
+PASS usage and balance updated :: {'account_id': '883bf02e-0276-49c0-82b6-d36d454b9258', 'credits': 4.999043, 'micro_credits': 4999043, 'held_micro': 0, 'available_micro': 4999043}
+PASS invariants: ledger, holds, job states, no canary retention :: {'ledger_entries': 13, 'ledger_net_micro': 4999043, 'jobs': 4, 'open_holds': 0, 'canary_leaks': 0}
+JOURNEY OK

@@ -216,7 +216,9 @@ class TestPinnedNetworkBackend:
 
         import anyio
 
-        from app.routes.upload import _PinnedNetworkBackend
+        # The backend lives in one shared module now: the same transport serves
+        # this import guard and the AI origin fetch (audit F-3).
+        from app.pinned_http import PinnedNetworkBackend
 
         connected = []
 
@@ -236,7 +238,7 @@ class TestPinnedNetworkBackend:
         monkeypatch.setattr(anyio, "fail_after", fake_fail_after)
 
         async def run():
-            backend = _PinnedNetworkBackend("93.184.216.34")
+            backend = PinnedNetworkBackend("93.184.216.34")
             await backend.connect_tcp("evil.example.com", 443)
 
         asyncio.run(run())
@@ -662,7 +664,13 @@ class TestImportRoute:
     def test_import_rate_limit_peek_blocks_before_download(self, client, auth_headers, mock_redis, monkeypatch):
         """When the per-IP upload budget is already exhausted, the import is
         rejected BEFORE the server-side download starts (no wasted fetch)."""
-        mock_redis.get.return_value = "10"  # budget exhausted
+        # Scope the exhausted budget to the upload counter ONLY. A blanket
+        # `mock_redis.get.return_value = "10"` also makes the logout blocklist
+        # lookup (token_block:{jti}) look populated, so the request 401'd before
+        # the rate limiter was ever consulted and this assertion never ran.
+        def _get(key, *a, **k):
+            return "10" if str(key).startswith("upload_rate:") else None
+        mock_redis.get.side_effect = _get
 
         def _explode(*a, **k):
             raise AssertionError("download must not start when rate-limited")

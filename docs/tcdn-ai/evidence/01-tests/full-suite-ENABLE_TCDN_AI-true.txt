@@ -1,0 +1,1 @@
+$ ENABLE_TCDN_AI=true TEST_POSTGRES_URL=... .venv/bin/python -m pytest tests -q

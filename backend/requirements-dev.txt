@@ -1,0 +1,13 @@
+# Development and verification dependencies only. The runtime image
+# (backend/Dockerfile) installs requirements.txt and nothing from this file.
+#
+# openai  — the official OpenAI Python client, used to prove the gateway surface
+#           is drop-in compatible (tests/test_ai_openai_compat.py). The gateway
+#           itself does not import it.
+# ruff    — pinned to the version in .github/workflows/backend-lint.yml.
+openai>=3,<4
+ruff==0.16.3
+# mypy — non-strict type checking, scoped to app/ai and tcdn_ai_sdk only (see
+# mypy-ai.ini). Version range, not a pin: the pinned tool here is ruff, and a
+# strict mypy pin would need a manual bump every release for no added safety.
+mypy>=1.11,<2

@@ -24,7 +24,7 @@ from ..models import (
     ShareLinkCreated,
     ShareLinkInfo,
 )
-from ..security import enforce_max_size, get_client_ip
+from ..security import contains_control_chars, enforce_max_size, get_client_ip
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -416,7 +416,7 @@ def _validate_folder_path(path: str | None) -> str | None:
         )
     if path in (".", "..") or path.startswith("."):
         raise HTTPException(status_code=400, detail="Invalid folder path")
-    if any(ord(c) < 32 or ord(c) == 127 for c in path):
+    if contains_control_chars(path):
         raise HTTPException(status_code=400, detail="Invalid folder path: control characters are not allowed")
     return path
 
@@ -442,6 +442,12 @@ async def rename_file(
         new_name = new_name.strip()
         if not new_name or len(new_name) > MAX_FILENAME_LEN:
             raise HTTPException(status_code=400, detail="Invalid filename")
+        # Same rule as a folder path below: a control character (NUL above all)
+        # is unstorable in Postgres — the bind below would 500 instead of 400.
+        if contains_control_chars(new_name):
+            raise HTTPException(
+                status_code=400, detail="Invalid filename: control characters are not allowed"
+            )
 
     pool = await get_db_pool()
     async with pool.acquire() as conn, conn.transaction():

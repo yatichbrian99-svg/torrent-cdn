@@ -1,0 +1,56 @@
+$ TEST_POSTGRES_URL=... .venv/bin/python -m pytest ... --cov=app/ai --cov=tcdn_ai_sdk
+........................................................................ [ 33%]
+.......................................x................................ [ 66%]
+........................................................................ [ 99%]
+.                                                                        [100%]
+=============================== warnings summary ===============================
+tests/conftest.py:12
+  /home/yatich/torrent-cdn/backend/tests/conftest.py:12: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient
+
+.venv/lib/python3.14/site-packages/_pytest/cacheprovider.py:469
+  /home/yatich/torrent-cdn/backend/.venv/lib/python3.14/site-packages/_pytest/cacheprovider.py:469: PytestCacheWarning: cache could not write path /home/yatich/torrent-cdn/backend/.pytest_cache/v/cache/nodeids: [Errno 13] Permission denied: '/home/yatich/torrent-cdn/backend/.pytest_cache/v/cache/nodeids'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.14.7-final-0 ________________
+
+Name                      Stmts   Miss  Cover
+---------------------------------------------
+app/ai/__init__.py            0      0   100%
+app/ai/attestation.py       111      8    93%
+app/ai/burn.py               39      3    92%
+app/ai/clock.py               4      0   100%
+app/ai/config.py             91      4    96%
+app/ai/crypto.py            122     15    88%
+app/ai/errors.py             61      0   100%
+app/ai/keyring.py           211     25    88%
+app/ai/ledger.py            185     19    90%
+app/ai/models.py            233      4    98%
+app/ai/payments.py           73      8    89%
+app/ai/payouts.py            83      6    93%
+app/ai/pricing.py            82      7    91%
+app/ai/ratelimit.py          42      4    90%
+app/ai/receipts.py           70      9    87%
+app/ai/routes.py            145     32    78%
+app/ai/scheduler.py          93      5    95%
+app/ai/service.py           269     41    85%
+app/ai/shards.py            251     39    84%
+app/ai/ssrf.py               51     14    73%
+app/ai/store.py             404    141    65%
+app/ai/tickets.py            62      5    92%
+app/ai/transcripts.py       140     19    86%
+app/ai/verification2.py     344     15    96%
+app/ai/verification.py       40      2    95%
+app/ai/verifier_sign.py      71     22    69%
+app/ai/worker.py            311    124    60%
+tcdn_ai_sdk/__init__.py       4      0   100%
+tcdn_ai_sdk/_crypto.py       65      8    88%
+tcdn_ai_sdk/client.py       310     76    75%
+tcdn_ai_sdk/errors.py        26      3    88%
+tcdn_ai_sdk/protocol.py      62      9    85%
+---------------------------------------------
+TOTAL                      4055    667    84%
+216 passed, 1 xfailed, 2 warnings in 9.18s
+EXIT=0

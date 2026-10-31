@@ -189,7 +189,7 @@ cannot proxy arbitrary TCP without Spectrum (paid).
 ```bash
 # backend unit tests (live + full VOD suite)
 cd backend && python -m pytest tests/test_live.py tests/test_live_state.py
-cd backend && python -m pytest                    # full suite (636 tests)
+cd backend && python -m pytest                    # full suite (686 tests)
 
 # frontend unit tests + coverage gate
 cd frontend && npm test && npm run test:coverage

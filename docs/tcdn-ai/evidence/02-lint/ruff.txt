@@ -1,0 +1,2575 @@
+$ .venv/bin/python -m ruff check app tests scripts
+F821 Undefined name `Settings`
+   --> app/database.py:237:36
+    |
+237 | async def get_db_pool(*, settings: Settings | None = None) -> asyncpg.Pool:
+    |                                    ^^^^^^^^
+238 |     global pg_pool
+239 |     s = settings or get_settings()
+    |
+
+F821 Undefined name `Settings`
+   --> app/database.py:256:44
+    |
+256 | def get_db_pool_with_settings(*, settings: Settings) -> asyncpg.Pool:
+    |                                            ^^^^^^^^
+257 |     """Eager variant used by the test harness: accepts an already-built settings
+258 |     instance instead of calling :func:`get_settings` again."""
+    |
+
+Found 2 errors.
+EXIT=1
+
+$ .venv/bin/python -m ruff format --check app/ai tcdn_ai_sdk tests/test_ai_*.py
+unformatted: File would be reformatted
+   --> app/ai/attestation.py:80:16
+    |
+79  |
+    -     def verify(self, evidence: AttestationEvidencePayload, *, now: int) -> AttestationVerdict:
+80  +     def verify(
+81  +         self, evidence: AttestationEvidencePayload, *, now: int
+82  +     ) -> AttestationVerdict:
+83  |         return AttestationVerdict(
+--------------------------------------------------------------------------------
+107 |
+    -     def verify(self, evidence: AttestationEvidencePayload, *, now: int) -> AttestationVerdict:
+108 +     def verify(
+109 +         self, evidence: AttestationEvidencePayload, *, now: int
+110 +     ) -> AttestationVerdict:
+111 |         if evidence.platform is not self.platform:
+--------------------------------------------------------------------------------
+166 |         if record is None:
+    -             raise AttestationError("unknown or already-used attestation nonce", code="stale_nonce")
+167 +             raise AttestationError(
+168 +                 "unknown or already-used attestation nonce", code="stale_nonce"
+169 +             )
+170 |         expected_node, expires_at = record
+171 |         if expected_node != node_id:
+    -             raise AttestationError("nonce was issued for a different node", code="nonce_node_mismatch")
+172 +             raise AttestationError(
+173 +                 "nonce was issued for a different node", code="nonce_node_mismatch"
+174 +             )
+175 |         if now > expires_at:
+--------------------------------------------------------------------------------
+183 |     nonces: NonceStore = field(default_factory=NonceStore)
+    -     verifiers: dict[AttestationPlatform, AttestationVerifier] = field(default_factory=dict)
+184 +     verifiers: dict[AttestationPlatform, AttestationVerifier] = field(
+185 +         default_factory=dict
+186 +     )
+187 |     clock: object = now_unix
+--------------------------------------------------------------------------------
+208 |         if now - evidence.issued_at > max_age or evidence.issued_at > now + 5:
+    -             raise AttestationError("attestation evidence is stale or from the future", code="stale_evidence")
+209 +             raise AttestationError(
+210 +                 "attestation evidence is stale or from the future",
+211 +                 code="stale_evidence",
+212 +             )
+213 |         self.nonces.consume(evidence.nonce, evidence.node_id)
+214 |
+215 |         verifier = self.verifiers.get(evidence.platform)
+216 |         if verifier is None:
+    -             raise AttestationError("no verifier for this platform", code="unsupported_platform")
+217 +             raise AttestationError(
+218 +                 "no verifier for this platform", code="unsupported_platform"
+219 +             )
+220 |         verdict = verifier.verify(evidence, now=now)
+221 |
+222 |         if verdict.session_key_sha256 != evidence.session_key_sha256:
+223 |             raise AttestationError(
+    -                 "verdict is not bound to the submitted session key", code="key_binding_mismatch"
+224 +                 "verdict is not bound to the submitted session key",
+225 +                 code="key_binding_mismatch",
+226 |             )
+--------------------------------------------------------------------------------
+233 |         if verdict.status == "rejected":
+    -             raise AttestationError("attestation verdict is a rejection", code="verdict_rejected")
+234 +             raise AttestationError(
+235 +                 "attestation verdict is a rejection", code="verdict_rejected"
+236 +             )
+237 |         if verdict.status == "simulated" and self.settings.is_production:
+--------------------------------------------------------------------------------
+242 |         if verdict.expires_at <= int(self.clock()):
+    -             raise AttestationError("attestation verdict has expired", code="verdict_expired")
+243 +             raise AttestationError(
+244 +                 "attestation verdict has expired", code="verdict_expired"
+245 +             )
+246 |         if verdict.confidentiality is not Confidentiality.ATTESTED_TEE:
+247 |             raise AttestationError(
+    -                 "verdict does not grant the confidential tier", code="verdict_tier_insufficient"
+248 +                 "verdict does not grant the confidential tier",
+249 +                 code="verdict_tier_insufficient",
+250 |             )
+    |
+
+unformatted: File would be reformatted
+   --> app/ai/config.py:128:33
+    |
+127 |             if self.payment_provider == "fake":
+    -                 problems.append("TCDN_AI_PAYMENT_PROVIDER must not be 'fake' in production")
+128 +                 problems.append(
+129 +                     "TCDN_AI_PAYMENT_PROVIDER must not be 'fake' in production"
+130 +                 )
+131 |             if not self.api_key_pepper:
+--------------------------------------------------------------------------------
+143 |             if problems:
+    -                 raise ValueError("insecure TCDN-AI production config: " + "; ".join(problems))
+144 +                 raise ValueError(
+145 +                     "insecure TCDN-AI production config: " + "; ".join(problems)
+146 +                 )
+147 |         return self
+    |
+
+unformatted: File would be reformatted
+   --> app/ai/crypto.py:136:27
+    |
+135 |     except (ValueError, TypeError) as exc:
+    -         raise CryptoError("malformed Ed25519 private key", code="malformed_key") from exc
+136 +         raise CryptoError(
+137 +             "malformed Ed25519 private key", code="malformed_key"
+138 +         ) from exc
+139 |     return b64e(key.public_key().public_bytes_raw())
+--------------------------------------------------------------------------------
+150 |     except (ValueError, TypeError) as exc:
+    -         raise CryptoError("malformed Ed25519 private key", code="malformed_key") from exc
+151 +         raise CryptoError(
+152 +             "malformed Ed25519 private key", code="malformed_key"
+153 +         ) from exc
+154 |     return b64e(key.sign(domain_message(domain, payload)))
+155 |
+156 |
+    - def verify(domain: str, payload: dict[str, Any], signature_b64: str, public_b64: str) -> bool:
+157 + def verify(
+158 +     domain: str, payload: dict[str, Any], signature_b64: str, public_b64: str
+159 + ) -> bool:
+160 |     try:
+--------------------------------------------------------------------------------
+188 |         # an attacker also knows.
+    -         raise CryptoError("key agreement produced a degenerate secret", code="key_agreement_failed")
+189 +         raise CryptoError(
+190 +             "key agreement produced a degenerate secret", code="key_agreement_failed"
+191 +         )
+192 |     return secret
+--------------------------------------------------------------------------------
+200 |     if not info:
+    -         raise CryptoError("HKDF info must be supplied (domain separation)", code="bad_kdf_parameters")
+    -     return HKDF(
+    -         algorithm=hashes.SHA256(), length=length, salt=salt, info=info
+    -     ).derive(secret)
+201 +         raise CryptoError(
+202 +             "HKDF info must be supplied (domain separation)", code="bad_kdf_parameters"
+203 +         )
+204 +     return HKDF(algorithm=hashes.SHA256(), length=length, salt=salt, info=info).derive(
+205 +         secret
+206 +     )
+207 |
+--------------------------------------------------------------------------------
+246 |         # Do not distinguish tampering from a wrong key: both are rejections.
+    -         raise CryptoError("AEAD authentication failed", code="aead_auth_failed") from exc
+247 +         raise CryptoError(
+248 +             "AEAD authentication failed", code="aead_auth_failed"
+249 +         ) from exc
+250 |
+    |
+
+unformatted: File would be reformatted
+   --> app/ai/keyring.py:54:16
+    |
+53  |     def can_sign(self) -> bool:
+    -         return self.private_key is not None and self.retired_at is None and self.revoked_at is None
+54  +         return (
+55  +             self.private_key is not None
+56  +             and self.retired_at is None
+57  +             and self.revoked_at is None
+58  +         )
+59  |
+--------------------------------------------------------------------------------
+194 |         if not record.can_sign:
+    -             raise CryptoError("key is not permitted to sign", code="inactive_signing_key")
+195 +             raise CryptoError(
+196 +                 "key is not permitted to sign", code="inactive_signing_key"
+197 +             )
+198 |         return {
+--------------------------------------------------------------------------------
+219 |         if document["alg"] != SIG_ALG:
+    -             raise CryptoError("unsupported signature algorithm", code="unsupported_algorithm")
+220 +             raise CryptoError(
+221 +                 "unsupported signature algorithm", code="unsupported_algorithm"
+222 +             )
+223 |         if document["domain"] != domain:
+--------------------------------------------------------------------------------
+244 |         record = self.get(key_id)
+    -         if record.can_sign and sum(
+    -             1 for key_id_ in self._order if self._keys[key_id_].can_sign
+    -         ) == 1:
+245 +         if (
+246 +             record.can_sign
+247 +             and sum(1 for key_id_ in self._order if self._keys[key_id_].can_sign) == 1
+248 +         ):
+249 |             # Revoking the only signing key would leave the coordinator unable
+--------------------------------------------------------------------------------
+292 |     @classmethod
+    -     def from_secret(
+    -         cls, data: dict[str, Any], *, clock: Any = _now
+    -     ) -> KeyRing:
+293 +     def from_secret(cls, data: dict[str, Any], *, clock: Any = _now) -> KeyRing:
+294 |         if int(data.get("version", 0)) != 1:
+--------------------------------------------------------------------------------
+310 |             )
+    -             derived = crypto.ed25519_public_from_private(record.private_key) if record.private_key else None
+311 +             derived = (
+312 +                 crypto.ed25519_public_from_private(record.private_key)
+313 +                 if record.private_key
+314 +                 else None
+315 +             )
+316 |             if derived is not None and derived != record.public_key:
+317 |                 # A stored key whose public half does not match its private half
+318 |                 # would silently sign documents nobody can verify.
+    -                 raise CryptoError("keyring entry is internally inconsistent", code="corrupt_keyring")
+319 +                 raise CryptoError(
+320 +                     "keyring entry is internally inconsistent", code="corrupt_keyring"
+321 +                 )
+322 |             ring._keys[record.key_id] = record
+--------------------------------------------------------------------------------
+361 |         except (OSError, ValueError) as exc:
+    -             raise CryptoError("keyring file is unreadable", code="corrupt_keyring") from exc
+362 +             raise CryptoError(
+363 +                 "keyring file is unreadable", code="corrupt_keyring"
+364 +             ) from exc
+365 |
+--------------------------------------------------------------------------------
+407 |         except ValueError as exc:
+    -             raise CryptoError("injected keyring is not valid JSON", code="corrupt_keyring") from exc
+408 +             raise CryptoError(
+409 +                 "injected keyring is not valid JSON", code="corrupt_keyring"
+410 +             ) from exc
+411 |
+412 |     def save(self, data: dict[str, Any]) -> None:  # pragma: no cover - never used
+    -         raise CryptoError("injected keyring is read-only", code="read_only_secret_store")
+413 +         raise CryptoError(
+414 +             "injected keyring is read-only", code="read_only_secret_store"
+415 +         )
+416 |
+--------------------------------------------------------------------------------
+432 |         elif settings.is_production:  # pragma: no cover - validator rejects first
+    -             raise CryptoError("no keyring secret store configured", code="missing_secret_store")
+433 +             raise CryptoError(
+434 +                 "no keyring secret store configured", code="missing_secret_store"
+435 +             )
+436 |         else:
+--------------------------------------------------------------------------------
+450 |         )
+    -         ring = KeyRing.generate("coordinator", overlap_seconds=settings.key_overlap_seconds)
+451 +         ring = KeyRing.generate(
+452 +             "coordinator", overlap_seconds=settings.key_overlap_seconds
+453 +         )
+454 |         store.save(ring.to_secret())
+    |
+
+unformatted: File would be reformatted
+   --> app/ai/ledger.py:41:1
+    |
+40  |
+    -
+41  | PLATFORM_REVENUE = "platform:revenue"
+--------------------------------------------------------------------------------
+222 |         if not debit or not credit or debit == credit:
+    -             raise ValidationError("debit and credit must be distinct non-empty accounts")
+223 +             raise ValidationError(
+224 +                 "debit and credit must be distinct non-empty accounts"
+225 +             )
+226 |         if not idempotency_key:
+--------------------------------------------------------------------------------
+275 |                     "insufficient credit balance for this job",
+    -                     details={"available_micro": max(0, available), "required_micro": amount_micro},
+276 +                     details={
+277 +                         "available_micro": max(0, available),
+278 +                         "required_micro": amount_micro,
+279 +                     },
+280 |                 )
+--------------------------------------------------------------------------------
+314 |             if hold is None:
+    -                 raise ConflictError("no hold exists for this job", details={"job_id": job_id})
+315 +                 raise ConflictError(
+316 +                     "no hold exists for this job", details={"job_id": job_id}
+317 +                 )
+318 |             if hold.status != "open":
+    -                 raise ConflictError("hold is no longer open", details={"job_id": job_id})
+319 +                 raise ConflictError(
+320 +                     "hold is no longer open", details={"job_id": job_id}
+321 +                 )
+322 |             if total_micro > hold.amount_micro:
+323 |                 raise ConflictError(
+324 |                     "settlement exceeds the placed hold",
+    -                     details={"hold_micro": hold.amount_micro, "total_micro": total_micro},
+325 +                     details={
+326 +                         "hold_micro": hold.amount_micro,
+327 +                         "total_micro": total_micro,
+328 +                     },
+329 |                 )
+330 |             amounts = split_amounts(total_micro, split)
+331 |             timestamp = int(at if at is not None else self._clock())
+332 |             self._settle_component(
+    -                 job_id, hold.account, compute_account, amounts.compute_micro, "compute", timestamp
+333 +                 job_id,
+334 +                 hold.account,
+335 +                 compute_account,
+336 +                 amounts.compute_micro,
+337 +                 "compute",
+338 +                 timestamp,
+339 |             )
+340 |             self._settle_component(
+    -                 job_id, hold.account, seeder_account, amounts.seeder_micro, "seeder", timestamp
+341 +                 job_id,
+342 +                 hold.account,
+343 +                 seeder_account,
+344 +                 amounts.seeder_micro,
+345 +                 "seeder",
+346 +                 timestamp,
+347 |             )
+348 |             self._settle_component(
+    -                 job_id, hold.account, platform_account, amounts.platform_micro, "platform", timestamp
+349 +                 job_id,
+350 +                 hold.account,
+351 +                 platform_account,
+352 +                 amounts.platform_micro,
+353 +                 "platform",
+354 +                 timestamp,
+355 |             )
+    |
+
+unformatted: File would be reformatted
+   --> app/ai/payments.py:49:18
+    |
+48  |
+    -     def __init__(self, *, allow: bool, secret: str = "dev-only-fake-webhook-secret") -> None:
+49  +     def __init__(
+50  +         self, *, allow: bool, secret: str = "dev-only-fake-webhook-secret"
+51  +     ) -> None:
+52  |         if not allow:
+--------------------------------------------------------------------------------
+58  |         if not hmac.compare_digest(expected, signature or ""):
+    -             raise AuthenticationError("invalid webhook signature", code="bad_webhook_signature")
+59  +             raise AuthenticationError(
+60  +                 "invalid webhook signature", code="bad_webhook_signature"
+61  +             )
+62  |         try:
+--------------------------------------------------------------------------------
+67  |         except (ValueError, KeyError, TypeError) as exc:
+    -             raise ValidationError("malformed payment event", code="invalid_payment_event") from exc
+68  +             raise ValidationError(
+69  +                 "malformed payment event", code="invalid_payment_event"
+70  +             ) from exc
+71  |         if amount_micro <= 0:
+    -             raise ValidationError("payment amount must be positive", code="invalid_payment_event")
+72  +             raise ValidationError(
+73  +                 "payment amount must be positive", code="invalid_payment_event"
+74  +             )
+75  |         return PaymentEvent(
+--------------------------------------------------------------------------------
+89  |         if not secret_key:
+    -             raise ValidationError("Paystack secret key is required", code="missing_provider_key")
+90  +             raise ValidationError(
+91  +                 "Paystack secret key is required", code="missing_provider_key"
+92  +             )
+93  |         # Paystack signs webhooks with the account's secret key.
+--------------------------------------------------------------------------------
+98  |         if not hmac.compare_digest(expected, signature or ""):
+    -             raise AuthenticationError("invalid webhook signature", code="bad_webhook_signature")
+99  +             raise AuthenticationError(
+100 +                 "invalid webhook signature", code="bad_webhook_signature"
+101 +             )
+102 |         try:
+103 |             payload = json.loads(body)
+104 |         except ValueError as exc:
+    -             raise ValidationError("malformed payment event", code="invalid_payment_event") from exc
+105 +             raise ValidationError(
+106 +                 "malformed payment event", code="invalid_payment_event"
+107 +             ) from exc
+108 |
+109 |         if payload.get("event") != "charge.success":
+    -             raise ValidationError("unsupported payment event", code="unsupported_payment_event")
+110 +             raise ValidationError(
+111 +                 "unsupported payment event", code="unsupported_payment_event"
+112 +             )
+113 |         data = payload.get("data") or {}
+--------------------------------------------------------------------------------
+119 |         if not account_id or not reference or not isinstance(amount_minor, int):
+    -             raise ValidationError("payment event is missing required fields", code="invalid_payment_event")
+120 +             raise ValidationError(
+121 +                 "payment event is missing required fields", code="invalid_payment_event"
+122 +             )
+123 |         if currency != "USD":
+124 |             # Credits are USD-pegged by definition; accepting another currency
+125 |             # would need an FX rate and is deliberately refused.
+126 |             raise ValidationError(
+    -                 "only USD payments can be converted to credits", code="unsupported_currency"
+127 +                 "only USD payments can be converted to credits",
+128 +                 code="unsupported_currency",
+129 |             )
+130 |         amount_micro = amount_minor * MICRO_PER_USD_CENT
+131 |         if amount_micro <= 0:
+    -             raise ValidationError("payment amount must be positive", code="invalid_payment_event")
+132 +             raise ValidationError(
+133 +                 "payment amount must be positive", code="invalid_payment_event"
+134 +             )
+135 |         return PaymentEvent(
+--------------------------------------------------------------------------------
+144 |
+    - def get_payment_provider(settings: AISettings, *, secret_key: str = "") -> PaymentProvider:
+145 + def get_payment_provider(
+146 +     settings: AISettings, *, secret_key: str = ""
+147 + ) -> PaymentProvider:
+148 |     if settings.payment_provider == "fake":
+    |
+
+unformatted: File would be reformatted
+   --> app/ai/payouts.py:77:26
+    |
+76  | ) -> None:
+    -     if not crypto.verify(TRANSFER_DOMAIN, claim.payload(), downloader_signature, downloader_public_key):
+77  +     if not crypto.verify(
+78  +         TRANSFER_DOMAIN, claim.payload(), downloader_signature, downloader_public_key
+79  +     ):
+80  |         raise ValueError("downloader signature is invalid")
+    -     if not crypto.verify(TRANSFER_DOMAIN, claim.payload(), seeder_signature, seeder_public_key):
+81  +     if not crypto.verify(
+82  +         TRANSFER_DOMAIN, claim.payload(), seeder_signature, seeder_public_key
+83  +     ):
+84  |         raise ValueError("seeder signature is invalid")
+--------------------------------------------------------------------------------
+133 |
+    - def distribute(
+    -     pool_micro: int, weights: dict[str, int]
+    - ) -> dict[str, int]:
+134 + def distribute(pool_micro: int, weights: dict[str, int]) -> dict[str, int]:
+135 |     """Largest-remainder split of ``pool_micro`` by integer byte weights.
+--------------------------------------------------------------------------------
+139 |     """
+    -     if isinstance(pool_micro, bool) or not isinstance(pool_micro, int) or pool_micro < 0:
+140 +     if (
+141 +         isinstance(pool_micro, bool)
+142 +         or not isinstance(pool_micro, int)
+143 +         or pool_micro < 0
+144 +     ):
+145 |         raise ValueError("pool must be a non-negative integer number of micro-credits")
+    |
+
+unformatted: File would be reformatted
+   --> app/ai/pricing.py:148:40
+    |
+147 |         input_rate, output_rate = (
+    -             row.with_uplift(uplift_pct) if confidential else
+    -             (row.input_micro_per_mtok, row.output_micro_per_mtok)
+148 +             row.with_uplift(uplift_pct)
+149 +             if confidential
+150 +             else (row.input_micro_per_mtok, row.output_micro_per_mtok)
+151 |         )
+    |
+
+unformatted: File would be reformatted
+  --> app/ai/ratelimit.py:55:33
+   |
+54 |             elapsed = max(0.0, now - bucket.updated)
+   -             bucket.tokens = min(self.burst, bucket.tokens + elapsed * self.rate_per_second)
+55 +             bucket.tokens = min(
+56 +                 self.burst, bucket.tokens + elapsed * self.rate_per_second
+57 +             )
+58 |             bucket.updated = now
+   |
+
+unformatted: File would be reformatted
+   --> app/ai/receipts.py:80:28
+    |
+79  |     ):
+    -         raise ReceiptError("receipt signature verification failed", code="bad_signature")
+80  +         raise ReceiptError(
+81  +             "receipt signature verification failed", code="bad_signature"
+82  +         )
+83  |     try:
+84  |         receipt = ReceiptPayload(**payload)
+85  |     except PydanticValidationError as exc:
+    -         raise ReceiptError("receipt fields are invalid", code="invalid_receipt") from exc
+86  +         raise ReceiptError(
+87  +             "receipt fields are invalid", code="invalid_receipt"
+88  +         ) from exc
+89  |
+90  |     if receipt.job_id != job.job_id:
+    -         raise ReceiptError("receipt is for a different job", code="receipt_job_mismatch")
+91  +         raise ReceiptError(
+92  +             "receipt is for a different job", code="receipt_job_mismatch"
+93  +         )
+94  |     if receipt.node_id != job.node_id:
+--------------------------------------------------------------------------------
+99  |     if receipt.account_id != job.account_id:
+    -         raise ReceiptError("receipt account does not match the job", code="receipt_account_mismatch")
+100 +         raise ReceiptError(
+101 +             "receipt account does not match the job", code="receipt_account_mismatch"
+102 +         )
+103 |     if receipt.model != job.model:
+    -         raise ReceiptError("receipt model does not match the job", code="receipt_model_mismatch")
+104 +         raise ReceiptError(
+105 +             "receipt model does not match the job", code="receipt_model_mismatch"
+106 +         )
+107 |     if receipt.manifest_hash != job.manifest_hash:
+    |
+
+unformatted: File would be reformatted
+   --> app/ai/routes.py:60:12
+    |
+59  |     """Clear process singletons (tests only)."""
+    -     global _coordinator, _coordinator_override, _keyring_singleton, _key_limiter, _ip_limiter
+60  +     global \
+61  +         _coordinator, \
+62  +         _coordinator_override, \
+63  +         _keyring_singleton, \
+64  +         _key_limiter, \
+65  +         _ip_limiter
+66  |     _coordinator = None
+--------------------------------------------------------------------------------
+118 |     header = request.headers.get("authorization", "")
+    -     raw = header[7:].strip() if header.lower().startswith("bearer ") else (x_api_key or "")
+119 +     raw = (
+120 +         header[7:].strip()
+121 +         if header.lower().startswith("bearer ")
+122 +         else (x_api_key or "")
+123 +     )
+124 |     if not raw:
+--------------------------------------------------------------------------------
+152 |             code="rate_limited",
+    -             details={"retry_after": key_limiter.retry_after_seconds(f"key:{auth.key_prefix}")},
+153 +             details={
+154 +                 "retry_after": key_limiter.retry_after_seconds(f"key:{auth.key_prefix}")
+155 +             },
+156 |         )
+157 |     if not ip_limiter.allow(f"ip:{ip}"):
+    -         raise LimitExceeded("rate limit exceeded for this client address", code="rate_limited")
+158 +         raise LimitExceeded(
+159 +             "rate limit exceeded for this client address", code="rate_limited"
+160 +         )
+161 |     return auth
+--------------------------------------------------------------------------------
+197 |     if envelope.payload.get("job_id") != job_id:
+    -         raise ValidationError("receipt job_id does not match the path", code="job_mismatch")
+198 +         raise ValidationError(
+199 +             "receipt job_id does not match the path", code="job_mismatch"
+200 +         )
+201 |     return await coordinator.submit_receipt(envelope)
+--------------------------------------------------------------------------------
+246 |         raise NotFoundError("unknown node")
+    -     return {"node_id": node_id, "nonce": await coordinator.issue_attestation_nonce(node_id)}
+247 +     return {
+248 +         "node_id": node_id,
+249 +         "nonce": await coordinator.issue_attestation_nonce(node_id),
+250 +     }
+251 |
+--------------------------------------------------------------------------------
+301 |     keys = coordinator.keys()
+    -     return CoordinatorKeyResponse(bundle=keys["bundle"], revocations=keys["revocations"])
+302 +     return CoordinatorKeyResponse(
+303 +         bundle=keys["bundle"], revocations=keys["revocations"]
+304 +     )
+305 |
+--------------------------------------------------------------------------------
+358 |         headers["Retry-After"] = str(retry_after)
+    -     return JSONResponse(status_code=exc.status_code, content=exc.as_body(), headers=headers)
+359 +     return JSONResponse(
+360 +         status_code=exc.status_code, content=exc.as_body(), headers=headers
+361 +     )
+    |
+
+unformatted: File would be reformatted
+   --> app/ai/scheduler.py:70:20
+    |
+69  |
+    - def _reject_reason(
+    -     node: WorkerCandidate, req: Requirements, now: int
+    - ) -> str | None:
+70  + def _reject_reason(node: WorkerCandidate, req: Requirements, now: int) -> str | None:
+71  |     if node.suspended:
+--------------------------------------------------------------------------------
+82  |         return "region_mismatch"
+    -     if req.latency_target_ms is not None and node.latency_ms_p95 > req.latency_target_ms:
+83  +     if (
+84  +         req.latency_target_ms is not None
+85  +         and node.latency_ms_p95 > req.latency_target_ms
+86  +     ):
+87  |         return "latency_target_missed"
+    -     if req.max_price_micro is not None and node.price_micro_per_mtok > req.max_price_micro:
+88  +     if (
+89  +         req.max_price_micro is not None
+90  +         and node.price_micro_per_mtok > req.max_price_micro
+91  +     ):
+92  |         return "price_above_cap"
+--------------------------------------------------------------------------------
+109 |     """Higher is better. Reputation dominates, then price, latency, and load."""
+    -     price_penalty = min(1.0, node.price_micro_per_mtok / 50_000_000)  # 50 credits/1M = max
+110 +     price_penalty = min(
+111 +         1.0, node.price_micro_per_mtok / 50_000_000
+112 +     )  # 50 credits/1M = max
+113 |     latency_penalty = min(1.0, node.latency_ms_p95 / 2000.0)
+    |
+
+unformatted: File would be reformatted
+   --> app/ai/service.py:227:21
+    |
+226 |
+    -     async def place(self, auth: AuthContext, request: PlacementRequest) -> TicketResponse:
+227 +     async def place(
+228 +         self, auth: AuthContext, request: PlacementRequest
+229 +     ) -> TicketResponse:
+230 |         self.require_scope(auth, "inference")
+--------------------------------------------------------------------------------
+254 |         )
+    -         if request.max_price_micro is not None and quote.total_micro > request.max_price_micro:
+255 +         if (
+256 +             request.max_price_micro is not None
+257 +             and quote.total_micro > request.max_price_micro
+258 +         ):
+259 |             raise ValidationError(
+--------------------------------------------------------------------------------
+312 |             hold_micro=quote.total_micro,
+    -             ticket_hash=hashlib.sha256(crypto.canonical_json(ticket_document)).hexdigest(),
+313 +             ticket_hash=hashlib.sha256(
+314 +                 crypto.canonical_json(ticket_document)
+315 +             ).hexdigest(),
+316 |             price_effective_from=quote.price_effective_from,
+--------------------------------------------------------------------------------
+333 |             subject=job_id,
+    -             detail={"node_id": node.node_id, "model": request.model,
+    -                     "tier": ticket.tier, "hold_micro": quote.total_micro},
+334 +             detail={
+335 +                 "node_id": node.node_id,
+336 +                 "model": request.model,
+337 +                 "tier": ticket.tier,
+338 +                 "hold_micro": quote.total_micro,
+339 +             },
+340 |         )
+341 |         logger.info(
+342 |             "placed job %s model=%s node=%s tier=%s hold_micro=%s",
+    -             job_id, request.model, node.node_id, ticket.tier, quote.total_micro,
+343 +             job_id,
+344 +             request.model,
+345 +             node.node_id,
+346 +             ticket.tier,
+347 +             quote.total_micro,
+348 |         )
+--------------------------------------------------------------------------------
+399 |         )
+    -         node_id = "node_" + hashlib.sha256(
+    -             payload.identity_public_key.encode("utf-8")
+    -         ).hexdigest()[:24]
+400 +         node_id = (
+401 +             "node_"
+402 +             + hashlib.sha256(payload.identity_public_key.encode("utf-8")).hexdigest()[
+403 +                 :24
+404 +             ]
+405 +         )
+406 |         node = NodeRecord(
+--------------------------------------------------------------------------------
+423 |         await self.store.audit(
+    -             "node.registered", actor=auth.account_id, subject=node_id,
+424 +             "node.registered",
+425 +             actor=auth.account_id,
+426 +             subject=node_id,
+427 |             detail={"confidentiality": node.confidentiality, "models": payload.models},
+--------------------------------------------------------------------------------
+433 |             confidentiality=payload.confidentiality,
+    -             confidentiality_notice=CONFIDENTIALITY_NOTICES[payload.confidentiality.value],
+    -             attestation_required=payload.confidentiality is Confidentiality.ATTESTED_TEE,
+434 +             confidentiality_notice=CONFIDENTIALITY_NOTICES[
+435 +                 payload.confidentiality.value
+436 +             ],
+437 +             attestation_required=payload.confidentiality
+438 +             is Confidentiality.ATTESTED_TEE,
+439 |             registered_at=int(self.clock()),
+--------------------------------------------------------------------------------
+459 |
+    -     async def attest(
+    -         self, auth: AuthContext, envelope: SignedEnvelope
+    -     ) -> dict:
+460 +     async def attest(self, auth: AuthContext, envelope: SignedEnvelope) -> dict:
+461 |         self.require_scope(auth, "worker")
+--------------------------------------------------------------------------------
+467 |             raise AuthorizationError("node belongs to a different account")
+    -         self._verify_self_signed(envelope, ATTESTATION_EVIDENCE_DOMAIN, node.identity_public_key)
+468 +         self._verify_self_signed(
+469 +             envelope, ATTESTATION_EVIDENCE_DOMAIN, node.identity_public_key
+470 +         )
+471 |         expected_hash = crypto.sha256_hex(crypto.b64d(node.session_public_key))
+--------------------------------------------------------------------------------
+489 |         await self.store.audit(
+    -             "node.attested", actor=auth.account_id, subject=node.node_id,
+490 +             "node.attested",
+491 +             actor=auth.account_id,
+492 +             subject=node.node_id,
+493 |             detail={"status": verdict.status, "verifier": verdict.verifier},
+--------------------------------------------------------------------------------
+503 |         if not crypto.verify(domain, envelope.payload, envelope.sig, public_key):
+    -             raise AuthorizationError("request signature verification failed", code="bad_signature")
+504 +             raise AuthorizationError(
+505 +                 "request signature verification failed", code="bad_signature"
+506 +             )
+507 |
+--------------------------------------------------------------------------------
+520 |         # The domain is fixed by the wire format, never taken from the request.
+    -         if not crypto.verify(RECEIPT_DOMAIN, payload, envelope.sig, node.identity_public_key):
+    -             raise ReceiptError("receipt signature verification failed", code="bad_signature")
+521 +         if not crypto.verify(
+522 +             RECEIPT_DOMAIN, payload, envelope.sig, node.identity_public_key
+523 +         ):
+524 +             raise ReceiptError(
+525 +                 "receipt signature verification failed", code="bad_signature"
+526 +             )
+527 |         document = {
+--------------------------------------------------------------------------------
+543 |         if job.node_id != node.node_id:
+    -             raise ReceiptError("receipt is from a node that was not assigned this job",
+    -                                code="receipt_node_mismatch")
+544 +             raise ReceiptError(
+545 +                 "receipt is from a node that was not assigned this job",
+546 +                 code="receipt_node_mismatch",
+547 +             )
+548 |         if int(self.clock()) > job.created_at + JOB_TTL_SECONDS:
+--------------------------------------------------------------------------------
+589 |         if existing is None:
+    -             await self.store.save_receipt(job_id, "client", job.node_id, ack_payload.model_dump(mode="json"))
+590 +             await self.store.save_receipt(
+591 +                 job_id, "client", job.node_id, ack_payload.model_dump(mode="json")
+592 +             )
+593 |         elif existing != ack_payload.model_dump(mode="json"):
+--------------------------------------------------------------------------------
+598 |         receipt = (
+    -             ReceiptPayload(**receipt_doc["payload"]) if receipt_doc is not None else None
+599 +             ReceiptPayload(**receipt_doc["payload"])
+600 +             if receipt_doc is not None
+601 +             else None
+602 |         )
+603 |         return await self._reconcile_and_settle(job, receipt)
+604 |
+605 |     def _cost(self, job: JobRecord, input_tokens: int, output_tokens: int) -> int:
+    -         return ceil_div(input_tokens * job.input_micro_per_mtok, MICRO_PER_MTOK) + ceil_div(
+    -             output_tokens * job.output_micro_per_mtok, MICRO_PER_MTOK
+    -         )
+606 +         return ceil_div(
+607 +             input_tokens * job.input_micro_per_mtok, MICRO_PER_MTOK
+608 +         ) + ceil_div(output_tokens * job.output_micro_per_mtok, MICRO_PER_MTOK)
+609 |
+--------------------------------------------------------------------------------
+635 |             decision = Reconciliation(
+    -                 "disputed", decision.input_tokens, decision.output_tokens,
+636 +                 "disputed",
+637 +                 decision.input_tokens,
+638 +                 decision.output_tokens,
+639 |                 reason="settlement_exceeds_hold",
+--------------------------------------------------------------------------------
+649 |             await self.store.audit(
+    -                 "job.disputed", subject=job.job_id,
+650 +                 "job.disputed",
+651 +                 subject=job.job_id,
+652 |                 detail={"reason": decision.reason, "total_micro": total},
+--------------------------------------------------------------------------------
+673 |         await self.store.audit(
+    -             "job.settled", subject=job.job_id,
+    -             detail={"total_micro": total, "compute_micro": job.compute_micro,
+    -                     "seeder_micro": job.seeder_micro, "platform_micro": job.platform_micro},
+674 +             "job.settled",
+675 +             subject=job.job_id,
+676 +             detail={
+677 +                 "total_micro": total,
+678 +                 "compute_micro": job.compute_micro,
+679 +                 "seeder_micro": job.seeder_micro,
+680 +                 "platform_micro": job.platform_micro,
+681 +             },
+682 |         )
+--------------------------------------------------------------------------------
+712 |     async def usage(self, auth: AuthContext, limit: int = 100) -> UsageResponse:
+    -         jobs = await self.store.list_jobs(auth.account_id, limit=max(1, min(limit, 500)))
+713 +         jobs = await self.store.list_jobs(
+714 +             auth.account_id, limit=max(1, min(limit, 500))
+715 +         )
+716 |         records = [
+--------------------------------------------------------------------------------
+738 |         if grants >= self.settings.signup_ip_cap:
+    -             raise ConflictError("signup credit limit reached for this network",
+    -                                 code="signup_credit_limit")
+739 +             raise ConflictError(
+740 +                 "signup credit limit reached for this network",
+741 +                 code="signup_credit_limit",
+742 +             )
+743 |         first = await self.store.record_signup_grant(account_id, ip_hash)
+--------------------------------------------------------------------------------
+754 |         await self.store.audit(
+    -             "account.signup_credit", actor=account_id, subject=account_id,
+755 +             "account.signup_credit",
+756 +             actor=account_id,
+757 +             subject=account_id,
+758 |             detail={"micro": amount},
+--------------------------------------------------------------------------------
+805 |             await self.store.audit(
+    -                 "node.verification_failed", subject=node_id,
+806 +                 "node.verification_failed",
+807 +                 subject=node_id,
+808 |                 detail={"job_id": job_id, "detail": outcome.detail},
+--------------------------------------------------------------------------------
+813 |             for node_id in outcome.faulty_nodes:
+    -                 await self.store.penalize_node(node_id, reputation_delta=0, suspend=True)
+814 +                 await self.store.penalize_node(
+815 +                     node_id, reputation_delta=0, suspend=True
+816 +                 )
+817 |         return outcome
+    |
+
+unformatted: File would be reformatted
+   --> app/ai/shards.py:40:27
+    |
+39  | def _hash_pair(left_hex: str, right_hex: str) -> str:
+    -     return hashlib.sha256(bytes.fromhex(left_hex) + bytes.fromhex(right_hex)).hexdigest()
+40  +     return hashlib.sha256(
+41  +         bytes.fromhex(left_hex) + bytes.fromhex(right_hex)
+42  +     ).hexdigest()
+43  |
+--------------------------------------------------------------------------------
+69  |         proof.append(
+    -             {"position": "right" if sibling > position else "left", "hash": level[sibling]}
+70  +             {
+71  +                 "position": "right" if sibling > position else "left",
+72  +                 "hash": level[sibling],
+73  +             }
+74  |         )
+--------------------------------------------------------------------------------
+137 |     def manifest_hash(self) -> str:
+    -         return hashlib.sha256(crypto.canonical_json(self.model_dump(mode="json"))).hexdigest()
+138 +         return hashlib.sha256(
+139 +             crypto.canonical_json(self.model_dump(mode="json"))
+140 +         ).hexdigest()
+141 |
+--------------------------------------------------------------------------------
+184 |     except (ValueError, TypeError) as exc:
+    -         raise ValidationError("manifest is malformed or unsafe", code="invalid_manifest") from exc
+185 +         raise ValidationError(
+186 +             "manifest is malformed or unsafe", code="invalid_manifest"
+187 +         ) from exc
+188 |     if manifest.total_size > max_model_bytes:
+    -         raise ValidationError("manifest exceeds the configured model size cap", code="manifest_too_large")
+    -     if manifest.format in _UNSAFE_FORMATS:  # defence in depth; model validation already refuses
+    -         raise ValidationError("model format is not permitted", code="unsafe_model_format")
+189 +         raise ValidationError(
+190 +             "manifest exceeds the configured model size cap", code="manifest_too_large"
+191 +         )
+192 +     if (
+193 +         manifest.format in _UNSAFE_FORMATS
+194 +     ):  # defence in depth; model validation already refuses
+195 +         raise ValidationError(
+196 +             "model format is not permitted", code="unsafe_model_format"
+197 +         )
+198 |     return manifest
+--------------------------------------------------------------------------------
+267 |             raise UnavailableError(
+    -                 "seeder disk quota cannot accommodate the shard", code="disk_quota_exceeded"
+268 +                 "seeder disk quota cannot accommodate the shard",
+269 +                 code="disk_quota_exceeded",
+270 |             )
+--------------------------------------------------------------------------------
+276 |         self._evict_for(len(data))
+    -         fd, temp_name = tempfile.mkstemp(dir=self.root, prefix=".shard-", suffix=".part")
+277 +         fd, temp_name = tempfile.mkstemp(
+278 +             dir=self.root, prefix=".shard-", suffix=".part"
+279 +         )
+280 |         try:
+--------------------------------------------------------------------------------
+396 |             actual = hashlib.sha256(data).hexdigest()
+    -             if not crypto.constant_time_eq(actual, spec.sha256) or len(data) != spec.size:
+397 +             if (
+398 +                 not crypto.constant_time_eq(actual, spec.sha256)
+399 +                 or len(data) != spec.size
+400 +             ):
+401 |                 # Corrupt payload: never written, sender banned for this fetch.
+--------------------------------------------------------------------------------
+406 |                     self.penalty(peer.peer_id, f"corrupt shard {spec.index}")
+    -                 last_error = ValidationError("shard failed integrity verification", code="corrupt_shard")
+407 +                 last_error = ValidationError(
+408 +                     "shard failed integrity verification", code="corrupt_shard"
+409 +                 )
+410 |                 continue
+--------------------------------------------------------------------------------
+421 |             code="shard_unavailable",
+    -             details={"shard": spec.index, "error": type(last_error).__name__ if last_error else None},
+422 +             details={
+423 +                 "shard": spec.index,
+424 +                 "error": type(last_error).__name__ if last_error else None,
+425 +             },
+426 |         )
+    |
+
+unformatted: File would be reformatted
+   --> app/ai/ssrf.py:56:77
+    |
+55  |     # CGNAT 100.64.0.0/10 is not flagged is_private on all Python versions.
+    -     if isinstance(ip, ipaddress.IPv4Address) and ip in ipaddress.ip_network("100.64.0.0/10"):
+56  +     if isinstance(ip, ipaddress.IPv4Address) and ip in ipaddress.ip_network(
+57  +         "100.64.0.0/10"
+58  +     ):
+59  |         return False
+--------------------------------------------------------------------------------
+83  |     except OSError as exc:
+    -         raise ValidationError("origin host could not be resolved", code="ssrf_blocked") from exc
+84  +         raise ValidationError(
+85  +             "origin host could not be resolved", code="ssrf_blocked"
+86  +         ) from exc
+87  |     if not infos:
+    -         raise ValidationError("origin host resolved to no addresses", code="ssrf_blocked")
+88  +         raise ValidationError(
+89  +             "origin host resolved to no addresses", code="ssrf_blocked"
+90  +         )
+91  |
+--------------------------------------------------------------------------------
+97  |         except ValueError as exc:
+    -             raise ValidationError("origin resolved to an invalid address", code="ssrf_blocked") from exc
+98  +             raise ValidationError(
+99  +                 "origin resolved to an invalid address", code="ssrf_blocked"
+100 +             ) from exc
+101 |         if not _address_allowed(ip):
+    |
+
+unformatted: File would be reformatted
+    --> app/ai/store.py:357:26
+     |
+356  |
+     -     async def place_hold(self, job_id: str, account_id: str, amount_micro: int) -> None: ...
+357  +     async def place_hold(
+358  +         self, job_id: str, account_id: str, amount_micro: int
+359  +     ) -> None: ...
+360  |
+361  |     async def release_hold(self, job_id: str) -> None: ...
+362  |
+     -     async def save_receipt(self, job_id: str, kind: str, node_id: str, body: dict) -> None: ...
+363  +     async def save_receipt(
+364  +         self, job_id: str, kind: str, node_id: str, body: dict
+365  +     ) -> None: ...
+366  |
+--------------------------------------------------------------------------------
+387  |     async def credit(
+     -         self, account_id: str, amount_micro: int, *, source: str, idempotency_key: str, kind: str
+388  +         self,
+389  +         account_id: str,
+390  +         amount_micro: int,
+391  +         *,
+392  +         source: str,
+393  +         idempotency_key: str,
+394  +         kind: str,
+395  |     ) -> None: ...
+--------------------------------------------------------------------------------
+410  |
+     -     async def audit(self, event: str, *, actor: str = "", subject: str = "", detail: dict | None = None) -> None: ...
+411  +     async def audit(
+412  +         self,
+413  +         event: str,
+414  +         *,
+415  +         actor: str = "",
+416  +         subject: str = "",
+417  +         detail: dict | None = None,
+418  +     ) -> None: ...
+419  |
+--------------------------------------------------------------------------------
+523  |
+     -     async def save_receipt(self, job_id: str, kind: str, node_id: str, body: dict) -> None:
+524  +     async def save_receipt(
+525  +         self, job_id: str, kind: str, node_id: str, body: dict
+526  +     ) -> None:
+527  |         key = (job_id, kind)
+528  |         if key in self.receipts:
+     -             raise ConflictError("receipt already submitted for this job", code="duplicate_receipt")
+     -         self.receipts[key] = {"job_id": job_id, "kind": kind, "node_id": node_id, "body": body}
+529  +             raise ConflictError(
+530  +                 "receipt already submitted for this job", code="duplicate_receipt"
+531  +             )
+532  +         self.receipts[key] = {
+533  +             "job_id": job_id,
+534  +             "kind": kind,
+535  +             "node_id": node_id,
+536  +             "body": body,
+537  +         }
+538  |
+--------------------------------------------------------------------------------
+598  |     async def credit(
+     -         self, account_id: str, amount_micro: int, *, source: str, idempotency_key: str, kind: str
+599  +         self,
+600  +         account_id: str,
+601  +         amount_micro: int,
+602  +         *,
+603  +         source: str,
+604  +         idempotency_key: str,
+605  +         kind: str,
+606  |     ) -> None:
+--------------------------------------------------------------------------------
+639  |
+     -     async def audit(self, event: str, *, actor: str = "", subject: str = "", detail: dict | None = None) -> None:
+640  +     async def audit(
+641  +         self,
+642  +         event: str,
+643  +         *,
+644  +         actor: str = "",
+645  +         subject: str = "",
+646  +         detail: dict | None = None,
+647  +     ) -> None:
+648  |         self.audit_log.append(
+--------------------------------------------------------------------------------
+766  |             await conn.execute(
+     -                 "UPDATE ai_api_keys SET last_used_at = NOW() WHERE key_hash = $1", key_hash
+767  +                 "UPDATE ai_api_keys SET last_used_at = NOW() WHERE key_hash = $1",
+768  +                 key_hash,
+769  |             )
+--------------------------------------------------------------------------------
+812  |         async with self.pool.acquire() as conn:
+     -             row = await conn.fetchrow("SELECT * FROM ai_nodes WHERE node_id = $1", node_id)
+813  +             row = await conn.fetchrow(
+814  +                 "SELECT * FROM ai_nodes WHERE node_id = $1", node_id
+815  +             )
+816  |         return _row_to_node(row) if row else None
+--------------------------------------------------------------------------------
+943  |         async with self.pool.acquire() as conn, conn.transaction():
+     -                 # Serialise per account so two concurrent placements cannot both
+     -                 # see the same available balance.
+     -                 await conn.execute(
+     -                     "SELECT pg_advisory_xact_lock(hashtext($1))", account_id
+     -                 )
+     -                 available = await conn.fetchval(
+     -                     """
+944  +             # Serialise per account so two concurrent placements cannot both
+945  +             # see the same available balance.
+946  +             await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", account_id)
+947  +             available = await conn.fetchval(
+948  +                 """
+949  |                     SELECT COALESCE((
+--------------------------------------------------------------------------------
+958  |                     """,
+     -                     account_credits(account_id),
+     -                     _uuid(account_id),
+959  +                 account_credits(account_id),
+960  +                 _uuid(account_id),
+961  +             )
+962  +             if int(available or 0) < amount_micro:
+963  +                 raise InsufficientCredits(
+964  +                     "insufficient credit balance for this job",
+965  +                     details={
+966  +                         "available_micro": max(0, int(available or 0)),
+967  +                         "required_micro": amount_micro,
+968  +                     },
+969  |                 )
+     -                 if int(available or 0) < amount_micro:
+     -                     raise InsufficientCredits(
+     -                         "insufficient credit balance for this job",
+     -                         details={"available_micro": max(0, int(available or 0)),
+     -                                  "required_micro": amount_micro},
+     -                     )
+     -                 await conn.execute(
+     -                     "INSERT INTO ai_holds (job_id, account_id, amount_micro) VALUES ($1,$2,$3)",
+     -                     job_id,
+     -                     _uuid(account_id),
+     -                     amount_micro,
+     -                 )
+970  +             await conn.execute(
+971  +                 "INSERT INTO ai_holds (job_id, account_id, amount_micro) VALUES ($1,$2,$3)",
+972  +                 job_id,
+973  +                 _uuid(account_id),
+974  +                 amount_micro,
+975  +             )
+976  |
+--------------------------------------------------------------------------------
+983  |
+     -     async def save_receipt(self, job_id: str, kind: str, node_id: str, body: dict) -> None:
+984  +     async def save_receipt(
+985  +         self, job_id: str, kind: str, node_id: str, body: dict
+986  +     ) -> None:
+987  |         async with self.pool.acquire() as conn:
+--------------------------------------------------------------------------------
+1006 |             row = await conn.fetchrow(
+     -                 "SELECT body FROM ai_receipts WHERE job_id = $1 AND kind = 'worker'", job_id
+1007 +                 "SELECT body FROM ai_receipts WHERE job_id = $1 AND kind = 'worker'",
+1008 +                 job_id,
+1009 |             )
+--------------------------------------------------------------------------------
+1014 |             row = await conn.fetchrow(
+     -                 "SELECT body FROM ai_receipts WHERE job_id = $1 AND kind = 'client'", job_id
+1015 +                 "SELECT body FROM ai_receipts WHERE job_id = $1 AND kind = 'client'",
+1016 +                 job_id,
+1017 |             )
+--------------------------------------------------------------------------------
+1052 |         entries = [
+     -             (account_credits(job.account_id), compute_earnings(job.node_id), compute, "job_compute"),
+1053 +             (
+1054 +                 account_credits(job.account_id),
+1055 +                 compute_earnings(job.node_id),
+1056 +                 compute,
+1057 +                 "job_compute",
+1058 +             ),
+1059 |             (account_credits(job.account_id), SEEDER_POOL, seeder, "job_seeder"),
+     -             (account_credits(job.account_id), PLATFORM_REVENUE, platform, "job_platform"),
+1060 +             (
+1061 +                 account_credits(job.account_id),
+1062 +                 PLATFORM_REVENUE,
+1063 +                 platform,
+1064 +                 "job_platform",
+1065 +             ),
+1066 |         ]
+1067 |         async with self.pool.acquire() as conn, conn.transaction():
+     -                 await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", job.account_id)
+     -                 for debit, credit, amount, kind in entries:
+     -                     if amount <= 0:
+     -                         continue
+     -                     await conn.execute(
+     -                         """
+1068 +             await conn.execute(
+1069 +                 "SELECT pg_advisory_xact_lock(hashtext($1))", job.account_id
+1070 +             )
+1071 +             for debit, credit, amount, kind in entries:
+1072 +                 if amount <= 0:
+1073 +                     continue
+1074 +                 await conn.execute(
+1075 +                     """
+1076 |                         INSERT INTO ai_ledger_entries (
+--------------------------------------------------------------------------------
+1081 |                         """,
+     -                         debit,
+     -                         credit,
+     -                         amount,
+     -                         f"settle:{job.job_id}:{kind}",
+     -                         kind,
+     -                         job.job_id,
+     -                         int(time.time()),
+     -                     )
+     -                 await conn.execute(
+     -                     "UPDATE ai_holds SET status = 'settled' WHERE job_id = $1", job.job_id
+1082 +                     debit,
+1083 +                     credit,
+1084 +                     amount,
+1085 +                     f"settle:{job.job_id}:{kind}",
+1086 +                     kind,
+1087 +                     job.job_id,
+1088 +                     int(time.time()),
+1089 |                 )
+     -                 await conn.execute(
+     -                     """
+1090 +             await conn.execute(
+1091 +                 "UPDATE ai_holds SET status = 'settled' WHERE job_id = $1", job.job_id
+1092 +             )
+1093 +             await conn.execute(
+1094 +                 """
+1095 |                     UPDATE ai_jobs SET status = 'settled', input_tokens = $2,
+--------------------------------------------------------------------------------
+1100 |                     """,
+     -                     job.job_id,
+     -                     input_tokens,
+     -                     output_tokens,
+     -                     total_micro,
+     -                     compute,
+     -                     seeder,
+     -                     platform,
+     -                 )
+1101 +                 job.job_id,
+1102 +                 input_tokens,
+1103 +                 output_tokens,
+1104 +                 total_micro,
+1105 +                 compute,
+1106 +                 seeder,
+1107 +                 platform,
+1108 +             )
+1109 |         job.status = "settled"
+--------------------------------------------------------------------------------
+1163 |     async def credit(
+     -         self, account_id: str, amount_micro: int, *, source: str, idempotency_key: str, kind: str
+1164 +         self,
+1165 +         account_id: str,
+1166 +         amount_micro: int,
+1167 +         *,
+1168 +         source: str,
+1169 +         idempotency_key: str,
+1170 +         kind: str,
+1171 |     ) -> None:
+--------------------------------------------------------------------------------
+1293 |     async def audit(
+     -         self, event: str, *, actor: str = "", subject: str = "", detail: dict | None = None
+1294 +         self,
+1295 +         event: str,
+1296 +         *,
+1297 +         actor: str = "",
+1298 +         subject: str = "",
+1299 +         detail: dict | None = None,
+1300 |     ) -> None:
+--------------------------------------------------------------------------------
+1333 |         history=[
+     -             (int(item["effective_from"]), int(item["input_micro_per_mtok"]),
+     -              int(item["output_micro_per_mtok"]))
+1334 +             (
+1335 +                 int(item["effective_from"]),
+1336 +                 int(item["input_micro_per_mtok"]),
+1337 +                 int(item["output_micro_per_mtok"]),
+1338 +             )
+1339 |             for item in (history or [])
+     |
+
+unformatted: File would be reformatted
+   --> app/ai/tickets.py:105:32
+    |
+104 |             max_price_micro=max_price_micro,
+    -             tier="confidential" if confidentiality is Confidentiality.ATTESTED_TEE else "standard",
+105 +             tier="confidential"
+106 +             if confidentiality is Confidentiality.ATTESTED_TEE
+107 +             else "standard",
+108 |             jti=crypto.new_session_nonce(),
+--------------------------------------------------------------------------------
+129 |         except PydanticValidationError as exc:
+    -             raise TicketError("ticket payload is malformed", code="malformed_ticket") from exc
+130 +             raise TicketError(
+131 +                 "ticket payload is malformed", code="malformed_ticket"
+132 +             ) from exc
+133 |
+134 |         if ticket.issued_at > now_ts + self.skew_seconds:
+    -             raise TicketError("ticket is issued in the future", code="ticket_not_yet_valid")
+135 +             raise TicketError(
+136 +                 "ticket is issued in the future", code="ticket_not_yet_valid"
+137 +             )
+138 |         if now_ts > ticket.expires_at + self.skew_seconds:
+139 |             raise ExpiredError("ticket has expired")
+140 |         if expected_job_id is not None and ticket.job_id != expected_job_id:
+    -             raise TicketError("ticket is for a different job", code="ticket_job_mismatch")
+141 +             raise TicketError(
+142 +                 "ticket is for a different job", code="ticket_job_mismatch"
+143 +             )
+144 |         if expected_node_id is not None and ticket.node_id != expected_node_id:
+    -             raise TicketError("ticket is for a different node", code="ticket_node_mismatch")
+145 +             raise TicketError(
+146 +                 "ticket is for a different node", code="ticket_node_mismatch"
+147 +             )
+148 |         if (
+--------------------------------------------------------------------------------
+158 |         ):
+    -             raise ReplayError("ticket has already been used", details={"jti": ticket.jti})
+159 +             raise ReplayError(
+160 +                 "ticket has already been used", details={"jti": ticket.jti}
+161 +             )
+162 |         return ticket
+    |
+
+unformatted: File would be reformatted
+   --> app/ai/transcripts.py:59:18
+    |
+58  |
+    -     def __init__(self, *, top_k: int = MAX_TOP_K, max_records: int = MAX_RECORDS) -> None:
+59  +     def __init__(
+60  +         self, *, top_k: int = MAX_TOP_K, max_records: int = MAX_RECORDS
+61  +     ) -> None:
+62  |         if top_k < 1:
+--------------------------------------------------------------------------------
+215 |         with self._lock:
+    -             expired = [key for key, (_, expires_at) in self._items.items() if now >= expires_at]
+216 +             expired = [
+217 +                 key for key, (_, expires_at) in self._items.items() if now >= expires_at
+218 +             ]
+219 |             for key in expired:
+    |
+
+unformatted: File would be reformatted
+  --> app/ai/verification.py:62:24
+   |
+61 |
+   - def resolve_executions(
+   -     *, job_id: str, outputs: dict[str, str]
+   - ) -> VerificationOutcome:
+62 + def resolve_executions(*, job_id: str, outputs: dict[str, str]) -> VerificationOutcome:
+63 |     """Compare output hashes from independent workers.
+   |
+
+unformatted: File would be reformatted
+    --> app/ai/verification2.py:97:36
+     |
+96   | # Challenge budget (spec defaults, overridable by settings in the coordinator).
+     - DEFAULT_CHALLENGE_FRACTION = 0.03   # 3% of output tokens
+97   + DEFAULT_CHALLENGE_FRACTION = 0.03  # 3% of output tokens
+98   | DEFAULT_MIN_CHALLENGE = 8
+99   | DEFAULT_MAX_CHALLENGE = 256
+100  | DEFAULT_TOP_K = 5
+     - TRANSCRIPT_QUANTIZATION_BITS = 14    # fixed-point logprob precision for commitments
+101  + TRANSCRIPT_QUANTIZATION_BITS = 14  # fixed-point logprob precision for commitments
+102  |
+--------------------------------------------------------------------------------
+106  |
+107  +
+108  | @dataclass(frozen=True)
+--------------------------------------------------------------------------------
+118  |
+     -     position: int                       # token index, 0-based
+     -     token_id: int                      # vocabulary id of the emitted token
+     -     chosen_logprob: float              # log-prob of the emitted token under the model
+     -     top_k: tuple[tuple[int, float], ...]  # (token_id, logprob) pairs, sorted, length <= k
+119  +     position: int  # token index, 0-based
+120  +     token_id: int  # vocabulary id of the emitted token
+121  +     chosen_logprob: float  # log-prob of the emitted token under the model
+122  +     top_k: tuple[
+123  +         tuple[int, float], ...
+124  +     ]  # (token_id, logprob) pairs, sorted, length <= k
+125  |
+--------------------------------------------------------------------------------
+170  |     if actual != expected:
+     -         raise ValueError("transcript records must be contiguous positions starting at 0")
+171  +         raise ValueError(
+172  +             "transcript records must be contiguous positions starting at 0"
+173  +         )
+174  |     leaves = [r.leaf_hex() for r in ordered]
+175  |     return merkle_root(leaves)
+176  |
+177  |
+     - def transcript_proof(records: list[TranscriptRecord], index: int) -> list[dict[str, str]]:
+178  + def transcript_proof(
+179  +     records: list[TranscriptRecord], index: int
+180  + ) -> list[dict[str, str]]:
+181  |     """Merkle inclusion proof for the per-token record at ``index``."""
+--------------------------------------------------------------------------------
+189  |
+190  +
+191  | def _quantize_logprob(value: float) -> int:
+--------------------------------------------------------------------------------
+210  |
+211  +
+212  | class VerificationReceiptExt:
+--------------------------------------------------------------------------------
+239  |         receipt_id: str,
+     -         engine: str,                 # e.g. "vllm", "ollama"
+240  +         engine: str,  # e.g. "vllm", "ollama"
+241  |         engine_version: str,
+     -         dtype: str,                  # e.g. "float16", "bfloat16", "float32"
+     -         quantization: str,           # e.g. "none", "q4_k_m", "gptq"
+     -         gpu_class: str,              # documented hardware bucket label
+242  +         dtype: str,  # e.g. "float16", "bfloat16", "float32"
+243  +         quantization: str,  # e.g. "none", "q4_k_m", "gptq"
+244  +         gpu_class: str,  # documented hardware bucket label
+245  |         sampling_params: dict[str, Any],
+     -         prompt_hash: str,            # salted SHA-256; never the prompt
+246  +         prompt_hash: str,  # salted SHA-256; never the prompt
+247  |         transcript_records: list[TranscriptRecord],
+--------------------------------------------------------------------------------
+293  |
+294  +
+295  | class VerificationRng:
+--------------------------------------------------------------------------------
+312  |
+     -     def sample_decision(self, job_id: str, transcript_root: str, *, rate_per_10k: int) -> bool:
+313  +     def sample_decision(
+314  +         self, job_id: str, transcript_root: str, *, rate_per_10k: int
+315  +     ) -> bool:
+316  |         """True = verified. Derived only from (secret, job_id, transcript_root).
+--------------------------------------------------------------------------------
+331  |     def challenge_indices(
+     -         self, job_id: str, transcript_root: str, token_count: int,
+     -         *, fraction: float = DEFAULT_CHALLENGE_FRACTION,
+332  +         self,
+333  +         job_id: str,
+334  +         transcript_root: str,
+335  +         token_count: int,
+336  +         *,
+337  +         fraction: float = DEFAULT_CHALLENGE_FRACTION,
+338  |         minimum: int = DEFAULT_MIN_CHALLENGE,
+--------------------------------------------------------------------------------
+351  |         for i in range(count):
+     -             rnd = hmac.new(rnd + int.to_bytes(i, 4, "big"), b"shuffle", hashlib.sha256).digest()
+352  +             rnd = hmac.new(
+353  +                 rnd + int.to_bytes(i, 4, "big"), b"shuffle", hashlib.sha256
+354  +             ).digest()
+355  |             j = int.from_bytes(rnd[:4], "big") % (token_count - i) + i
+--------------------------------------------------------------------------------
+363  |
+364  +
+365  | class ChallengeVerificationError(Exception):
+--------------------------------------------------------------------------------
+376  |     transcript_root: str,
+     -     records: dict[int, TranscriptRecord],   # position -> record (worker-kept, opened on demand)
+377  +     records: dict[
+378  +         int, TranscriptRecord
+379  +     ],  # position -> record (worker-kept, opened on demand)
+380  |     node_public_key: str,
+--------------------------------------------------------------------------------
+398  |     if not isinstance(responses, list):
+     -         raise ChallengeVerificationError("challenge response missing 'responses'", code="bad_challenge_shape")
+399  +         raise ChallengeVerificationError(
+400  +             "challenge response missing 'responses'", code="bad_challenge_shape"
+401  +         )
+402  |
+403  |     for item in responses:
+404  |         if not isinstance(item, dict):
+     -             raise ChallengeVerificationError("bad challenge response item", code="bad_challenge_shape")
+405  +             raise ChallengeVerificationError(
+406  +                 "bad challenge response item", code="bad_challenge_shape"
+407  +             )
+408  |         position = item.get("position")
+409  |         proof = item.get("proof")
+410  |         if not isinstance(position, int) or not isinstance(proof, list):
+     -             raise ChallengeVerificationError("challenge response missing position/proof", code="bad_challenge_shape")
+411  +             raise ChallengeVerificationError(
+412  +                 "challenge response missing position/proof", code="bad_challenge_shape"
+413  +             )
+414  |
+415  |         record = records.get(position)
+416  |         if record is None:
+417  |             raise ChallengeVerificationError(
+     -                 f"worker did not open token index {position}", code="challenge_open_failure"
+418  +                 f"worker did not open token index {position}",
+419  +                 code="challenge_open_failure",
+420  |             )
+--------------------------------------------------------------------------------
+456  |     return False
+     -
+457  |
+--------------------------------------------------------------------------------
+462  |
+463  +
+464  | @dataclass(frozen=True)
+--------------------------------------------------------------------------------
+478  |     profile_version: str
+     -     chosen_logprob_abs_tolerance: float       # per-token tolerance for the chosen logprob
+     -     top_k_overlap_min: int                    # minimum number of top-k ids that should overlap
+479  +     chosen_logprob_abs_tolerance: float  # per-token tolerance for the chosen logprob
+480  +     top_k_overlap_min: int  # minimum number of top-k ids that should overlap
+481  |     top_k_logprob_abs_tolerance: float
+     -     mean_logprob_abs_tolerance: float         # full-sequence mean abs diff threshold
+     -     tail_fraction_threshold: float            # fraction of tokens in extreme low-prob tail
+482  +     mean_logprob_abs_tolerance: float  # full-sequence mean abs diff threshold
+483  +     tail_fraction_threshold: float  # fraction of tokens in extreme low-prob tail
+484  |     effective_from: int
+--------------------------------------------------------------------------------
+508  |     def lookup(
+     -         self, *, model_family: str, gpu_class: str, engine: str, dtype: str, quantization: str
+509  +         self,
+510  +         *,
+511  +         model_family: str,
+512  +         gpu_class: str,
+513  +         engine: str,
+514  +         dtype: str,
+515  +         quantization: str,
+516  |     ) -> ToleranceProfile | None:
+--------------------------------------------------------------------------------
+556  |     in_verifier_top_k: bool
+     -     tail: bool   # True if the emitted token is in an extreme low-prob tail under the verifier
+557  +     tail: bool  # True if the emitted token is in an extreme low-prob tail under the verifier
+558  |
+--------------------------------------------------------------------------------
+562  |     """Aggregated per-job stats a verdict carries. No plaintext tokens/prompts."""
+563  +
+564  |     token_count: int
+--------------------------------------------------------------------------------
+701  |
+     -     for i, (wr, (vtid, vlogprob, vtopk)) in enumerate(zip(worker_records, verifier_records)):
+702  +     for i, (wr, (vtid, vlogprob, vtopk)) in enumerate(
+703  +         zip(worker_records, verifier_records)
+704  +     ):
+705  |         vtopk_ids = [t[0] for t in vtopk]
+--------------------------------------------------------------------------------
+759  |         challenged_all_within_tolerance=challenged_within,
+     -         output_hash_matches=False,   # filled by the verdict builder from the receipt
+     -         token_count_matches=False,   # filled by the verdict builder
+     -         prompt_hash_matches=False,   # filled by the verdict builder
+760  +         output_hash_matches=False,  # filled by the verdict builder from the receipt
+761  +         token_count_matches=False,  # filled by the verdict builder
+762  +         prompt_hash_matches=False,  # filled by the verdict builder
+763  |     )
+--------------------------------------------------------------------------------
+769  |
+770  +
+771  | class VerdictType:
+--------------------------------------------------------------------------------
+776  |
+     - def verdict_type_from_statistics(stats: VerificationStatistics, *, fail_on_tail: bool = True) -> str:
+777  + def verdict_type_from_statistics(
+778  +     stats: VerificationStatistics, *, fail_on_tail: bool = True
+779  + ) -> str:
+780  |     """Map comparison statistics to an initial verdict type.
+--------------------------------------------------------------------------------
+804  |     verifier_id: str
+     -     type: str                     # pass | suspect | fail
+805  +     type: str  # pass | suspect | fail
+806  |     transcript_root: str
+807  |     output_hash: str
+808  |     token_count: int
+     -     statistics: dict[str, Any]    # serialisable shape of VerificationStatistics
+     -     tolerance_profile: str        # profile label + version used
+809  +     statistics: dict[str, Any]  # serialisable shape of VerificationStatistics
+810  +     tolerance_profile: str  # profile label + version used
+811  |     profile_version: str
+--------------------------------------------------------------------------------
+834  |         return {
+     -             "key_id": crypto.key_id_for(crypto.ed25519_public_from_private(private_key_b64)),
+835  +             "key_id": crypto.key_id_for(
+836  +                 crypto.ed25519_public_from_private(private_key_b64)
+837  +             ),
+838  |             "alg": "Ed25519",
+--------------------------------------------------------------------------------
+845  |     def verify(cls, document: dict[str, Any], public_key_b64: str) -> Verdict:
+     -         if not crypto.verify(VERDICT_DOMAIN, document["payload"], document["sig"], public_key_b64):
+846  +         if not crypto.verify(
+847  +             VERDICT_DOMAIN, document["payload"], document["sig"], public_key_b64
+848  +         ):
+849  |             raise ValueError("verdict signature invalid")
+--------------------------------------------------------------------------------
+906  |     token_count: int
+     -     statistics_digest: str   # SHA-256 of the canonical statistics JSON
+907  +     statistics_digest: str  # SHA-256 of the canonical statistics JSON
+908  |     tolerance_profile: str
+--------------------------------------------------------------------------------
+916  |     @classmethod
+     -     def from_verdict(cls, verdict: Verdict, *, statistics_digest: str, penalty_applied: bool) -> VerdictRecord:
+917  +     def from_verdict(
+918  +         cls, verdict: Verdict, *, statistics_digest: str, penalty_applied: bool
+919  +     ) -> VerdictRecord:
+920  |         return cls(
+--------------------------------------------------------------------------------
+949  |     node_id: str
+     -     actor: str             # verifier id or "system" or an admin id
+     -     kind: str              # e.g. "void_job_earnings", "holdback", "suspend_reputation", "ban"
+950  +     actor: str  # verifier id or "system" or an admin id
+951  +     kind: str  # e.g. "void_job_earnings", "holdback", "suspend_reputation", "ban"
+952  |     amount_micro: int
+--------------------------------------------------------------------------------
+974  |     if destiny == "client_refund":
+     -         return ("__VOID__", "__CLIENT_REFUND__")  # filled by caller with real account ids
+975  +         return (
+976  +             "__VOID__",
+977  +             "__CLIENT_REFUND__",
+978  +         )  # filled by caller with real account ids
+979  |     if destiny == "insurance_pool":
+--------------------------------------------------------------------------------
+991  |
+992  +
+993  | def has_canary(value: Any, canary: str) -> bool:
+--------------------------------------------------------------------------------
+1015 |
+1016 +
+1017 | def sign_challenge_response(
+     |
+
+unformatted: File would be reformatted
+   --> app/ai/verifier_sign.py:92:44
+    |
+91  |         except KeyError as exc:
+    -             raise VoucherVerificationError(f"voucher is missing {exc.args[0]!r}") from exc
+    -         if not all(isinstance(value, str) and value for value in (domain, key_id, alg, sig)):
+92  +             raise VoucherVerificationError(
+93  +                 f"voucher is missing {exc.args[0]!r}"
+94  +             ) from exc
+95  +         if not all(
+96  +             isinstance(value, str) and value for value in (domain, key_id, alg, sig)
+97  +         ):
+98  |             raise VoucherVerificationError("voucher fields must be non-empty strings")
+--------------------------------------------------------------------------------
+192 |     if parsed.key_id != expected_key_id:
+    -         raise VoucherVerificationError("voucher key_id does not match the verifying key")
+193 +         raise VoucherVerificationError(
+194 +             "voucher key_id does not match the verifying key"
+195 +         )
+196 |     if not crypto.verify(parsed.domain, parsed.payload, parsed.sig, public_key_b64):
+    |
+
+unformatted: File would be reformatted
+   --> app/ai/worker.py:120:24
+    |
+119 |         for index, word in enumerate(emitted):
+    -             token_id = int(hashlib.sha256(f"{index}:{word}".encode()).hexdigest()[:8], 16) % 32_000
+120 +             token_id = (
+121 +                 int(hashlib.sha256(f"{index}:{word}".encode()).hexdigest()[:8], 16)
+122 +                 % 32_000
+123 +             )
+124 |             chosen = -0.5 - 0.01 * (index % 12)
+--------------------------------------------------------------------------------
+191 |             async with (
+    -                 httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout) as client,
+192 +                 httpx.AsyncClient(
+193 +                     base_url=self.base_url, timeout=self.timeout
+194 +                 ) as client,
+195 |                 client.stream("POST", self.upstream_path, json=payload) as response,
+--------------------------------------------------------------------------------
+251 |             async with (
+    -                 httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout) as client,
+252 +                 httpx.AsyncClient(
+253 +                     base_url=self.base_url, timeout=self.timeout
+254 +                 ) as client,
+255 |                 client.stream("POST", self.upstream_path, json=payload) as response,
+--------------------------------------------------------------------------------
+267 |                             "input_tokens": int(event["usage"].get("prompt_tokens", 0)),
+    -                             "output_tokens": int(event["usage"].get("completion_tokens", 0)),
+268 +                             "output_tokens": int(
+269 +                                 event["usage"].get("completion_tokens", 0)
+270 +                             ),
+271 |                         }
+--------------------------------------------------------------------------------
+332 |             "payload": payload,
+    -             "sig": crypto.sign("tcdn-ai/session-key/v1", payload, self.identity_private_key),
+333 +             "sig": crypto.sign(
+334 +                 "tcdn-ai/session-key/v1", payload, self.identity_private_key
+335 +             ),
+336 |         }
+337 |
+338 |     def needs_rotation(self, *, rotate_seconds: int, now: int | None = None) -> bool:
+    -         return int(now if now is not None else now_unix()) - self.session_created_at >= rotate_seconds
+339 +         return (
+340 +             int(now if now is not None else now_unix()) - self.session_created_at
+341 +             >= rotate_seconds
+342 +         )
+343 |
+--------------------------------------------------------------------------------
+397 |         self.reporting: tuple[str, str] | None = None
+    -         if config.confidentiality is Confidentiality.ATTESTED_TEE and not config.attested:
+398 +         if (
+399 +             config.confidentiality is Confidentiality.ATTESTED_TEE
+400 +             and not config.attested
+401 +         ):
+402 |             # A confidential worker that has not attested can exist, but it will
+--------------------------------------------------------------------------------
+418 |         if request.get("model") != ticket.model:
+    -             raise ValidationError("request model does not match the ticket", code="model_mismatch")
+419 +             raise ValidationError(
+420 +                 "request model does not match the ticket", code="model_mismatch"
+421 +             )
+422 |         messages = request.get("messages")
+--------------------------------------------------------------------------------
+429 |             if not isinstance(message, dict) or message.get("role") not in {
+    -                 "system", "user", "assistant",
+430 +                 "system",
+431 +                 "user",
+432 +                 "assistant",
+433 |             }:
+--------------------------------------------------------------------------------
+444 |         if max_tokens > ticket.max_tokens or max_tokens > self.config.max_tokens:
+    -             raise ValidationError("max_tokens exceeds the ticket allowance", code="token_limit_exceeded")
+445 +             raise ValidationError(
+446 +                 "max_tokens exceeds the ticket allowance", code="token_limit_exceeded"
+447 +             )
+448 |
+--------------------------------------------------------------------------------
+465 |         )
+    -         if ticket.confidentiality is Confidentiality.ATTESTED_TEE and not self.config.attested:
+466 +         if (
+467 +             ticket.confidentiality is Confidentiality.ATTESTED_TEE
+468 +             and not self.config.attested
+469 +         ):
+470 |             raise AttestationError(
+471 |                 "this worker has no attestation and cannot accept confidential jobs",
+472 |                 code="worker_not_attested",
+473 |             )
+    -         if not crypto.constant_time_eq(ticket.worker_public_key, self.identity.session_public_key):
+474 +         if not crypto.constant_time_eq(
+475 +             ticket.worker_public_key, self.identity.session_public_key
+476 +         ):
+477 |             raise ValidationError(
+    -                 "ticket was issued for a stale worker session key", code="stale_session_key"
+478 +                 "ticket was issued for a stale worker session key",
+479 +                 code="stale_session_key",
+480 |             )
+481 |         if ticket.model not in self.config.models:
+    -             raise ValidationError("model is not available on this worker", code="model_unavailable")
+482 +             raise ValidationError(
+483 +                 "model is not available on this worker", code="model_unavailable"
+484 +             )
+485 |
+486 |         salt = b64d(str(payload.get("salt", "")))
+487 |         client_public_key = str(payload.get("client_public_key", ""))
+488 |         ciphertext = b64d(str(payload.get("ciphertext", "")))
+    -         shared = crypto.x25519_shared_secret(self.identity.session_private_key, client_public_key)
+489 +         shared = crypto.x25519_shared_secret(
+490 +             self.identity.session_private_key, client_public_key
+491 +         )
+492 |         c2w, w2c = crypto.derive_session_keys(
+--------------------------------------------------------------------------------
+523 |             digest.update(encoded)
+    -             ciphertext_chunk = crypto.aead_encrypt(w2c, encoded, stream_aad(job_id, sequence))
+524 +             ciphertext_chunk = crypto.aead_encrypt(
+525 +                 w2c, encoded, stream_aad(job_id, sequence)
+526 +             )
+527 |             sequence += 1
+--------------------------------------------------------------------------------
+603 |
+    -
+604 |     def transcript_for(self, job_id: str) -> list[TranscriptRecord]:
+--------------------------------------------------------------------------------
+710 |     os.chmod(path, 0o600)
+    -
+    |
+
+unformatted: File would be reformatted
+  --> tcdn_ai_sdk/_crypto.py:56:52
+   |
+55 |     private = X25519PrivateKey.generate()
+   -     return b64e(private.private_bytes_raw()), b64e(private.public_key().public_bytes_raw())
+56 +     return b64e(private.private_bytes_raw()), b64e(
+57 +         private.public_key().public_bytes_raw()
+58 +     )
+59 |
+   |
+
+unformatted: File would be reformatted
+   --> tcdn_ai_sdk/client.py:152:68
+    |
+151 |             raise AuthenticationError(
+    -                 "no API key: pass api_key= or set TCDN_AI_API_KEY", code="missing_api_key"
+152 +                 "no API key: pass api_key= or set TCDN_AI_API_KEY",
+153 +                 code="missing_api_key",
+154 |             )
+--------------------------------------------------------------------------------
+158 |         self.max_retries = max(0, max_retries)
+    -         self._pinned_keys = dict(coordinator_public_keys) if coordinator_public_keys else None
+159 +         self._pinned_keys = (
+160 +             dict(coordinator_public_keys) if coordinator_public_keys else None
+161 +         )
+162 |         self._tofu = False
+--------------------------------------------------------------------------------
+197 |                 response = self._http.request(
+    -                     method, f"{self.base_url}{path}", headers=self._headers(), json=json_body
+198 +                     method,
+199 +                     f"{self.base_url}{path}",
+200 +                     headers=self._headers(),
+201 +                     json=json_body,
+202 |                 )
+203 |             except httpx.HTTPError as exc:
+    -                 last_error = WorkerUnavailableError(f"coordinator unreachable: {type(exc).__name__}")
+204 +                 last_error = WorkerUnavailableError(
+205 +                     f"coordinator unreachable: {type(exc).__name__}"
+206 +                 )
+207 |             else:
+--------------------------------------------------------------------------------
+274 |             raise TicketVerificationError("coordinator key bundle signature is invalid")
+    -         self._pinned_keys = {key["key_id"]: key["public_key"] for key in payload["keys"]}
+275 +         self._pinned_keys = {
+276 +             key["key_id"]: key["public_key"] for key in payload["keys"]
+277 +         }
+278 |         self._tofu = True
+--------------------------------------------------------------------------------
+302 |         if not _crypto.verify_ed25519(
+    -             public, _crypto.domain_message(TICKET_DOMAIN, payload), str(document.get("sig", ""))
+303 +             public,
+304 +             _crypto.domain_message(TICKET_DOMAIN, payload),
+305 +             str(document.get("sig", "")),
+306 |         ):
+307 |             raise TicketVerificationError("placement ticket signature is invalid")
+308 |         now = int(time.time())
+309 |         if int(payload.get("expires_at", 0)) + 5 < now:
+    -             raise TicketVerificationError("placement ticket has expired", code="ticket_expired")
+310 +             raise TicketVerificationError(
+311 +                 "placement ticket has expired", code="ticket_expired"
+312 +             )
+313 |         if int(payload.get("issued_at", 0)) > now + 5:
+--------------------------------------------------------------------------------
+318 |         if payload.get("tier") != expected_tier:
+    -             raise TicketVerificationError("placement ticket tier does not match the request")
+319 +             raise TicketVerificationError(
+320 +                 "placement ticket tier does not match the request"
+321 +             )
+322 |         return payload
+--------------------------------------------------------------------------------
+353 |         }
+    -         placement = self._request("POST", "/api/ai/v1/placements", json_body=placement_body)
+354 +         placement = self._request(
+355 +             "POST", "/api/ai/v1/placements", json_body=placement_body
+356 +         )
+357 |         job_id = placement["job_id"]
+--------------------------------------------------------------------------------
+386 |         )
+    -         ciphertext = _crypto.aead_encrypt(c2w, request_plaintext, request_aad(job_id, ticket_digest))
+387 +         ciphertext = _crypto.aead_encrypt(
+388 +             c2w, request_plaintext, request_aad(job_id, ticket_digest)
+389 +         )
+390 |         worker_payload = {
+--------------------------------------------------------------------------------
+413 |             output_sha = _crypto.sha256_hex(text.encode("utf-8"))
+    -             completion_tokens = int(receipt.get("payload", {}).get("output_tokens", 0)) or len(collected)
+    -             prompt_tokens = int(receipt.get("payload", {}).get("input_tokens", 0)) or _estimate_tokens(
+    -                 prompt_text
+    -             )
+414 +             completion_tokens = int(
+415 +                 receipt.get("payload", {}).get("output_tokens", 0)
+416 +             ) or len(collected)
+417 +             prompt_tokens = int(
+418 +                 receipt.get("payload", {}).get("input_tokens", 0)
+419 +             ) or _estimate_tokens(prompt_text)
+420 |             self._submit_ack(job_id, completion_tokens, output_sha)
+--------------------------------------------------------------------------------
+455 |                     return self._execute(
+    -                         model=model, messages=messages, stream=stream,
+    -                         temperature=temperature, top_p=top_p, max_tokens=max_tokens,
+    -                         stop=stop, confidential=confidential,
+    -                         max_price_micro=max_price_micro, region=region,
+    -                         latency_target_ms=latency_target_ms, extra=extra,
+456 +                         model=model,
+457 +                         messages=messages,
+458 +                         stream=stream,
+459 +                         temperature=temperature,
+460 +                         top_p=top_p,
+461 +                         max_tokens=max_tokens,
+462 +                         stop=stop,
+463 +                         confidential=confidential,
+464 +                         max_price_micro=max_price_micro,
+465 +                         region=region,
+466 +                         latency_target_ms=latency_target_ms,
+467 +                         extra=extra,
+468 |                         _retry=_retry + 1,
+--------------------------------------------------------------------------------
+505 |                     replacement, _ = self._execute(
+    -                         model=model, messages=messages, stream=stream,
+    -                         temperature=temperature, top_p=top_p, max_tokens=max_tokens,
+    -                         stop=stop, confidential=confidential,
+    -                         max_price_micro=max_price_micro, region=region,
+    -                         latency_target_ms=latency_target_ms, extra=extra,
+506 +                         model=model,
+507 +                         messages=messages,
+508 +                         stream=stream,
+509 +                         temperature=temperature,
+510 +                         top_p=top_p,
+511 +                         max_tokens=max_tokens,
+512 +                         stop=stop,
+513 +                         confidential=confidential,
+514 +                         max_price_micro=max_price_micro,
+515 +                         region=region,
+516 +                         latency_target_ms=latency_target_ms,
+517 +                         extra=extra,
+518 |                         _retry=_retry + 1,
+--------------------------------------------------------------------------------
+529 |             output_sha = _crypto.sha256_hex("".join(collected).encode("utf-8"))
+    -             completion_tokens = int(receipt.get("payload", {}).get("output_tokens", 0)) or len(
+    -                 collected
+    -             )
+    -             prompt_tokens = int(receipt.get("payload", {}).get("input_tokens", 0)) or _estimate_tokens(
+    -                 prompt_text
+    -             )
+530 +             completion_tokens = int(
+531 +                 receipt.get("payload", {}).get("output_tokens", 0)
+532 +             ) or len(collected)
+533 +             prompt_tokens = int(
+534 +                 receipt.get("payload", {}).get("input_tokens", 0)
+535 +             ) or _estimate_tokens(prompt_text)
+536 |             self._submit_ack(job_id, completion_tokens, output_sha)
+--------------------------------------------------------------------------------
+575 |             return result
+576 +
+577 |         def generate() -> Iterator[bytes]:
+--------------------------------------------------------------------------------
+597 |
+    -     def _submit_ack(self, job_id: str, tokens_received: int, output_sha256: str) -> None:
+598 +     def _submit_ack(
+599 +         self, job_id: str, tokens_received: int, output_sha256: str
+600 +     ) -> None:
+601 |         body = {
+--------------------------------------------------------------------------------
+658 |         for message in messages:
+    -             if not isinstance(message, dict) or "role" not in message or "content" not in message:
+659 +             if (
+660 +                 not isinstance(message, dict)
+661 +                 or "role" not in message
+662 +                 or "content" not in message
+663 +             ):
+664 |                 raise InvalidRequestError("each message needs role and content")
+665 |             if message["role"] not in {"system", "user", "assistant"}:
+666 |                 raise InvalidRequestError("unsupported message role")
+    -             normalized.append({"role": message["role"], "content": str(message["content"])})
+667 +             normalized.append(
+668 +                 {"role": message["role"], "content": str(message["content"])}
+669 +             )
+670 |         stop_list = [stop] if isinstance(stop, str) else list(stop or [])
+    |
+
+unformatted: File would be reformatted
+  --> tcdn_ai_sdk/errors.py:11:18
+   |
+10 | class TCDNAIError(Exception):
+   -     def __init__(self, message: str, *, code: str = "error", status_code: int = 0) -> None:
+11 +     def __init__(
+12 +         self, message: str, *, code: str = "error", status_code: int = 0
+13 +     ) -> None:
+14 |         super().__init__(message)
+--------------------------------------------------------------------------------
+53 |
+   -     def __init__(self, message: str, *, partial_text: str = "", job_id: str = "") -> None:
+54 +     def __init__(
+55 +         self, message: str, *, partial_text: str = "", job_id: str = ""
+56 +     ) -> None:
+57 |         super().__init__(message, code="partial_result")
+   |
+
+unformatted: File would be reformatted
+   --> tcdn_ai_sdk/protocol.py:72:41
+   |
+71 |     try:
+   -         return base64.urlsafe_b64decode((value + "=" * (-len(value) % 4)).encode("ascii"))
+72 +         return base64.urlsafe_b64decode(
+73 +             (value + "=" * (-len(value) % 4)).encode("ascii")
+74 +         )
+75 |     except (binascii.Error, ValueError, UnicodeEncodeError) as exc:
+--------------------------------------------------------------------------------
+79 | def request_aad(job_id: str, ticket_hash: str) -> bytes:
+   -     return REQUEST_AAD_PREFIX + b"|" + job_id.encode("utf-8") + b"|" + ticket_hash.encode("ascii")
+80 +     return (
+81 +         REQUEST_AAD_PREFIX
+82 +         + b"|"
+83 +         + job_id.encode("utf-8")
+84 +         + b"|"
+85 +         + ticket_hash.encode("ascii")
+86 +     )
+87 |
+--------------------------------------------------------------------------------
+91 |         raise ProtocolError("negative frame sequence")
+   -     return STREAM_AAD_PREFIX + b"|" + job_id.encode("utf-8") + b"|" + str(sequence).encode("ascii")
+92 +     return (
+93 +         STREAM_AAD_PREFIX
+94 +         + b"|"
+95 +         + job_id.encode("utf-8")
+96 +         + b"|"
+97 +         + str(sequence).encode("ascii")
+98 +     )
+99 |
+   |
+
+unformatted: File would be reformatted
+  --> tests/test_ai_api.py:37:41
+   |
+36 |                 await client.get(
+   -                     "/api/ai/v1/models", headers={"Authorization": "Bearer tcdn_ai_wrong"}
+37 +                     "/api/ai/v1/models",
+38 +                     headers={"Authorization": "Bearer tcdn_ai_wrong"},
+39 |                 )
+--------------------------------------------------------------------------------
+63 |     @pytest.mark.asyncio
+   -     async def test_placement_holds_credits_and_returns_ticket(self, ai_env, ai_worker_factory):
+64 +     async def test_placement_holds_credits_and_returns_ticket(
+65 +         self, ai_env, ai_worker_factory
+66 +     ):
+67 |         await ai_worker_factory()
+--------------------------------------------------------------------------------
+72 |                 headers=_auth(ai_env),
+   -                 json={"model": ai_env.model.model_id, "max_tokens": 8,
+   -                       "prompt_tokens_estimate": 2},
+73 +                 json={
+74 +                     "model": ai_env.model.model_id,
+75 +                     "max_tokens": 8,
+76 +                     "prompt_tokens_estimate": 2,
+77 +                 },
+78 |             )
+   |
+
+unformatted: File would be reformatted
+  --> tests/test_ai_billing.py:23:16
+   |
+22 |
+   - def _fake_body(account_id: str, *, reference: str = "ref-1", micro: int = 5_000_000) -> bytes:
+23 + def _fake_body(
+24 +     account_id: str, *, reference: str = "ref-1", micro: int = 5_000_000
+25 + ) -> bytes:
+26 |     return json.dumps(
+--------------------------------------------------------------------------------
+46 |         body = _fake_body(ai_env.account_id)
+   -         result = await ai_env.coordinator.handle_payment_webhook(body, _fake_signature(body))
+47 +         result = await ai_env.coordinator.handle_payment_webhook(
+48 +             body, _fake_signature(body)
+49 +         )
+50 |         assert result["status"] == "credited"
+--------------------------------------------------------------------------------
+63 |         entries = [
+   -             entry for entry in ai_env.store.ledger.entries
+64 +             entry
+65 +             for entry in ai_env.store.ledger.entries
+66 |             if entry.kind == "credit_purchase" and entry.job_id is None
+   |
+
+unformatted: File would be reformatted
+   --> tests/test_ai_components.py:95:27
+    |
+94  |         with pytest.raises(NoEligibleWorker):
+    -             select_worker([_candidate(region="us")], Requirements(model="llama-3.1-8b-instruct", region="eu-west"), now=1_000)
+95  +             select_worker(
+96  +                 [_candidate(region="us")],
+97  +                 Requirements(model="llama-3.1-8b-instruct", region="eu-west"),
+98  +                 now=1_000,
+99  +             )
+100 |         with pytest.raises(NoEligibleWorker):
+    -             select_worker([_candidate(price_micro_per_mtok=9_000_000)],
+    -                           Requirements(model="llama-3.1-8b-instruct", max_price_micro=1), now=1_000)
+101 +             select_worker(
+102 +                 [_candidate(price_micro_per_mtok=9_000_000)],
+103 +                 Requirements(model="llama-3.1-8b-instruct", max_price_micro=1),
+104 +                 now=1_000,
+105 +             )
+106 |         with pytest.raises(NoEligibleWorker):
+    -             select_worker([_candidate(suspended=True)], Requirements(model="llama-3.1-8b-instruct"), now=1_000)
+107 +             select_worker(
+108 +                 [_candidate(suspended=True)],
+109 +                 Requirements(model="llama-3.1-8b-instruct"),
+110 +                 now=1_000,
+111 +             )
+112 |
+--------------------------------------------------------------------------------
+128 |         selection = select_worker(
+    -             [attested], Requirements(model="llama-3.1-8b-instruct", confidential=True), now=1_000
+129 +             [attested],
+130 +             Requirements(model="llama-3.1-8b-instruct", confidential=True),
+131 +             now=1_000,
+132 |         )
+--------------------------------------------------------------------------------
+140 |         with pytest.raises(NoEligibleWorker):
+    -             select_worker([expired], Requirements(model="llama-3.1-8b-instruct", confidential=True), now=1_000)
+141 +             select_worker(
+142 +                 [expired],
+143 +                 Requirements(model="llama-3.1-8b-instruct", confidential=True),
+144 +                 now=1_000,
+145 +             )
+146 |
+147 |     def test_seeder_nodes_are_not_compute_workers(self):
+148 |         with pytest.raises(NoEligibleWorker):
+    -             select_worker([_candidate(node_type=NodeType.SEEDER)],
+    -                           Requirements(model="llama-3.1-8b-instruct"), now=1_000)
+149 +             select_worker(
+150 +                 [_candidate(node_type=NodeType.SEEDER)],
+151 +                 Requirements(model="llama-3.1-8b-instruct"),
+152 +                 now=1_000,
+153 +             )
+154 |
+--------------------------------------------------------------------------------
+190 |         document = sign_receipt(_receipt_payload(), keys["private_key"])
+    -         receipt = verify_receipt(document, worker_public_key=keys["public_key"], job=_job())
+191 +         receipt = verify_receipt(
+192 +             document, worker_public_key=keys["public_key"], job=_job()
+193 +         )
+194 |         assert receipt.output_tokens == 20
+--------------------------------------------------------------------------------
+205 |         other_job = JobContext(
+    -             job_id="job_1", account_id="acc_1", node_id="node_2",
+    -             model="llama-3.1-8b-instruct", manifest_hash="a" * 64, max_tokens=64,
+206 +             job_id="job_1",
+207 +             account_id="acc_1",
+208 +             node_id="node_2",
+209 +             model="llama-3.1-8b-instruct",
+210 +             manifest_hash="a" * 64,
+211 +             max_tokens=64,
+212 |         )
+213 |         document = sign_receipt(_receipt_payload(), keys["private_key"])
+214 |         with pytest.raises(ReceiptError) as excinfo:
+    -             verify_receipt(document, worker_public_key=keys["public_key"], job=other_job)
+215 +             verify_receipt(
+216 +                 document, worker_public_key=keys["public_key"], job=other_job
+217 +             )
+218 |         assert "node" in str(excinfo.value)
+219 |
+220 |     def test_manifest_mismatch_rejected(self):
+221 |         keys = crypto.generate_ed25519()
+    -         document = sign_receipt(_receipt_payload(manifest_hash="b" * 64), keys["private_key"])
+222 +         document = sign_receipt(
+223 +             _receipt_payload(manifest_hash="b" * 64), keys["private_key"]
+224 +         )
+225 |         with pytest.raises(ReceiptError):
+--------------------------------------------------------------------------------
+236 |         ack = AckPayload(
+    -             job_id="job_1", tokens_received=20,
+    -             output_sha256=receipt.output_sha256, acked_at=1_002,
+237 +             job_id="job_1",
+238 +             tokens_received=20,
+239 +             output_sha256=receipt.output_sha256,
+240 +             acked_at=1_002,
+241 |         )
+--------------------------------------------------------------------------------
+258 |         within = AckPayload(
+    -             job_id="job_1", tokens_received=995,
+    -             output_sha256=receipt.output_sha256, acked_at=1_002,
+259 +             job_id="job_1",
+260 +             tokens_received=995,
+261 +             output_sha256=receipt.output_sha256,
+262 +             acked_at=1_002,
+263 |         )
+264 |         assert reconcile(receipt, within, tolerance_pct=2).status == "agreed"
+265 |         beyond = AckPayload(
+    -             job_id="job_1", tokens_received=900,
+    -             output_sha256=receipt.output_sha256, acked_at=1_002,
+266 +             job_id="job_1",
+267 +             tokens_received=900,
+268 +             output_sha256=receipt.output_sha256,
+269 +             acked_at=1_002,
+270 |         )
+--------------------------------------------------------------------------------
+338 |         fetcher = SwarmFetcher(
+    -             manifest, [malicious, honest], sink=sink, penalty=lambda p, r: penalties.append((p, r))
+339 +             manifest,
+340 +             [malicious, honest],
+341 +             sink=sink,
+342 +             penalty=lambda p, r: penalties.append((p, r)),
+343 |         )
+--------------------------------------------------------------------------------
+438 |         assert "simulated" in (verdict.reason or "")
+    -         assert ring.verify(document, "tcdn-ai/attestation-verdict/v1")["status"] == "simulated"
+439 +         assert (
+440 +             ring.verify(document, "tcdn-ai/attestation-verdict/v1")["status"]
+441 +             == "simulated"
+442 +         )
+443 |
+--------------------------------------------------------------------------------
+526 |     def test_platform_mismatch_rejected(self):
+    -         verifier = NvidiaGpuVerifier(TrustPolicy(allowed_platforms=(AttestationPlatform.NVIDIA_GPU,),
+    -                                                 vendor_roots_pem=("root",)))
+    -         evidence = _evidence(AttestationService(KeyRing.generate("c"), settings=_dev_settings()))
+527 +         verifier = NvidiaGpuVerifier(
+528 +             TrustPolicy(
+529 +                 allowed_platforms=(AttestationPlatform.NVIDIA_GPU,),
+530 +                 vendor_roots_pem=("root",),
+531 +             )
+532 +         )
+533 +         evidence = _evidence(
+534 +             AttestationService(KeyRing.generate("c"), settings=_dev_settings())
+535 +         )
+536 |         with pytest.raises(AttestationError) as excinfo:
+--------------------------------------------------------------------------------
+598 |             with pytest.raises(ValidationError):
+    -                 validate_url(url, allowed_hosts=("127.0.0.1", "localhost",
+    -                                                 "169.254.169.254", "::1"))
+599 +                 validate_url(
+600 +                     url,
+601 +                     allowed_hosts=("127.0.0.1", "localhost", "169.254.169.254", "::1"),
+602 +                 )
+603 |
+    |
+
+unformatted: File would be reformatted
+   --> tests/test_ai_core.py:58:34
+    |
+57  |         assert crypto.verify("test/domain", payload, signature, keys["public_key"])
+    -         assert not crypto.verify("test/domain", {**payload, "amount": 6}, signature, keys["public_key"])
+58  +         assert not crypto.verify(
+59  +             "test/domain", {**payload, "amount": 6}, signature, keys["public_key"]
+60  +         )
+61  |         # Domain separation: the same payload signed for another purpose fails.
+--------------------------------------------------------------------------------
+141 |         document, _ = _issue(service, ring)
+    -         verified = service.verify(document, expected_job_id="job_1", expected_node_id="node_1")
+142 +         verified = service.verify(
+143 +             document, expected_job_id="job_1", expected_node_id="node_1"
+144 +         )
+145 |         assert verified.job_id == "job_1"
+--------------------------------------------------------------------------------
+175 |         clock = {"now": 1_000_000}
+    -         service = TicketService(ring, ttl_seconds=10, skew_seconds=0, clock=lambda: clock["now"])
+176 +         service = TicketService(
+177 +             ring, ttl_seconds=10, skew_seconds=0, clock=lambda: clock["now"]
+178 +         )
+179 |         document, _ = _issue(service, ring)
+--------------------------------------------------------------------------------
+197 |         with pytest.raises(TicketError):
+    -             service.verify(document, expected_confidentiality=Confidentiality.ATTESTED_TEE)
+198 +             service.verify(
+199 +                 document, expected_confidentiality=Confidentiality.ATTESTED_TEE
+200 +             )
+201 |
+202 |     def test_rotation_overlap_then_expiry(self):
+203 |         clock = {"now": 1_000_000}
+    -         ring = KeyRing.generate("coordinator", overlap_seconds=60, clock=lambda: clock["now"])
+    -         service = TicketService(ring, ttl_seconds=30, skew_seconds=0, clock=lambda: clock["now"])
+204 +         ring = KeyRing.generate(
+205 +             "coordinator", overlap_seconds=60, clock=lambda: clock["now"]
+206 +         )
+207 +         service = TicketService(
+208 +             ring, ttl_seconds=30, skew_seconds=0, clock=lambda: clock["now"]
+209 +         )
+210 |         document, _ = _issue(service, ring)
+--------------------------------------------------------------------------------
+249 |             b = rng.randrange(0, 101 - a)
+    -             amounts = split_amounts(total, Split(compute_pct=a, seeder_pct=b, platform_pct=100 - a - b))
+250 +             amounts = split_amounts(
+251 +                 total, Split(compute_pct=a, seeder_pct=b, platform_pct=100 - a - b)
+252 +             )
+253 |             assert amounts.sums_exactly
+--------------------------------------------------------------------------------
+264 |         account = account_credits("acc")
+    -         ledger.deposit(account=account, amount_micro=1_100, source="gateway:test",
+    -                        idempotency_key="dep")
+265 +         ledger.deposit(
+266 +             account=account,
+267 +             amount_micro=1_100,
+268 +             source="gateway:test",
+269 +             idempotency_key="dep",
+270 +         )
+271 |         ledger.place_hold(job_id="job", account=account, amount_micro=1_000)
+--------------------------------------------------------------------------------
+279 |         )
+    -         assert settlement.compute_micro + settlement.seeder_micro + settlement.platform_micro == 1_000
+280 +         assert (
+281 +             settlement.compute_micro
+282 +             + settlement.seeder_micro
+283 +             + settlement.platform_micro
+284 +             == 1_000
+285 +         )
+286 |         assert ledger.balance(account) == 100
+--------------------------------------------------------------------------------
+293 |         account = account_credits("acc")
+    -         ledger.deposit(account=account, amount_micro=50, source="gateway:test",
+    -                        idempotency_key="dep")
+294 +         ledger.deposit(
+295 +             account=account,
+296 +             amount_micro=50,
+297 +             source="gateway:test",
+298 +             idempotency_key="dep",
+299 +         )
+300 |         with pytest.raises(InsufficientCredits):
+--------------------------------------------------------------------------------
+305 |         account = account_credits("acc")
+    -         ledger.deposit(account=account, amount_micro=100, source="gateway:test",
+    -                        idempotency_key="dep")
+306 +         ledger.deposit(
+307 +             account=account,
+308 +             amount_micro=100,
+309 +             source="gateway:test",
+310 +             idempotency_key="dep",
+311 +         )
+312 |         results: list[bool] = []
+--------------------------------------------------------------------------------
+316 |             try:
+    -                 ledger.place_hold(job_id=f"job-{index}", account=account, amount_micro=30)
+317 +                 ledger.place_hold(
+318 +                     job_id=f"job-{index}", account=account, amount_micro=30
+319 +                 )
+320 |                 success = True
+--------------------------------------------------------------------------------
+335 |         account = account_credits("acc")
+    -         ledger.deposit(account=account, amount_micro=500, source="gateway:test",
+    -                        idempotency_key="dep")
+336 +         ledger.deposit(
+337 +             account=account,
+338 +             amount_micro=500,
+339 +             source="gateway:test",
+340 +             idempotency_key="dep",
+341 +         )
+342 |         ledger.place_hold(job_id="job", account=account, amount_micro=500)
+343 |         first = ledger.settle(
+    -             job_id="job", total_micro=400, split=Split(),
+    -             compute_account=compute_earnings("n"), seeder_account=SEEDER_POOL,
+344 +             job_id="job",
+345 +             total_micro=400,
+346 +             split=Split(),
+347 +             compute_account=compute_earnings("n"),
+348 +             seeder_account=SEEDER_POOL,
+349 |         )
+350 |         second = ledger.settle(
+    -             job_id="job", total_micro=400, split=Split(),
+    -             compute_account=compute_earnings("n"), seeder_account=SEEDER_POOL,
+351 +             job_id="job",
+352 +             total_micro=400,
+353 +             split=Split(),
+354 +             compute_account=compute_earnings("n"),
+355 +             seeder_account=SEEDER_POOL,
+356 |         )
+--------------------------------------------------------------------------------
+362 |         ledger = Ledger()
+    -         ledger.post(debit="a", credit="b", amount_micro=10, idempotency_key="k", kind="x")
+363 +         ledger.post(
+364 +             debit="a", credit="b", amount_micro=10, idempotency_key="k", kind="x"
+365 +         )
+366 |         with pytest.raises(ConflictError):
+    -             ledger.post(debit="a", credit="b", amount_micro=11, idempotency_key="k", kind="x")
+367 +             ledger.post(
+368 +                 debit="a", credit="b", amount_micro=11, idempotency_key="k", kind="x"
+369 +             )
+370 |
+--------------------------------------------------------------------------------
+374 |         with pytest.raises(AIError):
+    -             ledger.post(debit="a", credit="b", amount_micro=bad, idempotency_key="k", kind="x")
+375 +             ledger.post(
+376 +                 debit="a", credit="b", amount_micro=bad, idempotency_key="k", kind="x"
+377 +             )
+378 |
+379 |     def test_signup_credits_are_platform_funded(self):
+380 |         ledger = Ledger()
+381 |         ledger.grant_signup_credits(
+    -             account=account_credits("acc"), amount_micro=500_000_000,
+382 +             account=account_credits("acc"),
+383 +             amount_micro=500_000_000,
+384 |             idempotency_key="signup:acc",
+--------------------------------------------------------------------------------
+409 |         table = PriceTable([ModelPrice("m", 3_000_000, 6_000_000, effective_from=0)])
+    -         quote = table.quote("m", input_tokens=0, output_tokens=1_000_000,
+    -                             confidential=True, uplift_pct=25, at=10)
+410 +         quote = table.quote(
+411 +             "m",
+412 +             input_tokens=0,
+413 +             output_tokens=1_000_000,
+414 +             confidential=True,
+415 +             uplift_pct=25,
+416 +             at=10,
+417 +         )
+418 |         assert quote.output_micro == 7_500_000
+--------------------------------------------------------------------------------
+446 |         for _ in range(300):
+    -             seeds = {f"s{i}": rng.randrange(0, 10**9) for i in range(rng.randrange(1, 8))}
+447 +             seeds = {
+448 +                 f"s{i}": rng.randrange(0, 10**9) for i in range(rng.randrange(1, 8))
+449 +             }
+450 |             pool = rng.randrange(0, 10**12)
+--------------------------------------------------------------------------------
+509 |         assert reviewed[1].accepted_bytes == 20 and "pair_cap" in reviewed[1].flags
+    -         assert reviewed[2].accepted_bytes == 0 and "duplicate_claim" in reviewed[2].flags
+510 +         assert (
+511 +             reviewed[2].accepted_bytes == 0 and "duplicate_claim" in reviewed[2].flags
+512 +         )
+    |
+
+unformatted: File would be reformatted
+   --> tests/test_ai_sdk_e2e.py:68:55
+    |
+67  |         coordinator = Coordinator(store=store, keyring=keyring, settings=settings)
+    -         api_key = await coordinator.provision_api_key(ACCOUNT_ID, scopes=("inference", "worker"))
+68  +         api_key = await coordinator.provision_api_key(
+69  +             ACCOUNT_ID, scopes=("inference", "worker")
+70  +         )
+71  |         await store.credit(
+    -             ACCOUNT_ID, 1_000_000_000, source="gateway:test",
+    -             idempotency_key="e2e-credits", kind="credit_purchase",
+72  +             ACCOUNT_ID,
+73  +             1_000_000_000,
+74  +             source="gateway:test",
+75  +             idempotency_key="e2e-credits",
+76  +             kind="credit_purchase",
+77  |         )
+78  |         auth = await coordinator.authenticate(api_key)
+79  |
+80  |         identity = WorkerIdentity.generate("pending")
+    -         identity.node_id = "node_" + hashlib.sha256(
+    -             identity.identity_public_key.encode()
+    -         ).hexdigest()[:24]
+81  +         identity.node_id = (
+82  +             "node_"
+83  +             + hashlib.sha256(identity.identity_public_key.encode()).hexdigest()[:24]
+84  +         )
+85  |         registration = WorkerRegistrationPayload(
+--------------------------------------------------------------------------------
+105 |                 sig=crypto.sign(
+    -                     "tcdn-ai/node-register/v1", registration, identity.identity_private_key
+106 +                     "tcdn-ai/node-register/v1",
+107 +                     registration,
+108 +                     identity.identity_private_key,
+109 |                 ),
+--------------------------------------------------------------------------------
+131 |                     sig=crypto.sign(
+    -                         ATTESTATION_EVIDENCE_DOMAIN, evidence, identity.identity_private_key
+132 +                         ATTESTATION_EVIDENCE_DOMAIN,
+133 +                         evidence,
+134 +                         identity.identity_private_key,
+135 |                     ),
+--------------------------------------------------------------------------------
+145 |                 confidentiality=(
+    -                     Confidentiality.ATTESTED_TEE if confidential else Confidentiality.NONE
+146 +                     Confidentiality.ATTESTED_TEE
+147 +                     if confidential
+148 +                     else Confidentiality.NONE
+149 |                 ),
+--------------------------------------------------------------------------------
+189 |
+    -     def stream(self, *args, **kwargs):  # pragma: no cover - worker transport is injected
+190 +     def stream(
+191 +         self, *args, **kwargs
+192 +     ):  # pragma: no cover - worker transport is injected
+193 |         raise AssertionError("worker calls go through worker_transport in tests")
+--------------------------------------------------------------------------------
+262 |         assert reply.choices[0].message.role == "assistant"
+    -         assert reply.choices[0].message.content.startswith(f"echo[{world.model.model_id}]")
+263 +         assert reply.choices[0].message.content.startswith(
+264 +             f"echo[{world.model.model_id}]"
+265 +         )
+266 |         assert reply.choices[0].finish_reason == "stop"
+    -         assert reply.usage.total_tokens == reply.usage.prompt_tokens + reply.usage.completion_tokens
+267 +         assert (
+268 +             reply.usage.total_tokens
+269 +             == reply.usage.prompt_tokens + reply.usage.completion_tokens
+270 +         )
+271 |         assert reply.tcdn["confidentiality"] == "none"
+--------------------------------------------------------------------------------
+355 |         client, _ = make_client(
+    -             world, tamper=lambda body: body["ticket"]["payload"].update({"max_tokens": 10**6})
+356 +             world,
+357 +             tamper=lambda body: body["ticket"]["payload"].update({"max_tokens": 10**6}),
+358 |         )
+--------------------------------------------------------------------------------
+389 |             http_client=SyncHTTP(),
+    -             worker_transport=lambda url, payload: asyncio.run(world.agent.process(payload)),
+390 +             worker_transport=lambda url, payload: asyncio.run(
+391 +                 world.agent.process(payload)
+392 +             ),
+393 |         )
+    |
+
+unformatted: File would be reformatted
+   --> tests/test_ai_security.py:37:16
+    |
+36  |         assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    -         assert load_keyring(
+    -             AISettings(api_key_pepper="p", coordinator_key_file=str(path))
+    -         ).active is not None
+37  +         assert (
+38  +             load_keyring(
+39  +                 AISettings(api_key_pepper="p", coordinator_key_file=str(path))
+40  +             ).active
+41  +             is not None
+42  +         )
+43  |
+--------------------------------------------------------------------------------
+209 |     @pytest.mark.asyncio
+    -     async def test_service_penalises_and_suspends_faulty_nodes(self, ai_env, ai_worker_factory):
+210 +     async def test_service_penalises_and_suspends_faulty_nodes(
+211 +         self, ai_env, ai_worker_factory
+212 +     ):
+213 |         first = await ai_worker_factory()
+--------------------------------------------------------------------------------
+229 |         nodes = {node.node_id: node for node in await ai_env.store.list_nodes()}
+    -         assert nodes[third.identity.node_id].reputation == before[third.identity.node_id] - 20
+230 +         assert (
+231 +             nodes[third.identity.node_id].reputation
+232 +             == before[third.identity.node_id] - 20
+233 +         )
+234 |         assert any(
+    |
+
+unformatted: File would be reformatted
+   --> tests/test_ai_service.py:40:29
+    |
+39  |
+    - async def run_encrypted_job(env, agent, *, text="hello world", max_tokens=8, confidential=False):
+40  + async def run_encrypted_job(
+41  +     env, agent, *, text="hello world", max_tokens=8, confidential=False
+42  + ):
+43  |     placement = await env.coordinator.place(
+--------------------------------------------------------------------------------
+58  |     shared = crypto.x25519_shared_secret(client_private, payload["worker_public_key"])
+    -     c2w, w2c = crypto.derive_session_keys(shared, salt=salt, context=session_context(job_id))
+59  +     c2w, w2c = crypto.derive_session_keys(
+60  +         shared, salt=salt, context=session_context(job_id)
+61  +     )
+62  |     request_plaintext = canonical_json(
+--------------------------------------------------------------------------------
+73  |     ticket_digest = crypto.sha256_hex(canonical_json(ticket))
+    -     ciphertext = crypto.aead_encrypt(c2w, request_plaintext, request_aad(job_id, ticket_digest))
+74  +     ciphertext = crypto.aead_encrypt(
+75  +         c2w, request_plaintext, request_aad(job_id, ticket_digest)
+76  +     )
+77  |     frames = await agent.process(
+--------------------------------------------------------------------------------
+93  |             tokens.append(
+    -                 crypto.aead_decrypt(w2c, frame.body, stream_aad(job_id, sequence)).decode()
+94  +                 crypto.aead_decrypt(
+95  +                     w2c, frame.body, stream_aad(job_id, sequence)
+96  +                 ).decode()
+97  |             )
+--------------------------------------------------------------------------------
+119 |     @pytest.mark.asyncio
+    -     async def test_placement_worker_receipt_ack_settlement(self, ai_env, ai_worker_factory):
+120 +     async def test_placement_worker_receipt_ack_settlement(
+121 +         self, ai_env, ai_worker_factory
+122 +     ):
+123 |         agent = await ai_worker_factory()
+--------------------------------------------------------------------------------
+136 |         )
+    -         settled = await ai_env.coordinator.submit_ack(ai_env.auth, placement.job_id, ack)
+137 +         settled = await ai_env.coordinator.submit_ack(
+138 +             ai_env.auth, placement.job_id, ack
+139 +         )
+140 |         assert settled.status.value == "settled"
+--------------------------------------------------------------------------------
+147 |         assert job.status == "settled"
+    -         assert ai_env.store.ledger.balance(compute_earnings(job.node_id)) == settled.compute_micro
+148 +         assert (
+149 +             ai_env.store.ledger.balance(compute_earnings(job.node_id))
+150 +             == settled.compute_micro
+151 +         )
+152 |         assert ai_env.store.ledger.balance(SEEDER_POOL) == settled.seeder_micro
+--------------------------------------------------------------------------------
+156 |     @pytest.mark.asyncio
+    -     async def test_coordinator_never_receives_or_stores_prompt(self, ai_env, ai_worker_factory):
+157 +     async def test_coordinator_never_receives_or_stores_prompt(
+158 +         self, ai_env, ai_worker_factory
+159 +     ):
+160 |         agent = await ai_worker_factory()
+--------------------------------------------------------------------------------
+178 |         ephemeral = crypto.generate_x25519()
+    -         client_private, client_public = ephemeral["private_key"], ephemeral["public_key"]
+179 +         client_private, client_public = (
+180 +             ephemeral["private_key"],
+181 +             ephemeral["public_key"],
+182 +         )
+183 |         salt = os.urandom(32)
+    -         shared = crypto.x25519_shared_secret(client_private, payload["worker_public_key"])
+    -         c2w, _ = crypto.derive_session_keys(shared, salt=salt, context=session_context(placement.job_id))
+184 +         shared = crypto.x25519_shared_secret(
+185 +             client_private, payload["worker_public_key"]
+186 +         )
+187 +         c2w, _ = crypto.derive_session_keys(
+188 +             shared, salt=salt, context=session_context(placement.job_id)
+189 +         )
+190 |         digest = crypto.sha256_hex(canonical_json(placement.ticket))
+191 |         ciphertext = bytearray(
+    -             crypto.aead_encrypt(c2w, canonical_json({"model": ai_env.model.model_id}),
+    -                                 request_aad(placement.job_id, digest))
+192 +             crypto.aead_encrypt(
+193 +                 c2w,
+194 +                 canonical_json({"model": ai_env.model.model_id}),
+195 +                 request_aad(placement.job_id, digest),
+196 +             )
+197 |         )
+--------------------------------------------------------------------------------
+216 |         with pytest.raises(Exception) as excinfo:
+    -             await agent.process({"job_id": placement.job_id, "ticket": placement.ticket})
+217 +             await agent.process(
+218 +                 {"job_id": placement.job_id, "ticket": placement.ticket}
+219 +             )
+220 |         assert "ticket" in str(excinfo.value).lower()
+221 |
+222 |     @pytest.mark.asyncio
+    -     async def test_receipt_from_unassigned_node_rejected(self, ai_env, ai_worker_factory):
+223 +     async def test_receipt_from_unassigned_node_rejected(
+224 +         self, ai_env, ai_worker_factory
+225 +     ):
+226 |         first = await ai_worker_factory()
+--------------------------------------------------------------------------------
+241 |     @pytest.mark.asyncio
+    -     async def test_ack_from_another_account_is_not_found(self, ai_env, ai_worker_factory):
+242 +     async def test_ack_from_another_account_is_not_found(
+243 +         self, ai_env, ai_worker_factory
+244 +     ):
+245 |         agent = await ai_worker_factory()
+--------------------------------------------------------------------------------
+295 |             sig=crypto.sign(
+    -                 ATTESTATION_EVIDENCE_DOMAIN, evidence, agent.identity.identity_private_key
+296 +                 ATTESTATION_EVIDENCE_DOMAIN,
+297 +                 evidence,
+298 +                 agent.identity.identity_private_key,
+299 |             ),
+--------------------------------------------------------------------------------
+303 |     @pytest.mark.asyncio
+    -     async def test_confidential_job_runs_only_on_attested_node(self, ai_env, ai_worker_factory):
+304 +     async def test_confidential_job_runs_only_on_attested_node(
+305 +         self, ai_env, ai_worker_factory
+306 +     ):
+307 |         attested = await ai_worker_factory(
+--------------------------------------------------------------------------------
+321 |     @pytest.mark.asyncio
+    -     async def test_confidential_refused_without_attestation(self, ai_env, ai_worker_factory):
+    -         await ai_worker_factory(confidentiality=Confidentiality.ATTESTED_TEE, attested=True)
+322 +     async def test_confidential_refused_without_attestation(
+323 +         self, ai_env, ai_worker_factory
+324 +     ):
+325 +         await ai_worker_factory(
+326 +             confidentiality=Confidentiality.ATTESTED_TEE, attested=True
+327 +         )
+328 |         from app.ai.errors import NoEligibleWorker
+--------------------------------------------------------------------------------
+362 |     @pytest.mark.asyncio
+    -     async def test_prompt_and_api_key_never_logged(self, ai_env, ai_worker_factory, caplog):
+363 +     async def test_prompt_and_api_key_never_logged(
+364 +         self, ai_env, ai_worker_factory, caplog
+365 +     ):
+366 |         import logging as _logging
+--------------------------------------------------------------------------------
+423 |         assert first.total_micro == second.total_micro
+    -         entries = [e for e in ai_env.store.ledger.entries if e.job_id == placement.job_id]
+424 +         entries = [
+425 +             e for e in ai_env.store.ledger.entries if e.job_id == placement.job_id
+426 +         ]
+427 |         assert len(entries) == 3  # no duplicate postings on replay
+    |
+
+33 files would be reformatted, 6 files already formatted
+EXIT=1

@@ -1,0 +1,17 @@
+$ DATABASE_URL=... python scripts/live_ai_journey.py --out ../docs/tcdn-ai/evidence/04-e2e/journey.json
+TCDN-AI client using plain HTTP against a loopback address
+TCDN-AI coordinator keys pinned via TOFU; pass coordinator_public_keys for confidential workloads
+PASS health :: healthy
+PASS signup + email verification :: {'verified': True}
+PASS 2FA enrolled and enforced at login
+PASS API key created (developer + worker scopes)
+PASS model registered :: llama-3.1-8b-instruct
+PASS credits purchased; duplicate callback was idempotent :: 5000000
+PASS worker registered :: node_782ce0b1424e79a1bff830ee
+PASS official OpenAI client compatibility probe :: {'status': 404, 'verdict': 'NOT IMPLEMENTED'}
+PASS non-streaming inference (TCDN-AI SDK, OpenAI-shaped response) :: {'tokens': 10, 'finish': 'stop'}
+PASS streaming inference (TCDN-AI SDK) :: {'chunks': 3}
+PASS usage and balance updated :: {'account_id': '39bd3103-465b-4073-a5b0-1bf36afa471b', 'credits': 4.999922, 'micro_credits': 4999922, 'held_micro': 0, 'available_micro': 4999922}
+PASS invariants: ledger, holds, job states, no canary retention :: {'ledger_entries': 7, 'ledger_net_micro': 4999922, 'jobs': 2, 'open_holds': 0, 'canary_leaks': 0}
+JOURNEY OK
+EXIT=0

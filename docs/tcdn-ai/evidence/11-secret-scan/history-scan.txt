@@ -1,0 +1,59 @@
+refs scanned:    39
+commits scanned: 396
+blobs scanned:   1661 (binary skipped: 1, over 4 MB skipped: 0)
+
+HIGH-SIGNAL FINDINGS: 0
+
+REVIEW-CLASS HITS (credential-shaped, usually fixtures): 209
+  [DSN with password in URL] .env.example:2 (blob 2e642e5ed743)
+    DATABASE_URL=***REDACTED***postgres:5432/torrentcdn
+  [DSN with password in URL] .github/workflows/ci-fullstack.yml:232 (blob 85b6559b5060)
+    export DATABASE_URL="***REDACTED***127.0.0.1:5432/torrentcdn"
+  [DSN with password in URL] backend/app/config.py:26 (blob 5b5787dabd2c)
+    # For Supabase: ***REDACTED***aws-0-xxx.pooler.supabase.com:6543/postgres
+  [DSN with password in URL] backend/app/config.py:27 (blob 5b5787dabd2c)
+    database_url: str = "***REDACTED***postgres:5432/torrentcdn"
+  [DSN with password in URL] backend/scripts/live_e2e.py:47 (blob 06d730539356)
+    DB_URL = os.environ.get("E2E_DATABASE_URL", "***REDACTED***localhost:5432/torrentcdn")
+  [hardcoded password/secret assignment] backend/scripts/live_e2e.py:207 (blob 06d730539356)
+    badkey = dict(good, ***REDACTED***)
+  [DSN with password in URL] backend/scripts/rotate_secrets.sh:71 (blob be1993645250)
+    # REDIS_URL=***REDACTED***<upstash-endpoint>:6379
+  [hardcoded password/secret assignment] backend/tests/test_auth.py:142 (blob 3cfd3664b5b6)
+    def _mock_bcrypt_user(self, mock_conn, ***REDACTED***):
+  [hardcoded password/secret assignment] backend/tests/test_mfa.py:113 (blob 33ee5201434e)
+    def _mfa_user(self, mock_conn, ***REDACTED***):
+  [hardcoded password/secret assignment] backend/tests/test_mfa.py:453 (blob 33ee5201434e)
+    def _user_row(self, mfa_enabled=False, ***REDACTED***):
+  [hardcoded password/secret assignment] backend/tests/test_mfa.py:463 (blob 33ee5201434e)
+    def _login(self, client, mock_conn, ***REDACTED***):
+  [hardcoded password/secret assignment] backend/tests/test_security.py:17 (blob cc0bbaf75ac7)
+    def _mock_bcrypt_user(mock_conn, email="user@example.com", ***REDACTED***):
+  [hardcoded password/secret assignment] backend/tests/test_security.py:169 (blob cc0bbaf75ac7)
+    self._enable_setup(monkeypatch, enabled=True, ***REDACTED***)
+  [DSN with password in URL] docs/tcdn-ai/HANDOFF_AUDIT.md:88 (blob 543d715f36d5)
+    | Real Postgres lane | `TEST_POSTGRES_URL=***REDACTED***127.0.0.1:5432/audit_ai pytest tests/test_ai_postgres.py` | **7 passed** on a freshly created database (audit DB/role dropped afterwards) |
+  [DSN with password in URL] docs/tcdn-ai/PUSH_CHECKLIST.md:212 (blob 1477e988e386)
+    | 3 | `DATABASE_URL`/`TEST_POSTGRES_URL` hard-coded `tcdn:tcdn@…/tcdn`, but the compose service inits `${POSTGRES_USER:-user}` / `torrentcdn` — so no connection could ever authenticate, even with 1 an
+  [DSN with password in URL] docs/tcdn-ai/STATE.md:158 (blob dd62381c8f0e)
+    DATABASE_URL=***REDACTED***127.0.0.1:5432/tcdn \
+  [DSN with password in URL] docs/tcdn-ai/STATE.md:166 (blob dd62381c8f0e)
+    --database-url ***REDACTED***127.0.0.1:5432/tcdn \
+  [DSN with password in URL] docs/tcdn-ai/STATE.md:173 (blob dd62381c8f0e)
+    ENABLE_TCDN_AI=true TEST_POSTGRES_URL=***REDACTED***127.0.0.1:5432/tcdn \
+  [hardcoded password/secret assignment] frontend/components/__tests__/AuthModal.test.tsx:196 (blob 4f3079c16200)
+    ***REDACTED***,
+  [hardcoded password/secret assignment] frontend/e2e/helpers.mjs:225 (blob 8afbdfe12b63)
+    body: { email, ***REDACTED***, terms_accepted: true },
+  [hardcoded password/secret assignment] frontend/e2e/last-backup-code.mjs:30 (blob b1cae3e92565)
+    method: 'POST', body: { email, ***REDACTED***, terms_accepted: true },
+  [hardcoded password/secret assignment] frontend/e2e/last-backup-code.mjs:52 (blob b1cae3e92565)
+    const lg = await api('/auth/login', { method: 'POST', body: { email, ***REDACTED*** } })
+  [hardcoded password/secret assignment] frontend/lib/__tests__/api.test.ts:472 (blob e3fa6a64eff2)
+    data: { ***REDACTED***, prefix: 'tcdn_rotate_secret...', created_at: '2026-08-04T00:00:00Z' },
+  [hardcoded password/secret assignment] frontend/lib/liveClient.test.ts:129 (blob 8ab9b216038a)
+    ***REDACTED***,
+  [DSN with password in URL] docker-compose.yml:54 (blob e0f4510c911d)
+    DATABASE_URL: ***REDACTED***postgres:5432/torrentcdn
+
+key-file paths in any ref: 0

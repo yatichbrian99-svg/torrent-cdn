@@ -21,3 +21,7 @@ pytest-asyncio>=0.23.0
 pydantic>=2.5.2,<3
 pydantic-settings>=2.1.0,<3
 resend>=2.30.0,<3.0.0
+# TCDN-AI: Ed25519/X25519/HKDF/AES-256-GCM only. The `cryptography` package is
+# maintained by the Python Cryptographic Authority and is the vetted primitive
+# library required by docs/tcdn-ai/SECURITY.md — no hand-rolled crypto.
+cryptography>=50.0.0,<51.0.0

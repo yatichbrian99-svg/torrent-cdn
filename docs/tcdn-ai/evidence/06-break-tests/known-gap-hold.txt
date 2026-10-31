@@ -1,0 +1,16 @@
+$ .venv/bin/python -m pytest tests/test_ai_failure_injection.py -q -rxX
+x                                                                        [100%]
+=============================== warnings summary ===============================
+tests/conftest.py:12
+  /home/yatich/torrent-cdn/backend/tests/conftest.py:12: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient
+
+.venv/lib/python3.14/site-packages/_pytest/cacheprovider.py:469
+  /home/yatich/torrent-cdn/backend/.venv/lib/python3.14/site-packages/_pytest/cacheprovider.py:469: PytestCacheWarning: cache could not write path /home/yatich/torrent-cdn/backend/.pytest_cache/v/cache/nodeids: [Errno 13] Permission denied: '/home/yatich/torrent-cdn/backend/.pytest_cache/v/cache/nodeids'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+XFAIL tests/test_ai_failure_injection.py::test_abandoned_placement_does_not_hold_credits_forever - GAP-1 (HIGH): no tenant/clock path expires 'placed' jobs or releases their hold, so credits stay locked after a worker crash or client disconnect
+1 xfailed, 2 warnings in 0.73s
+EXIT=0

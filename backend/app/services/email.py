@@ -8,6 +8,7 @@ import logging
 import httpx
 
 from ..config import get_settings
+from ..email_service import transactional_from_address
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ async def send_welcome_email(email: str, name: str) -> bool:
                 RESEND_ENDPOINT,
                 headers={"Authorization": f"Bearer {api_key}"},
                 json={
-                    "from": "TorrentCDN <hello@torrentcdn.store>",
+                    "from": transactional_from_address(),
                     "to": email,
                     "subject": "Welcome to TorrentCDN",
                     "html": html,

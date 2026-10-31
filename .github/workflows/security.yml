@@ -33,6 +33,16 @@ on:
 permissions:
   contents: read
 
+# The four production probes normally SKIP when E2E_ADMIN_TOKEN is rejected
+# (a rotated CI credential is an ops fact, not a product regression, and a red
+# branch/PR run would only train people to ignore it). A SCHEDULED run on main
+# is different: it is the only automated check that the live product still
+# works, so a rejected credential there must FAIL loudly rather than pass
+# silently. The probes read this variable (see verify_account in
+# backend/scripts/*_audit_prod.sh).
+env:
+  PROBE_STRICT_CREDENTIALS: ${{ github.event_name == 'schedule' && github.ref == 'refs/heads/main' }}
+
 # Schedule + manual dispatch runs get their own concurrency group ('cron'):
 # on schedule events github.ref is the default branch, so without this a
 # coincidental push would share the group and cancel-in-progress would kill
@@ -416,10 +426,14 @@ jobs:
           cache: "pip"
           cache-dependency-path: backend/requirements.txt
 
+      # requirements-dev.txt is not optional here any more: the TCDN-AI
+      # OpenAI-compatibility test imports the official `openai` client, so a
+      # runtime-only install failed collection with ModuleNotFoundError and the
+      # suite never ran at all.
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt -r requirements-dev.txt
 
       # Fails if the backend SOURCE or IaC references the dead
       # api.torrentcdn.store host (no DNS record — the docs BASE_URL once
@@ -472,6 +486,15 @@ jobs:
       # simply have no PR context and skip commenting.
       - name: Gitleaks — scan for hardcoded secrets
         uses: gitleaks/gitleaks-action@v3
+        with:
+          # Keeps the default rules on and allowlists only placeholder VALUES:
+          # the published test vectors, doc examples, and the template's
+          # `FOO_SECRET=` + `FOO_SECRET_ID=v1` shape that trips the
+          # generic-api-key entropy rule with no secret present. No path or
+          # whole-file allowlist exists, so a real token pasted into
+          # `.env.example` or a docs page still fails this gate — and the
+          # high-signal tree scan in secret-scan remains un-allowlisted too.
+          config-path: .gitleaks.toml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: "true"
@@ -517,5 +540,126 @@ jobs:
       # so a new non-parameterized query reds the `tests` job too.
       - name: Run SQL injection static audit
         run: python scripts/sql_injection_audit.py
+
+      # Dead-code gate: unreachable statements after a terminator, definitions
+      # referenced exactly once (their own def — decorators excluded, since
+      # frameworks discover those by reflection), pass-only stubs, and orphan
+      # modules. Reference counting is whole-word across app/ tests/ scripts/
+      # and counts matches inside strings, so it under-reports by design.
+      - name: Run dead code audit
+        run: python scripts/dead_code_audit.py
+
+  # ── SAST (checklist 5.5, blocking) ──
+  # Semgrep with the Python and secrets rulesets at ERROR severity: the tier
+  # that fails the build. The scan covers the product (`app/`, `tcdn_ai_sdk/`)
+  # AND the operational scripts, so a harness is held to the same rules as the
+  # service. Deliberate exceptions are inline `# nosemgrep:` comments with the
+  # reason beside them (a pentest harness that forges tokens on purpose, two
+  # local subprocess launchers whose argv is a fixed list, and the
+  # anti-enumeration dummy bcrypt hash). A suppression without a justification
+  # is a review finding in its own right, and there are exactly four.
+  #
+  # Always-on (no `changes` gate): it is fast, and a workflow/script edit is
+  # precisely where a supply-chain rule should re-run.
+  sast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # Pinned: a ruleset update can add a finding, but it must not silently
+      # change the engine out from under a green build either.
+      - name: Install semgrep
+        run: |
+          python -m pip install --upgrade pip
+          pip install semgrep==1.182.1
+
+      - name: Semgrep — Python + secrets at ERROR (blocking)
+        run: |
+          semgrep scan \
+            --config p/python \
+            --config p/secrets \
+            --severity ERROR \
+            --error \
+            --sarif \
+            --output semgrep.sarif \
+            app scripts tcdn_ai_sdk
+
+      # Findings land in the Security tab too. continue-on-error: Code Scanning
+      # is not available on every private plan; the scan above is the gate.
+      - name: Upload SARIF to Code Scanning
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: backend/semgrep.sarif
+
+  # ── Fuzz budget (checklist 5.5) ──
+  # Deterministic mutation fuzzing of every untrusted-input parser: tickets,
+  # receipts, Merkle proofs, AEAD, the placement model and the payment webhook.
+  # A parser may reject input with a typed error; anything else (unhandled
+  # exception, hang, crash) is a finding and reds this job.
+  #
+  # The budget is explicit and different per event: 20 s per target on a push
+  # (≈2 min for six targets) keeps the PR feedback loop usable, 60 s per target
+  # on the nightly schedule is the depth the recorded evidence came from
+  # (docs/tcdn-ai/evidence/03-security/fuzz-ai-60s.json: 6 targets, 360 s,
+  # 21.7M cases, 0 findings, seed 20261029). The seed is fixed so a finding
+  # reproduces from the artifact, and the artifact is the report.
+  fuzz:
+    needs: [changes]
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Fuzz to budget
+        env:
+          # 60 s/target on the nightly cron, 20 s/target on a push/PR.
+          BUDGET: ${{ github.event_name == 'schedule' && '60' || '20' }}
+        run: |
+          python scripts/fuzz_ai.py \
+            --seconds-per-target "$BUDGET" \
+            --seed 20261029 \
+            --out fuzz-ai.json
+
+      - name: Upload the fuzz report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-ai
+          path: backend/fuzz-ai.json
+          if-no-files-found: error
 
 

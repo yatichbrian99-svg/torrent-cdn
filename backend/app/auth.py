@@ -123,14 +123,50 @@ def create_access_token(data: dict, expires_minutes: int | None = None) -> str:
     )
 
 
+# Longest lifetime this app mints: the 14-day "remember me" session
+# (_REMEMBER_ME_MINUTES in routes/auth.py), or a longer jwt_expire_minutes that an
+# operator configured. The ceiling follows the configured policy instead of a
+# fixed number so a deployment with JWT_EXPIRE_MINUTES above 15 days cannot end
+# up rejecting its own freshly minted tokens; the extra day absorbs clock
+# differences between minters. A ~100-year token is still malformed, which is
+# what this bounds.
+_REMEMBER_ME_MINUTES = 14 * 24 * 60
+_MIN_MAX_TOKEN_LIFETIME_SECS = 15 * 24 * 60 * 60
+
+
+def _max_token_lifetime_secs() -> float:
+    policy_minutes = max(settings.jwt_expire_minutes, _REMEMBER_ME_MINUTES)
+    return max(_MIN_MAX_TOKEN_LIFETIME_SECS, (policy_minutes + 24 * 60) * 60)
+
+
 def decode_access_token(token: str) -> dict | None:
     try:
         # PyJWT verifies exp + signature; the explicit algorithms list is
         # required by PyJWT and prevents algorithm-confusion attacks.
+        #
+        # require=[exp, sub, iat] makes these claims MANDATORY rather than
+        # merely "validated when present" (F-10). Without it, a token carrying
+        # only `sub` was accepted: it never expired (no exp) AND
+        # _token_revoked_by_password_change() returned early on the missing iat,
+        # so no password reset / MFA enable / privilege change could revoke it —
+        # a permanent, non-revocable credential. Every token this app mints
+        # (create_access_token, create_mfa_token) carries all three claims, so
+        # only malformed or non-standard tokens are rejected.
         payload = jwt.decode(
-            token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
+            token, settings.jwt_secret, algorithms=[settings.jwt_algorithm],
+            options={"require": ["exp", "sub", "iat"]},
         )
     except InvalidTokenError:
+        return None
+    # Bound the accepted lifetime too: a token whose exp sits arbitrarily far
+    # in the future is effectively permanent even once it carries iat. This is
+    # a blast-radius control for the leaked-secret case, which is the whole
+    # premise of F-10 (app-minted tokens are always within the cap).
+    try:
+        lifetime = float(payload["exp"]) - float(payload["iat"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if lifetime > _max_token_lifetime_secs():
         return None
     # A token minted for the MFA second-factor step (create_mfa_token) shares
     # this signing secret, so it would otherwise pass signature/exp here and
@@ -340,18 +376,26 @@ async def get_current_user_id(
             headers={"WWW-Authenticate": "Bearer"},
         )
     # M2 FIX: Check the per-token blocklist (logout writes jti here).
+    #
+    # The LOOKUP is wrapped so a Redis failure fails OPEN (token expiry is the
+    # backstop), but the rejection must stay OUTSIDE that try: HTTPException is
+    # an Exception subclass, so a bare `except Exception` around the raise
+    # swallowed it and turned this whole check into a silent no-op — logout
+    # wrote the blocklist key and every request still authenticated. Keep the
+    # fail-open wrapping on the redis call only, and raise after it.
     jti = payload.get("jti")
     if jti:
         try:
             r = await get_redis()
-            if r is not None and await r.get(f"token_block:{jti}"):
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Session invalidated. Please log in again.",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
+            blocked = r is not None and bool(await r.get(f"token_block:{jti}"))
         except Exception:
-            pass  # Redis down — fail open (token expiry is the backstop)
+            blocked = False  # Redis down — fail open (token expiry is the backstop)
+        if blocked:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session invalidated. Please log in again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
     if await _token_revoked_by_password_change(payload):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -361,6 +405,31 @@ async def get_current_user_id(
     user_id = UUID(payload["sub"])
     await _enforce_email_verified(request, user_id)
     return user_id
+
+
+async def get_current_user_id_jwt_only(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> UUID:
+    """Session-JWT authentication: a ``tcdn_`` API key is refused outright.
+
+    Session tokens are minted for a browser session and die with it; API keys are
+    long-lived secrets that get pasted into a deployment's environment, a CI
+    variable or a script — the ones that leak. An endpoint that moves money must
+    not accept one, because an API key inherits its owner's full authority: an
+    admin's key could otherwise mint credits, create keys or flip the payout
+    kill switch, which is what the routes' "admin JWT" documentation promised it
+    could not (audit F-6).
+
+    The refusal is decided from the credential itself, before any lookup, so an
+    API key cannot be used to probe admin state either.
+    """
+    if credentials.credentials.startswith(API_KEY_PREFIX):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This endpoint requires a session token, not an API key",
+        )
+    return await get_current_user_id(request, credentials)
 
 
 async def get_optional_user_id(

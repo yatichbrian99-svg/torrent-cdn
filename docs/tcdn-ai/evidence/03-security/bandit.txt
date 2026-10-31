@@ -1,0 +1,78 @@
+$ .venv/bin/python -m bandit -r app/ai tcdn_ai_sdk scripts/ai_worker.py scripts/ai_provision.py scripts/ai_load_test.py -f txt
+[main]	INFO	profile include tests: None
+[main]	INFO	profile exclude tests: None
+[main]	INFO	cli include tests: None
+[main]	INFO	cli exclude tests: None
+[main]	INFO	running on Python 3.14.7
+Run started:2026-10-23 05:43:32.727677+00:00
+
+Test results:
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: ./scripts/ai_worker.py:216:42
+215	    parser = argparse.ArgumentParser(description=__doc__)
+216	    parser.add_argument("--host", default="0.0.0.0")
+217	    parser.add_argument("--port", type=int, default=9100)
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: app/ai/verification2.py:634:14
+633	
+634	        rng = random.Random(self._seed)
+635	        out: list[tuple[int, float, list[tuple[int, float]]]] = []
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'pass'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html
+   Location: app/ai/verification2.py:734:11
+733	class VerdictType:
+734	    PASS = "pass"
+735	    SUSPECT = "suspect"
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: tcdn_ai_sdk/client.py:209:46
+208	    def _backoff(attempt: int) -> float:
+209	        return min(8.0, 0.2 * (2**attempt)) + random.uniform(0, 0.1)
+210	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: tcdn_ai_sdk/client.py:238:8
+237	            self._bootstrap_keys()
+238	        assert self._pinned_keys is not None
+239	        public = self._pinned_keys.get(key_id)
+
+--------------------------------------------------
+
+Code scanned:
+	Total lines of code: 8048
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 0
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 4
+		Medium: 1
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 2
+		High: 3
+Files skipped (0):
+EXIT=1

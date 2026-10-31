@@ -1,0 +1,48 @@
+{
+  "row": "10.1",
+  "date": "2026-10-29",
+  "followed": "docs/tcdn-ai/DEV_SETUP.md literally, sections 1-4b",
+  "datastores": {
+    "command": "docker compose -f deploy/tcdn-ai/docker-compose.dev.yml up -d postgres redis",
+    "postgres": "tcdn-ai-dev-postgres-1 healthy",
+    "redis": "tcdn-ai-dev-redis-1 healthy",
+    "note": "the repo-root compose stack already held 5432/6379, so its postgres/redis were stopped first; the dev file cannot share those ports with it"
+  },
+  "coordinator": {
+    "command": ".venv/bin/python -m uvicorn app.main:app --reload --port 8000",
+    "health": {"status_code": 200, "body": {"status": "healthy"}},
+    "ai_tables": "created at startup",
+    "keyring": "in-memory development keyring (as the doc states)"
+  },
+  "provision": {
+    "command": "scripts/ai_provision.py --account-id <users.id> --scopes inference,worker --models-file /tmp/models.json",
+    "model": "llama-3.1-8b-instruct",
+    "manifest_hash": "92adb857a3e87020a0e6582deceb750e45b1b1d4ba293b41fd648e9d940ae434",
+    "manifest_note": "sha256 of the canonical manifest JSON; the echo backend serves no weights, so the hash is real but the artifact is not a signed shard set"
+  },
+  "worker": {
+    "command": "scripts/ai_worker.py --host 127.0.0.1 --port 9100 --public-url http://127.0.0.1:9100 --allow-plaintext-loopback",
+    "backend": "echo (labelled dev-stub in /health)",
+    "registered": true,
+    "healthy": true
+  },
+  "sdk": {
+    "request": "client.chat.completions.create(model='llama-3.1-8b-instruct', messages=[{'role':'user','content':'hello'}])",
+    "reply": "echo[llama-3.1-8b-instruct]: hello",
+    "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
+    "tier": "standard",
+    "confidentiality": "none",
+    "keys": "coordinator keys pinned via TOFU (the doc's expected message)"
+  },
+  "openai_gateway": {
+    "client": "official openai python client, base_url http://127.0.0.1:8000/v1",
+    "models": "qwen2.5:0.5b (first registry row)",
+    "reply": "echo[llama-3.1-8b-instruct]: hello",
+    "mode": "gateway",
+    "prompt_visibility": "gateway"
+  },
+  "gaps_found": [
+    "DEV_SETUP has no step to FUND the account: a fresh account fails step 4 with InsufficientCreditsError. Section 2 was followed by crediting 500 credits through the ledger (kind signup_credit) before the SDK call.",
+    "DEV_SETUP tells the reader to replace the manifest hash with 'the hash of a manifest you actually signed', but the repo ships no manifest-signing script and the echo backend never verifies one; the run used the sha256 of a real manifest JSON."
+  ]
+}

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
 import pytest
+import pytest_asyncio
 from starlette.testclient import TestClient
 
 # Set test environment before importing app modules
@@ -97,8 +98,39 @@ def mock_s3_client():
     return s3
 
 
+@pytest.fixture(scope="function")
+def startup_pool():
+    """Pool handed to the app's lifespan startup.
+
+    Deliberately separate from ``mock_pool``/``mock_conn``: startup DDL must not
+    appear in a test's own ``mock_conn.execute`` assertions (billing webhook
+    tests assert *no* write happened). It exists so no test ever opens a real
+    connection to DATABASE_URL — that connection attempt was the root cause of
+    the intermittent full-suite stall (see docs/tcdn-ai/STATE.md).
+    """
+    conn = AsyncMock()
+    conn.execute = AsyncMock(return_value=None)
+    conn.fetch = AsyncMock(return_value=[])
+    conn.fetchrow = AsyncMock(return_value=None)
+    conn.fetchval = AsyncMock(return_value=0)
+
+    class _FakeTx:
+        async def __aenter__(self):
+            return conn
+
+        async def __aexit__(self, *exc):
+            return False
+
+    conn.transaction = MagicMock(return_value=_FakeTx())
+    pool = AsyncMock()
+    pool.acquire = MagicMock(return_value=pool)
+    pool.__aenter__ = AsyncMock(return_value=conn)
+    pool.__aexit__ = AsyncMock(return_value=None)
+    return pool
+
+
 @pytest.fixture(autouse=True, scope="function")
-def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
+def apply_mocks(mock_pool, mock_redis, mock_s3_client, startup_pool, monkeypatch):
     """
     Apply all mocks automatically for every test.
     Uses monkeypatch to ensure patches apply regardless of import style.
@@ -178,6 +210,15 @@ def apply_mocks(mock_pool, mock_redis, mock_s3_client, monkeypatch):
     monkeypatch.setattr(app.database, "get_db_pool", AsyncMock(return_value=mock_pool))
     monkeypatch.setattr(app.database, "get_redis", AsyncMock(return_value=mock_redis))
 
+    # The lifespan's startup migrations call main.py's MODULE-LEVEL `get_db_pool`
+    # binding (`from .database import get_db_pool`), which none of the patches
+    # above reach. Left unpatched, every TestClient startup opened a real asyncpg
+    # pool against DATABASE_URL; when that host silently drops SYNs (a stopped
+    # docker bridge IP) the fixture blocked for 30-120s at a time — the
+    # intermittent "full suite hangs" bug. Patch it to a throwaway pool.
+    import app.main
+    monkeypatch.setattr(app.main, "get_db_pool", AsyncMock(return_value=startup_pool))
+
     # Live modules: patch their database references too (live_state / mediamtx
     # import get_redis at call time via .database, but routes/live.py and
     # live_internal.py hold local bindings — patched above). The live monitor
@@ -242,3 +283,144 @@ def admin_headers(client, admin_user_id):
     from app.auth import create_access_token
     token = create_access_token({"sub": str(admin_user_id)})
     return {"Authorization": f"Bearer {token}"}
+
+
+# ── TCDN-AI fixtures ────────────────────────────────────────────────────────
+# Kept here (rather than a plugin module) so the AI suite uses the same runner,
+# linter and mocking conventions as the rest of the backend. Imports are local:
+# the CDN tests must not pay to import the AI package.
+
+
+@pytest_asyncio.fixture
+async def ai_env():
+    """Coordinator backed by the in-memory store, one priced model, one key."""
+    from types import SimpleNamespace
+
+    from app.ai.config import AISettings
+    from app.ai.keyring import KeyRing
+    from app.ai.service import Coordinator
+    from app.ai.store import MemoryStore, ModelRecord
+
+    settings = AISettings(
+        environment="development",
+        api_key_pepper="unit-test-pepper-not-a-real-secret",
+        coordinator_key_file=None,
+        ticket_ttl_seconds=120,
+        signup_credits=500,
+        rate_limit_per_minute=10_000,
+        rate_limit_burst=10_000,
+    )
+    keyring = KeyRing.generate("coordinator-test")
+    store = MemoryStore(settings)
+    await store.init()
+    model = ModelRecord(
+        model_id="llama-3.1-8b-instruct",
+        name="Llama 3.1 8B Instruct",
+        format="safetensors",
+        manifest_hash="a" * 64,
+        size_bytes=16 * 1024**3,
+        required_vram_gb=8,
+        license_note="Llama 3.1 Community License",
+        allowlisted=True,
+        price_class="small",
+        input_micro_per_mtok=3_000_000,
+        output_micro_per_mtok=6_000_000,
+        effective_from=0,
+        history=[(0, 3_000_000, 6_000_000)],
+    )
+    store.models[model.model_id] = model
+    coordinator = Coordinator(store=store, keyring=keyring, settings=settings)
+    account_id = "11111111-1111-4111-8111-111111111111"
+    api_key = await coordinator.provision_api_key(account_id, scopes=("inference", "worker"))
+    await store.credit(
+        account_id,
+        1_000_000_000,
+        source="gateway:test",
+        idempotency_key="seed-credits",
+        kind="credit_purchase",
+    )
+    auth = await coordinator.authenticate(api_key)
+    return SimpleNamespace(
+        settings=settings,
+        keyring=keyring,
+        store=store,
+        coordinator=coordinator,
+        model=model,
+        account_id=account_id,
+        api_key=api_key,
+        auth=auth,
+    )
+
+
+@pytest_asyncio.fixture
+async def ai_worker_factory(ai_env):
+    """Register a worker with the coordinator and return a ready WorkerAgent."""
+    import hashlib
+
+    from app.ai import crypto
+    from app.ai.keyring import KeyRing
+    from app.ai.models import (
+        Confidentiality,
+        NodeType,
+        SignedEnvelope,
+        WorkerRegistrationPayload,
+    )
+    from app.ai.worker import EchoBackend, WorkerAgent, WorkerConfig, WorkerIdentity
+
+    created = []
+
+    async def make(
+        *,
+        confidentiality: Confidentiality = Confidentiality.NONE,
+        attested: bool = False,
+        models: list[str] | None = None,
+    ):
+        identity = WorkerIdentity.generate("pending")
+        identity.node_id = "node_" + hashlib.sha256(
+            identity.identity_public_key.encode("utf-8")
+        ).hexdigest()[:24]
+        allowed = models or [ai_env.model.model_id]
+        payload = WorkerRegistrationPayload(
+            identity_public_key=identity.identity_public_key,
+            session_public_key=identity.session_public_key,
+            node_type=NodeType.COMPUTE,
+            models=allowed,
+            gpu_model="NVIDIA H100" if confidentiality is Confidentiality.ATTESTED_TEE else "test-gpu",
+            vram_gb=80 if confidentiality is Confidentiality.ATTESTED_TEE else 24,
+            region="eu-west",
+            price_micro_per_mtok=1_000_000,
+            confidentiality=confidentiality,
+            software_version="0.1.0",
+            endpoint="http://127.0.0.1:9",
+        ).model_dump(mode="json")
+        envelope = SignedEnvelope(
+            payload=payload,
+            key_id=identity.identity_key_id,
+            sig=crypto.sign("tcdn-ai/node-register/v1", payload, identity.identity_private_key),
+        )
+        await ai_env.coordinator.register_node(ai_env.auth, envelope)
+
+        trust = KeyRing("coordinator-public")
+        active = ai_env.keyring.active
+        trust.add_public(active.public_key, key_id=active.key_id)
+        agent = WorkerAgent(
+            identity=identity,
+            config=WorkerConfig(
+                models={model: ai_env.model.manifest_hash for model in allowed},
+                confidentiality=confidentiality,
+                attested=attested,
+            ),
+            backend=EchoBackend(allow=True),
+            coordinator_keys=trust,
+            settings=ai_env.settings,
+        )
+        created.append(agent)
+        return agent
+
+    return make
+
+
+@pytest.fixture(scope="function")
+def ai_http(client):
+    """Route FastAPI TestClient for the SDK's sync HTTP dependency."""
+    return client

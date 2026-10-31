@@ -56,6 +56,21 @@ class TestValidation:
         )
         assert resp.status_code == 400
 
+    def test_rejects_control_characters_in_filename(self, client, auth_headers, test_file_id, mock_conn):
+        """A NUL in the new name is unstorable in Postgres (the driver fails at
+        bind time), so it must be a 400 before any query — not the 500 the
+        UPDATE used to raise."""
+        mock_conn.fetchrow.return_value = _row(test_file_id, UUID(int=0x1111))
+        for bad in ("bad\x00name.mp4", "bad\tname.mp4"):
+            resp = client.patch(
+                f"{self.URL}/{test_file_id}",
+                json={"filename": bad},
+                headers=auth_headers,
+            )
+            assert resp.status_code == 400, bad
+            assert "control characters" in resp.json()["detail"]
+        assert mock_conn.fetchrow.await_count == 0
+
     def test_empty_string_means_root(self, client, auth_headers, test_file_id, mock_conn):
         """folder_path=\"\" normalizes to root (None) and still writes."""
         mock_conn.fetchrow.return_value = _row(test_file_id, UUID(int=0x1111), folder="Videos")

@@ -61,7 +61,12 @@ from ..models import (
     UserLogin,
     UserRegister,
 )
-from ..security import enforce_max_size, get_client_ip
+from ..security import (
+    contains_control_chars,
+    enforce_max_size,
+    get_client_ip,
+    set_if_absent,
+)
 from ..security_events import record as record_event
 from ..services.email import send_welcome_email
 
@@ -188,6 +193,23 @@ def _normalize_email(email: str) -> str:
     return unicodedata.normalize("NFC", email.strip())
 
 
+def _validate_email_chars(email: str) -> None:
+    """Reject email input Postgres cannot store or look up.
+
+    A NUL byte is a legal JSON string and a legal `str` for pydantic, but not
+    legal UTF8 text in Postgres: the driver raises
+    CharacterNotInRepertoireError ("invalid byte sequence for encoding UTF8:
+    0x00") when it binds the parameter, which surfaced as an unauthenticated
+    500 on /auth/register, /auth/login and /auth/forgot-password (found by the
+    local pentest harness). Control characters are rejected for the same reason
+    routes/files.py rejects them in a folder path — a DB-bound label must be
+    well-formed, and a 400 is the correct answer for junk instead of a 500 plus
+    an error-log entry. Callers pass the NFC-normalized address, before any
+    query runs."""
+    if contains_control_chars(email):
+        raise HTTPException(status_code=400, detail="Invalid email address")
+
+
 def _prune_login_attempts(now: float) -> None:
     """Drop login-attempt keys whose newest entry has expired (keeps dict bounded)."""
     expired = [k for k, v in _login_attempts.items() if not v or now - v[-1] > _LOGIN_WINDOW]
@@ -256,6 +278,10 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks, reques
 
     # NFC-normalize the email at the boundary (confusable-account protection).
     data.email = _normalize_email(data.email)
+
+    # Reject characters Postgres can't store (NUL et al.) BEFORE the format
+    # check, so an unstorable address is a 400 and never reaches the INSERT.
+    _validate_email_chars(data.email)
 
     # Validate email format (length already capped at 255 by the model — a
     # >255-char email would otherwise 500 the users.email VARCHAR(255) insert).
@@ -422,12 +448,42 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks, reques
         try:
             sent = await send_verification_email(data.email, user["id"])
             if not sent and not is_email_service_configured():
-                await conn.execute(
-                    "UPDATE users SET verified = TRUE WHERE id = $1", user["id"]
-                )
-                logger.info(
-                    "No email service configured — auto-verified new user %s", user["id"]
-                )
+                # Atomic first-wins gate so two concurrent registrations from the
+                # same inbox during a provider outage cannot both mark the account
+                # verified. Redis is optional: when it is absent we fall through to
+                # the DB write (still idempotent, because the user row is unique).
+                redis = await get_redis()
+                auto_verified = False
+                if redis is not None:
+                    auto_verified = await set_if_absent(
+                        redis,
+                        f"email-verify:auto:{user['id']}",
+                        "1",
+                        ex=600,
+                    )
+                if auto_verified or redis is None:
+                    await conn.execute(
+                        "UPDATE users SET verified = TRUE WHERE id = $1", user["id"]
+                    )
+                    logger.info(
+                        "No email service configured — auto-verified new user %s", user["id"]
+                    )
+                    # The account is verified now, which is the signup-credit
+                    # gate. Without this call the free credit had no trigger at
+                    # all (see app/ai/signup.py); it no-ops when the AI flag is
+                    # off and can never fail registration.
+                    from ..ai.signup import grant_signup_credit
+
+                    # proof="auto": no provider was configured, so this account
+                    # was marked verified without proving the inbox. The AI grant
+                    # refuses that proof in production; in development it keeps
+                    # the local signup flow usable.
+                    await grant_signup_credit(
+                        user["id"],
+                        get_client_ip(request),
+                        proof="auto",
+                        request=request,
+                    )
         except Exception as e:
             logger.warning("Verification email failed after registration: %s", e)
 
@@ -455,6 +511,9 @@ async def register(data: UserRegister, background_tasks: BackgroundTasks, reques
 @router.post("/login")
 async def login(data: UserLogin, request: Request):
     data.email = _normalize_email(data.email)
+    # Same guard as register: a NUL in the address must 400 here, not 500 at the
+    # users lookup below.
+    _validate_email_chars(data.email)
     pool = await get_db_pool()
     redis = await get_redis()
 
@@ -500,6 +559,7 @@ async def login(data: UserLogin, request: Request):
         # attacker distinguish registered emails by response timing (a bcrypt
         # check costs ~100-250ms). Verify against a fixed dummy bcrypt hash so
         # the "unknown user" path does the same work as a wrong-password path.
+        # nosemgrep: generic.secrets.security.detected-bcrypt-hash.detected-bcrypt-hash
         _DUMMY_HASH = "$2b$12$C6UzMDM.H6dfI/f/IKcEeO7Dkz9nWlG5vXqgLbB5fQzY3S0YvX9nS"
         if not user:
             verify_password(data.password, _DUMMY_HASH)
@@ -593,6 +653,10 @@ async def forgot_password(data: ForgotPasswordRequest, request: Request):
                     detail="Please wait before requesting another reset email.",
                 )
             _forgot_requests[ip] = now
+
+    # Reject unstorable characters before the lookups (the raw query below
+    # binds data.email verbatim, so the guard must precede it).
+    _validate_email_chars(_normalize_email(data.email))
 
     pool = await get_db_pool()
     async with pool.acquire() as conn:

@@ -83,6 +83,12 @@ class Settings(BaseSettings):
 
     # Resend (transactional email)
     resend_api_key: str = ""
+    # From: address for every system email. Any local part at the Resend-verified
+    # domain works; notifications@ is deliberately separate from the human
+    # mailboxes (hello@/yatich@/partnerships@) so a reset/verification mail is
+    # never mistaken for a person writing back. Override with RESEND_FROM
+    # (Render dashboard) without a deploy.
+    resend_from: str = "TorrentCDN <notifications@torrentcdn.store>"
 
     # CSP
     csp_report_url: str = "/csp-report"
@@ -117,6 +123,11 @@ class Settings(BaseSettings):
     # long random string; set the SAME value on frontend (EDGE_PROXY_AUTH)
     # and backend. Empty = feature off, legacy behavior preserved.
     edge_proxy_auth: str = ""
+
+    # Live stack (mediamtx / RTMP) — shared with the worker in local-dev only.
+    mediamtx_hook_secret: str = "local-dev-hook-secret-0123456789abcdef"
+    live_token_rate_limit: int = 60000
+    mediamtx_rtmp_bind: str = "0.0.0.0"
 
     # Limits
     # 2GB — the app's own ceiling for a single file. Supabase Storage free tier
@@ -214,6 +225,18 @@ class Settings(BaseSettings):
     # Register at https://bazaar.abuse.ch/register/ for a free key.
     malwarebazaar_api_key: str = ""
 
+    # Database-by-keyword ingest helpers: env-mapped aliases for the two env
+    # variables we actually bind at runtime (postgres_user / postgres_password,
+    # minio_root_user / minio_root_password). Kept on Settings only so the
+    # existing test fixtures that monkeypatch env vars never need to know the
+    # DB-BY-KEYWORD parameter names; they just set/override
+    # POSTGRES_USER / POSTGRES_PASSWORD / MINIO_ROOT_USER /
+    # MINIO_ROOT_PASSWORD and Settings still constructs cleanly.
+    postgres_user: str = ""
+    postgres_password: str = ""
+    minio_root_user: str = ""
+    minio_root_password: str = ""
+
     # model_config is defined at the top of the class (Pydantic v2 style)
 
 
@@ -238,6 +261,27 @@ def get_settings() -> Settings:
             (settings.jwt_secret + "__reset__").encode()
         ).hexdigest()
     if settings.app_env == "production":
+        # ── Staging safety gate ─────────────────────────────────────────────
+        # Staging runs the same production gates on purpose (APP_ENV=production,
+        # TCDN_AI_ENVIRONMENT=production) so the deployed code path is the one
+        # that ships. That removes the one signal config could otherwise use to
+        # tell "this must never touch real money" apart from production, so
+        # render.staging.yaml sets STAGING_DEPLOYMENT=true and this gate refuses
+        # to boot with a Paystack LIVE key in either key slot. A live key here
+        # would take real card payments and, with the payout code enabled, sign
+        # real transfers — a staging flag is exactly the mistake this prevents.
+        if os.environ.get("STAGING_DEPLOYMENT", "").strip().lower() in {"1", "true", "yes"}:
+            live = [
+                name
+                for name in ("PAYSTACK_SECRET_KEY", "TCDN_AI_PAYSTACK_SECRET_KEY")
+                if os.environ.get(name, "").strip().startswith("sk_live_")
+            ]
+            if live:
+                raise ValueError(
+                    "STAGING_DEPLOYMENT is on but "
+                    + " and ".join(live)
+                    + " holds a Paystack LIVE key; staging must use sk_test_ keys"
+                )
         # Warn loudly (but don't crash) if placeholder credentials are detected
         if settings.minio_secret_key == "minioadmin":
             logger.warning(

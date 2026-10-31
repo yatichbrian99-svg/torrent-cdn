@@ -1,0 +1,98 @@
+# ZAP Automation Framework plan — authenticated pass against the AI surface.
+#
+# Targets the runner's API-key proxy (:8002), which adds
+# `Authorization: Bearer tcdn_ai_…` to every request. A session JWT cannot reach
+# most of /api/ai/v1/* (`authenticate` requires a scoped API key), so the JWT
+# pass (:8001) sees that surface as an anonymous caller; this pass sees it as the
+# seeded account's inference key, which is what a customer's client actually is.
+#
+# Two things this pass still cannot do, stated rather than implied:
+#   * /nodes/register, /nodes/heartbeat and /attestations want a **worker** key
+#     and a valid Ed25519 signature — an inference key gets 403/401 there, so
+#     those routes are covered by tests/test_ai_signed_inputs.py, not by ZAP;
+#   * placements needs a live worker to hand a ticket to, so they end in
+#     404 model_not_found / 503 no_eligible_worker on this stack.
+env:
+  contexts:
+    - name: torrentcdn-ai
+      urls:
+        - http://127.0.0.1:8002/health
+      includePaths:
+        - http://127.0.0.1:8002.*
+      excludePaths:
+        - http://127.0.0.1:8002/api/internal/.*
+        # Mints API keys; the scanner has no reason to create credentials, and a
+        # successful call would just add keys nobody uses.
+        - http://127.0.0.1:8002/auth/api-key
+  parameters:
+    failOnError: false
+    failOnWarning: false
+    progressToStdout: true
+
+jobs:
+  - type: openapi
+    parameters:
+      apiFile: /zap/wrk/api.json
+      targetUrl: http://127.0.0.1:8002
+      context: torrentcdn-ai
+
+  # ── 40018 (SQL Injection): where the documented exception lives ────────────
+  # The 2026-10-30 AI-key pass raised HIGH/40018 on four paths with EMPTY
+  # `evidence` on every instance — no database error text, no reflected payload.
+  # Every value the scanner injected is a bound asyncpg argument, so it can
+  # never be parsed as SQL: the binding proof is
+  # `backend/tests/test_ai_sqli_binding.py`, the static twin is
+  # `backend/scripts/sql_injection_audit.py` (AST over all of backend/app), and
+  # both are written up in docs/tcdn-ai/SQLI_40018.md.
+  #
+  # The exception is NOT a rule entry here. This image's automation add-on
+  # rejects the alertFilter job ("Unrecognised parameter for job alertFilter :
+  # alertFilters"), which made ZAP exit 2 and skip the rest of this plan — a
+  # broken scan that would have looked merely red. It is applied in the gate
+  # instead (`.github/zap/summarise.py`), matched on the URL path and printed
+  # under "Accepted (documented)" with every instance listed. 40018 still runs
+  # on these paths and on every other path; an instance outside the four fails
+  # the job.
+
+  - type: passiveScan-config
+    parameters:
+      maxAlertsPerRule: 20
+      scanOnlyInScope: true
+
+  - type: spider
+    parameters:
+      context: torrentcdn-ai
+      url: http://127.0.0.1:8002/health
+      maxDuration: 2
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 5
+
+  - type: activeScan
+    parameters:
+      context: torrentcdn-ai
+      maxRuleDurationInMins: 1
+      maxScanDurationInMins: 6
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 5
+
+  - type: report
+    parameters:
+      template: traditional-json
+      reportDir: /zap/wrk/reports
+      reportFile: auth-ai.json
+
+  - type: report
+    parameters:
+      template: traditional-html
+      reportDir: /zap/wrk/reports
+      reportFile: auth-ai.html
+
+  - type: report
+    parameters:
+      template: traditional-md
+      reportDir: /zap/wrk/reports
+      reportFile: auth-ai.md

@@ -1,0 +1,31 @@
+HARDWARE: 8 vCPU, 15.0 GiB RAM, Linux 7.0.12 x86_64 (single host; coordinator, Postgres 16.4, Redis 7.4.2, echo worker all local)
+
+hardware: 8 vCPU, , Linux 7.0.12+kali-amd64 x86_64
+$ python scripts/ai_load_test.py --requests 300 --concurrency 20
+error: 429 rate_limited
+error: 429 rate_limited
+error: 429 rate_limited
+error: 429 rate_limited
+error: 429 rate_limited
+error: 429 rate_limited
+error: 429 rate_limited
+error: 429 rate_limited
+error: 429 rate_limited
+error: 429 rate_limited
+error: 429 rate_limited
+error: 429 rate_limited
+error: 429 rate_limited
+error: 429 rate_limited
+error: 429 rate_limited
+error: 429 rate_limited
+requests=300 wall_s=1.73 rps=173.4
+placement p50=75.6ms p95=501.7ms mean=112.9ms
+status_counts={200: 32, 429: 268}
+note: this measures placement only; inference throughput must be measured against the real engine
+$ python scripts/ai_load_test.py --requests 100 --concurrency 2
+error: 429 rate_limited
+error: 429 rate_limited
+requests=100 wall_s=0.59 rps=168.7
+placement p50=8.9ms p95=21.0ms mean=11.8ms
+status_counts={200: 31, 429: 69}
+note: this measures placement only; inference throughput must be measured against the real engine
