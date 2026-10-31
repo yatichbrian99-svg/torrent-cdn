@@ -46,36 +46,10 @@ jobs:
       targetUrl: http://127.0.0.1:8001
       context: torrentcdn
 
-  # Same four paths, same evidence, as plan-auth-ai.yaml: 40018 fired on
+  # Same four paths and the same evidence as plan-auth-ai.yaml: 40018 fired on
   # /api/live/heartbeat in the AI-key pass and the JWT pass can reach it too.
-  # Path-scoped, not rule-wide — see docs/tcdn-ai/SQLI_40018.md.
-  - type: alertFilter
-    parameters:
-      alertFilters:
-        - ruleId: 40018
-          ruleName: SQL Injection
-          newRisk: "False Positive"
-          context: torrentcdn
-          url: ".*/api/live/heartbeat.*"
-          urlRegex: true
-        - ruleId: 40018
-          ruleName: SQL Injection
-          newRisk: "False Positive"
-          context: torrentcdn
-          url: ".*/api/ai/v1/placements.*"
-          urlRegex: true
-        - ruleId: 40018
-          ruleName: SQL Injection
-          newRisk: "False Positive"
-          context: torrentcdn
-          url: ".*/api/ai/v1/nodes/register.*"
-          urlRegex: true
-        - ruleId: 40018
-          ruleName: SQL Injection
-          newRisk: "False Positive"
-          context: torrentcdn
-          url: ".*/api/ai/v1/jobs/[^/]+/ack.*"
-          urlRegex: true
+  # Path-scoped and applied in the gate, not by an alertFilter job — see
+  # docs/tcdn-ai/SQLI_40018.md §5.
 
   - type: passiveScan-config
     parameters:

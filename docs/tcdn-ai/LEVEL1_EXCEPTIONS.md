@@ -135,12 +135,13 @@ test) fails the build on any f-string, `.format()`, `%` or concatenated SQL in
   asyncpg, and asserts the payload never appears in the SQL text and always
   arrives as a bound argument (44 passed together with the limiter tests).
 
-The ZAP plans therefore carry an `alertFilter` entry for 40018 scoped to the
-**four flagged URL patterns only**, set to "False Positive" and placed before
-the scan. The rule stays active everywhere else, the paths stay scanned, and a
-40018 on any other path still fails the job. Upstream reports of `alertFilter`
-not applying are recorded in `SQLI_40018.md` §5: if the entry fails to apply,
-the job stays red and the answer is to fix the filter, not to disable the rule.
+The exception for 40018 is therefore applied in the **gate**
+(`.github/zap/summarise.py`), scoped to the **four flagged URL paths only**:
+the rule stays active everywhere, the paths stay scanned, every accepted
+instance is printed with its URL, and a 40018 on any other path still fails the
+job. It is not an `alertFilter` job because this ZAP image's automation add-on
+rejects that job's parameters and exits 2, skipping the remaining passes —
+recorded with the scanner's own output in `SQLI_40018.md` §5.
 
 ## Everything else
 
