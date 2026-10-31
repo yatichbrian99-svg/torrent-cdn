@@ -36,6 +36,46 @@ jobs:
       targetUrl: http://127.0.0.1:8002
       context: torrentcdn-ai
 
+  # ── 40018 (SQL Injection): path-scoped false positive ──────────────────────
+  # The 2026-10-30 AI-key pass raised HIGH/40018 on four paths with EMPTY
+  # `evidence` on every instance — no database error text, no reflected
+  # payload. Every value the scanner injected is a bound asyncpg argument, so
+  # it can never be parsed as SQL: the binding proof is
+  # `backend/tests/test_ai_sqli_binding.py`, the static twin is
+  # `backend/scripts/sql_injection_audit.py` (AST over all of backend/app), and
+  # both are written up in docs/tcdn-ai/SQLI_40018.md.
+  #
+  # Scope, stated rather than implied: the filter names these four URLs and
+  # nothing else. 40018 stays live on every other path, and this job runs before
+  # the spider/active scan so alerts created afterwards are filtered.
+  - type: alertFilter
+    parameters:
+      alertFilters:
+        - ruleId: 40018
+          ruleName: SQL Injection
+          newRisk: "False Positive"
+          context: torrentcdn-ai
+          url: ".*/api/ai/v1/placements.*"
+          urlRegex: true
+        - ruleId: 40018
+          ruleName: SQL Injection
+          newRisk: "False Positive"
+          context: torrentcdn-ai
+          url: ".*/api/ai/v1/nodes/register.*"
+          urlRegex: true
+        - ruleId: 40018
+          ruleName: SQL Injection
+          newRisk: "False Positive"
+          context: torrentcdn-ai
+          url: ".*/api/ai/v1/jobs/[^/]+/ack.*"
+          urlRegex: true
+        - ruleId: 40018
+          ruleName: SQL Injection
+          newRisk: "False Positive"
+          context: torrentcdn-ai
+          url: ".*/api/live/heartbeat.*"
+          urlRegex: true
+
   - type: passiveScan-config
     parameters:
       maxAlertsPerRule: 20

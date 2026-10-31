@@ -376,9 +376,34 @@ jobs:
           # A 500 under scan is a finding, and its cause is a traceback that a
           # plain tail drops (the scan issues thousands of requests). Pull the
           # tracebacks out of the whole log first, then the tail for context.
-          echo "==== backend tracebacks ===="
+          # Head-only capture was not enough: the application's own frames sit at
+          # the END of a Starlette/anyio traceback, so a 70-line head window ended
+          # at fastapi/routing.py with the innermost exception unread. Split the
+          # log into exception blocks and print each block's head AND tail.
+          echo "==== backend tracebacks (head + innermost frames) ===="
           docker compose -f docker-compose.yml -f .github/zap/docker-compose.zap.yml \
-            logs --no-color backend 2>&1 | awk '/Exception in ASGI application|Traceback \(most recent call last\)/{c=70} c&&c--' | tail -300 || true
+            logs --no-color backend 2>&1 > "$RUNNER_TEMP/backend.log" || true
+          python3 - "$RUNNER_TEMP/backend.log" <<'PY' || true
+          import sys
+
+          lines = open(sys.argv[1], errors="replace").read().splitlines()
+          blocks, cur = [], None
+          for line in lines:
+              if "Exception in ASGI application" in line or "Traceback (most recent call last)" in line:
+                  if cur:
+                      blocks.append(cur)
+                  cur = [line]
+              elif cur is not None:
+                  cur.append(line)
+          if cur:
+              blocks.append(cur)
+          print(f"{len(blocks)} exception block(s)")
+          for block in blocks[-8:]:
+              print("\n".join(block[:6]))
+              print("        ... (frames omitted) ...")
+              print("\n".join(block[-25:]))
+              print("=" * 70)
+          PY
           echo "==== backend ===="
           docker compose -f docker-compose.yml -f .github/zap/docker-compose.zap.yml \
             logs backend --tail 150 2>&1 || true

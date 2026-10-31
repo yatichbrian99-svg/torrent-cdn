@@ -115,6 +115,33 @@ customers without it.
 
 ---
 
+## 5.5 — ZAP 40018: a path-scoped rule entry, not a suppressed rule
+
+The 2026-10-30 DAST run failed on **HIGH / 40018 "SQL Injection"**. Across
+30,513 proxied requests it had **8 instances, every one with an empty
+`evidence` field**, on four paths, with **no 5xx on any `/api/ai/v1/*` path**.
+
+The claim was tested rather than argued away:
+
+* **static** — every statement reachable from `/api/ai/v1/placements`,
+  `/nodes/register`, `/jobs/{id}/ack` and `/api/live/heartbeat` is listed with
+  its `$n` binding in `SQLI_40018.md`; the AST audit
+  (`scripts/sql_injection_audit.py`, in CI, with its own five-vector negative
+test) fails the build on any f-string, `.format()`, `%` or concatenated SQL in
+  `backend/app`;
+* **dynamic** — `tests/test_ai_sqli_binding.py` sends quote, boolean,
+  time-based, stacked, UNION, unicode, NUL-byte and comment payloads through
+  the store methods those routes reach, recording every statement handed to
+  asyncpg, and asserts the payload never appears in the SQL text and always
+  arrives as a bound argument (44 passed together with the limiter tests).
+
+The ZAP plans therefore carry an `alertFilter` entry for 40018 scoped to the
+**four flagged URL patterns only**, set to "False Positive" and placed before
+the scan. The rule stays active everywhere else, the paths stay scanned, and a
+40018 on any other path still fails the job. Upstream reports of `alertFilter`
+not applying are recorded in `SQLI_40018.md` §5: if the entry fails to apply,
+the job stays red and the answer is to fix the filter, not to disable the rule.
+
 ## Everything else
 
 Every other P1 row is `VERIFIED` in `PUSH_CHECKLIST.md`, with the command or CI
