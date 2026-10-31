@@ -21,8 +21,13 @@ name: "DAST: ZAP scan (staging-shaped stack)"
 # Each authenticated pass goes through a loopback proxy that adds the header
 # (`.github/zap/auth_proxy.py`); no credential touches the checkout.
 #
-# Findings are reported as they are. The job fails on any HIGH alert and
-# writes nothing to a rules file to silence one.
+# Findings are reported as they are. The job fails on any HIGH alert and writes
+# nothing to a rules file to silence one. The single exception is alert 40018 on
+# the four paths reviewed in docs/tcdn-ai/SQLI_40018.md: it is accepted in the
+# gate (`.github/zap/summarise.py`), matched on the URL path, and every accepted
+# instance is printed with its URL. It is not an `alertFilter` job in the plan —
+# this image rejects that job's parameters and exits 2, which skipped the rest of
+# the scan instead of filtering it.
 on:
   pull_request:
     branches: [main]
@@ -308,6 +313,12 @@ jobs:
 
           log = pathlib.Path(sys.argv[1])
           out = pathlib.Path(sys.argv[2])
+          if not log.exists():
+              # The pass never ran (a previous step failed, or the proxy was
+              # never started). Say that plainly instead of dying on a
+              # traceback that hides which pass is missing.
+              print(f"[FAIL] {log.name} does not exist — that pass did not run", file=sys.stderr)
+              raise SystemExit(1)
           rows = []
           for line in log.read_text(errors="replace").splitlines():
               # auth-proxy <METHOD> <path> -> <status>
