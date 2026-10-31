@@ -87,9 +87,9 @@ def _prune_token_requests(now: float) -> None:
 
 
 def get_live_ip(request: Request) -> str:
-    """Client IP for the viewer limiter — as fallback-safe as get_client_ip
-    (a failed IP resolution must 500 the player's heartbeat loop), and
-    reuses the edge-authenticated proxy semantics.
+    """Client IP for the viewer limiter — resolution failure must never 500
+    the player's heartbeat loop — and reuses the edge-authenticated proxy
+    semantics.
     """
     try:
         return get_client_ip(request)
@@ -110,15 +110,31 @@ async def _check_viewer_rate_limit(request: Request, channel_slug: str) -> None:
     """
     ip = get_live_ip(request)
     limit = get_live_settings().token_rate_limit
-    redis = await get_redis()
-    if redis is not None:
-        key = f"live_token_rate:{ip}:{channel_slug}"
-        count = await redis.get(key)
-        if count and int(count) >= limit:
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
-        await redis.incr(key)
-        await redis.expire(key, _TOKEN_WINDOW)
-        return
+    # get_redis() returns None when Redis is unreachable, but it hands back a
+    # *live-looking* client whose commands can still fail (OOM/WRONGTYPE/timeout
+    # race between the liveness ping and this call). Those errors used to
+    # propagate out of the handler: three 500s, one each on /session,
+    # /heartbeat and /segment/availability, all inside the first statement the
+    # three share. The in-memory fallback below exists for exactly this case,
+    # so a Redis failure degrades into it instead of failing the request.
+    try:
+        redis = await get_redis()
+        if redis is not None:
+            key = f"live_token_rate:{ip}:{channel_slug}"
+            count = await redis.get(key)
+            if count and int(count) >= limit:
+                raise HTTPException(status_code=429, detail="Rate limit exceeded")
+            await redis.incr(key)
+            await redis.expire(key, _TOKEN_WINDOW)
+            return
+    except HTTPException:
+        # A real throttle decision, not a Redis failure.
+        raise
+    except Exception as e:
+        logger.warning(
+            "viewer rate limiter: Redis error (%s) — using the in-memory fallback",
+            e,
+        )
     now = time.time()
     _prune_token_requests(now)
     key = f"{ip}:{channel_slug}"
