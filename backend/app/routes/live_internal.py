@@ -32,9 +32,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/internal/mediamtx", tags=["live-internal"])
 
-# Slug pattern shared by every internal hook body.
-_SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
-
 # Ingest webhook shared secret (MEDIAMTX_HOOK_SECRET env — MediaMTX sends it
 # in the X-Hook-Secret header / ?secret= query). MANDATORY in production:
 # on Render these endpoints are internet-reachable, and _reject_public only

@@ -132,22 +132,6 @@ def _mem_members(slug: str, kind: str) -> list[str]:
 _REDIS_OK_TYPES = (str, bytes, int, float, bool, list, set, dict, tuple, type(None))
 
 
-def _normalize_redis_result(result):
-    """Coerce a Redis lambda's result into a caller-safe value or None.
-
-    - bare coroutines (mispatched mocks) are awaited;
-    - non-Redis-shaped objects (MagicMock leaking through a partial patch)
-      become None — the caller then uses the in-memory fallback."""
-    if asyncio.iscoroutine(result):
-        try:
-            result = asyncio.get_event_loop().run_until_complete(result)
-        except Exception:
-            return None
-    if isinstance(result, _REDIS_OK_TYPES):
-        return result
-    return None
-
-
 async def _redis_call(fn, *args, **kwargs):
     """Run a Redis lambda; swallow failures (return None) — live state is
     best-effort and the in-memory mirror covers outages."""

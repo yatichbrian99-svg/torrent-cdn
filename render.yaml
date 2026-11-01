@@ -112,7 +112,10 @@ services:
       - key: RESEND_API_KEY
         value: ""  # ← Set this in Render dashboard (get a free key at https://resend.com/api-keys)
       - key: RESEND_FROM
-        value: "TorrentCDN <noreply@torrentcdn.store>"  # Your verified domain
+        # System mail only — must stay a domain the Resend account has verified
+        # (DKIM at resend._domainkey). Human mailboxes (hello@/yatich@/
+        # partnerships@) are hosted separately and must NOT be used here.
+        value: "TorrentCDN <notifications@torrentcdn.store>"
       # Bootstrap: set ADMIN_SETUP_ENABLED=true + a random ADMIN_SETUP_TOKEN,
       # call POST /auth/setup once with the token in the X-Admin-Setup-Token
       # header, then remove both. Admins are NOT auto-created on first

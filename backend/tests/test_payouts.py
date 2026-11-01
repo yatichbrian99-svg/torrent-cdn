@@ -118,6 +118,27 @@ class TestCreateRecipient:
             resp = client.post(self.URL, json=bad, headers=admin_headers)
             assert resp.status_code == 422, f"{bad} must be rejected"
 
+    def test_rejects_control_characters_before_paystack(self, client, admin_headers, mock_conn, monkeypatch):
+        """A NUL in name/account_number cannot be stored in Postgres, so it must
+        be a 400 at the boundary — and BEFORE Paystack, otherwise we'd create a
+        remote recipient we can never persist locally."""
+        mock_conn.fetchrow.return_value = {"is_admin": True}
+
+        def _boom(self, *args, **kwargs):
+            raise AssertionError("Paystack must not be called for an invalid recipient")
+
+        monkeypatch.setattr(httpx.AsyncClient, "post", _boom)
+        for bad in (
+            {"name": "bad\x00name", "account_number": "254712345678"},
+            {"name": "X", "account_number": "2547123\x0045678"},
+        ):
+            resp = client.post(self.URL, json=bad, headers=admin_headers)
+            assert resp.status_code == 400, bad
+            assert "control characters" in resp.json()["detail"]
+        # Only require_admin touched the DB — one admin lookup per request, and
+        # no recipient INSERT behind any of them.
+        assert mock_conn.fetchrow.await_count == 2
+
     def test_creates_recipient_on_paystack_and_stores(self, client, admin_headers, mock_conn, monkeypatch):
         mock_conn.fetchrow.side_effect = [
             {"is_admin": True},  # require_admin

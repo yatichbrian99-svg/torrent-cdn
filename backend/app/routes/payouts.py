@@ -42,6 +42,7 @@ from ..models import (
     PayoutRecipientResponse,
     PayoutResponse,
 )
+from ..security import contains_control_chars
 from ..security_events import record as record_event
 from .admin import require_admin
 
@@ -155,6 +156,17 @@ async def create_recipient(
     `account_number` is the recipient's M-PESA phone number. Paystack returns a
     recipient_code (RCP_...) which is the handle every future transfer uses.
     """
+    # Validate BEFORE calling Paystack: `name`/`account_number` are written to
+    # payout_recipients verbatim and a control character (NUL) is unstorable in
+    # Postgres — reject it as a 400 rather than creating a charge-less Paystack
+    # recipient and then 500ing on the INSERT.
+    for _label, _value in (("name", data.name), ("account number", data.account_number),
+                           ("description", data.description)):
+        if _value and contains_control_chars(_value):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid recipient {_label}: control characters are not allowed",
+            )
     try:
         async with httpx.AsyncClient(
             base_url=PAYSTACK_API_BASE, headers=_PAYSTACK_HEADERS, timeout=15
