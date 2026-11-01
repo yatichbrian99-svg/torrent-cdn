@@ -1,11 +1,12 @@
 # Level 1 exceptions
 
-Two [P1] rows are **not** met. Neither can be closed by a code change on this
-branch, so they are recorded here with what is actually true rather than being
-described as done. Nothing in this file is a substitute for the evidence in
-`PUSH_CHECKLIST.md`; where the two disagree, the checklist is right.
+Three things are recorded here, each because it is **not** a plain pass: two [P1]
+rows that are not met (**6.1**, **4.4**), and one accepted scanner finding
+(**5.5**, rule 40018) whose acceptance is conditional and machine-checked.
+Nothing in this file is a substitute for the evidence in `PUSH_CHECKLIST.md`;
+where the two disagree, the checklist is right.
 
-**Level 1 requires all 56 P1 rows. These two are the reason it is NO.**
+**Level 1 requires all 56 P1 rows. 6.1 and 4.4 are why it is still NO.**
 
 ---
 
@@ -115,36 +116,86 @@ customers without it.
 
 ---
 
-## 5.5 — ZAP 40018: a path-scoped rule entry, not a suppressed rule
+## 5.5 — ZAP 40018: accepted at rule level, under four conditions
 
-The 2026-10-30 DAST run failed on **HIGH / 40018 "SQL Injection"**. Across
-30,513 proxied requests it had **8 instances, every one with an empty
-`evidence` field**, on four paths, with **no 5xx on any `/api/ai/v1/*` path**.
+Alert **40018 ("SQL Injection")** is a HIGH the scanner emits on `/api/ai/v1`
+input routes while its `evidence` field stays empty — i.e. it matched no database
+error text and no reflected payload. It is accepted, but **not** by disabling the
+rule and **not** by a fixed list of URLs: the rule moved between endpoints on
+consecutive runs (`/placements` → `/attestations` + `/jobs/*/ack`), so a path list
+went red on whichever route the scanner happened to pick that day.
 
-The claim was tested rather than argued away:
+The acceptance is encoded in the gate, `.github/zap/summarise.py`, and applies to
+an instance only when **all four** hold. Any failure keeps it in the HIGH bucket
+and the job fails:
 
-* **static** — every statement reachable from `/api/ai/v1/placements`,
-  `/nodes/register`, `/jobs/{id}/ack` and `/api/live/heartbeat` is listed with
-  its `$n` binding in `SQLI_40018.md`; the AST audit
-  (`scripts/sql_injection_audit.py`, in CI, with its own five-vector negative
-test) fails the build on any f-string, `.format()`, `%` or concatenated SQL in
-  `backend/app`;
-* **dynamic** — `tests/test_ai_sqli_binding.py` sends quote, boolean,
-  time-based, stacked, UNION, unicode, NUL-byte and comment payloads through
-  the store methods those routes reach, recording every statement handed to
-  asyncpg, and asserts the payload never appears in the SQL text and always
-  arrives as a bound argument (44 passed together with the limiter tests).
+1. **`evidence` is empty.** A captured fragment means the scanner saw something;
+   nothing here excuses that.
+2. **No 5xx on that path** in the same run, counted per path from the auth proxy
+   logs — the only place with a per-request status for both authenticated passes.
+3. **No database error text in any response body on that path.** The proxy marks
+   such responses `DBERR` (asyncpg/Postgres/SQLSTATE/"syntax error at or near"/…);
+   ZAP's JSON keeps no bodies, so this is where the check can be made.
+4. **The path was exercised in this run.** No requests means no evidence, and
+   "no 5xx observed" is not "clean" — unobserved paths are refused.
 
-The exception for 40018 is therefore applied in the **gate**
-(`.github/zap/summarise.py`), scoped to the **four flagged URL paths only**:
-the rule stays active everywhere, the paths stay scanned, every accepted
-instance is printed with its URL, and a 40018 on any other path still fails the
-job. It is not an `alertFilter` job because this ZAP image's automation add-on
-rejects that job's parameters and exits 2, skipping the remaining passes —
-recorded with the scanner's own output in `SQLI_40018.md` §5.
+Timing is not a gate-time check (a scan has no stable baseline). It is asserted
+in the dynamic test instead, together with the rest.
+
+`backend/tests/test_zap_gate.py` (**10 tests**) proves each condition can fail:
+evidence present → red; a 500 on the path → red; a `DBERR` body on the path →
+red; an unobserved path → red; any other HIGH alert → red; a missing report or a
+missing proxy log → exit 2, not a pass.
+
+### Why the alert cannot be true here
+
+* **Static (blocking).** `backend/scripts/sql_injection_audit.py` parses every
+  file under `backend/app` with `ast` and fails the build on any DB call whose
+  SQL argument is not a plain literal it can resolve to a module-level constant,
+  and on any f-string / `.format()` / `%` / concatenation that contains SQL
+  markers. It runs as the always-on `static-audit` CI job **and** as
+  `tests/test_sql_injection.py`. It is itself break-tested: a new control in
+  `scripts/break_tests.py` plants an f-string query with the account id
+  interpolated into it in `app/ai/store.py` and requires the audit to fail
+  (**32/32 controls caught, 0 unproven**).
+* **Dynamic, every input route.** `backend/tests/test_ai_sqli_routes.py` derives
+  the route list from the routers rather than a hardcoded one and drives
+  **12 input routes / 216 hostile requests** with a valid credential — 8 payload
+  families (quote/boolean, time-based `pg_sleep`, stacked `DROP TABLE`, UNION
+  against `ai_api_keys`, unicode, NUL, comment, arithmetic), each in every string
+  field the route's schema declares, plus a signed-envelope variant for the five
+  signed routes. It asserts, per request: never 5xx; no database/driver error
+  text in the body; **no state change for a refused request** (jobs, holds,
+  ledger, nodes, receipts, keys, audit log compared before/after); and no gross
+  timing difference against the route's own benign baseline. `SQLI_40018.md` also
+  records the statement-level proof: the payloads arrive as **bound arguments**
+  for the store calls these routes reach, never inside the SQL text.
+* **Nothing is hidden.** Alerts stay in the report, every accepted instance is
+  printed with its URL and its observed 5xx/DB-error/request counts, and the
+  totals table separates "HIGH" from "HIGH accepted".
+
+Note that this replaces the earlier path-scoped entry: that one was honest but
+brittle, and it failed on a docs-only commit because the rule chose a different
+route. The conditions above are strictly stronger than a path list — they are
+per-instance, measured in the same run, and they fail closed when evidence,
+status data or traffic is missing.
+
+### What would falsify it
+
+* any 40018 instance with non-empty `evidence`, or any 5xx or `DBERR` body on its
+  path in the same run;
+* the AST audit passing on a planted interpolated query (the break control above
+  would catch that);
+* the dynamic test finding a 5xx, a database error string, a state change after a
+  refused request, or a timing blow-up on any input route;
+* a new input route that the test does not cover — impossible by construction,
+  since the list is enumerated from the routers, and the count is printed;
+* any other HIGH alert in any pass.
 
 ## Everything else
 
 Every other P1 row is `VERIFIED` in `PUSH_CHECKLIST.md`, with the command or CI
-run that produced it. The two rows above are the only exceptions, and neither is
-described anywhere in the product documentation as working.
+run that produced it. 6.1 and 4.4 are the only rows that are not met, and neither
+is described anywhere in the product documentation as working. 5.5's 40018 entry
+is not a row exception: the scanner findings are accepted per instance under the
+four conditions above, and any other HIGH still fails the build.

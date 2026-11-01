@@ -398,12 +398,46 @@ MUTATIONS = [
             "::test_foreign_account_cannot_ack_another_tenants_job"
         ),
     },
+    {
+        # The gate itself, not a test that wraps it: `sql_injection_audit.py` is
+        # the blocking CI check behind the 40018 exception, so "it can fail" has
+        # to be asked of the script. The mutation is the exact bug the rule
+        # forbids: a query assembled with an f-string and the account id
+        # interpolated into the text instead of bound.
+        "control": "static SQL audit catches interpolated SQL",
+        "path": "app/ai/store.py",
+        "find": (
+            '                """\n'
+            "                    SELECT count(*) FROM ai_jobs\n"
+            "                    WHERE account_id = $1 AND status = 'placed'\n"
+            '                    """,\n'
+            "                _uuid(account_id),\n"
+        ),
+        "replace": (
+            '                f"""\n'
+            "                    SELECT count(*) FROM ai_jobs\n"
+            "                    WHERE account_id = '{account_id}' AND status = 'placed'\n"
+            '                    """,\n'
+        ),
+        "check": ["scripts/sql_injection_audit.py"],
+    },
 ]
 
 
-def run(test: str) -> subprocess.CompletedProcess:
+def run(mutation: dict) -> subprocess.CompletedProcess:
+    """Run the harness for one control.
+
+    Two shapes: a pytest node id (``test``), or a whole command (``check``) for
+    controls that are a *gate* rather than a test — the SQL-injection AST audit
+    is a script that exits non-zero, and "can it actually fail" has to be asked
+    of the script itself, not of a test that wraps it.
+    """
+    if "check" in mutation:
+        command = [sys.executable, *mutation["check"]]
+    else:
+        command = [sys.executable, "-m", "pytest", mutation["test"], "-q", "-p", "no:cacheprovider"]
     return subprocess.run(
-        [sys.executable, "-m", "pytest", test, "-q", "-p", "no:cacheprovider"],
+        command,
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -433,7 +467,7 @@ def main() -> int:
         entry = {
             "control": mutation["control"],
             "file": mutation["path"],
-            "test": mutation["test"],
+            "test": mutation.get("test") or " ".join(mutation["check"]),
         }
         if found != expected:
             entry.update(
@@ -447,7 +481,7 @@ def main() -> int:
             print(f"{entry['status']:10} {mutation['control']}: {entry['detail']}")
             continue
 
-        baseline = run(mutation["test"])
+        baseline = run(mutation)
         entry["baseline"] = "pass" if baseline.returncode == 0 else "FAIL"
         if baseline.returncode != 0:
             entry.update(
@@ -461,12 +495,12 @@ def main() -> int:
 
         try:
             path.write_text(original.replace(mutation["find"], mutation["replace"]))
-            mutated = run(mutation["test"])
+            mutated = run(mutation)
         finally:
             path.write_text(original)
 
         restored_hash = hashlib.sha256(path.read_text().encode()).hexdigest()
-        after = run(mutation["test"])
+        after = run(mutation)
         entry.update(
             mutated_exit=mutated.returncode,
             mutated_output=tail(mutated),
