@@ -356,6 +356,8 @@ jobs:
           python3 "$RUNNER_TEMP/zap/summarise.py" \
             --reports "$RUNNER_TEMP/zap/reports" \
             --out "$RUNNER_TEMP/zap/reports/zap-summary.md" \
+            --proxy-log "$RUNNER_TEMP/zap/reports/auth-proxy.log" \
+            --proxy-log "$RUNNER_TEMP/zap/reports/auth-proxy-ai.log" \
             | tee "$GITHUB_STEP_SUMMARY"
 
       - name: Evidence bundle

@@ -10,6 +10,12 @@ through. Every request ZAP makes then really carries the session.
 
 Deliberately dumb: no caching, no rewriting, no TLS (loopback only), one log
 line per request (method, path, status — never the token).
+
+It also records whether the **response body** carried database error text
+(``DBERR`` suffix on the log line). The ZAP gate now accepts a "possible SQL
+injection" alert only when nothing on that path proves otherwise, and a driver
+message in a body is exactly such proof — so it has to be captured where the
+bodies pass through, since the scanner's JSON reports do not keep them.
 """
 
 from __future__ import annotations
@@ -19,6 +25,21 @@ import http.client
 import http.server
 import sys
 import threading
+
+#: Substrings that mean a database or driver spoke to the caller. Matched
+#: case-insensitively against the response body; the gate treats any hit on a
+#: path as disqualifying the SQL-injection exception for that path.
+DB_ERROR_MARKERS = (
+    b"asyncpg",
+    b"postgres",
+    b"psycopg",
+    b"sqlstate",
+    b"syntax error at or near",
+    b"invalid byte sequence",
+    b"character not in repertoire",
+    b"unterminated quoted string",
+    b'relation "',
+)
 
 HOP_BY_HOP = {
     "connection",
@@ -55,6 +76,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
     #: not depend on the bearer parsing path at all.
     header_name: str = "Authorization"
     header_prefix: str = "Bearer "
+    #: Set per request in ``_forward``; consumed by ``log_request``.
+    db_error: bool = False
     upstream: tuple[str, int] = ("127.0.0.1", 8000)
 
     # BaseHTTPRequestHandler's default logging is one noisy line per request to
@@ -63,7 +86,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         sys.stderr.write("auth-proxy %s\n" % (fmt % args))
 
     def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
-        sys.stderr.write(f"auth-proxy {self.command} {self.path} -> {code}\n")
+        suffix = " DBERR" if getattr(self, "db_error", False) else ""
+        self.db_error = False
+        sys.stderr.write(f"auth-proxy {self.command} {self.path} -> {code}{suffix}\n")
 
     def _forward(self) -> None:
         length = int(self.headers.get("Content-Length") or 0)
@@ -82,7 +107,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             response = connection.getresponse()
             payload = response.read()
             status = response.status
+            lowered = payload.lower()
+            self.db_error = any(m in lowered for m in DB_ERROR_MARKERS)
         except Exception as exc:  # a dead upstream must be visible, not silent
+            self.db_error = False
             sys.stderr.write(f"auth-proxy {self.command} {self.path} -> 502 {exc}\n")
             self.send_response(502)
             self.send_header("Content-Type", "text/plain")
