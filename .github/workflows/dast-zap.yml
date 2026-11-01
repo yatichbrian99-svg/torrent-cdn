@@ -381,8 +381,15 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-      - name: Logs on failure
-        if: failure()
+      # Always, not only on failure. A 5xx under scan is a finding whatever the
+      # alert gate says: the 2026-10-31 run at `2d413f2` was *green* (no HIGH)
+      # and still answered six 500s, three on /api/live/session,
+      # /heartbeat and /segment/availability in each authenticated pass. With
+      # the log captured only on failure that evidence was thrown away, so the
+      # tracebacks could not be read at all. The extraction is written to the
+      # uploaded artifact so it survives a passing job.
+      - name: Capture the backend log
+        if: always()
         run: |
           # A 500 under scan is a finding, and its cause is a traceback that a
           # plain tail drops (the scan issues thousands of requests). Pull the
@@ -394,7 +401,8 @@ jobs:
           echo "==== backend tracebacks (head + innermost frames) ===="
           docker compose -f docker-compose.yml -f .github/zap/docker-compose.zap.yml \
             logs --no-color backend 2>&1 > "$RUNNER_TEMP/backend.log" || true
-          python3 - "$RUNNER_TEMP/backend.log" <<'PY' || true
+          python3 - "$RUNNER_TEMP/backend.log" \
+            "$RUNNER_TEMP/zap/reports/backend-tracebacks.txt" <<'PY' || true
           import sys
 
           lines = open(sys.argv[1], errors="replace").read().splitlines()
@@ -408,12 +416,15 @@ jobs:
                   cur.append(line)
           if cur:
               blocks.append(cur)
-          print(f"{len(blocks)} exception block(s)")
+          out = [f"{len(blocks)} exception block(s)"]
           for block in blocks[-8:]:
-              print("\n".join(block[:6]))
-              print("        ... (frames omitted) ...")
-              print("\n".join(block[-25:]))
-              print("=" * 70)
+              out.append("\n".join(block[:6]))
+              out.append("        ... (frames omitted) ...")
+              out.append("\n".join(block[-25:]))
+              out.append("=" * 70)
+          text = "\n".join(out)
+          print(text)
+          open(sys.argv[2], "w").write(text + "\n")
           PY
           echo "==== backend ===="
           docker compose -f docker-compose.yml -f .github/zap/docker-compose.zap.yml \
