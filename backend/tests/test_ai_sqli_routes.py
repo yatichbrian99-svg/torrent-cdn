@@ -162,11 +162,21 @@ def _string_fields(schema: dict) -> list[str]:
 
 
 def _snapshot(store) -> dict:
-    """A comparable picture of everything a request could write."""
+    """A comparable picture of everything a request could write.
+
+    ``api_keys[*].last_used_at`` is normalised away: authenticating a request
+    stamps it, so it changes on every call regardless of the body and would
+    make the mutation check fail on the *baseline* request, not on a payload.
+    Everything a payload could actually write — jobs, holds, ledger, receipts,
+    nodes, idempotency rows, audit entries — stays in the comparison.
+    """
     snap: dict[str, Any] = {}
     for name, value in vars(store).items():
         if isinstance(value, (dict, list, set)):
             snap[name] = copy.deepcopy(value)
+    for record in (snap.get("api_keys") or {}).values():
+        if hasattr(record, "last_used_at"):
+            record.last_used_at = None
     ledger = getattr(store, "ledger", None)
     if ledger is not None and hasattr(ledger, "entries"):
         snap["ledger.entries"] = copy.deepcopy(ledger.entries)
