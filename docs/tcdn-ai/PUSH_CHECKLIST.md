@@ -1,6 +1,6 @@
 # TCDN-AI — PUSH CHECKLIST (Section E)
 
-**Generated:** 2026-10-25 · **Updated:** 2026-10-30 (heartbeat 5xx + signed-payload sweep, deterministic signature flip, Server header, AI-key ZAP pass, LEVEL1_EXCEPTIONS; earlier: failure-injection matrix 3.3, signup-abuse gates 4.5, the cold-start run 7.2, the compose walkthrough 10.1, the capacity run 10.2, and the security scanners in 5.5 — including the blocking image gate, which is green) · **Branches:** `fix/product-security-hardening` (CDN fixes, off `main`) and `fix/tcdn-ai-redis-replay-nonce` (TCDN-AI, contains the same product fixes)
+**Generated:** 2026-10-25 · **Updated:** 2026-10-31 (DAST green at `2d413f2` — rows **5.5** and **12.4** closed; 40018 accepted only on its reviewed paths; the three `/api/live/*` 500s remain open and are now captured on every run; earlier: failure-injection matrix 3.3, signup-abuse gates 4.5, the cold-start run 7.2, the compose walkthrough 10.1, the capacity run 10.2, and the security scanners in 5.5 — including the blocking image gate, which is green) · **Branches:** `fix/product-security-hardening` (CDN fixes, off `main`) and `fix/tcdn-ai-redis-replay-nonce` (TCDN-AI, contains the same product fixes)
 **Rule:** a row is `VERIFIED` only where a command or test was run and its output captured.
 Nothing here is inherited from an earlier report.
 
@@ -10,20 +10,17 @@ Nothing here is inherited from an earlier report.
 
 | Level | VERIFIED | PARTIAL | BUILT-UNVERIFIED | MISSING | DEFERRED | NOT VERIFIABLE HERE | Total |
 |---|---|---|---|---|---|---|---|
-| **P1** | **52** | **4** | 0 | **0** | 0 | 0 | 56 |
+| **P1** | **54** | **2** | 0 | **0** | 0 | 0 | 56 |
 | **P2** | 0 | 1 | 0 | **28** | 0 | 1 | 30 |
 | **DEFER** | 0 | 0 | 0 | 0 | 2 | 0 | 2 |
 
 Counts produced by parsing the tables in this file (not estimated). Re-measured
-2026-10-30: **3.3**, **4.5**, **7.2**, **10.1**, **10.2** and **12.5** moved
-from their unfinished states to `VERIFIED`; then **5.5** (`PARTIAL`) and
-**12.3**/**12.4** (`MISSING`) closed on the same day, once ZAP ran in CI and the
-branch got draft PR #47. Then **5.5 went back to `PARTIAL` on 2026-10-30**: the
-first run in which the AI-key ZAP pass actually authenticated also produced a
-HIGH and three 500s (see *Open ZAP findings* below), and a red scanner is not a
-closed row. P1 is therefore **52 / 4 / 0 / 0** of 56. Row
-**3.4** was added 2026-10-28 (P2, `MISSING`: outbound worker mode), which is why
-P2 is 30 rows.
+2026-10-31: **5.5** and **12.4** moved to `VERIFIED` on the green run
+`41176939080` at `2d413f2`, where all five PR-triggered workflows passed and the
+ZAP gate found no unaccepted HIGH. P1 is therefore **54 / 2 / 0 / 0** of 56;
+the two remaining `PARTIAL` rows are **4.4** (owner-blocked) and **6.1**
+(gateway-mode only). Row **3.4** was added 2026-10-28 (P2, `MISSING`: outbound
+worker mode), which is why P2 is 30 rows.
 
 **Staging (2026-10-28):** `render.staging.yaml` and `docs/tcdn-ai/STAGING.md`
 deploy this branch to a separate Render stack (own Postgres, own Key Value,
@@ -33,50 +30,68 @@ what its Evidence column says it needs.
 
 **Level 1 ready: NO.**
 
-Four [P1] rows still have to change before that line can become YES:
+Two [P1] rows still have to change before that line can become YES:
 
 | Row | Why it stops Level 1 |
 |---|---|
 | **4.4** | No Paystack sandbox session and M-Pesa is not enabled on the account: the billing state machine is tested, the provider is not exercised. Owner-blocked, not code-blocked. |
 | **6.1** | Redundant execution is wired, keyed and paid, but the sample is still decided at **placement** rather than after a commitment, and **SDK-mode jobs cannot be re-executed** (no plaintext). |
-| **5.5** | ZAP is **red** on the current commit: one HIGH (`SQL Injection`, 40018, 8 instances, no captured evidence) and three unexplained 500s on `/api/live/*`. Both are open findings, not suppressions — see *Open ZAP findings*. |
-| **12.4** | Post-push confirmation: at `97f4177` four of the five workflows are green and **DAST is red** for the 5.5 reason. |
 
-### Open ZAP findings — 2026-10-30 (run `41125583037`, commit `97f4177`)
+Neither row is marked `VERIFIED`, and neither is a scanner or CI question.
 
-This is the first run in which the third pass authenticated, so it is also the
-first run that saw the AI surface as a customer's client. Two findings came out
-of it. Neither is explained away.
+### ZAP status — 2026-10-31 (run `41176939080`, commit `2d413f2`)
 
-1. **`SQL Injection` (40018), HIGH, 8 instances** on `/api/ai/v1/placements`
-   (5), `/api/ai/v1/nodes/register` (1), `/api/ai/v1/jobs/job_id/ack` (1) and
-   `/api/live/heartbeat` (1). **Every instance has an empty `evidence` field** —
-   ZAP recorded no SQL error string, no response snippet and no reflected
-   payload. Measured from the proxy log for the paths it names: `/placements`
-   answered **1080 × 429, 207 × 422, 8 × 405, 2 × 307**; `/nodes/register`
-   **712 × 429, 29 × 422, 8 × 405, 5 × 403**; `/jobs/*` **957 × 422, 815 × 429,
-   134 × 404** — **no 5xx at all** on any of them, and no response that carried
-   database text. The plausible reading is that the rule fired on the *shape*
-   of the response pair while the per-key limiter was answering 429, not on a
-   query result. That is a hypothesis, not a proof: the row stays `PARTIAL`
-   until a reproduction shows the 429/422 pairs are the whole difference, and
-   the alert is **not** filtered out of the report.
-2. **Three 500s, one each** on `POST /api/live/session`,
-   `POST /api/live/heartbeat` and `POST /api/live/segment/availability` — the
-   same three in both authenticated passes, all outside the AI surface. The
-   whole-scan log dump added in `a45403c` captured them: every one is an
-   `ExceptionGroup: unhandled errors in a TaskGroup` whose deepest frame is
-   `starlette/middleware/base.py` `coro` under **this app's
-   `_server_header` middleware**, with no application frame at all — i.e. the
-   exception was raised inside `BaseHTTPMiddleware`'s task group and the real
-   frame was lost. `_server_header` is now a **plain ASGI middleware** (it
-   rewrites `http.response.start` and adds no task group), which removes that
-   failure class and makes any remaining exception carry its route frames;
-   `/health` and a 404 both still answer `server: torrentcdn`. Whether the
-   middleware was the *cause* or only the frame that hid it is **not yet
-   proven**: the next DAST run either loses the 500s (cause was the middleware)
-   or logs the route frame that produced them. This stays open until one of
-   those happens.
+The DAST workflow is **green**: all three passes authenticated and the gate found
+no HIGH it does not already have evidence for. What the run actually contains,
+read from the uploaded `zap-reports` artifact and the two proxy logs:
+
+| Pass | HIGH | MEDIUM | LOW | INFO | 5xx |
+|---|---|---|---|---|---|
+| unauthenticated | 0 | 0 | 1 (10096, accepted) | 3 | 0 |
+| session JWT (proven by `/auth/referral` 200) | 0 | 0 | 1 (10096, accepted) | 2 | 3 (+10 × 502 on `/upload/import`) |
+| AI API key on `:8002` (proven by `/api/ai/v1/balance` 200) | 0 open · 1 accepted | 0 | 1 (10096, accepted) | 2 | 3 |
+
+1. **`SQL Injection` (40018), HIGH — accepted on the four reviewed paths only.**
+   This run produced **5** instances, all on `/api/ai/v1/placements`; the
+   `/nodes/register`, `/jobs/*/ack` and `/api/live/heartbeat` instances of the
+   2026-10-30 run did not recur. Every instance again has an **empty `evidence`
+   field** — no SQL error string, no reflected payload. The mechanism was tested
+   rather than argued: the AST guard (`sql_injection_audit.py`, Gate A/B) rejects
+   dynamic SQL across `backend/app`, and `tests/test_ai_sqli_binding.py` drives
+   the payload families through the real store calls asserting the payload never
+   appears in the statement text and always arrives as a bound argument.
+   `docs/tcdn-ai/SQLI_40018.md` carries the statements, the payloads and the
+   limits of what that proves. Accepted **in the gate**, matched by URL path
+   (`.github/zap/summarise.py`), printed with its URL on every run, and **not** an
+   `alertFilter` in the plan — that job's parameters are rejected by this image
+   and took the whole pass down with exit 2. Rule 40018 stays active everywhere
+   else, and a new instance outside the four paths still fails the job.
+2. **`Timestamp Disclosure - Unix` (10096), LOW — accepted.** The epoch seconds
+   are the payload (`expires_at`, `server_time`) and part of the documented wire
+   contract; removing them is an SDK/protocol change, not a header fix
+   (`LEVEL1_EXCEPTIONS.md`).
+3. **Three 500s per authenticated pass on `/api/live/session`,
+   `/api/live/heartbeat` and `/api/live/segment/availability` — OPEN, and the one
+   finding this run did not close.** They arrive as one simultaneous batch in
+   both authenticated passes (same three routes, one request each) and are
+   **absent** from the unauthenticated pass. The plain-ASGI `_server_header`
+   rewrite and the rate-limiter fallback both predate this run and did not remove
+   them, so neither the middleware nor the Redis-throttle path was the (only)
+   cause. Local attempts on the same image and stack shape — wrong types, nulls,
+   unicode, 200 KB ids, invalid UTF-8, `10**18` counters, 400 concurrent requests,
+   then the same routes with a real created channel and a session JWT — produced
+   **0** 5xx (401/404/422 as designed), so the trigger is still unidentified; a
+   local ZAP replay was attempted and could not run (the scanner image pull fails
+   in this environment).
+   What changed as a result: the backend log is now captured **on every run**, not
+   only on failure, and the extracted exception blocks are written to
+   `backend-tracebacks.txt` inside the uploaded artifact. Before that, a green run
+   threw the traceback away, which is why this finding has no root cause yet. It
+   is not a suppression and not a "known low": it is an unexplained 5xx on three
+   viewer routes, recorded here until the traceback names it.
+4. **10 × 502 on `/upload/import`** (session-JWT pass only): the proxy recorded
+   the upstream connection failing, not an application status. Same class of
+   evidence needed — the captured log will show whether the worker restarted.
 
 ---
 
@@ -148,7 +163,7 @@ of it. Neither is explained away.
 | 5.2 | Key inventory: rotation with overlap, revocation, no coordinator keys in repo, prod secret store | P1 | **VERIFIED** | `docs/tcdn-ai/KEY_INVENTORY.md`: 9 keys (coordinator signing + revocation list, API-key pepper, sampling key, Paystack webhook secret, worker identity/session, per-job frame keys, JWT secret) with holder, store, lifetime, rotation and revocation per row. Rotation overlap is `KeyRing.rotate` + `TCDN_AI_KEY_OVERLAP_SECONDS` (`TestTickets::test_rotation_overlap_then_expiry`), revocation is a signed list (`test_revoked_key_is_rejected`, `test_cannot_revoke_last_signing_key`). Production secret-store mode is proven both ways: a 0600 key file (`TestSecretHandling::test_keyring_file_must_be_0600`) or a platform-injected keyring JSON that the process can load and **must not write back** (`test_the_injected_keyring_supports_a_production_start_and_is_read_only`), and production refuses to start without one of them (`TestSecretHandling::test_production_requires_a_key_source`) | rotation is an operator action; there is no scheduled rotation |
 | 5.3 | Authorization matrix over every route and role; no IDOR | P1 | **VERIFIED (limited)** | `test_authorization_matrix.py` now derives a class from each route's **dependency tree** (`require_admin_jwt` / `require_admin` → admin, `authenticate` → api-key, `get_current_user_id` → jwt; then the public allowlist, the internal-hook prefix, the signature prefixes and the viewer routes), and fails on any route that lands in `unclassified` — a new endpoint that forgets its auth dependency cannot pass. Re-measured 2026-10-28 against this tree: **113 routes classified** (public 21, jwt 45, admin 23, api-key 10, signature 1, viewer 7, internal-hook 6 — the row's earlier `68 (public 25, jwt 16, admin 12, admin+ai 3, api-key 8, signature 4, …)` was stale and named a class that does not exist, audit F-12); the extra public entry is `/api/ai/v1/status`, allowlisted with a reason and asserted free of ids and secrets in `test_ai_status.py`, and the money-moving admin routes are now JWT-only (F-6), viewer 7). `TestAuthClassRefusals` probes each class with the credential removed (hook secret, JWT, admin, API key, unsigned envelope, unissued playback token) and asserts the public control still answers 200. `TestTenantScoping` asserts the **query** binds the caller and returns 404 for live channels, files and notifications — not just a status code | tenant scoping is asserted on the three object handlers plus the shared scoped-query helpers; the remaining id-bearing routes are covered structurally (classification) rather than per handler |
 | 5.4 | Replay + rate-limit state shared via Redis, two instances | P1 | **VERIFIED** | Single-use nonces are atomic, not merely sequential: `test_ai_redis.py::TestNonceConsumptionIsAtomic` releases **8 threads** at one nonce and requires exactly one winner, for the in-process store and for two stores sharing Redis, and `test_ai_two_instances_live.py::test_concurrent_spends_of_one_live_nonce_produce_one_winner` does it against a real server (one winner, key gone). `tests/test_ai_two_instances.py` builds **two coordinators over one Redis** and one store (**6 tests**): a nonce issued by A is consumed by B and then refused a second time; a nonce is node-bound across instances; a ticket claimed by A is a replay at B; A's two placements exhaust the window so B's third is `rate_limited`; an idempotency key reserved by A replays at B and a different body under it is `409`; and the **daily verification budget is shared** (`daily_cap_reached` on B after A spent the cap). `tests/test_ai_two_instances_live.py` repeats all six against a **real Redis** (`TEST_REDIS_URL`/`REDIS_URL`, database 15, skipped without a server; it runs in the `ai-store` lane, which sets `REDIS_URL`). Three real defects were found and fixed: `RedisNonceStore` required process-local state, so cross-instance attestation failed closed; the cap was a per-process counter — now a Redis `INCR` with a TTL; and the sync bridge ran every command on a fresh event loop while the `redis.asyncio` pool belongs to the app's loop, so **with Redis configured every ticket claim raised and was refused as a replay** — the stores now derive a blocking twin client from the pool's own settings (`got Future attached to a different loop` is the failure the live lane reproduces) | without Redis the cap and the replay cache are per process (documented, single-instance deployments only) |
-| 5.5 | SAST, fuzzing to budget, ZAP, Trivy; no open critical/high | P1 | **PARTIAL** | All four scanners run and are green in CI: **Trivy** is a blocking image gate (`ci-fullstack.yml` `container-scan`, `--exit-code 1`, **0** fixed CRITICAL/HIGH on run `41013374030`, with `backend/.trivyignore` deliberately empty); **SAST** is `security.yml` `sast` (bandit + semgrep) plus `static-audit`, and **gitleaks** scans the changeset and the full history (`secret-scan`); **fuzzing** ran the full budget (`scripts/fuzz_ai.py`, 6 targets × 60 s, seed 20261029, **22.8 M cases, 0 findings**, `evidence/03-security/fuzz-ai-60s.json`); **ZAP now runs in CI** — `.github/workflows/dast-zap.yml` brings up the backend image built from the commit under test with `ENABLE_TCDN_AI=true` and the staging blueprint's gates, seeds an account, and runs **three passes**: unauthenticated; authenticated as a seeded account through a token-injecting proxy (*proven* by a 200 from the read-only `/auth/referral`; it was `/auth/me` until the scan called `DELETE /auth/me`, which deleted the seeded account and cascaded to `ai_accounts`/`ai_api_keys`); and authenticated with a seeded inference-scoped **AI API key** on `:8002` (*proven* by `/api/ai/v1/balance` answering **200** — first achieved 2026-10-30; before that the key was gone by the time the pass ran, so the pass had never actually authenticated) — because `/api/ai/v1/*` refuses a session JWT, so without the third pass the whole AI surface was only ever scanned as an anonymous caller. Runs, raw reports and the full tallies: `evidence/03-security/dast-ci-2026-10-30.md` and the `zap-reports` artifact. The job fails on any HIGH, and on 2026-10-30 it **did** (see *Open ZAP findings*) — the run is red by design, not parked. | real findings, each now closed or explicitly accepted: **MEDIUM** `Format String Error` (30002) and the **156 × 500** (163 the run before) on `POST /api/ai/v1/nodes/heartbeat` were **one defect** — the inner payload was unpacked inside `Coordinator.heartbeat` (`HeartbeatPayload(**envelope.payload)`) instead of at the request boundary, so pydantic's `ValidationError` escaped the error handler — and are **fixed**: `models.parse_signed_payload` validates a typed, bounded, strict model as the first statement of every signed route, and `tests/test_ai_signed_inputs.py` (4 routes × 13 hostile payloads + 4 targeted cases) asserts never 5xx, never 200, no echo of the input and no change to nodes, jobs or the audit log; the sweep of the other signed routes found the receipt path **already correct by design** (validated after signature, `invalid_receipt`) and acks FastAPI-validated (table in `SECURITY.md` §7). **LOW** the `Server` header leaked the version **twice**: gunicorn's own header (`backend/gunicorn_conf.py`, loaded with `--config` in both the image CMD and the ZAP override) and, in the authenticated pass, **the scan proxy's own** `BaseHTTPRequestHandler` default (`tcdn-zap-auth-proxy Python/3.12.3`) — the product header is now `SERVER_HEADER="torrentcdn"` in `app/main.py` and the proxy overrides `version_string()`. **LOW** Unix timestamp disclosure on `/api/ai/v1/keys/coordinator` and `/api/ai/v1/status` is **accepted**: the epoch seconds *are* the payload (`expires_at`, `server_time`) and part of the documented wire contract, so removing them is an SDK/protocol change, not a header fix. Scope stated: active rules ran on a throwaway stack with `MFA_REQUIRED=false` and `RATE_LIMIT_GLOBAL` raised for the scanner (both in `.github/zap/docker-compose.zap.yml`); the frontend and Caddy were not scanned |
+| 5.5 | SAST, fuzzing to budget, ZAP, Trivy; no open critical/high | P1 | **VERIFIED** | All four scanners run and are green in CI: **Trivy** is a blocking image gate (`ci-fullstack.yml` `container-scan`, `--exit-code 1`, **0** fixed CRITICAL/HIGH on run `41013374030`, with `backend/.trivyignore` deliberately empty); **SAST** is `security.yml` `sast` (bandit + semgrep) plus `static-audit`, and **gitleaks** scans the changeset and the full history (`secret-scan`); **fuzzing** ran the full budget (`scripts/fuzz_ai.py`, 6 targets × 60 s, seed 20261029, **22.8 M cases, 0 findings**, `evidence/03-security/fuzz-ai-60s.json`); **ZAP now runs in CI** — `.github/workflows/dast-zap.yml` brings up the backend image built from the commit under test with `ENABLE_TCDN_AI=true` and the staging blueprint's gates, seeds an account, and runs **three passes**: unauthenticated; authenticated as a seeded account through a token-injecting proxy (*proven* by a 200 from the read-only `/auth/referral`; it was `/auth/me` until the scan called `DELETE /auth/me`, which deleted the seeded account and cascaded to `ai_accounts`/`ai_api_keys`); and authenticated with a seeded inference-scoped **AI API key** on `:8002` (*proven* by `/api/ai/v1/balance` answering **200** — first achieved 2026-10-30; before that the key was gone by the time the pass ran, so the pass had never actually authenticated) — because `/api/ai/v1/*` refuses a session JWT, so without the third pass the whole AI surface was only ever scanned as an anonymous caller. Runs, raw reports and the full tallies: `evidence/03-security/dast-ci-2026-10-30.md` and the `zap-reports` artifact. The job fails on any HIGH it has no evidence for. **Green at `2d413f2` (run `41176939080`)**: three passes, 0 unaccepted HIGH, 5 accepted 40018 instances on `/placements` only. | real findings, each now closed or explicitly accepted: **MEDIUM** `Format String Error` (30002) and the **156 × 500** (163 the run before) on `POST /api/ai/v1/nodes/heartbeat` were **one defect** — the inner payload was unpacked inside `Coordinator.heartbeat` (`HeartbeatPayload(**envelope.payload)`) instead of at the request boundary, so pydantic's `ValidationError` escaped the error handler — and are **fixed**: `models.parse_signed_payload` validates a typed, bounded, strict model as the first statement of every signed route, and `tests/test_ai_signed_inputs.py` (4 routes × 13 hostile payloads + 4 targeted cases) asserts never 5xx, never 200, no echo of the input and no change to nodes, jobs or the audit log; the sweep of the other signed routes found the receipt path **already correct by design** (validated after signature, `invalid_receipt`) and acks FastAPI-validated (table in `SECURITY.md` §7). **LOW** the `Server` header leaked the version **twice**: gunicorn's own header (`backend/gunicorn_conf.py`, loaded with `--config` in both the image CMD and the ZAP override) and, in the authenticated pass, **the scan proxy's own** `BaseHTTPRequestHandler` default (`tcdn-zap-auth-proxy Python/3.12.3`) — the product header is now `SERVER_HEADER="torrentcdn"` in `app/main.py` and the proxy overrides `version_string()`. **LOW** Unix timestamp disclosure on `/api/ai/v1/keys/coordinator` and `/api/ai/v1/status` is **accepted**: the epoch seconds *are* the payload (`expires_at`, `server_time`) and part of the documented wire contract, so removing them is an SDK/protocol change, not a header fix. Scope stated: active rules ran on a throwaway stack with `MFA_REQUIRED=false` and `RATE_LIMIT_GLOBAL` raised for the scanner (both in `.github/zap/docker-compose.zap.yml`); the frontend and Caddy were not scanned. **Still open (recorded, not filtered):** three 500s per authenticated pass on `/api/live/session`, `/heartbeat` and `/segment/availability`, cause unidentified — see *ZAP status* above. The row's own bar (no open critical/high) is met; the 500s are a functional defect tracked there until the SQL traceback names it, and the backend log is now uploaded on every run to make that possible |
 | 5.6 | Injection, traversal, SSRF, oversize, malformed inputs | P1 | **VERIFIED** | Payment callback: malformed JSON with a valid signature → `400 invalid_payment_event`; a correctly signed event naming a non-UUID account used to reach the ledger cast and surface as **500** — now validated first; oversize webhook → **413** (was a retryable 429; new `PayloadTooLarge`). P2P: a truncated shard with the right prefix, a peer serving another index, and a manifest model id containing `../` (quoted in the origin URL) are all refused. SSRF allowlist re-tested **and now actually pinned**: `validate_url` resolves once and rejects every non-public answer (private, loopback, link-local, CGNAT, multicast, reserved, the cloud metadata addresses and internal hostname suffixes, IPv4 and IPv6), and the fetch dials the validated address through the shared `PinnedHTTPTransport`, so a rebinding resolver cannot move the connection (`test_ai_ssrf_pinning.py`: real TLS, a resolver that answers public then private, asserted connect target; break-tested); the interpolated-SQL scan is clean | `TestWebhookInputHardening`, `TestPeerPayloadHardening`, `TestSSRFAndValidation`, `TestStaticSafety::test_no_interpolated_sql` |
 | 5.7 | Privacy invariant proven with canaries across DB/logs/metrics/backups | P1 | **VERIFIED** | `backend/scripts/canary_scan.py` scans every text/json column of **every** table in the database, Redis values, a log/work directory and a backup directory for a marker, prints the canary's SHA-256 prefix only, and exits non-zero on a hit. `tests/test_ai_canary_scan.py` runs the real gateway end to end: the canary **is** in the answer (control) and appears nowhere in the store snapshot (jobs, receipts, acks, audit rows, verification rows, ledger, nodes, controls, payouts, transfers), not in the captured log, and not in the scratch directory; a planted canary in a log file **is** found and a marker inside a JPEG is ignored, so the scan cannot pass vacuously | the Postgres/Redis modes of the scanner were not executed in this environment (no services); the store snapshot is the same object graph they persist from |
 | 5.8 | Break tests on named controls | P1 | **VERIFIED** | `ENABLE_TCDN_AI=true .venv/bin/python scripts/break_tests.py` → **24/24 CAUGHT, 0 unproven** in this tree; evidence regenerated under `evidence/06-break-tests/`. Nine controls added with the audit fixes, incl. three for billing authority (the gateway measurement outranks an overclaiming receipt; an overclaiming node is suspended; held payouts are not paid), the two SSRF/admin ones (*the origin shard fetch dials the address that was validated*, *a CDN API key cannot spend admin money authority*), and *the AI schema migration is gated on ENABLE_TCDN_AI*, *attestation nonce consumption is atomic* (one per store) | the harness has drifted twice: a gateway mutation whose `find` string no longer matched after `ruff format` reflowed `gateway.py`, and the admin-JWT count (3 → 5 admin routes), both now counted **and printed** as `HARNESS-ERROR` instead of an anonymous "1 unproven" |
@@ -225,7 +240,7 @@ of it. Neither is explained away.
 | 12.1 | This checklist complete, counts, "Level 1 ready" line | P1 | **VERIFIED** | this file | says **NO** with reasons |
 | 12.2 | `VERIFICATION_REPORT.md` per Appendix 4 §7 | P1 | **VERIFIED** | counts re-measured 2026-10-28 and corrected: **latest, after the staging kit** flag **on** `1148 passed, 29 skipped` (152 s), flag **off** `1072 passed, 105 skipped` (80 s), both exit 0; break tests **24/24** + the new launcher control (2 loops → 0 heartbeats), route matrix **113 routes**, schema **17 tables**, `ruff check` clean, `mypy --config-file mypy-ai.ini` clean; earlier same-day measurement: flag **on** `1127 passed, 29 skipped`, flag **off** `1057 passed, 99 skipped`, route matrix **112 routes**; (earlier entry: 2026-10-26 — flag **on** `1030 passed, 4 skipped`, flag **off** `971 passed, 63 skipped`, AI subset **327 tests**; break tests **13/13**); the OpenAI-client and refund rows corrected from "not implemented" to what is now true. **M3 pass, same day, no Postgres attached:** flag on `1020 passed, 21 skipped` (81 s), flag off `961 passed, 80 skipped` (99 s), AI subset `303 passed, 21 skipped`, new file `7 passed`; `ruff check` clean | the report is a dated record with a revision note; `PUSH_CHECKLIST.md` is the current status. The two runs differ only in the Postgres lanes, which skip without `TEST_POSTGRES_URL` |
 | 12.3 | Draft PR description with all required sections | P1 | **VERIFIED** | **PR #47** (`fix/tcdn-ai-redis-replay-nonce` → `main`, **draft**, do-not-merge) carries the scope, the flag-off default (`render.yaml` sets no `ENABLE_TCDN_AI`; 79 paths off vs 97 on, 0 vs 18 AI routes), a link to `MERGE_PLAN.md`, and the open-row list. PR #46 (the CDN fixes alone) is untouched and still draft | opening the PR changed no code; the body is the record |
-| 12.4 | After push: CI green, no secrets, PR link | P1 | **PARTIAL** | At `08fb260` all five PR-triggered workflows were **green** (`backend-lint` `41044194977`, Tests & Security `41044195010` with gitleaks "no leaks found", Full-stack Docker `41044195124`, Dependency Audit `41044194990`, DAST/ZAP `41044195005`). The docs-only commit `1e17d88` re-ran the same five and **one failed**: `ai-store` → `tests/test_ai_components.py::TestReceipts::test_flipped_signature_rejected`, `DID NOT RAISE ReceiptError`, **1 failed / 501 passed**. PR #47 is the link | the failure is a **flawed mutation, not a product defect**: the test sets `document["sig"] = "A" + document["sig"][1:]`, so when the real signature already begins with `A` (~1 in 64) the "flip" changes nothing and the receipt is still valid. ZAP and the other four workflows passed on the same commit, and the same suite passed at `08fb260` minutes earlier. Fixing the mutation is a code change left for its own commit, so this row is **not** VERIFIED on the final commit |
+| 12.4 | After push: CI green, no secrets, PR link | P1 | **VERIFIED** | **At `2d413f2` all five PR-triggered workflows are green**: Tests & Security, Full-stack Docker, backend-lint, Dependency Audit and DAST/ZAP. The npm HIGH pair that briefly reddened the audit (`follow-redirects`, `undici` via axios) is cleared by the exact-version bump at `246685e` — `npm audit --omit=dev` 0 high, 3 moderate dev-tooling advisories already in the accepted baseline. PR #47 is the link. (Earlier evidence: at `08fb260` all five PR-triggered workflows were **green** (`backend-lint` `41044194977`, Tests & Security `41044195010` with gitleaks "no leaks found", Full-stack Docker `41044195124`, Dependency Audit `41044194990`, DAST/ZAP `41044195005`). The docs-only commit `1e17d88` re-ran the same five and **one failed**: `ai-store` → `tests/test_ai_components.py::TestReceipts::test_flipped_signature_rejected`, `DID NOT RAISE ReceiptError`, **1 failed / 501 passed**. PR #47 is the link | the `1e17d88` failure was a **flawed mutation, not a product defect**: the test set `document["sig"] = "A" + document["sig"][1:]`, so when the real signature already began with `A` (~1 in 64) the "flip" changed nothing and the receipt stayed valid. It is **fixed** since: the test now flips a bit in the decoded signature bytes (`int.to_bytes` → XOR 0x01), which is a real mutation on every input, and the suite is green on `2d413f2` |
 | 12.5 | Temporary trial-push triggers removed, in their own labelled commit, before the PR is marked ready | P1 | **VERIFIED** | Closed 2026-10-30 in its own commit (“Remove the temporary branch push trigger”), touching nothing else: `ci-fullstack.yml` and `backend-lint.yml` now push on `branches: [main]` only, and `tcdn-ai-engine.yml` has **no** `push:` trigger at all (the nightly `schedule` and `workflow_dispatch` remain). Verified after the edit: `grep -rn "fix/tcdn-ai-redis-replay-nonce" .github/` → **no matches**, and the remove-before-merge comments are gone with the triggers | the branch still gets CI through `pull_request` (`security.yml`, `ci-fullstack.yml`, `backend-lint.yml`, `dependency-audit.yml`); what it loses is push-triggered runs after the PR exists, which was the point |
 
 ---
@@ -491,21 +506,19 @@ one developer who knows this code, including the test that makes the row `VERIFI
 | 7.2 | `PARTIAL` | No cold-start run from an empty cache and no origin-fallback run. Both are drivable on the existing two-peer e2e harness; the "real swarm" clause stays out of scope | **M — 2–3 d** |
 | 10.1 | `PARTIAL` | `DEV_SETUP.md` has never been followed literally end to end (proxy + Redis + coordinator + worker + Postgres). Compose file and non-root images exist; the gap is a run, not code | **S–M — 1–2 d**, blocked on Docker in this environment |
 
-Blocking [P1] `MISSING` rows are unchanged and are 5.5 (SAST/Trivy/ZAP/fuzz budget), 10.2
-(capacity), 12.3 (draft PR), 12.4 (post-push confirmation), 12.5 (temporary triggers).
-With the three rows closed today, the unfinished [P1] set is **10 rows**: those five plus
-**3.3**, **4.4**, **6.1**, **7.2** and **10.1**.
+There are **no [P1] `MISSING` rows left**: 5.5, 10.2, 12.3, 12.4 and 12.5 all closed, and
+3.3, 7.2 and 10.1 moved to `VERIFIED` on 2026-10-30. The unfinished [P1] set is exactly the
+two `PARTIAL` rows this table describes — **4.4** and **6.1** — plus the open `/api/live/*`
+500s recorded under *ZAP status*, which are a bug, not a row.
 
 ## Next actions (in order)
 
-1. **2.3 / 2.6 / 3.2** — three sub-day rows; together they remove the last small `PARTIAL`s.
+1. **The `/api/live/*` 500s** — read `backend-tracebacks.txt` from the next DAST artifact, name
+   the exception, fix it with a test, and re-run. Nothing else in the security set is open.
 2. **6.1(a)** — move the sample decision after the receipt and bind the transcript root (the
    keyed sampler already takes it), then re-document the remaining SDK-mode gap.
-3. **5.5** — SAST, Trivy (make `container-scan` blocking), ZAP and the full fuzz budget; only then
-   can "no open critical/high" be asserted.
-4. **10.2** — capacity run with many keys (ramp, 30-min sustain, 10× spike).
-5. **12.5** — remove the three temporary trial-push triggers, in their own labelled commit.
-6. **12.4 / 12.3** — CI green on the pushed branch, then the draft PR.
+3. **4.4** — owner action: a Paystack sandbox session and the M-Pesa channel enabled. No code
+   change is outstanding on this side.
 
 Closed in this pass: 1.13 (contracts, M3), 1.10–1.12, 2.1, 2.2, 2.5, 4.5, 4.6, 5.1–5.4, 5.6–5.10,
 6.2, 6.3, 7.1, 8.1, 8.2, 10.3, 11.1, 12.2. Row 6.1 advanced from `MISSING` to `PARTIAL`.
