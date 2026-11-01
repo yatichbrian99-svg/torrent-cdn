@@ -134,3 +134,217 @@ jobs:
           # started by this job.
           MEDIAMTX_HOOK_SECRET: "ci-test-hook-secret"
         run: docker compose down -v
+
+  # ── Container image scan (checklists 1.8 and 5.5) ──
+  # Builds the real backend image and scans its OS + language packages at
+  # CRITICAL/HIGH, fixed-version CVEs only, and **fails the build** on a hit —
+  # this is the blocking Trivy gate 5.5 asks for. `--ignore-unfixed` is not a
+  # suppression: a CVE with no released fix is not actionable by this repo and
+  # is reported in the summary instead of failing forever. A real exception has
+  # to be listed in backend/.trivyignore with a comment saying why, which is a
+  # reviewable diff rather than a silent tolerance.
+  container-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build backend image
+        run: docker build -t tcdn-backend:ci backend
+
+      - name: Install Trivy
+        run: |
+          set -euo pipefail
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/trivy" --version
+
+      - name: Scan image (OS + libraries, blocking)
+        run: |
+          set -euo pipefail
+          trivy image --scanners vuln \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --ignorefile backend/.trivyignore \
+            --format table \
+            --exit-code 1 \
+            tcdn-backend:ci | tee /tmp/trivy.txt
+          {
+            echo '## Trivy — backend image (CRITICAL/HIGH, fixed only)'
+            echo '```'
+            cat /tmp/trivy.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── TCDN-AI: Postgres + Redis-backed store tests ──
+  # These tests prove the real PostgresStore and the Redis-backed ticket replay /
+  # attestation nonce / rate-limit paths against real Postgres and real Redis.
+  # Both are real service containers started here, and both are handed to the
+  # tests as DATABASE_URL/REDIS_URL, plus TEST_POSTGRES_URL for the money-path
+  # lane in tests/test_ai_postgres.py (which skipif's on it, so it MUST be set
+  # or the lane proves nothing). The in-process and fake-Redis break-tests are
+  # covered there too; they do not need these containers but share the job.
+  ai-store:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Start infrastructure (Postgres, Redis)
+        env:
+          JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: ci-test-password
+          MINIO_ROOT_PASSWORD: ci-test-minio-password
+          MEDIAMTX_HOOK_SECRET: "ci-test-hook-secret"
+        # `pg_isready` is run INSIDE the container rather than on the runner:
+        # the runner image happens to ship a Postgres client today, but the only
+        # client guaranteed to exist here is the one in the postgres image.
+        # Role/db come from the same variables compose inits the cluster with
+        # (POSTGRES_USER default `user`, POSTGRES_DB always `torrentcdn`); the
+        # probe is a liveness check, but naming them correctly keeps it honest.
+        run: |
+          set -euo pipefail
+          docker compose up -d postgres redis
+          for _ in $(seq 1 40); do
+            docker compose exec -T postgres \
+              pg_isready -U "${POSTGRES_USER}" -d torrentcdn >/dev/null 2>&1 && break
+            sleep 2
+          done
+          if ! docker compose exec -T postgres pg_isready -U "${POSTGRES_USER}" -d torrentcdn; then
+            echo "Postgres never became ready" >&2
+            exit 1
+          fi
+          for _ in $(seq 1 40); do
+            docker compose exec -T redis redis-cli ping >/dev/null 2>&1 && break
+            sleep 2
+          done
+          docker compose exec -T redis redis-cli ping
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Install Python deps
+        run: |
+          set -euo pipefail
+          cd backend
+          python -m venv .venv
+          .venv/bin/pip install --quiet -r requirements.txt -r requirements-dev.txt
+
+      # The paths below are relative to backend/ (the step's cwd). They used to
+      # be prefixed with `backend/`, which pytest resolved to
+      # backend/backend/tests/... — a usage error (exit 4) that collected no
+      # tests at all.
+      #
+      # The trailing `echo "...exit code $$?"` is gone. It never masked a
+      # failure (GitHub already runs bash with -e, so the step aborted on
+      # pytest's own status) — but it printed the shell PID and a literal `?`,
+      # e.g. "exit code 617972?", so the log reported a number that looked like
+      # an exit code and was not one. `set -euo pipefail` below is explicit so
+      # the real status propagates even if that default ever changes.
+      - name: Run Postgres + Redis-backed AI tests
+        env:
+          JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: ci-test-password
+          MINIO_ROOT_PASSWORD: ci-test-minio-password
+          MEDIAMTX_HOOK_SECRET: "ci-test-hook-secret"
+          REDIS_URL: redis://127.0.0.1:6379/0
+          TCDN_AI_ENVIRONMENT: development
+          TCDN_AI_API_KEY_PEPPER: ci-test-ai-pepper-32-chars-ok!!!
+          ENABLE_TCDN_AI: "true"
+        run: |
+          set -euo pipefail
+          cd backend
+          # Build the DSN from the container's OWN credentials instead of
+          # restating them. The previous job hard-coded
+          # `tcdn:tcdn@127.0.0.1:5432/tcdn`, but the compose service inits
+          # `${POSTGRES_USER:-user}` / `torrentcdn` — so every connection was
+          # rejected and the lane could never have passed, even with the paths
+          # and exit status fixed.
+          export DATABASE_URL="postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD}@127.0.0.1:5432/torrentcdn"
+          # tests/test_ai_postgres.py is skipif'd on this variable. Unset, it
+          # skipped silently and the job went green having proved nothing.
+          export TEST_POSTGRES_URL="$DATABASE_URL"
+          .venv/bin/python -m pytest tests/test_ai_core.py tests/test_ai_redis.py \
+            -q --tb=short --no-header
+          # Migrations (row 1.9) prove the DDL block is idempotent and
+          # upgrade-safe; the schema contract proves every statement app/ai
+          # issues is valid against that same DDL. Both need real Postgres.
+          .venv/bin/python -m pytest tests/test_ai_postgres.py \
+            tests/test_ai_migrations.py \
+            tests/test_ai_schema_contract.py \
+            -q --tb=short --no-header -rs
+
+      # security.yml runs the whole suite with the flag OFF (that is the shipped
+      # default), where every /api/ai/v1 test skips by design. Without this
+      # step the AI surface — contracts, idempotency, refunds, OWASP citation
+      # checks — would only ever run on a developer's machine.
+      - name: Run the AI suite with the flag on
+        env:
+          ENABLE_TCDN_AI: "true"
+          TCDN_AI_ENVIRONMENT: development
+          TCDN_AI_API_KEY_PEPPER: ci-test-ai-pepper-32-chars-ok!!!
+          JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: ci-test-password
+          REDIS_URL: redis://127.0.0.1:6379/0
+        run: |
+          set -euo pipefail
+          cd backend
+          export DATABASE_URL="postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD}@127.0.0.1:5432/torrentcdn"
+          export TEST_POSTGRES_URL="$DATABASE_URL"
+          .venv/bin/python -m pytest tests/test_ai_*.py \
+            tests/test_part3_coverage.py tests/test_authorization_matrix.py \
+            -q --tb=short --no-header
+
+      # Row 2.1: OpenAI's official *JavaScript* client needs a socket, so this
+      # drives the gateway through a real uvicorn process
+      # (scripts/gateway_harness.py) instead of the ASGI transport the Python
+      # compat tests use. In-memory store + echo worker: no database, no engine,
+      # no real data — and the harness labels its output as simulated.
+      - name: Official JavaScript client against a live gateway (row 2.1)
+        env:
+          ENABLE_TCDN_AI: "true"
+          TCDN_AI_ENVIRONMENT: development
+          TCDN_AI_API_KEY_PEPPER: ci-test-ai-pepper-32-chars-ok!!!
+          JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
+        run: |
+          set -euo pipefail
+          cd backend
+          # Pinned, and --no-save/--no-package-lock so the check cannot alter
+          # frontend/package.json or its lockfile. The client comes from npm on
+          # the runner; nothing in the product depends on it.
+          npm install --no-save --no-package-lock --no-audit --no-fund openai@6.49.0
+          .venv/bin/python scripts/gateway_harness.py --port 8099 \
+            --info /tmp/gateway-harness.json &
+          harness=$!
+          trap 'kill "$harness" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 60); do
+            [ -f /tmp/gateway-harness.json ] && break
+            sleep 0.5
+          done
+          test -f /tmp/gateway-harness.json || {
+            echo "gateway harness did not become ready"; exit 1
+          }
+          node scripts/js_client_check.mjs /tmp/gateway-harness.json
+
+      - name: Cleanup
+        if: always()
+        env:
+          JWT_SECRET: "ci-test-secret-that-is-at-least-32-chars!!"
+          POSTGRES_PASSWORD: ci-test-password
+          MINIO_ROOT_PASSWORD: ci-test-minio-password
+          MEDIAMTX_HOOK_SECRET: "ci-test-hook-secret"
+        run: docker compose down -v

@@ -1,0 +1,21 @@
+# Security floors for packages that requirements.txt leaves unpinned.
+#
+# Nothing here is imported directly: these are versions the resolver is free to
+# choose, and a resolver that picks an older release brings a known CVE back
+# into the image. A floor keeps the fix reviewable and reproducible instead of
+# depending on "the index probably offers the newest one today".
+#
+# Found by the blocking Trivy gate (checklist 5.5), 2026-10-29:
+#   urllib3   2.7.0 -> 2.8.0    CVE-2026-97687 (HTTPS proxy TLS interception),
+#                               CVE-2026-97689 (unbounded memory, DoS).
+#                               Requirements reach it only through botocore,
+#                               which accepts any `>=1.25.4,<3`, so the version
+#                               is whatever the index feels like serving.
+#   setuptools 70.3.0 -> 78.1.1 CVE-2025-47273 (path traversal) — the base
+#                               image's toolchain, upgraded in the Dockerfile.
+#
+# The pip-vendored copies of these packages are a separate matter: pip is
+# removed from the runtime image (see backend/Dockerfile), which is what
+# actually cleared them.
+urllib3>=2.8.0
+setuptools>=78.1.1

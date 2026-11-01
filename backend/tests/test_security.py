@@ -1146,6 +1146,55 @@ class TestInMemoryRateLimitFallbacks:
             mw._memory_store.clear()
             mw._memory_store.update(saved)
 
+    def test_a_latched_redis_counter_cannot_lock_an_ip_out_for_ever(
+        self, client, monkeypatch
+    ):
+        """A counter with no TTL is an expired window, not a life sentence.
+
+        Real symptom, found by the capacity run (2026-10-29):
+        `ratelimit:127.0.0.1:global` sat at exactly the limit with TTL -1 and
+        every subsequent request from that address was 429'd — including the
+        worker's heartbeat, which then made the node look dead. The INCR had
+        landed and the EXPIRE had not (a Redis blip between the two commands,
+        or a restored snapshot), so the window could never end. The middleware
+        must drop such a key and start a new window instead of escalating a
+        stuck counter.
+        """
+        import app.database
+
+        redis = AsyncMock()
+        redis.get = AsyncMock(return_value="300")
+        redis.ttl = AsyncMock(return_value=-1)  # no expiry: latched
+        redis.incr = AsyncMock(return_value=1)
+        redis.delete = AsyncMock(return_value=True)
+        redis.expire = AsyncMock(return_value=True)
+        monkeypatch.setattr(app.database, "get_redis", AsyncMock(return_value=redis))
+
+        mw = self._find_rate_limit_middleware(client.app)
+        assert mw is not None
+        resp = client.get("/files")
+
+        assert resp.status_code != 429, resp.json()
+        redis.delete.assert_awaited_with("ratelimit:testclient:global")
+        redis.expire.assert_awaited_with("ratelimit:testclient:global", mw._window)
+
+    def test_a_redis_counter_inside_its_window_still_blocks(self, client, monkeypatch):
+        """The latch fix must not disarm the limiter for a healthy window."""
+        import app.database
+
+        redis = AsyncMock()
+        redis.get = AsyncMock(return_value="300")
+        redis.ttl = AsyncMock(return_value=7)
+        redis.incr = AsyncMock(return_value=301)
+        redis.delete = AsyncMock(return_value=True)
+        redis.expire = AsyncMock(return_value=True)
+        monkeypatch.setattr(app.database, "get_redis", AsyncMock(return_value=redis))
+
+        resp = client.get("/files")
+        assert resp.status_code == 429
+        assert resp.headers["Retry-After"] == "7"
+        redis.delete.assert_not_awaited()
+
     @staticmethod
     def _find_rate_limit_middleware(app):
         """Walk the ASGI middleware chain to find the RateLimitMiddleware instance."""

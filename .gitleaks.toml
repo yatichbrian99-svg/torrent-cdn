@@ -1,40 +1,63 @@
 # gitleaks config — TorrentCDN
 #
 # Extends the default ruleset (all built-in secret patterns stay active) and
-# allowlists documentation *placeholders* that the full-history daily scan
-# legitimately flags as false positives:
+# allowlists only *placeholder values* the default rules legitimately flag as
+# false positives:
 #
-#   - Truncated JWT-shaped examples in API docs ("eyJhbGciOiJIUzI1NiIs...")
-#   - "Authorization: Bearer YOUR_TOKEN" / "YOUR_API_KEY" curl examples
-#   - RFC 6238 Appendix B TOTP test vector in backend/tests/test_mfa.py
-#     ("GEZDGNBVGY3TQOJQ..." — base32 of "12345678901234567890")
+#   - truncated JWT-shaped doc examples ("eyJhbGciOiJIUzI1NiIs...")
+#   - curl examples whose token is the literal word `YOUR_TOKEN`/`YOUR_API_KEY`
+#   - the env-template pattern `FOO_SECRET=` followed by `FOO_SECRET_ID=v1`,
+#     where the entropy rule captures the NEXT variable's name as the "secret"
+#   - published test vectors (RFC 6238 Appendix B, the SDK docs MFA example)
+#   - the throwaway probe password from an earlier commit of
+#     scripts/live_ai_journey.py (the script now generates it per run)
 #
-# These strings can never be real credentials (they end in "...", use the
-# literal placeholder words YOUR_*, or are the published RFC test vector), so
-# allowlisting them is safe. Anything else — real tokens, keys, passwords —
-# still fails the build.
+# NO entry is scoped to a path or a whole file. An earlier revision of this file
+# allowlisted `.env.example`, frontend/app/docs/page.tsx and frontend/app/page.tsx
+# wholesale, which meant a real credential pasted into any of them sailed past
+# the gate — verified: a planted `ghp_...` token in all three files yields 0
+# findings with that revision and 3 with this one. Everything below matches a
+# VALUE, so any other value in the same file still fails;
+# `backend/scripts/secret_scan.sh --full` (high-signal patterns over the whole
+# tree, never allowlisted) covers those files as well.
 title = "gitleaks config"
 
 [extend]
 useDefault = true
 
+# Match against the captured SECRET, not the line: each pattern below is the
+# exact placeholder value a rule reported, wherever it appears.
 [allowlist]
-description = "Documentation API examples (placeholders only — never real credentials)"
-# Match against the full line (not just the secret value): the curl rules
-# report the Authorization header, and the allowlist patterns include the
-# 'Authorization: Bearer ' prefix which only exists in the line.
-regexTarget = "line"
+description = "Placeholder VALUES only (published test vectors, doc examples) — never a path"
+regexTarget = "secret"
 regexes = [
-  # Truncated JWT-shaped example in frontend/app/docs/page.tsx responses:
+  # Truncated JWT-shaped examples in the API docs / homepage, e.g.
   #   "access_token": "eyJhbGciOiJIUzI1NiIs..."
-  '''eyJhbGciOiJIUzI1NiIs\.\.\.''',
+  '''^eyJhbGciOiJIUzI1NiIs''',
   # curl examples with explicit placeholder tokens:
   #   -H "Authorization: Bearer YOUR_TOKEN"
   #   curl -H 'Authorization: Bearer YOUR_API_KEY' ...
-  '''Authorization: Bearer YOUR_(TOKEN|API_KEY)''',
-  # RFC 6238 Appendix B test vector (TOTP correctness oracle, used in
-  # backend/tests/test_mfa.py). Base32 of the ASCII string
-  # "12345678901234567890" — a published test secret, never a credential.
-  # Gitleaks' generic-api-key rule flags the 32-char base32 shape.
-  '''GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ''',
+  # (the curl rule reports the token itself, without the `Bearer ` prefix)
+  '''^YOUR_(TOKEN|API_KEY)$''',
+  # `.env.example` documents `TCDN_AI_API_KEY_PEPPER=` (empty) immediately
+  # followed by `TCDN_AI_API_KEY_PEPPER_ID=v1`; the entropy rule captures the
+  # next variable's assignment as the "value". A bare `NAME_ID=vN` is not a
+  # secret — a real value on either line is a different string and still fails.
+  '''^[A-Z][A-Z0-9_]*_ID=v[0-9]+$''',
+  # The RFC 6238 Appendix B test vector (TOTP correctness oracle in
+  # backend/tests/test_mfa.py): base32 of the ASCII string
+  # "12345678901234567890". Published in the RFC, never a credential.
+  '''^GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ$''',
+  # The published SDK docs MFA example secret.
+  '''^JBSWY3DPEHPK3PXP$''',
+  # The throwaway probe account password from an earlier commit of
+  # scripts/live_ai_journey.py; the script now generates it per run.
+  '''^Journey-pass-9812$''',
+  # Test fixtures for the staging money guard (app/config.py). Any literal that
+  # exercises the sk_live_/sk_test_ branch is shaped like a Paystack key by
+  # definition, so the values below are the deliberate minimum: obviously fake,
+  # asserted to be *refused*, and useless as credentials. A real key is a
+  # different string and still fails the scan.
+  '''^sk_(live|test)_abc123$''',
+  '''^sk_test_def456$''',
 ]

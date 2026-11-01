@@ -59,7 +59,7 @@ from ..mediamtx import (
     rtmp_publish_url,
     verify_playback_token,
 )
-from ..security import get_client_ip
+from ..security import contains_control_chars, get_client_ip
 from ..security_events import record as record_event
 
 logger = logging.getLogger(__name__)
@@ -69,8 +69,6 @@ logger = logging.getLogger(__name__)
 # so GET /live/channels would return the channels page HTML instead of JSON).
 # The /api/* namespace has no pages, so it proxies cleanly.
 router = APIRouter(prefix="/api/live", tags=["live"])
-
-LIVE_ANALYTICS_WINDOW_HOURS = 24
 
 # In-memory fallback for the viewer-token rate limiter (Redis down) — same
 # bounded pattern as the analytics/files limiters.
@@ -87,9 +85,9 @@ def _prune_token_requests(now: float) -> None:
 
 
 def get_live_ip(request: Request) -> str:
-    """Client IP for the viewer limiter — as fallback-safe as get_client_ip
-    (a failed IP resolution must 500 the player's heartbeat loop), and
-    reuses the edge-authenticated proxy semantics.
+    """Client IP for the viewer limiter — resolution failure must never 500
+    the player's heartbeat loop — and reuses the edge-authenticated proxy
+    semantics.
     """
     try:
         return get_client_ip(request)
@@ -110,15 +108,31 @@ async def _check_viewer_rate_limit(request: Request, channel_slug: str) -> None:
     """
     ip = get_live_ip(request)
     limit = get_live_settings().token_rate_limit
-    redis = await get_redis()
-    if redis is not None:
-        key = f"live_token_rate:{ip}:{channel_slug}"
-        count = await redis.get(key)
-        if count and int(count) >= limit:
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
-        await redis.incr(key)
-        await redis.expire(key, _TOKEN_WINDOW)
-        return
+    # get_redis() returns None when Redis is unreachable, but it hands back a
+    # *live-looking* client whose commands can still fail (OOM/WRONGTYPE/timeout
+    # race between the liveness ping and this call). Those errors used to
+    # propagate out of the handler: three 500s, one each on /session,
+    # /heartbeat and /segment/availability, all inside the first statement the
+    # three share. The in-memory fallback below exists for exactly this case,
+    # so a Redis failure degrades into it instead of failing the request.
+    try:
+        redis = await get_redis()
+        if redis is not None:
+            key = f"live_token_rate:{ip}:{channel_slug}"
+            count = await redis.get(key)
+            if count and int(count) >= limit:
+                raise HTTPException(status_code=429, detail="Rate limit exceeded")
+            await redis.incr(key)
+            await redis.expire(key, _TOKEN_WINDOW)
+            return
+    except HTTPException:
+        # A real throttle decision, not a Redis failure.
+        raise
+    except Exception as e:
+        logger.warning(
+            "viewer rate limiter: Redis error (%s) — using the in-memory fallback",
+            e,
+        )
     now = time.time()
     _prune_token_requests(now)
     key = f"{ip}:{channel_slug}"
@@ -151,10 +165,6 @@ def _row_to_out(row) -> LiveChannelOut:
 # Full SQL literals — the repo's static SQL-injection audit requires plain
 # string literals with $n placeholders (asyncpg parameterization), never
 # f-string SQL. The shared column list is spelled out in every statement.
-_CHANNEL_SELECT = """SELECT id, tenant_id, owner_id, name, slug, description, stream_key_hash,
-    stream_key_prefix, status, enabled, created_at, updated_at, last_seen_at
-    FROM live_channels"""
-
 _CHANNEL_SELECT_WHERE_OWNER = """SELECT id, tenant_id, owner_id, name, slug, description, stream_key_hash,
     stream_key_prefix, status, enabled, created_at, updated_at, last_seen_at
     FROM live_channels WHERE id = $1 AND owner_id = $2"""
@@ -175,10 +185,6 @@ _CHANNEL_SELECT_WHERE_SLUG_ORDER = """SELECT id, tenant_id, owner_id, name, slug
 async def _get_channel_scoped(conn, channel_id: UUID, user_id: UUID):
     """Fetch a channel enforcing tenant/owner scope — same-404, no oracle."""
     return await conn.fetchrow(_CHANNEL_SELECT_WHERE_OWNER, channel_id, user_id)
-
-
-async def _get_channel_by_slug(conn, slug: str):
-    return await conn.fetchrow(_CHANNEL_SELECT_WHERE_SLUG, slug)
 
 
 async def require_channel_owner(channel_id: UUID, user_id: UUID):
@@ -545,11 +551,32 @@ async def set_meta_rollup(slug: str, ts: float) -> None:
 
 # ── Channel CRUD ─────────────────────────────────────────────────────────────
 
+def _reject_control_chars_in_channel(*values: str | None) -> None:
+    """400 (never a 500) when a channel label holds a control character.
+
+    Shared by create/update so both write paths apply the same rule: `name`,
+    `slug` and `description` are stored verbatim in live_channels, and Postgres
+    rejects NUL at bind time (CharacterNotInRepertoireError) — an unguarded
+    write was a live 500. Empty/None values are left to the model's own
+    min_length rules.
+    """
+    for value in values:
+        if value and contains_control_chars(value):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid channel details: control characters are not allowed",
+            )
+
 @router.post("/channels", response_model=LiveChannelOut, status_code=201)
 async def create_channel(
     data: LiveChannelCreate,
     user_id: UUID = Depends(get_current_user_id),
 ):
+    # Channel name/slug/description land in live_channels text columns. A control
+    # character (NUL above all) cannot be stored in Postgres — the driver fails
+    # at bind time — so reject it here as a 400 instead of a 500 with a stack
+    # trace (live-confirmed by scripts/pentest_local.py).
+    _reject_control_chars_in_channel(data.name, data.slug, data.description)
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         # Slug uniqueness is GLOBAL (public playback, the MediaMTX auth hook,
@@ -660,6 +687,7 @@ async def update_channel(
     data: LiveChannelUpdate,
     user_id: UUID = Depends(get_current_user_id),
 ):
+    _reject_control_chars_in_channel(data.name, data.description)
     await require_channel_owner(channel_id, user_id)
     pool = await get_db_pool()
     async with pool.acquire() as conn:

@@ -9,6 +9,14 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
+# The runtime image must not carry the BUILD toolchain. `npm ci` above installs
+# devDependencies because `next build` needs them (typescript, the Tailwind
+# compiler, postcss), but nothing at runtime does — and the dependency-audit
+# exceptions (undici, vitest, tailwindcss) are only justified if they truly
+# never ship. Pruning after the build makes that literal: the layers below
+# contain production dependencies only.
+RUN npm prune --omit=dev
+
 # Least privilege: the Next.js standalone server needs no root. The node image
 # ships a dedicated 'node' user; hand over /app so the server can write its
 # build cache at runtime.

@@ -1,0 +1,12 @@
+[
+  {
+    "model_id": "llama-3.1-8b-instruct",
+    "name": "Llama 3.1 8B Instruct",
+    "format": "safetensors",
+    "manifest_hash": "REPLACE_WITH_64_HEX_OF_THE_SIGNED_MANIFEST",
+    "size_bytes": 16000000000,
+    "required_vram_gb": 8,
+    "license_note": "Llama 3.1 Community License — verify the licence for your use",
+    "price_class": "small"
+  }
+]

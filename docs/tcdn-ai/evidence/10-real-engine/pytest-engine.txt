@@ -1,0 +1,8 @@
+....                                                                     [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.14/site-packages/_pytest/cacheprovider.py:469
+  /home/yatich/torrent-cdn/backend/.venv/lib/python3.14/site-packages/_pytest/cacheprovider.py:469: PytestCacheWarning: cache could not write path /home/yatich/torrent-cdn/backend/.pytest_cache/v/cache/nodeids: [Errno 13] Permission denied: '/home/yatich/torrent-cdn/backend/.pytest_cache/v/cache/nodeids'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+4 passed, 1 warning in 4.87s

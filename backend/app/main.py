@@ -15,9 +15,16 @@ logger = logging.getLogger(__name__)
 import os
 import threading
 
-from .config import check_clock_skew, get_settings
+from .ai import routes as ai_routes
+from .ai.config import get_ai_settings
+from .ai.errors import AIError
+from .ai.routes import ai_error_handler
+from .ai.store import AI_TABLES_DDL
+from .config import check_clock_skew
+from .config import get_settings as get_host_settings
 from .database import (
     API_KEYS_TABLE_DDL,
+    CORE_TABLES_DDL,
     LIVE_TABLES_DDL,
     NOTIFICATIONS_TABLE_DDL,
     PAYOUTS_TABLE_DDL,
@@ -42,7 +49,20 @@ from .routes import (
 )
 from .security import enforce_max_size, get_client_ip
 
-settings = get_settings()
+settings = get_host_settings()
+
+# TCDN-AI: feature flag lives OUTSIDE the TCDN_AI_ prefix so the CDN can import
+# the backend without any AI configuration present. Default is OFF. When off the
+# app does not mount /api/ai/v1, does not run AI_TABLES_DDL, and does not start
+# the AI background sweep.
+_ai_settings = None
+try:
+    _ai_settings = get_ai_settings()
+except Exception as e:
+    logger.debug("TCDN-AI settings unavailable: %s", e)
+_ai_enabled = bool(_ai_settings) and _ai_settings.is_ai_enabled_for_host(
+    settings.app_env
+)
 
 
 async def run_startup_migrations():
@@ -54,6 +74,10 @@ async def run_startup_migrations():
             # all columns before the ALTERs run and so NOTIFICATIONS_TABLE_DDL
             # (which REFERENCES users) can be created. Idempotent on existing DBs.
             await conn.execute(USERS_TABLE_DDL)
+            # Core CDN tables must exist before the ALTER batch below touches
+            # them; otherwise the batch aborts on a fresh database and takes
+            # the AI schema down with it.
+            await conn.execute(CORE_TABLES_DDL)
             await conn.execute(NOTIFICATIONS_TABLE_DDL)
             # API keys reference users — create after both (idempotent on existing DBs).
             await conn.execute(API_KEYS_TABLE_DDL)
@@ -126,9 +150,24 @@ async def run_startup_migrations():
                 -- the 7-day bandwidth-history query too.
                 CREATE INDEX IF NOT EXISTS idx_analytics_file_created ON analytics(file_id, created_at DESC);
             """)
-            logger.info("Startup migrations completed")
     except Exception as e:
         logger.warning("Startup migrations skipped (first run?): %s", e)
+
+    # TCDN-AI: additive, idempotent schema for the coordinator. Kept in its own
+    # try block so a failure in the CDN migrations can never leave the AI
+    # feature enabled but schema-less — and gated on the flag, because the
+    # flag-off promise is that this deployment does not touch the AI schema at
+    # all. It used to run unconditionally (and log the failure at DEBUG when the
+    # flag was off), which created 17 ai_* tables in a database that was
+    # supposedly not running TCDN-AI.
+    if _ai_enabled:
+        try:
+            pool = await get_db_pool()
+            async with pool.acquire() as conn:
+                await conn.execute(AI_TABLES_DDL)
+                logger.info("TCDN-AI startup migrations completed")
+        except Exception as e:
+            logger.error("TCDN-AI schema migration failed: %s", e)
 
 
 @asynccontextmanager
@@ -152,9 +191,11 @@ async def lifespan(app: FastAPI):
     async def _warm_cache():
         try:
             from .routes.files import warm_public_file_cache
+
             await warm_public_file_cache()
         except Exception as e:
             logger.warning("Cache warm failed: %s", e)
+
     asyncio.create_task(_warm_cache())
 
     # Production-only background task: periodically delete storage objects that
@@ -172,13 +213,26 @@ async def lifespan(app: FastAPI):
     # ~2s (one INSERT per ~500 events instead of one per request). Keeps the
     # DB write rate flat no matter how many concurrent viewers post events.
     from .routes.analytics import ensure_analytics_flusher
+
     ensure_analytics_flusher()
+    # TCDN-AI: expire jobs whose worker died before reporting, and release the
+    # customer's hold. Without this, a crashed worker leaves credits reserved
+    # forever. Runs only when the feature flag is on. The host app keeps this
+    # off in development and in tests (the database may not be reachable there,
+    # and a background task that opens a real pool during a TestClient startup
+    # hangs the suite). The receipt path still releases the hold when a late
+    # receipt arrives.
+    ai_expiry_task = None
+    if _ai_enabled:
+        ai_expiry_task = asyncio.create_task(ai_routes.expire_jobs_loop())
+
     # Live state monitor: drives OFFLINE→STARTING→LIVE transitions from the
     # actual MediaMTX/stream activity, expires stale peer/segment state, and
     # rolls Redis live counters into durable live_analytics_events rows.
     # Every tick isolates failures per channel — one broken channel must never
     # crash the monitor (and never affect another channel's state).
     from .live_state import start_live_monitor
+
     start_live_monitor()
     yield
     # Shutdown
@@ -186,6 +240,12 @@ async def lifespan(app: FastAPI):
         orphan_sweep_task.cancel()
         try:
             await orphan_sweep_task
+        except asyncio.CancelledError:
+            pass
+    if ai_expiry_task is not None:
+        ai_expiry_task.cancel()
+        try:
+            await ai_expiry_task
         except asyncio.CancelledError:
             pass
     await close_db()
@@ -270,7 +330,7 @@ class CSPMiddleware(BaseHTTPMiddleware):
         self._csp = self._build_csp(self._is_production)
         self._csp_report_only = settings.csp_report_only
         self._report_uri = settings.csp_report_url
-        self._reporting_endpoint = f"csp-endpoint=\"{self._report_uri}\""
+        self._reporting_endpoint = f'csp-endpoint="{self._report_uri}"'
 
     def _build_csp(self, is_production: bool) -> str:
         # Script sources — same-origin only. WebTorrent is self-hosted and pinned
@@ -316,7 +376,11 @@ class CSPMiddleware(BaseHTTPMiddleware):
         # Base CSP directives (built once at startup) + reporting directives appended per-request
         csp = self._csp + f"; report-uri {self._report_uri}; report-to csp-endpoint"
 
-        header_name = "Content-Security-Policy-Report-Only" if self._csp_report_only else "Content-Security-Policy"
+        header_name = (
+            "Content-Security-Policy-Report-Only"
+            if self._csp_report_only
+            else "Content-Security-Policy"
+        )
         response.headers[header_name] = csp
         response.headers["Reporting-Endpoints"] = self._reporting_endpoint
 
@@ -381,6 +445,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     Excludes /health, /auth/*, and the already-route-limited public
     endpoints from rate limiting (each carries its own dedicated control).
     """
+
     def __init__(self, app):
         super().__init__(app)
         self._window = settings.rate_limit_window_seconds  # 10s
@@ -400,7 +465,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # report collector, API docs (404 in production), and security.txt.
         # None of them touch the DB or Redis, so there is nothing to protect.
         path = request.url.path.rstrip("/")
-        if path in {"/health", "/csp-report", "/docs", "/redoc", "/openapi.json", "/.well-known/security.txt"}:
+        if path in {
+            "/health",
+            "/csp-report",
+            "/docs",
+            "/redoc",
+            "/openapi.json",
+            "/.well-known/security.txt",
+        }:
             return await call_next(request)
 
         # Chunked-upload chunk PUTs are exempt from the GLOBAL per-IP limiter:
@@ -435,41 +507,44 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # dedicated limiters don't already cover.
         if (
             path == "/auth"
-            or path.startswith((
-                "/auth/",
-                "/upload/chunk/",
-                "/analytics/public/",
-                "/files/public/",
-                # Live viewer hot path: the player fires a session join + a
-                # heartbeat + an availability report every ~5s per viewer, all
-                # gated by the route's own short-TTL token limiter. The global
-                # budget would double-count them exactly like /auth/*.
-                "/api/live/session",
-                "/api/live/heartbeat",
-                "/api/live/segment/availability",
-                # Playback-info + public status are the OTHER two calls every
-                # viewer fires (page load + keepalive polls), gated by the same
-                # route-level token limiter. Missing from this list they 429'd
-                # the whole 1,000-viewer load test at the global 120/10s budget
-                # (all viewers behind one IP in the test — but the same shape
-                # as a NAT'd office/school IP in production).
-                "/api/live/play/",
-                "/api/live/segment/availability",
-                # MediaMTX → backend auth hook: publishes from NAT'd or
-                # shared-egress publishers (bore.pub relays, cloud relays) all
-                # arrive at this backend from the relay's IP — the global
-                # per-IP budget would 429 the hook for UNRELATED publishers
-                # (observed live: every OBS retry through bore.pub 429'd for
-                # 10s windows). The route self-gates instead: a valid shared
-                # secret passes; wrong/missing secrets get a tight per-IP
-                # limiter inside the route (see live_internal._check_hook_secret).
-                "/api/internal/mediamtx/",
-            ))
+            or path.startswith(
+                (
+                    "/auth/",
+                    "/upload/chunk/",
+                    "/analytics/public/",
+                    "/files/public/",
+                    # Live viewer hot path: the player fires a session join + a
+                    # heartbeat + an availability report every ~5s per viewer, all
+                    # gated by the route's own short-TTL token limiter. The global
+                    # budget would double-count them exactly like /auth/*.
+                    "/api/live/session",
+                    "/api/live/heartbeat",
+                    "/api/live/segment/availability",
+                    # Playback-info + public status are the OTHER two calls every
+                    # viewer fires (page load + keepalive polls), gated by the same
+                    # route-level token limiter. Missing from this list they 429'd
+                    # the whole 1,000-viewer load test at the global 120/10s budget
+                    # (all viewers behind one IP in the test — but the same shape
+                    # as a NAT'd office/school IP in production).
+                    "/api/live/play/",
+                    "/api/live/segment/availability",
+                    # MediaMTX → backend auth hook: publishes from NAT'd or
+                    # shared-egress publishers (bore.pub relays, cloud relays) all
+                    # arrive at this backend from the relay's IP — the global
+                    # per-IP budget would 429 the hook for UNRELATED publishers
+                    # (observed live: every OBS retry through bore.pub 429'd for
+                    # 10s windows). The route self-gates instead: a valid shared
+                    # secret passes; wrong/missing secrets get a tight per-IP
+                    # limiter inside the route (see live_internal._check_hook_secret).
+                    "/api/internal/mediamtx/",
+                )
+            )
             or path == "/analytics/event"
         ):
             return await call_next(request)
 
         import time
+
         client_ip = get_client_ip(request)
         now = time.time()
 
@@ -477,6 +552,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         redis = None
         try:
             from .database import get_redis
+
             redis = await get_redis()
         except Exception:
             pass
@@ -485,16 +561,33 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             try:
                 rate_key = f"ratelimit:{client_ip}:global"
                 count = await redis.get(rate_key)
-                if count and int(count) >= self._limit:
-                    # Check if the window has passed
-                    ttl = await redis.ttl(rate_key)
-                    retry_after = max(1, ttl) if ttl and ttl > 0 else self._window
+                ttl = await redis.ttl(rate_key)
+                # A counter with no expiry is a LATCHED bucket: the window it
+                # was opened in can never end, so once it reaches the limit that
+                # address is refused for ever ("Try again in 10s" that never
+                # clears). It happens when the INCR lands but the EXPIRE does
+                # not — a Redis blip, a connection reset between the two, or a
+                # restored snapshot. The capacity run found it: the loopback
+                # key sat at exactly 300 with TTL -1 and every heartbeat and
+                # job from that address was 429'd until the key was deleted by
+                # hand. Treat an expiry-less key as expired: drop it and make
+                # this request the first of a new window.
+                latched = ttl is None or ttl < 0
+                if count is not None and int(count) >= self._limit and not latched:
+                    retry_after = max(1, ttl)
                     return JSONResponse(
                         status_code=429,
-                        content={"detail": f"Rate limit exceeded. Try again in {retry_after}s."},
+                        content={
+                            "detail": f"Rate limit exceeded. Try again in {retry_after}s."
+                        },
                         headers={"Retry-After": str(retry_after)},
                     )
+                if latched:
+                    await redis.delete(rate_key)
+                    count = None
                 await redis.incr(rate_key)
+                # Refresh the expiry on every latched/missing key, not only
+                # when GET returned None: the window must always have one.
                 if count is None:
                     await redis.expire(rate_key, self._window)
             except Exception:
@@ -506,7 +599,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 # /auth/login — into a plain-text error the frontend showed as
                 # "Login failed. Please try again.").
                 logger.warning(
-                    "Global rate-limit Redis error — using in-memory fallback for %s", client_ip
+                    "Global rate-limit Redis error — using in-memory fallback for %s",
+                    client_ip,
                 )
                 redis = None
         if redis is None:
@@ -519,7 +613,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 retry_after = int(timestamps[0] + self._window - now) + 1
                 return JSONResponse(
                     status_code=429,
-                    content={"detail": f"Rate limit exceeded. Try again in {retry_after}s."},
+                    content={
+                        "detail": f"Rate limit exceeded. Try again in {retry_after}s."
+                    },
                     headers={"Retry-After": str(retry_after)},
                 )
             timestamps.append(now)
@@ -531,7 +627,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # under rotated-XFF abuse while staying off the hot path.
             if len(self._memory_store) > self._prune_threshold:
                 expired = [
-                    k for k, v in self._memory_store.items()
+                    k
+                    for k, v in self._memory_store.items()
                     if not v or now - v[-1] > self._window
                 ]
                 for k in expired:
@@ -550,7 +647,9 @@ class MaxBodySizeMiddleware(BaseHTTPMiddleware):
         if content_length:
             try:
                 if int(content_length) > max_bytes:
-                    return JSONResponse({"detail": "Request too large"}, status_code=413)
+                    return JSONResponse(
+                        {"detail": "Request too large"}, status_code=413
+                    )
             except (ValueError, TypeError):
                 pass  # Invalid content-length header — let other checks handle it
 
@@ -566,6 +665,53 @@ class MaxBodySizeMiddleware(BaseHTTPMiddleware):
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(MaxBodySizeMiddleware)
 app.add_middleware(CSPMiddleware)
+
+
+# ── Server header ──────────────────────────────────────────────────────────
+# ZAP's 10036 ("Server leaks version information") fired on every URL in the
+# authenticated pass. The value is not cosmetic: uvicorn advertises `uvicorn` and
+# gunicorn appends `gunicorn/<version>`, so the exact runtime is published to
+# every client. This replaces the ASGI-side header with a product name and no
+# version (backend/gunicorn_conf.py does the same for gunicorn's own header).
+SERVER_HEADER = "torrentcdn"
+
+
+class _ServerHeaderMiddleware:
+    """Pure ASGI: set the Server header without BaseHTTPMiddleware.
+
+    Every 500 in the 2026-10-30 ZAP run (``/api/live/session``, ``/heartbeat``,
+    ``/segment/availability``, one each per pass) stopped at
+    ``BaseHTTPMiddleware.coro`` inside an ``ExceptionGroup`` raised by its task
+    group, with the application's own frames missing from the log. A plain ASGI
+    wrapper rewrites the ``http.response.start`` message instead: no task group,
+    no response wrapper, and an inner exception keeps its real traceback.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_server(message):
+            if message["type"] == "http.response.start":
+                headers = [
+                    (k, v)
+                    for k, v in message.get("headers", [])
+                    if k.lower() != b"server"
+                ]
+                headers.append((b"server", SERVER_HEADER.encode("ascii")))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_server)
+
+
+# Added after CSPMiddleware, and add_middleware prepends, so this is outermost:
+# the short-circuiting 429/413 rejections carry it too.
+app.add_middleware(_ServerHeaderMiddleware)
 
 
 @app.exception_handler(RequestValidationError)
@@ -637,6 +783,18 @@ app.include_router(verification.router)
 app.include_router(notifications.router)
 app.include_router(live.router)
 app.include_router(live_internal.router)
+if _ai_enabled:
+    # TCDN-AI coordinator API + its separate admin surface. Mounted only when the
+    # feature flag is on, so a deployment without AI config can still import and
+    # run the CDN backend.
+    app.include_router(ai_routes.router)
+    app.include_router(ai_routes.admin_router)
+    # OpenAI-compatible surface (gateway mode), mounted at the app root so an
+    # unmodified OpenAI client can use base_url=".../v1". Same flag, same auth.
+    from .ai import routes_openai as ai_openai_routes
+
+    app.include_router(ai_openai_routes.router)
+    app.add_exception_handler(AIError, ai_error_handler)
 
 
 SECURITY_TXT = """Contact: https://www.torrentcdn.store
@@ -679,7 +837,9 @@ async def live_health():
     media_pipeline_ok = mediamtx_ok or bool(h.get("active_channels"))
     app_ok = bool(h.get("monitor_running"))
     return {
-        "status": "healthy" if (app_ok and (media_pipeline_ok or not h.get("mediamtx_configured"))) else "degraded",
+        "status": "healthy"
+        if (app_ok and (media_pipeline_ok or not h.get("mediamtx_configured")))
+        else "degraded",
         "application": {
             "monitor_running": app_ok,
             "redis": redis_ok,

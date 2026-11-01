@@ -40,3 +40,19 @@ Thumbs.db
 *.log
 tsbuildinfo
 
+# Test/coverage artefacts — regenerated, never committed (checklist 1.6).
+# `.coverage` is written by `pytest --cov` at the backend root; coverage.xml is
+# the CI-friendly form.
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Marketing/demo artefacts rendered from the running app (clips/generate_clips.py).
+# They are large binaries; regenerate them from the script instead.
+clips/
+
+# Throwaway SDK debug harnesses kept only for local poking (checklist 1.6).
+frontend/__debug_sdk.mjs
+frontend/__sdk_debug.mjs
+
