@@ -15,7 +15,7 @@ import secrets
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # ── Input caps (same rationale as models.py) ─────────────────────────────────
 MAX_NAME_LEN = 120        # live_channels.name VARCHAR(120)
@@ -115,7 +115,34 @@ class LiveChannelRotateResponse(BaseModel):
     publish_path: str | None = None
 
 
-class LiveSessionCreate(BaseModel):
+class _ViewerPayload(BaseModel):
+    """Boundary check for the three viewer write routes.
+
+    Every string here is bound to a text column (`channel_slug` is used to look
+    up a channel, `session_id`/`peer_id`/`user_agent`/`region` are written to
+    `live_sessions`). Postgres does not accept NUL in text, and asyncpg raises
+    `CharacterNotInRepertoireError` at bind time — so a hostile payload reached
+    the driver and the viewer routes answered **500** instead of 4xx. Captured
+    in the ZAP scan of 2026-10-31 (36 exception blocks, `0x00`), reproduced by
+    `tests/test_live_viewer_inputs.py`.
+
+    Validating here rather than per-handler is deliberate: validation runs
+    before the handler body, so no route can forget it, and it costs no DB
+    round trip. 422 with the standard FastAPI shape is the answer — the same
+    class of refusal the field rules already produce.
+    """
+
+    @model_validator(mode="after")
+    def _reject_control_chars(self):
+        from .security import contains_control_chars
+
+        for name, value in self.__dict__.items():
+            if isinstance(value, str) and contains_control_chars(value):
+                raise ValueError(f"{name}: control characters are not allowed")
+        return self
+
+
+class LiveSessionCreate(_ViewerPayload):
     """Viewer join. ``session_id`` is an opaque client-generated id (no PII)."""
     channel_slug: str = Field(min_length=1, max_length=MAX_SLUG_LEN)
     session_id: str = Field(min_length=8, max_length=MAX_SESSION_ID_LEN)
@@ -123,7 +150,7 @@ class LiveSessionCreate(BaseModel):
     region: str | None = Field(default=None, max_length=MAX_REGION_LEN)
 
 
-class LiveHeartbeat(BaseModel):
+class LiveHeartbeat(_ViewerPayload):
     channel_slug: str = Field(min_length=1, max_length=MAX_SLUG_LEN)
     session_id: str = Field(min_length=8, max_length=MAX_SESSION_ID_LEN)
     peer_id: str | None = Field(default=None, max_length=MAX_SESSION_ID_LEN)
@@ -137,7 +164,7 @@ class LiveHeartbeat(BaseModel):
     current_position: float | None = Field(default=None, ge=0)
 
 
-class LiveSegmentAvailability(BaseModel):
+class LiveSegmentAvailability(_ViewerPayload):
     """Segment-availability report from a viewer's swarm.
 
     ``haves`` names the sequence numbers the local peer POSSESSES (it will

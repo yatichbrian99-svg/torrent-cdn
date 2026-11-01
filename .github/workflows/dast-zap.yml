@@ -372,15 +372,6 @@ jobs:
             echo "Target: \`$ZAP_TARGET\` · commit \`$GITHUB_SHA\` · run \`$GITHUB_RUN_ID\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload the ZAP reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: zap-reports
-          path: ${{ runner.temp }}/zap/reports/
-          retention-days: 30
-          if-no-files-found: warn
-
       # Always, not only on failure. A 5xx under scan is a finding whatever the
       # alert gate says: the 2026-10-31 run at `2d413f2` was *green* (no HIGH)
       # and still answered six 500s, three on /api/live/session,
@@ -433,6 +424,15 @@ jobs:
           tail -60 "$RUNNER_TEMP/zap/reports/scan-unauth.log" 2>/dev/null || true
           tail -60 "$RUNNER_TEMP/zap/reports/scan-auth.log" 2>/dev/null || true
           tail -60 "$RUNNER_TEMP/zap/reports/scan-auth-ai.log" 2>/dev/null || true
+
+      - name: Upload the ZAP reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-reports
+          path: ${{ runner.temp }}/zap/reports/
+          retention-days: 30
+          if-no-files-found: warn
 
       - name: Cleanup
         if: always()
