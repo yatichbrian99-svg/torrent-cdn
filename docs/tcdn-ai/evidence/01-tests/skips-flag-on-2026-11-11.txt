@@ -1,0 +1,31 @@
+      1 SKIPPED [1] tests/test_ai_two_instances_live.py:245: TEST_REDIS_URL/REDIS_URL not set — real-Redis lane only
+      1 SKIPPED [1] tests/test_ai_two_instances_live.py:220: TEST_REDIS_URL/REDIS_URL not set — real-Redis lane only
+      1 SKIPPED [1] tests/test_ai_two_instances_live.py:204: TEST_REDIS_URL/REDIS_URL not set — real-Redis lane only
+      1 SKIPPED [1] tests/test_ai_two_instances_live.py:171: TEST_REDIS_URL/REDIS_URL not set — real-Redis lane only
+      1 SKIPPED [1] tests/test_ai_two_instances_live.py:161: TEST_REDIS_URL/REDIS_URL not set — real-Redis lane only
+      1 SKIPPED [1] tests/test_ai_two_instances_live.py:147: TEST_REDIS_URL/REDIS_URL not set — real-Redis lane only
+      1 SKIPPED [1] tests/test_ai_two_instances_live.py:118: TEST_REDIS_URL/REDIS_URL not set — real-Redis lane only
+      1 SKIPPED [1] tests/test_ai_schema_contract.py:88: TEST_POSTGRES_URL not set (real Postgres integration lane)
+      1 SKIPPED [1] tests/test_ai_schema_contract.py:151: TEST_POSTGRES_URL not set (real Postgres integration lane)
+      1 SKIPPED [1] tests/test_ai_schema_contract.py:136: TEST_POSTGRES_URL not set (real Postgres integration lane)
+      1 SKIPPED [1] tests/test_ai_schema_contract.py:122: TEST_POSTGRES_URL not set (real Postgres integration lane)
+      1 SKIPPED [1] tests/test_ai_postgres.py:94: TEST_POSTGRES_URL not set (real Postgres integration lane)
+      1 SKIPPED [1] tests/test_ai_postgres.py:58: TEST_POSTGRES_URL not set (real Postgres integration lane)
+      1 SKIPPED [1] tests/test_ai_postgres.py:372: TEST_POSTGRES_URL not set (real Postgres integration lane)
+      1 SKIPPED [1] tests/test_ai_postgres.py:320: TEST_POSTGRES_URL not set (real Postgres integration lane)
+      1 SKIPPED [1] tests/test_ai_postgres.py:276: TEST_POSTGRES_URL not set (real Postgres integration lane)
+      1 SKIPPED [1] tests/test_ai_postgres.py:235: TEST_POSTGRES_URL not set (real Postgres integration lane)
+      1 SKIPPED [1] tests/test_ai_postgres.py:183: TEST_POSTGRES_URL not set (real Postgres integration lane)
+      1 SKIPPED [1] tests/test_ai_postgres.py:147: TEST_POSTGRES_URL not set (real Postgres integration lane)
+      1 SKIPPED [1] tests/test_ai_postgres.py:125: TEST_POSTGRES_URL not set (real Postgres integration lane)
+      1 SKIPPED [1] tests/test_ai_migrations.py:211: TEST_POSTGRES_URL not set (real Postgres integration lane)
+      1 SKIPPED [1] tests/test_ai_migrations.py:186: TEST_POSTGRES_URL not set (real Postgres integration lane)
+      1 SKIPPED [1] tests/test_ai_migrations.py:163: TEST_POSTGRES_URL not set (real Postgres integration lane)
+      1 SKIPPED [1] tests/test_ai_migrations.py:142: TEST_POSTGRES_URL not set (real Postgres integration lane)
+      1 SKIPPED [1] tests/test_ai_migrations.py:118: TEST_POSTGRES_URL not set (real Postgres integration lane)
+      1 SKIPPED [1] tests/test_ai_migrations.py:105: TEST_POSTGRES_URL not set (real Postgres integration lane)
+      1 SKIPPED [1] tests/test_ai_engine.py:93: TCDN_AI_ENGINE_URL is not set: no live inference engine in this run
+      1 SKIPPED [1] tests/test_ai_engine.py:74: TCDN_AI_ENGINE_URL is not set: no live inference engine in this run
+      1 SKIPPED [1] tests/test_ai_engine.py:149: TCDN_AI_ENGINE_URL is not set: no live inference engine in this run
+      1 SKIPPED [1] tests/test_ai_engine.py:128: TCDN_AI_ENGINE_URL is not set: no live inference engine in this run
+      1 1356 passed, 30 skipped, 65 warnings in 153.40s (0:02:33)

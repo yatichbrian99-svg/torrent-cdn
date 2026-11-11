@@ -1,0 +1,31 @@
+Self-audit suite evidence — 2026-11-11T21:23:06Z — commit d14b211
+ENABLE_TCDN_AI=true, real Postgres 16.4 + Redis 7.4.2
+
+== authorization: tests/test_authorization_matrix.py
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+21 passed, 1 warning in 2.86s
+
+== money: tests/test_ai_billing.py tests/test_ai_idempotency.py tests/test_ai_admin_refunds.py tests/test_ai_node_billing.py tests/test_ai_payments_live.py tests/test_ai_signup_abuse.py
+...........................................                              [100%]
+115 passed in 4.95s
+
+== crypto: tests/test_ai_core.py tests/test_ai_signed_inputs.py tests/test_ai_contracts.py
+..................................................                       [100%]
+122 passed in 6.61s
+
+== injection: tests/test_ai_ssrf_pinning.py tests/test_ai_sqli_routes.py tests/test_ai_sqli_binding.py tests/test_sql_injection.py
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+71 passed, 4 warnings in 6.90s
+
+== limits: tests/test_ai_security.py tests/test_ai_abuse.py
+.......................................                                  [100%]
+39 passed in 3.27s
+
+== failure: tests/test_ai_failure_injection.py tests/test_ai_redis.py tests/test_live_degraded_redis.py tests/test_ai_two_instances.py
+.....................................                                    [100%]
+37 passed in 3.26s
+
+== canary: tests/test_ai_canary_scan.py
+...                                                                      [100%]
+3 passed in 1.50s
+

@@ -1,0 +1,14 @@
+Flag-off proof — 2026-11-11T21:24:17Z — commit d14b211
+ENABLE_TCDN_AI unset; TEST_POSTGRES_URL set so the DDL assertions can run
+
+== routes not mounted
+ssssssssssssssss                                                         [100%]
+16 skipped in 1.57s
+
+== no AI DDL / no behaviour change on startup
+........                                                                 [100%]
+8 passed in 6.82s
+
+== authz matrix with the AI surface absent
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+11 passed, 10 skipped, 1 warning in 1.94s

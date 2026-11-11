@@ -31,6 +31,16 @@ production gates on, Paystack test keys). A green staging smoke run is **not**
 evidence for any row in this file and moved no count: every P1 row still needs
 what its Evidence column says it needs.
 
+**Recounted 2026-11-11** at `d14b211` (branch `fix/tcdn-ai-redis-replay-nonce`):
+parsing the tables again gives **54 VERIFIED / 2 PARTIAL of 56 P1 rows** — the same two,
+**4.4** (no live Paystack charge) and **6.1** (gateway-mode only). No row changed status:
+the dependency bump, the branch-protection work and the `TCDN_AI_PAYMENTS_LIVE` gate add
+controls, they do not exercise a live provider. Re-measured this pass: whole suite with the
+flag on **1356 passed / 30 skipped / 0 failed**; the 30 real-service skips re-run against
+disposable Postgres 16.4 + Redis 7.4.2 **28 passed**; 40018's static, dynamic (12 routes /
+216 requests) and gate proofs re-run green; `pip-audit` clean; `npm audit` 3 dev-only
+moderates. Details and the ranking are in `SELF_AUDIT.md`.
+
 **Level 1 ready: NO.**
 
 > **Superseded 2026-11-01.** The acceptance is no longer keyed on a path list, so a 40018
