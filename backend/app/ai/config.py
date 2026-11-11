@@ -162,6 +162,26 @@ class AISettings(BaseSettings):
     allow_simulated_attestation: bool = True
     allow_dev_stub_backend: bool = True
     payment_provider: Literal["fake", "paystack"] = "fake"
+    # ── Live credit purchases (money in) ────────────────────────────────────
+    # Off by default, and independent of `payment_provider`: having a provider
+    # key configured must not start moving money on its own. While this is off
+    # a correctly-signed Paystack webhook is refused before the ledger write, so
+    # turning it on is a deliberate, reviewable deploy. The development fake
+    # provider is unaffected — it is how the billing tests run.
+    payments_live: bool = False
+    #: Accounts allowed to make a real purchase, comma-separated. Empty means
+    #: nobody: the allowlist is the blast-radius control for the owner's live
+    #: test, and production refuses to boot with the flag on and this empty.
+    payments_live_allowlist: str = ""
+    #: Ceilings, in micro-credits (1 credit = 1e6). A single purchase above the
+    #: per-transaction cap is refused, and the sum of credited purchases in the
+    #: current UTC day may not exceed the daily cap. Both are checked at the
+    #: webhook, before the ledger write, so a replayed event cannot spend the
+    #: day's budget twice.
+    #: 1 credit = 1e6 micro = $0.01, so these defaults are $50 per purchase and
+    #: $200 for the UTC day.
+    payments_live_max_purchase_micro: int = Field(default=5_000_000_000, ge=1)
+    payments_live_daily_cap_micro: int = Field(default=20_000_000_000, ge=1)
     enable_tcdn_burn: bool = False
     burn_legal_review_ack: bool = False
     allowed_origin_hosts: tuple[str, ...] = ()
@@ -191,6 +211,16 @@ class AISettings(BaseSettings):
     def is_production(self) -> bool:
         return self.environment == "production"
 
+    @property
+    def payments_live_accounts(self) -> frozenset[str]:
+        """Parsed allowlist. Kept as a string field so an env var is just a
+        comma-separated list, not JSON."""
+        return frozenset(
+            part.strip()
+            for part in self.payments_live_allowlist.split(",")
+            if part.strip()
+        )
+
     @model_validator(mode="after")
     def _validate(self) -> AISettings:
         total = self.compute_share_pct + self.seeder_share_pct + self.platform_share_pct
@@ -215,6 +245,25 @@ class AISettings(BaseSettings):
                 problems.append(
                     "TCDN_AI_PAYMENT_PROVIDER must not be 'fake' in production"
                 )
+            if self.payments_live:
+                if self.payment_provider != "paystack":
+                    problems.append(
+                        "TCDN_AI_PAYMENTS_LIVE requires "
+                        "TCDN_AI_PAYMENT_PROVIDER=paystack"
+                    )
+                if not self.payments_live_accounts:
+                    problems.append(
+                        "TCDN_AI_PAYMENTS_LIVE requires "
+                        "TCDN_AI_PAYMENTS_LIVE_ALLOWLIST (empty means nobody)"
+                    )
+                if (
+                    self.payments_live_max_purchase_micro
+                    > self.payments_live_daily_cap_micro
+                ):
+                    problems.append(
+                        "TCDN_AI_PAYMENTS_LIVE_MAX_PURCHASE_MICRO must not exceed "
+                        "TCDN_AI_PAYMENTS_LIVE_DAILY_CAP_MICRO"
+                    )
             if not self.api_key_pepper:
                 problems.append("TCDN_AI_API_KEY_PEPPER must be set in production")
             if not self.coordinator_key_file and not self.coordinator_keyring_json:

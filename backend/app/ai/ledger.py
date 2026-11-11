@@ -186,6 +186,11 @@ class Ledger:
     def entries(self) -> list[LedgerEntry]:
         return list(self._entries)
 
+    def posted(self, idempotency_key: str) -> bool:
+        """Whether an entry with this idempotency key was already posted."""
+        with self._lock:
+            return idempotency_key in self._by_idem
+
     def balance(self, account: str) -> int:
         with self._lock:
             return self._balances.get(account, 0)

@@ -426,6 +426,32 @@ async def set_kill_switch(
     return {"paused": state["paused"], "state": state}
 
 
+@admin_router.get("/payments-live")
+async def read_payments_live(
+    admin_uid: Annotated[object, Depends(require_admin_jwt)],
+    coordinator: Annotated[Coordinator, Depends(get_coordinator)],
+) -> dict:
+    """Live-purchase posture: flag, allowlist size, caps and the switch."""
+    return await coordinator.payments_live_status()
+
+
+@admin_router.post("/payments-live")
+async def set_payments_live(
+    body: KillSwitchRequest,
+    admin_uid: Annotated[object, Depends(require_admin_jwt)],
+    coordinator: Annotated[Coordinator, Depends(get_coordinator)],
+) -> dict:
+    """Pause or resume real credit purchases (money in), with an audited reason.
+
+    Independent of the payouts switch: pausing payouts must not stop customers
+    from topping up, and pausing purchases must not strand node earnings.
+    """
+    state = await coordinator.set_payments_live_kill_switch(
+        paused=body.paused, reason=body.reason, actor=str(admin_uid)
+    )
+    return {"paused": state["paused"], "state": state}
+
+
 @admin_router.post("/refunds")
 async def refund_credits(
     body: RefundRequest,

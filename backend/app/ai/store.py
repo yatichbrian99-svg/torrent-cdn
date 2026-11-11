@@ -578,6 +578,19 @@ class Store(Protocol):
         kind: str,
     ) -> None: ...
 
+    async def credited_purchases_since(self, since_epoch: int) -> int:
+        """Sum of purchase credits posted at or after ``since_epoch``.
+
+        Reads the ledger rather than a process counter so two coordinator
+        instances share one daily cap, and a restart does not forget what was
+        already sold.
+        """
+        ...
+
+    async def ledger_has_entry(self, idempotency_key: str) -> bool:
+        """True when this exact posting already happened (provider replay)."""
+        ...
+
     async def post_ledger(
         self,
         *,
@@ -944,6 +957,16 @@ class MemoryStore:
 
     async def balance_micro(self, account_id: str) -> int:
         return self.ledger.balance(account_credits(account_id))
+
+    async def credited_purchases_since(self, since_epoch: int) -> int:
+        return sum(
+            entry.amount_micro
+            for entry in self.ledger.entries
+            if entry.kind == "credit_purchase" and entry.created_at >= since_epoch
+        )
+
+    async def ledger_has_entry(self, idempotency_key: str) -> bool:
+        return self.ledger.posted(idempotency_key)
 
     async def held_micro(self, account_id: str) -> int:
         return self.ledger.held(account_credits(account_id))
@@ -1883,6 +1906,23 @@ class PostgresStore:
                 account_credits(account_id),
             )
         return int(value or 0)
+
+    async def credited_purchases_since(self, since_epoch: int) -> int:
+        async with self.pool.acquire() as conn:
+            value = await conn.fetchval(
+                "SELECT COALESCE(SUM(amount_micro), 0) FROM ai_ledger_entries "
+                "WHERE kind = 'credit_purchase' AND created_at >= $1",
+                since_epoch,
+            )
+        return int(value or 0)
+
+    async def ledger_has_entry(self, idempotency_key: str) -> bool:
+        async with self.pool.acquire() as conn:
+            value = await conn.fetchval(
+                "SELECT 1 FROM ai_ledger_entries WHERE idempotency_key = $1",
+                idempotency_key,
+            )
+        return value is not None
 
     async def held_micro(self, account_id: str) -> int:
         async with self.pool.acquire() as conn:

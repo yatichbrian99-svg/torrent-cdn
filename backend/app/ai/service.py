@@ -34,10 +34,12 @@ from .errors import (
     AuthorizationError,
     ConcurrencyLimitExceeded,
     ConflictError,
+    LimitExceeded,
     NoEligibleWorker,
     NotFoundError,
     RateLimitedError,
     ReceiptError,
+    UnavailableError,
     ValidationError,
 )
 from .keyring import KeyRing
@@ -1774,6 +1776,25 @@ class Coordinator:
                 "payment event account is not a valid identifier",
                 code="invalid_payment_event",
             ) from exc
+        # A provider retries a webhook it did not see acknowledged. That is a
+        # replay of work already done, not a new purchase: answering it before
+        # the caps means a retry can neither be refused (which would keep the
+        # provider retrying) nor spend the day's budget a second time.
+        key = f"payment:{event.provider}:{event.reference}"
+        if await self.store.ledger_has_entry(key):
+            logger.info(
+                "payment replay acknowledged reference=%s provider=%s",
+                event.reference,
+                event.provider,
+            )
+            return {
+                "status": "credited",
+                "reference": event.reference,
+                "amount_micro": event.amount_micro,
+                "balance_micro": await self.store.balance_micro(event.account_id),
+                "duplicate": True,
+            }
+        await self._authorise_live_payment(event)
         await self.store.credit(
             event.account_id,
             event.amount_micro,
@@ -1864,6 +1885,109 @@ class Coordinator:
     async def payout_status(self) -> dict[str, Any]:
         state = await self.store.get_control(self.PAYOUT_SWITCH)
         return {"paused": bool(state and state.get("paused")), "state": state}
+
+    # ── operator controls (money in) ───────────────────────────────────────
+
+    #: Shared switch row for live credit purchases. Separate from ``payouts``:
+    #: stopping money going out must never stop customers topping up, and vice
+    #: versa — the two are flipped for different reasons.
+    PAYMENTS_SWITCH = "payments_live"
+
+    async def _refuse_when_payments_are_paused(self) -> None:
+        state = await self.store.get_control(self.PAYMENTS_SWITCH)
+        if state and state.get("paused"):
+            raise ConflictError(
+                "live credit purchases are paused by an operator: "
+                f"{state.get('reason', 'no reason')}",
+                code="payments_live_paused",
+                details={"reason": state.get("reason", "")},
+            )
+
+    async def set_payments_live_kill_switch(
+        self, *, paused: bool, reason: str, actor: str
+    ) -> dict[str, Any]:
+        """Stop or resume real credit purchases, recorded with who and why.
+
+        Stored in the shared ``ai_controls`` row, so every coordinator instance
+        honours it and a redeploy cannot silently clear it — the same reasoning
+        as the payout switch. It stops *crediting*, not the provider: nothing
+        here can refund a charge that already happened, so the reconciliation
+        script is the counterpart.
+        """
+        if not reason.strip():
+            raise ValidationError(
+                "a kill-switch change needs a reason", code="missing_reason"
+            )
+        value = {
+            "paused": bool(paused),
+            "reason": reason.strip()[:300],
+            "changed_at": int(self.clock()),
+        }
+        await self.store.set_control(self.PAYMENTS_SWITCH, value, actor=actor)
+        await self.store.audit(
+            "admin.payments_live_kill_switch",
+            actor=actor,
+            subject=self.PAYMENTS_SWITCH,
+            detail=value,
+        )
+        return value
+
+    async def payments_live_status(self) -> dict[str, Any]:
+        state = await self.store.get_control(self.PAYMENTS_SWITCH)
+        return {
+            "paused": bool(state and state.get("paused")),
+            "state": state,
+            "enabled": bool(self.settings.payments_live),
+            "allowlist_size": len(self.settings.payments_live_accounts),
+            "max_purchase_micro": self.settings.payments_live_max_purchase_micro,
+            "daily_cap_micro": self.settings.payments_live_daily_cap_micro,
+        }
+
+    async def _authorise_live_payment(self, event: PaymentEvent) -> None:
+        """Refuse a verified provider event before it can touch the ledger.
+
+        Order matters: the kill switch and the feature flag are checked before
+        the allowlist and the caps, so a paused deployment answers the same way
+        for every account and leaks nothing about who is allowed.
+
+        The development fake provider is exempt: it exists so the billing state
+        machine can be exercised without a provider account, and it cannot
+        produce a real charge.
+        """
+        if event.provider != "paystack":
+            return
+        await self._refuse_when_payments_are_paused()
+        if not self.settings.payments_live:
+            raise UnavailableError(
+                "live credit purchases are not enabled on this deployment",
+                code="payments_not_live",
+            )
+        if event.account_id not in self.settings.payments_live_accounts:
+            raise AuthorizationError(
+                "account is not on the live-purchase allowlist",
+                code="payments_account_not_allowlisted",
+            )
+        if event.amount_micro > self.settings.payments_live_max_purchase_micro:
+            raise ValidationError(
+                "purchase exceeds the per-transaction cap",
+                code="payment_above_cap",
+                details={"cap_micro": self.settings.payments_live_max_purchase_micro},
+            )
+        now = int(self.clock())
+        since = now - (now % 86_400)
+        credited_today = await self.store.credited_purchases_since(since)
+        if (
+            credited_today + event.amount_micro
+            > self.settings.payments_live_daily_cap_micro
+        ):
+            raise LimitExceeded(
+                "the daily live-purchase cap has been reached",
+                code="payment_daily_cap_reached",
+                details={
+                    "cap_micro": self.settings.payments_live_daily_cap_micro,
+                    "credited_today_micro": credited_today,
+                },
+            )
 
     async def record_payout(self, record: dict[str, Any], *, actor: str = "") -> None:
         """Persist a payout record, unless payouts are paused or the node is held.
