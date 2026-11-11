@@ -227,17 +227,22 @@ allowlisted account, minimum charge, replay check, kill switch, reconcile).
 
 * Any live provider round trip (charge, decline, refund, webhook ordering,
   KES rounding, M-Pesa).
-* A DAST run against this exact commit. The gate is tested; the scan is not
-  re-run here.
+* A DAST run launched from the audit workstation. CI did run it on this commit
+  and the `ZAP (unauthenticated + JWT + AI key, flag on)` check is green; read
+  that run's artefacts rather than trusting a summary of it.
 * Container image scan locally (`trivy` unavailable in the audit environment).
 * Migration behaviour on a production-sized dataset — the proof is schema-shaped
   (fresh DB + synthetic previous version), not data-volume-shaped.
-* That `E2E_ADMIN_TOKEN` is still valid. It was last rotated 2026-08-07 and the
-  E2E gate is red; using it against the live backend was out of bounds.
+* That `E2E_ADMIN_TOKEN` is still valid. It was last rotated 2026-08-07, and the
+  E2E gate is red for a different, now-identified reason: the `E2E_EMAIL` account
+  is no longer MFA-free (`SELF_AUDIT.md` F5/F8). Using the token against the live
+  backend was out of bounds, so validity stays unproven.
 * The confidential tier's attestation against a real vendor verifier (simulated
   adapter in development; production refuses it).
 * `main` itself: PR #46's fixes are not merged, so `main` still has the logout
-  no-op and the live-viewer 500s.
+  no-op and the live-viewer 500s, and its scheduled workflows are red for the
+  four reasons enumerated in `SELF_AUDIT.md` F5 (stale lockfile, gitleaks
+  fixture findings, a `next/font` build error, and an E2E account with MFA on).
 
 ---
 

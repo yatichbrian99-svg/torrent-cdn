@@ -38,9 +38,11 @@ Evidence files: `evidence/01-tests/full-suite-flag-on-2026-11-11.txt`,
 
 * **A live Paystack charge, decline, refund or M-Pesa.** No live key was used
   (prohibited) and no sandbox session is available. Row 4.4 stays `PARTIAL`.
-* **ZAP/DAST against this commit.** The last recorded ZAP run is the 2026-10-31
-  one; the gate and its tests are exercised, the scan itself is not re-run here.
-  A `pull_request` DAST run is what will produce fresh evidence.
+* **ZAP/DAST locally.** No scan was launched from this environment. It *was*
+  run by CI on this commit: the `ZAP (unauthenticated + JWT + AI key, flag on)`
+  check is **green** on `47e6b93` (run `43117987233`), so the DAST evidence for
+  this commit comes from CI, not from the audit workstation. The gate itself is
+  covered here by `test_zap_gate.py` (10 passed).
 * **Container image scan.** `trivy` is not installed in this environment, so the
   local claim is "not run". CI's `container-scan` job is the evidence path; it is
   path-filtered on `backend/**`, `Caddyfile`, `docker-compose.yml`, `render.yaml`.
@@ -212,13 +214,34 @@ enabled. Evidence: `evidence/03-security/branch-protection-2026-11-11.json`.
 *Open:* `DAST` and `Full-stack Docker` are **not** among the required checks
 (see F7).
 
-### F5 — MEDIUM — `main`'s scheduled workflows have been red for days
+### F5 — MEDIUM — `main`'s scheduled workflows have been red for days, for four distinct reasons
 `Dependency Audit`, `Tests & Security Audits` and the E2E delivery gate failed
-daily from at least 2026-11-08 to 2026-11-11 on `200109e`. Job logs could not be
-retrieved — the GitHub jobs API returned HTTP 502 for every run — so the causes
-are **not established** beyond "the audit is red on an unchanged lockfile",
-which the dependency bump on this branch addresses.
-*Action:* re-check after #46/#47 merge.
+daily from at least 2026-11-08 to 2026-11-11 on `200109e`. The GitHub jobs API
+first returned HTTP 502 for every run; it answered on 2026-11-12, and the job
+logs give four separate causes — all of them fixed or addressed on this branch:
+
+1. **Dependency Audit** — the step is `Fail on new advisories vs baseline`, with
+   `critical=1 high=3 moderate=5 npm=9 new=8`. Dependabot shows 22 open alerts on
+   the default branch, including two CRITICAL/HIGH `next` advisories
+   (`GHSA-2464-fhr4-w9xw`, `GHSA-p3m5-59mp-jv5r`). The `next` bump to 15.5.29 on
+   this branch is why `dependency-audit` is green here (35 s).
+2. **`Tests & Security Audits` → `static-audit`** — the failing step is `Gitleaks
+   — scan for hardcoded secrets`, `leaks found: 7`, all in test/guard fixtures
+   (`REDACTED` in the log). This branch's value-scoped `.gitleaks.toml`
+   (commit `18418db`, fixtures in `1a789aa`) is why `gitleaks` is green here —
+   and that same config still reports a planted `ghp_…` token, which is the
+   property that matters (row 1.5).
+3. **`frontend-checks`** — `Build` fails with `An error occurred in next/font /
+   TypeError: Cannot read properties of null (reading '1')`. Green here after the
+   same `next` bump.
+4. **E2E delivery gate and the four live probes** — the suite reports
+   `E2E_EMAIL account is not in the MFA-free state the journey starts from
+   (disable MFA first)`. This is **not** evidence that `E2E_ADMIN_TOKEN` is
+   revoked; it is an account-state problem in the owner's E2E identity. Only the
+   owner can change it (F8).
+
+*Action:* merge this branch (or #46 plus the bump) and re-check; the E2E account
+state needs an owner decision either way.
 
 ### F6 — LOW (accepted) — 3 dev-only advisories in vitest
 `vitest`, `@vitest/mocker`, `@vitest/coverage-v8` 4.1.11. Fix requires vitest 5,
@@ -232,12 +255,15 @@ them would leave such PRs permanently unmergeable. Either the filters are
 removed (DAST then runs on every PR, including docs-only ones) or the checks
 stay advisory. Owner decision.
 
-### F8 — LOW — Actions secrets are stale and one is missing
+### F8 — LOW — one Action secret is missing and the E2E account is in the wrong state
 Present: `E2E_EMAIL`, `E2E_PASSWORD`, `E2E_ADMIN_TOKEN` (last updated
 2026-08-07). Referenced but absent: `R2_PUBLIC_URL` (has an inline default, so
-not fatal). Whether `E2E_ADMIN_TOKEN` is still valid could not be established
-without using it against the live backend, which is out of bounds. The E2E gate
-is red daily (F5), which is *consistent* with a stale token but not proof of it.
+not fatal). The E2E gate's red is **not** a token problem after all — its log
+says `E2E_EMAIL account is not in the MFA-free state the journey starts from
+(disable MFA first)` (F5.4). Whether the token itself is still valid remains
+unproven, because using it against the live backend is out of bounds.
+*Owner:* disable MFA on the E2E account, or make the journey handle the second
+factor; then re-run the gate.
 
 ### F9 — LOW — Reconciliation is a script, not a schedule
 `backend/scripts/reconcile_payments.py` exists and is tested (7 cases) but
