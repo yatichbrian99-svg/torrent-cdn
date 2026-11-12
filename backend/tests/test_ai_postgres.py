@@ -424,3 +424,83 @@ async def test_signup_grants_enforce_one_identity_and_count_velocity(store):
                 "DELETE FROM ai_signup_grants WHERE account_id = ANY($1::uuid[])",
                 [uuid.UUID(first), uuid.UUID(second)],
             )
+
+
+@pytest.mark.asyncio
+async def test_console_key_listing_and_revocation_are_account_scoped(store):
+    """The console's key list never carries a hash, and revoking is scoped.
+
+    Postgres is the only place these queries run (the in-memory store has its
+    own implementation), so the SQL is what is under test here.
+    """
+    from app.ai.store import ApiKeyRecord
+
+    mine, theirs = str(uuid.uuid4()), str(uuid.uuid4())
+    hashes = [f"hash-{uuid.uuid4().hex}" for _ in range(2)]
+    # ai_accounts references users(id): the console creates keys for real users.
+    async with store.pool.acquire() as conn:
+        for account in (mine, theirs):
+            await conn.execute(
+                "INSERT INTO users (id, email, password_hash) VALUES ($1, $2, 'x')",
+                uuid.UUID(account),
+                f"console-{account}@example.com",
+            )
+    for account, digest, prefix in (
+        (mine, hashes[0], "tcdn_mineprefix"),
+        (theirs, hashes[1], "tcdn_theirprefix"),
+    ):
+        await store.credit(
+            account, 1, source="gateway:test", idempotency_key=f"seed-{digest}", kind="credit_purchase"
+        )
+        await store.create_api_key(
+            ApiKeyRecord(account_id=account, key_hash=digest, prefix=prefix)
+        )
+    try:
+        listed = await store.list_api_keys(mine)
+        assert [record.prefix for record in listed] == ["tcdn_mineprefix"]
+        assert listed[0].key_id and listed[0].status == "active"
+
+        # Someone else's key id cannot be revoked through my account.
+        their_key = (await store.list_api_keys(theirs))[0]
+        assert await store.revoke_api_key(mine, their_key.key_id) is False
+        assert (await store.get_api_key(hashes[1])) is not None
+
+        assert await store.revoke_api_key(mine, listed[0].key_id) is True
+        assert await store.revoke_api_key(mine, listed[0].key_id) is False
+        assert await store.get_api_key(hashes[0]) is None
+        revoked = (await store.list_api_keys(mine))[0]
+        assert revoked.status == "revoked" and revoked.revoked_at
+    finally:
+        async with store.pool.acquire() as conn:
+            # ai_accounts and ai_api_keys cascade from users.
+            await conn.execute(
+                "DELETE FROM users WHERE id = ANY($1::uuid[])",
+                [uuid.UUID(mine), uuid.UUID(theirs)],
+            )
+            await conn.execute(
+                "DELETE FROM ai_ledger_entries WHERE credit_account = ANY($1::text[])",
+                [account_credits(mine), account_credits(theirs)],
+            )
+
+
+@pytest.mark.asyncio
+async def test_ledger_amount_answers_the_paid_question(store):
+    """A checkout is 'paid' only if the ledger has its reference."""
+    account = str(uuid.uuid4())
+    reference = f"tcdnai-sim-starter-{uuid.uuid4().hex[:12]}"
+    try:
+        assert await store.ledger_amount(f"payment:fake:{reference}") is None
+        await store.credit(
+            account,
+            7_500,
+            source="gateway:fake:clearing",
+            idempotency_key=f"payment:fake:{reference}",
+            kind="credit_purchase",
+        )
+        assert await store.ledger_amount(f"payment:fake:{reference}") == 7_500
+    finally:
+        async with store.pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM ai_ledger_entries WHERE idempotency_key = $1",
+                f"payment:fake:{reference}",
+            )

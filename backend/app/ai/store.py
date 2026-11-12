@@ -323,6 +323,9 @@ class ApiKeyRecord:
     status: str = "active"
     created_at: int = 0
     last_used_at: int | None = None
+    #: Opaque id the console uses to revoke a key without ever handling its hash.
+    key_id: str | None = None
+    revoked_at: int | None = None
 
 
 @dataclass
@@ -464,6 +467,10 @@ class Store(Protocol):
 
     async def touch_api_key(self, key_hash: str, at: int) -> None: ...
 
+    async def list_api_keys(self, account_id: str) -> list[ApiKeyRecord]: ...
+
+    async def revoke_api_key(self, account_id: str, key_id: str) -> bool: ...
+
     async def register_node(self, node: NodeRecord) -> NodeRecord: ...
 
     async def get_node(self, node_id: str) -> NodeRecord | None: ...
@@ -591,6 +598,14 @@ class Store(Protocol):
         """True when this exact posting already happened (provider replay)."""
         ...
 
+    async def ledger_amount(self, idempotency_key: str) -> int | None:
+        """Amount posted under this idempotency key, or None if never posted.
+
+        Used by the console to answer "is this checkout paid?" from the ledger
+        rather than from a browser return URL.
+        """
+        ...
+
     async def post_ledger(
         self,
         *,
@@ -708,6 +723,10 @@ class MemoryStore:
         return None
 
     async def create_api_key(self, record: ApiKeyRecord) -> None:
+        # Postgres mints the id in the DDL default; the in-memory store has to
+        # mint one here or a key has no id to revoke by.
+        if record.key_id is None:
+            record.key_id = str(uuid.uuid4())
         self.api_keys[record.key_hash] = record
 
     async def get_api_key(self, key_hash: str) -> ApiKeyRecord | None:
@@ -717,6 +736,30 @@ class MemoryStore:
         record = self.api_keys.get(key_hash)
         if record is not None:
             record.last_used_at = at
+
+    async def list_api_keys(self, account_id: str) -> list[ApiKeyRecord]:
+        """Every key on the account, newest first. Hashes stay in the store."""
+        keys = [
+            record
+            for record in self.api_keys.values()
+            if record.account_id == account_id
+        ]
+        return sorted(keys, key=lambda record: record.created_at, reverse=True)
+
+    async def revoke_api_key(self, account_id: str, key_id: str) -> bool:
+        """Revoke one key, only if it belongs to ``account_id``.
+
+        Scoping by account here rather than trusting the caller is what stops a
+        guessed id from revoking someone else's credential.
+        """
+        for record in self.api_keys.values():
+            if record.key_id == key_id and record.account_id == account_id:
+                if record.status == "revoked":
+                    return False
+                record.status = "revoked"
+                record.revoked_at = int(self._clock())
+                return True
+        return False
 
     async def register_node(self, node: NodeRecord) -> NodeRecord:
         node.last_heartbeat = int(self._clock())
@@ -967,6 +1010,12 @@ class MemoryStore:
 
     async def ledger_has_entry(self, idempotency_key: str) -> bool:
         return self.ledger.posted(idempotency_key)
+
+    async def ledger_amount(self, idempotency_key: str) -> int | None:
+        for entry in self.ledger.entries:
+            if entry.idempotency_key == idempotency_key:
+                return int(entry.amount_micro)
+        return None
 
     async def held_micro(self, account_id: str) -> int:
         return self.ledger.held(account_credits(account_id))
@@ -1270,6 +1319,57 @@ class PostgresStore:
                 "UPDATE ai_api_keys SET last_used_at = NOW() WHERE key_hash = $1",
                 key_hash,
             )
+
+    async def list_api_keys(self, account_id: str) -> list[ApiKeyRecord]:
+        """Key metadata for one account. ``key_hash`` never leaves the store layer."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, account_id, key_hash, prefix, scopes, pepper_id, status,
+                       EXTRACT(EPOCH FROM created_at)::bigint AS created_unix,
+                       EXTRACT(EPOCH FROM last_used_at)::bigint AS last_used_unix,
+                       EXTRACT(EPOCH FROM revoked_at)::bigint AS revoked_unix
+                FROM ai_api_keys
+                WHERE account_id = $1
+                ORDER BY created_at DESC
+                """,
+                _uuid(account_id),
+            )
+        return [
+            ApiKeyRecord(
+                account_id=str(row["account_id"]),
+                key_hash=row["key_hash"],
+                prefix=row["prefix"],
+                scopes=tuple(row["scopes"] or ()),
+                pepper_id=row["pepper_id"],
+                status=row["status"],
+                created_at=int(row["created_unix"] or 0),
+                last_used_at=int(row["last_used_unix"])
+                if row["last_used_unix"]
+                else None,
+                key_id=str(row["id"]),
+                revoked_at=int(row["revoked_unix"]) if row["revoked_unix"] else None,
+            )
+            for row in rows
+        ]
+
+    async def revoke_api_key(self, account_id: str, key_id: str) -> bool:
+        """Revoke one key owned by ``account_id``; False if nothing changed."""
+        try:
+            key_uuid = _uuid(key_id)
+        except (ValueError, AttributeError):
+            return False
+        async with self.pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                UPDATE ai_api_keys
+                SET status = 'revoked', revoked_at = NOW()
+                WHERE id = $1 AND account_id = $2 AND status = 'active'
+                """,
+                key_uuid,
+                _uuid(account_id),
+            )
+        return result.endswith(" 1")
 
     async def register_node(self, node: NodeRecord) -> NodeRecord:
         async with self.pool.acquire() as conn:
@@ -1923,6 +2023,14 @@ class PostgresStore:
                 idempotency_key,
             )
         return value is not None
+
+    async def ledger_amount(self, idempotency_key: str) -> int | None:
+        async with self.pool.acquire() as conn:
+            value = await conn.fetchval(
+                "SELECT amount_micro FROM ai_ledger_entries WHERE idempotency_key = $1",
+                idempotency_key,
+            )
+        return int(value) if value is not None else None
 
     async def held_micro(self, account_id: str) -> int:
         async with self.pool.acquire() as conn:
