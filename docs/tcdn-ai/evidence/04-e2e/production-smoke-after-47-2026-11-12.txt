@@ -1,0 +1,60 @@
+PRODUCTION SMOKE (non-authenticated) — 2026-11-12T06:18:33Z
+main head a7ad7684186b30de4cb69ab353f2fd5120678ac4 (PR #47 merged 2026-11-12T06:15:35Z)
+ENABLE_TCDN_AI is not set in production; nothing below authenticates.
+
+== 1. health ==
+GET https://torrent-cdn.onrender.com/health  -> {"status":"healthy"} [200]
+GET https://torrent-cdn.onrender.com/api/health/live -> {"status":"healthy","application":{"monitor_running":true,"redis":true},"media_pipeline":{"mediamtx_configured":true,"mediamtx_reachable":true,"segment_discovery_active":true},"active_channels":0,"last_error":null} [200]
+
+== 2. NUL-byte input must be a 400, not a 500 (PR #46) ==
+POST https://torrent-cdn.onrender.com/auth/login (email with %00) -> [400] {"detail":"Invalid email address"}
+POST https://torrent-cdn.onrender.com/auth/register (email with %00) -> [400] {"detail":"Invalid email address"}
+POST https://torrent-cdn.onrender.com/auth/forgot-password (email with %00) -> [400] {"detail":"Invalid email address"}
+
+== 3. the AI surface must not exist ==
+GET https://torrent-cdn.onrender.com/api/ai/v1/status -> [404]
+GET https://torrent-cdn.onrender.com/api/ai/v1/models -> [404]
+GET https://torrent-cdn.onrender.com/api/ai/v1/never-existed (control) -> [404]
+through the Vercel rewrite: GET https://www.torrentcdn.store/api/api/ai/v1/status -> [404]
+through the Vercel rewrite: control /api/api/ai/v1/never-existed -> [404]
+
+== 4. public pages ==
+GET https://www.torrentcdn.store/              -> [200]
+GET https://www.torrentcdn.store/demo          -> [200]
+GET https://www.torrentcdn.store/docs          -> [200]
+GET https://www.torrentcdn.store/architecture  -> [200]
+GET https://www.torrentcdn.store/pricing       -> [404]
+GET https://www.torrentcdn.store/privacy       -> [200]
+GET https://www.torrentcdn.store/terms         -> [200]
+GET https://www.torrentcdn.store/cookies       -> [200]
+GET https://www.torrentcdn.store/dmca          -> [200]
+
+== 5. headers (HTML 200) ==
+content-security-policy: default-src 'self'; script-src 'self' 'nonce-51920bd3c4914950b2f3709484b15b91' 'strict-dynamic'; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' wss://tracker.webtorrent.dev wss://tracker.openwebtorrent.com wss://tracker.files.fm:7073 https://*.supabase.co https://*.r2.cloudflarestorage.com https://*.r2.dev https://hls.torrentcdn.store; frame-src 'self'; frame-ancestors 'self'; form-action 'self'; worker-src 'self' blob:; base-uri 'self'; object-src 'none'
+cross-origin-opener-policy: same-origin
+permissions-policy: accelerometer=(), ambient-light-sensor=(), autoplay=(), camera=(), display-capture=(), document-domain=(), encrypted-media=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), interest-cohort=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), speaker-selection=(), usb=(), web-share=()
+referrer-policy: strict-origin-when-cross-origin
+strict-transport-security: max-age=31536000; includeSubDomains; preload
+x-content-type-options: nosniff
+x-frame-options: SAMEORIGIN
+
+== 6. headers (HTML 404) ==
+HTTP/2 404 
+content-security-policy: default-src 'self'; script-src 'self' 'nonce-3946fef3983743dbb3e1abae8a2259da' 'strict-dynamic'; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' wss://tracker.webtorrent.dev wss://tracker.openwebtorrent.com wss://tracker.files.fm:7073 https://*.supabase.co https://*.r2.cloudflarestorage.com https://*.r2.dev https://hls.torrentcdn.store; frame-src 'self'; frame-ancestors 'self'; form-action 'self'; worker-src 'self' blob:; base-uri 'self'; object-src 'none'
+cross-origin-opener-policy: same-origin
+permissions-policy: accelerometer=(), ambient-light-sensor=(), autoplay=(), camera=(), display-capture=(), document-domain=(), encrypted-media=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), interest-cohort=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), speaker-selection=(), usb=(), web-share=()
+referrer-policy: strict-origin-when-cross-origin
+strict-transport-security: max-age=31536000; includeSubDomains; preload
+x-content-type-options: nosniff
+x-frame-options: SAMEORIGIN
+
+== 7. headers (backend 404) ==
+HTTP/2 404 
+content-security-policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob: https://www.torrentcdn.store; connect-src 'self' wss://tracker.webtorrent.dev wss://tracker.openwebtorrent.com wss://tracker.files.fm:7073 https://www.torrentcdn.store; frame-src 'self'; worker-src 'self' blob:; base-uri 'self'; report-uri /csp-report; report-to csp-endpoint
+permissions-policy: accelerometer=(), ambient-light-sensor=(), autoplay=(), camera=(), display-capture=(), document-domain=(), encrypted-media=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), interest-cohort=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), speaker-selection=(), usb=(), web-share=()
+referrer-policy: strict-origin-when-cross-origin
+strict-transport-security: max-age=31536000; includeSubDomains; preload
+x-content-type-options: nosniff
+x-frame-options: DENY
+
+done 2026-11-12T06:18:49Z

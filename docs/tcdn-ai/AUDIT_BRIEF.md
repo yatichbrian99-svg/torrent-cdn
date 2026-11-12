@@ -7,10 +7,10 @@ and an explicit list of what is *not* proven.
 | | |
 |---|---|
 | Repository | `github.com/yatichbrian99-svg/torrent-cdn` (public) |
-| Branch under review | `fix/tcdn-ai-redis-replay-nonce` |
-| Commit | code audited at `d14b211`; the audit-package commit on top of it adds only this brief, `SELF_AUDIT.md` and the evidence captures. The archive is built from that commit and its filename carries the exact short hash |
-| Product branch | `fix/product-security-hardening` (PR #46), the fixes intended to land on `main` first |
-| Default branch | `main` (`200109e`), which does **not** yet contain either branch |
+| Branch under review | `fix/tcdn-ai-redis-replay-nonce` (PR #47) — **merged** |
+| Commit | code audited at `d14b211`; rebased onto `eb0976d`, verified, and merged as **`a7ad7684186b30de4cb69ab353f2fd5120678ac4`** on 2026-11-12T06:15:35Z. `dist/torrentcdn-audit-a7ad768.zip` is `git archive` of exactly that commit and its filename carries the short hash |
+| Product branch | `fix/product-security-hardening` (PR #46) — **merged** at `eb0976d` on 2026-11-12T04:54:11Z |
+| Default branch | `main` (`a7ad768`) — **contains both PRs**, and still does not set `ENABLE_TCDN_AI` |
 
 ---
 
@@ -103,8 +103,9 @@ ENABLE_TCDN_AI=true pytest -q  # flag on — this is the release gate
 
 ### 4.2 Backend with the real-service lanes
 
-The suite skips 30 tests without these; they are the ones that prove concurrency
-and migrations.
+With the flag on and both services up the whole suite is **1382 passed / 4 skipped**;
+without them the real-service lanes skip, and those are the tests that prove
+concurrency and migrations.
 
 ```bash
 docker run -d --name audit-pg -e POSTGRES_USER=audit -e POSTGRES_PASSWORD=auditpw \
@@ -192,14 +193,15 @@ allowlisted account, minimum charge, replay check, kill switch, reconcile).
 
 | Question | File |
 |---|---|
-| Does the suite pass, flag on/off? | `evidence/01-tests/full-suite-flag-on-2026-11-11.txt`, `skips-*`, `real-pg-redis-lanes-*` |
+| Does the suite pass, flag on/off? | `evidence/01-tests/postmerge-verification-2026-11-12.txt` (merged tree: flag on 1382 passed / 4 skipped, flag off 1298 passed / 85 skipped, plus the production-shaped migration sequence) and the earlier `full-suite-flag-on-2026-11-11.txt`, `skips-*`, `real-pg-redis-lanes-*` |
+| Is the merged build actually live? | `evidence/04-e2e/production-smoke-2026-11-12.txt` (after #46) and `evidence/04-e2e/production-smoke-after-47-2026-11-12.txt` (after #47) |
 | Which rows are done, and from what command? | `PUSH_CHECKLIST.md` (54/56 P1 VERIFIED, recount at the top) |
 | What is not done, and why? | `LEVEL1_EXCEPTIONS.md` (6.1, 4.4, 5.5) |
 | Security suites by area | `evidence/03-security/self-audit-suites-2026-11-11.txt` |
 | Flag-off behaviour | `evidence/03-security/flag-off-behaviour-2026-11-11.txt` |
 | 40018 acceptance | `evidence/03-security/sqli-40018-2026-11-11.txt` |
 | Dependency scans / secrets | `evidence/03-security/{pip-audit,npm-audit,gitleaks-*}.txt` |
-| Repository controls | `evidence/03-security/branch-protection-2026-11-11.json` |
+| Repository controls | `evidence/03-security/branch-protection-2026-11-12.json` (8 required contexts, strict, admins enforced, force-push off) |
 | Findings and ranking | `SELF_AUDIT.md` |
 | Crypto reasoning | `CRYPTO_REVIEW.md`, `KEY_INVENTORY.md` |
 | Known limits | `LIMITATIONS.md`, `WORKER_NETWORKING.md` |
@@ -227,7 +229,7 @@ allowlisted account, minimum charge, replay check, kill switch, reconcile).
 
 * Any live provider round trip (charge, decline, refund, webhook ordering,
   KES rounding, M-Pesa).
-* A DAST run launched from the audit workstation. CI did run it on this commit
+* A DAST run launched from the audit workstation. CI ran it on the merged head
   and the `ZAP (unauthenticated + JWT + AI key, flag on)` check is green; read
   that run's artefacts rather than trusting a summary of it.
 * Container image scan locally (`trivy` unavailable in the audit environment).
@@ -239,10 +241,14 @@ allowlisted account, minimum charge, replay check, kill switch, reconcile).
   backend was out of bounds, so validity stays unproven.
 * The confidential tier's attestation against a real vendor verifier (simulated
   adapter in development; production refuses it).
-* `main` itself: PR #46's fixes are not merged, so `main` still has the logout
-  no-op and the live-viewer 500s, and its scheduled workflows are red for the
-  four reasons enumerated in `SELF_AUDIT.md` F5 (stale lockfile, gitleaks
-  fixture findings, a `next/font` build error, and an E2E account with MFA on).
+* The AI surface against real traffic. It is merged but **off** — production
+  sets no `ENABLE_TCDN_AI` — so every AI-path measurement here comes from a
+  local or CI stack, not from customers.
+* Whether the scheduled (cron) workflows are green on `main` after the merge. The
+  four causes of their red state (`SELF_AUDIT.md` F5: lockfile, gitleaks fixture
+  config, the `next/font` build error, the E2E account's MFA state) are addressed
+  in the merged tree, but only the next scheduled run can confirm it, and it had
+  not run when this brief was written.
 
 ---
 
