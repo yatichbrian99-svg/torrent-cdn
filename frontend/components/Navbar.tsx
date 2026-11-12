@@ -107,6 +107,11 @@ export default function Navbar() {
             <a href="/docs" className="text-sm transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-muted)' }}>Docs</a>
             <a href="/architecture" className="text-sm transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-muted)' }}>Architecture</a>
             <a href="/demo" className="text-sm transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-muted)' }}>Demo</a>
+            {/* Public page, not the console: it renders with the flag on or off,
+                so the link is not gated like the AI link below. Hidden below sm
+                only because the nav already overflows a 375px viewport; the
+                footer link covers phones. */}
+            <a href="/tcdn-ai" className="hidden text-sm transition-colors hover:text-[color:var(--text-primary)] sm:inline" style={{ color: 'var(--text-muted)' }}>TCDN-AI</a>
             {loggedIn && (
               <>
                 <a href="/dashboard" className="text-sm" style={{ color: 'var(--text-muted)' }}>Dashboard</a>

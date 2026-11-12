@@ -1,0 +1,32 @@
+# node ../docs/tcdn-ai/evidence/public-page/check.mjs  (cwd: frontend, next start -p 3002, flag off)
+# exit status is non-zero on purpose: 3 of 23 checks report the shared navbar's
+# #555-on-black contrast, which fails identically on the existing pages (see README).
+
+PASS  no horizontal overflow @375 — 0px
+FAIL  axe @375 — color-contrast(3)
+PASS  no page errors @375
+PASS  no horizontal overflow @768 — 0px
+FAIL  axe @768 — color-contrast(5)
+PASS  no page errors @768
+PASS  no horizontal overflow @1280 — 0px
+FAIL  axe @1280 — color-contrast(5)
+PASS  no page errors @1280
+PASS  early-access link present — 2 occurrences
+PASS  mailto href prefilled — mailto:support@torrentcdn.store?subject=TCDN-AI%20early%20access%20request
+PASS  no dashboard link with flag off
+PASS  dashboard link appears when probe says enabled — 2 (hero + hosts)
+PASS  dashboard link targets /ai
+PASS  tab order reaches every control without a <body> gap — 29 stops
+PASS  every focused element draws a focus ring — 0 without outline
+  tab order: a:TorrentCDN:outline=auto | button:Switch to light mode:outline=auto | a:Docs:outline=auto | a:Architecture:outline=auto | a:Demo:outline=auto | a:TCDN-AI:outline=auto | button:Login:outline=auto | button:Sign up:outline=auto | a:Request early access:outline=auto | a:support@torrentcdn.store:outline=auto | button:Copy OpenAI Python snippet:outline=auto | pre:OpenAI Python snippet:outline=solid | button:Copy OpenAI JS snippet:outline=auto | pre:OpenAI JS snippet:outline=solid | button:Copy curl snippet:outline=auto | pre:curl snippet:outline=solid | button:Copy Cursor snippet:outline=auto | pre:Cursor snippet:outline=solid | button:Copy Cline snippet:outline=auto | pre:Cline snippet:outline=solid | button:Copy Continue snippet:outline=auto | pre:Continue snippet:outline=solid | button:Copy OpenCode snippet:outline=auto | pre:OpenCode snippet:outline=solid | a:Request early access:outline=auto | BODY | a:TorrentCDN:outline=auto | button:Switch to light mode:outline=auto | a:Docs:outline=auto | a:Architecture:outline=auto
+PASS  nav link hidden @375
+PASS  footer link present @375
+PASS  nav link visible @768
+PASS  footer link present @768
+PASS  nav link visible @1280
+PASS  footer link present @1280
+PASS  /ai still shows only the unavailable panel
+
+20/23 checks passed
+
+exit=1
