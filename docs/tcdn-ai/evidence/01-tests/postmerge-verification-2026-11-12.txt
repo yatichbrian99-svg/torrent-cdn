@@ -1,0 +1,65 @@
+POST-MERGE VERIFICATION — rebase onto main eb0976d (PR #46 merged 2026-11-12T04:54:11Z)
+run_utc=2026-11-12T05:45:06Z
+local: disposable Postgres 16.4 (:55432) + Redis 7.4.2 (:56379), both removed after the run
+commands run from backend/ with
+  ENABLE_TCDN_AI=true TEST_POSTGRES_URL=postgresql://audit:auditpw@127.0.0.1:55432/tcdn \
+  TEST_REDIS_URL=redis://127.0.0.1:56379/0 ./.venv/bin/python -m pytest -q -p no:cacheprovider
+
+== rebase
+108 commits replayed onto eb0976d. Conflicts, all from PR #46 landing the same
+helpers first, resolved in favour of main and re-verified by the full suite:
+  backend/app/auth.py              _max_token_lifetime_secs() (policy-derived cap)
+  backend/app/security.py          set_if_absent() (atomic first-wins gate)
+  backend/app/routes/auth.py       set_if_absent import + call site
+  backend/app/routes/verification.py  same, and the now-unused ai.redis_cache import dropped
+  backend/tests/test_auth.py       main's newer claim/cap tests kept (branch side was older)
+  docs/pentest-report-2026-10-14.md  main's measured F-10 blast-radius section kept
+  frontend/package-lock.json       main's lock kept, then reconciled with the merged manifest
+Two commits were skipped by git as already applied on main (6650419, 246685e).
+
+== full suite, flag ON (real Postgres + Redis)
+1382 passed, 4 skipped, 0 failed in 177.69s
+
+== full suite, flag OFF (same services, no ENABLE_TCDN_AI)
+1298 passed, 85 skipped, 0 failed in 116.48s
+  The 84 extra skips are the AI tests. One test had to be gated to make this run
+  meaningful: test_ai_postgres.py::test_startup_migrations_bootstrap_a_fresh_database
+  asserted the ai_* schema exists while never skipping without the flag, so a
+  flag-off run failed exactly because the flag-off promise holds. It now carries
+  the same skipif every other AI test carries, and still runs in the flag-on lane
+  (verified: 1 passed with the flag on, 1 skipped with it off).
+
+== flag-off proof (routes, DDL, behaviour)
+OpenAPI path count, measured in two separate processes on this tree:
+  flag off: 79 paths, 0 /api/ai paths
+  flag on:  99 paths, 18 /api/ai paths
+tests/test_ai_api.py, flag off: 16 skipped
+tests/test_ai_migrations.py, flag off: 8 passed  (the DDL assertions, incl. the flag gate)
+tests/test_authorization_matrix.py, flag off: 11 passed, 10 skipped
+
+== migration check on a production-shaped copy
+Built the way production builds it: a fresh database, the app's own
+run_startup_migrations() (not a hand-written DDL script), one seeded user row.
+  boot 1  flag OFF, empty DB      -> 12 tables, 0 ai_* tables
+  seed    one row in users        -> 1 row
+  boot 2  flag ON                 -> 17 ai_* tables; 122 non-ai columns IDENTICAL
+                                     (diff empty); seed row survives
+  boot 3  flag ON again           -> schema hash unchanged (idempotent), 17 ai_* tables
+  boot 4  flag OFF, AI schema up  -> 17 ai_* tables still present, seed row survives,
+                                     schema hash unchanged (nothing dropped, nothing altered)
+  schema hash, all public columns: 3cab1f20d628514af92468962ff1f3fb (identical from boot 2 on)
+Same 17-table DDL is what tests/test_ai_schema_contract.py PREPAREs all 44 app/ai
+statements against, and that suite passed in both full runs above.
+
+== static gates
+ruff check app tests scripts            -> All checks passed
+ruff format --check app/ai tcdn_ai_sdk  -> 40 files already formatted
+mypy --config-file mypy-ai.ini          -> Success: no issues found in 40 source files
+scripts/sql_injection_audit.py          -> [OK] ALL DB CALLS PARAMETERIZED
+scripts/dead_code_audit.py              -> [OK] No dead code found
+pip-audit -r requirements.txt           -> No known vulnerabilities found
+semgrep (p/python + p/secrets, ERROR)   -> Ran 91 rules on 127 files: 0 findings
+
+== not run locally (CI is the only evidence path)
+gitleaks (not installed), trivy container/image scan (not installed), ZAP DAST
+(workflow-only), frontend build/vitest (npm lane), dependency-audit image checks.

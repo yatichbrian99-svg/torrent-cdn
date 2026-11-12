@@ -31,6 +31,13 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def _ai_schema_enabled() -> bool:
+    """startup creates the ai_* schema only when ENABLE_TCDN_AI is on."""
+    from app import main as app_main
+
+    return bool(getattr(app_main, "_ai_enabled", False))
+
+
 @pytest_asyncio.fixture
 async def store():
     from app.database import USERS_TABLE_DDL
@@ -181,6 +188,10 @@ async def test_every_ledger_entry_has_equal_debits_and_credits(store):
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    not _ai_schema_enabled(),
+    reason="ENABLE_TCDN_AI is off: startup creates no ai_* schema to bootstrap",
+)
 async def test_startup_migrations_bootstrap_a_fresh_database():
     """A brand-new database must get the AI schema on first boot.
 
