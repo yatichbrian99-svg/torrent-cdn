@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import Script from 'next/script'
 import { headers } from 'next/headers'
-import { Inter } from 'next/font/google'
+import localFont from 'next/font/local'
 import './globals.css'
 import Navbar from '@/components/Navbar'
 
@@ -10,7 +10,36 @@ import Navbar from '@/components/Navbar'
 // bake in scripts without nonces and break under the strict CSP.
 export const dynamic = 'force-dynamic'
 
-const inter = Inter({ subsets: ['latin'], weight: ['400', '500', '600', '700'] })
+// Inter, self-hosted.
+//
+// This used to be `Inter` from `next/font/google`, which downloaded the font
+// from fonts.googleapis.com during `next build`. That fetch is the source of
+// the intermittent build failure ("TypeError: Cannot read properties of null"
+// in @next/font's Google loader) and it made the build depend on a third party
+// being reachable. The file below is the SAME latin subset Google served, so the
+// glyphs and metrics are identical; it is an OFL-1.1 licensed variable font and
+// its licence ships next to it (app/fonts/LICENSE-Inter.txt).
+//
+// No styles change: `inter.className` is still what the <body> carries, the
+// family/weights (400-700) and latin subset are the same, and `--font-inter`
+// is exposed for anything that wants the family by variable.
+const inter = localFont({
+  // One variable file, four faces with the same weights the Google loader
+  // declared. Declaring the weights individually (rather than as a
+  // "400 700" range) is what keeps the rendering pixel-identical: it is the
+  // shape of the CSS Google's API produced, and Chrome then sets the wght axis
+  // per face exactly as before.
+  src: [
+    { path: './fonts/inter-latin.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/inter-latin.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/inter-latin.woff2', weight: '600', style: 'normal' },
+    { path: './fonts/inter-latin.woff2', weight: '700', style: 'normal' },
+  ],
+  display: 'swap',
+  variable: '--font-inter',
+  fallback: ['system-ui', 'sans-serif'],
+  adjustFontFallback: 'Arial',
+})
 
 // Pre-paint theme resolution — MUST stay inline (it runs before first paint,
 // so it cannot wait for the bundle) and unblocking (CSP: script-src allows
@@ -124,11 +153,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c'),
           }}
         />
-        {/* Preconnect to performance origins */}
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        {/* No font preconnect: the font is self-hosted and preloaded by
+            next/font, so there is no Google origin to warm up. */}
       </head>
-      <body className={inter.className}>
+      <body className={`${inter.className} ${inter.variable}`}>
         {/* Pre-paint theme: resolves the persisted theme before first paint.
             next/script (beforeInteractive) is REQUIRED here — middleware sets
             a nonce-based CSP, so only nonce-stamped inline scripts execute.
