@@ -8,9 +8,9 @@ and an explicit list of what is *not* proven.
 |---|---|
 | Repository | `github.com/yatichbrian99-svg/torrent-cdn` (public) |
 | Branch under review | `fix/tcdn-ai-redis-replay-nonce` (PR #47) — **merged** |
-| Commit | code audited at `d14b211`; rebased onto `eb0976d`, verified, and merged as **`a7ad7684186b30de4cb69ab353f2fd5120678ac4`** on 2026-11-12T06:15:35Z. `dist/torrentcdn-audit-a7ad768.zip` is `git archive` of exactly that commit and its filename carries the short hash |
+| Commit | header reviewed at the state merged into `main`; this archive is **`7332b1f44dac6dff043d5cfa34a43bd0bf7059b1`** (2026-11-12T19:34:51+03:00, "Merge pull request #53 from yatichbrian99-svg/feat/ci-e2e-login-diagnostics"). `dist/torrentcdn-audit-7332b1f.zip` is `git archive` of exactly that commit, `sha256 d07bb4f3cce068e8970d5de44ab2d666ec50e82fc4ea1e5a2d1739813d2919fd` |
 | Product branch | `fix/product-security-hardening` (PR #46) — **merged** at `eb0976d` on 2026-11-12T04:54:11Z |
-| Default branch | `main` (`a7ad768`) — **contains both PRs**, and still does not set `ENABLE_TCDN_AI` |
+| Default branch | `main` (`7332b1f`) — **contains both PRs**, and still does not set `ENABLE_TCDN_AI` |
 
 ---
 
@@ -41,6 +41,9 @@ This audit covers both, but the AI surface is where the new risk is.
 * CI and release gates: `.github/workflows/**`, `.github/zap/**`.
 * Deployment posture: branch protection, secret scanning, Actions secrets
   (names only), image build.
+
+* The developer console: `backend/app/ai/routes_console.py`, `backend/app/ai/console.py`, `frontend/app/ai/**`, `frontend/components/ai/**`, `frontend/lib/aiConsole.ts` — flag-gated, flag-off proven, evidence in `docs/tcdn-ai/evidence/frontend/`. <!-- console-scope -->
+* The public marketing page: `frontend/app/tcdn-ai/page.tsx`, `frontend/lib/aiPublic.ts`, `frontend/components/ai/CodeBlock.tsx`, `frontend/components/ai/EarlyAccessCta.tsx`, the navbar/footer links and the sitemap entry — static copy, flag-independent, and **every factual claim on it is audited row by row** in `docs/tcdn-ai/evidence/frontend/PAGE_CLAIMS.md` (with the test output the rows cite in the same directory). <!-- public-page-scope -->
 
 **Out of scope / deliberately not done**
 * No live payment (no Paystack live key, no M-Pesa), no production calls.
