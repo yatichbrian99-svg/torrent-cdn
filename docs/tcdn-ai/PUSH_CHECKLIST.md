@@ -11,7 +11,7 @@ Nothing here is inherited from an earlier report.
 | Level | VERIFIED | PARTIAL | BUILT-UNVERIFIED | MISSING | DEFERRED | NOT VERIFIABLE HERE | Total |
 |---|---|---|---|---|---|---|---|
 | **P1** | **54** | **2** | 0 | **0** | 0 | 0 | 56 |
-| **P2** | 0 | 2 | 0 | **27** | 0 | 1 | 30 |
+| **P2** | 0 | 2 | 0 | **28** | 0 | 1 | 31 |
 | **DEFER** | 0 | 0 | 0 | 0 | 2 | 0 | 2 |
 
 Counts produced by parsing the tables in this file (not estimated). **Recounted 2026-11-01** at
@@ -24,6 +24,14 @@ on substance rather than on a lucky run: 40018 is now accepted **per instance** 
 can fail on, and it is exercised dynamically over every AI input route. That replaces the previous
 per-path review, which is what made the row non-deterministic. Row **3.4** was added 2026-10-28
 (P2, `MISSING`: outbound worker mode), which is why P2 is 30 rows.
+
+**Row added 2026-11-12:** **10.6** (P2, `MISSING`) — e2e must run against a staging backend,
+never production. Counts re-parsed after the addition: P2 is **0 / 2 / 0 / 28 / 0 / 1 of 31**.
+The row is missing because the suites still write through the production deployment; the
+reasoning and the account/rotation record are in `E2E_ACCOUNT.md`. Also on this date the
+`p2p-e2e` login step stopped swallowing the response (`ci-e2e.yml`): it now prints the HTTP
+status and a redacted detail, separates 401/403/429/5xx, and completes a second factor from
+`E2E_TOTP_SECRET`. That changes the diagnostics, not a row.
 
 **Staging (2026-10-28):** `render.staging.yaml` and `docs/tcdn-ai/STAGING.md`
 deploy this branch to a separate Render stack (own Postgres, own Key Value,
@@ -316,6 +324,7 @@ read from the uploaded `zap-reports` artifact and the two proxy logs:
 | 10.3 | All docs present and accurate | P1 | **VERIFIED** | `CONTRACTS.md` written; `VERIFICATION_REPORT.md` counts corrected; `STATE.md` rewritten for this commit; the stale `LIMITATIONS.md` claims (no HTTPS origin adapter, no live-DB CI, email verification delegated and not called) corrected; docs tests (`TestDisclosureDocs`, `TestSecurityDocCitations`, the CONTRACTS citation test) fail on drift | docs that describe unimplemented things still say so |
 | 10.4 | 4-hour soak, chaos, full fuzz budget | P2 | **MISSING** | — | — |
 | 10.5 | Encrypted backups + tested restore, DR, monitoring, status page | P2 | **MISSING** | — | — |
+| 10.6 | E2E runs against a staging backend, never production (no CI writes to production data) | P2 | **MISSING** | — | `p2p-e2e` still logs in and writes through the backend CI points at, which is production. The account, its secrets and the rotation steps are in `E2E_ACCOUNT.md` §3–§7; §6 says why writes must not land on production and what the move requires. Nothing was counted as closed: the suites have not yet been repointed. |
 
 ## 11. Legal, compliance and global
 
