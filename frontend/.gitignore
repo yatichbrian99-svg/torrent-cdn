@@ -3,3 +3,6 @@ tsbuildinfo
 
 # Playwright e2e artifacts (screenshots + synthesized test media)
 e2e/.artifacts/
+
+# Playwright screenshots produced by e2e/ai-*.mjs (copies live in docs/tcdn-ai/evidence/frontend)
+e2e/screenshots/

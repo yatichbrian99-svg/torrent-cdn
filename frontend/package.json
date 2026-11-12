@@ -24,7 +24,9 @@
     "test:e2e:noselect": "node e2e/admin-noselect.mjs",
     "test:e2e:last-code": "node e2e/last-backup-code.mjs",
     "test:coverage": "vitest run --coverage",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e:ai": "node e2e/ai-console.mjs",
+    "test:e2e:ai-off": "node e2e/ai-flag-off.mjs"
   },
   "dependencies": {
     "@types/node": "^20",
@@ -49,7 +51,7 @@
     "ip": "npm:@bybrave/ip2@^3.0.0"
   },
   "devDependencies": {
-    "tailwindcss": "^3",
+    "@axe-core/playwright": "^4.14.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",

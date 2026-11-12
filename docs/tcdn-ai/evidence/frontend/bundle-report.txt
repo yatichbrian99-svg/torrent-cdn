@@ -1,0 +1,50 @@
+route                          first-load JS
+/_not-found/page                   346.2 kB
+/.well-known/security.txt/route     343.8 kB
+/admin/health/page                 419.6 kB
+/admin/page                        440.3 kB
+/admin/payouts/page                440.4 kB
+/ai/billing/page                   416.6 kB
+/ai/keys/page                      419.0 kB
+/ai/layout                         418.6 kB
+/ai/models/page                    416.1 kB
+/ai/page                           425.1 kB
+/ai/quickstart/page                419.2 kB
+/ai/status/page                    415.8 kB
+/ai/usage/[jobId]/page             423.9 kB
+/ai/usage/page                     425.0 kB
+/architecture/page                 343.8 kB
+/aup/page                          343.8 kB
+/auth/forgot-password/page         415.9 kB
+/auth/reset-password/page          420.7 kB
+/billing/page                      411.3 kB
+/cookies/page                      343.8 kB
+/dashboard/page                    828.6 kB
+/dashboard/upload/page             416.1 kB
+/demo/page                         801.2 kB
+/dmca/page                         343.8 kB
+/docs/page                         366.1 kB
+/embed/[file_id]/page              412.2 kB
+/error                             345.2 kB
+/global-error                      345.3 kB
+/layout                            484.5 kB
+/live/channels/[id]/analytics/page     423.1 kB
+/live/channels/[id]/page           433.1 kB
+/live/channels/page                344.3 kB
+/live/page                         422.7 kB
+/live/watch/[slug]/page            435.2 kB
+/page                              416.4 kB
+/privacy/page                      343.8 kB
+/robots.txt/route                  343.8 kB
+/share/[token]/page                408.3 kB
+/sitemap.xml/route                 343.8 kB
+/terms/page                        343.8 kB
+/verify-email/page                 406.3 kB
+
+console routes: 9, 3779.2 kB total
+chunks unique to the console: 10
+existing route /billing/page      411.3 kB
+existing route /dashboard/page    828.6 kB
+existing route /page              416.4 kB
+
+[OK] no existing page loads a console-only chunk

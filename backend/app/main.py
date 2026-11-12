@@ -789,6 +789,12 @@ if _ai_enabled:
     # run the CDN backend.
     app.include_router(ai_routes.router)
     app.include_router(ai_routes.admin_router)
+    # Account-scoped console API (JWT, not API key) behind the same flag: the
+    # dashboard is a browser, and the gateway's routes are key-authenticated on
+    # purpose. Flag off ⇒ none of these paths exist.
+    from .ai import routes_console as ai_console_routes
+
+    app.include_router(ai_console_routes.router)
     # OpenAI-compatible surface (gateway mode), mounted at the app root so an
     # unmodified OpenAI client can use base_url=".../v1". Same flag, same auth.
     from .ai import routes_openai as ai_openai_routes

@@ -26,12 +26,23 @@ const server = http.createServer((req, res) => {
   // Mirror vercel.json's rewrite list exactly (same-origin proxy contract):
   // backend paths are /api, /auth, /upload, /files, /analytics, /billing,
   // /admin, /notifications — everything else is the frontend.
-  const isApi = /^\/(api|auth|upload|files|analytics|billing|admin|notifications)(\/|$)/.test(req.url)
+  // Frontend PAGE paths that share a proxied prefix: a browser navigation to
+  // /billing is the dashboard page, not the API. Mirrors PAGE_PATHS in proxy.ts.
+  const PAGE_PATHS = new Set(['/billing', '/admin', '/admin/health', '/admin/payouts', '/auth/forgot-password', '/auth/reset-password'])
+  const pathOnly = req.url.split('?')[0]
+  const isPageNav = (req.method === 'GET' || req.method === 'HEAD') && PAGE_PATHS.has(pathOnly)
+  const isApi = !isPageNav && /^\/(api|v1|auth|upload|files|analytics|billing|admin|notifications)(\/|$)/.test(req.url)
   if (isApi) {
+    // Mirror the destination rules in proxy.ts / vercel.json: /api/ai/*,
+    // /api/live/* and /v1/* keep their prefix (those backend routes are
+    // mounted with it); every other /api/* path has /api stripped.
+    let dest = req.url
+    const keepsPrefix = /^\/(api\/(ai|live)\/|v1\/)/.test(dest)
+    if (/^\/api\//.test(dest) && !keepsPrefix) dest = dest.slice(4)
     const upstream = backendMod.request({
       hostname: backendUrl.hostname,
       port: backendPort,
-      path: req.url,
+      path: dest,
       method: req.method,
       headers: { ...req.headers, host: backendUrl.host },
     }, (up) => {

@@ -195,3 +195,18 @@ html:not([data-theme-resolved]) body {
   visibility: hidden;
   animation: theme-guard-release 0s 0.3s forwards;
 }
+
+/* ============================================================================
+   TCDN-AI CONSOLE — scoped accessible neutrals
+   The shared --text-muted (#555 on #111) is below WCAG AA for body text and was
+   inherited from the marketing pages, which are not part of this section's
+   audit. Scoping the override to .ai-console fixes the console's contrast
+   without changing a single pixel of any existing page. Light mode already
+   passes with the shared tokens, so it is left alone.
+   ========================================================================== */
+[data-theme='dark'] .ai-console,
+html:not([data-theme='light']) .ai-console {
+  --text-muted: #9c9c9c;
+  --text-dim: #909090;
+  --text-soft: #a8a8a8;
+}
