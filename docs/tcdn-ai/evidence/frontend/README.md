@@ -44,7 +44,7 @@ manifest hash in `models.json` is a local fixture, not a published model.
 |---|---|
 | `e2e-flag-on.json` | `node e2e/ai-console.mjs` — 17/17: login → buy test credits → create key → call the API → see the job, plus axe on every page and a no-horizontal-scroll check at 375/768/1280 |
 | `e2e-flag-off.json` | `node e2e/ai-flag-off.mjs` — 10/10: no AI link, `/ai` shows the unavailable panel, only the feature probe touches an AI path (it 404s), existing pages unchanged |
-| `screenshots/ai-*.png` | 21 full-page screenshots (7 pages × 3 widths) plus nothing else — read them, they are the visual record |
+| `screenshots/ai-*.png` | 21 full-page screenshots (7 pages × 3 widths) plus one failure-state shot — read them, they are the visual record |
 | `scripts/ai_bundle_report.mjs` output → `bundle-report.txt` | per-route first-load JS and a hard check that no existing page loads a console-only chunk |
 | `lighthouse/ai-status.json`, `lighthouse/home.json` | Lighthouse desktop runs (JSON) for the public status page and the landing page |
 | unit tests | `frontend/lib/aiConsole.test.ts` (11) and `frontend/components/__tests__/AiGate.test.tsx` (4) — run with `npx vitest run` |
@@ -68,6 +68,23 @@ manifest hash in `models.json` is a local fixture, not a published model.
   96. The accessibility deductions are the navbar contrast above.
 - **Bundle:** 10 chunks are unique to the console; `/`, `/dashboard` and
   `/billing` load none of them (`[OK]` in `bundle-report.txt`).
+
+## CI on the draft PR (#50)
+
+Every job passed on the final commit: `frontend-checks`, `tests`, `ai-store`
+(Postgres + Redis, flag on), `fullstack-audit`, `fuzz`, `sast`, `static-audit`,
+`container-scan`, `dependency-audit`, `secret-scan`, `gitleaks`, `Semgrep OSS`,
+`storage-publicity`, `ruff` + `mypy`, `Vercel`, and **ZAP** — the last one is the
+one this work changed.
+
+ZAP ran flag-on against a staging-shaped stack across three passes
+(unauthenticated, session JWT, AI API key): **0 HIGH, 0 MEDIUM**, 3 LOW, 7 INFO,
+with the documented 40018 exception covering 3 instances. The first run failed
+on a HIGH "Path Traversal" at `/api/ai/v1/console/usage?status=usage` — a value
+the scanner derived from the URL's last path segment, because `status` accepted
+free text. `status` is now a `JobStatus` enum, so that request is a 422, and a
+test pins it (`test_unknown_status_is_refused_rather_than_empty`). Nothing was
+suppressed to get here: the alert is gone because the input is validated.
 
 ## Not covered here
 

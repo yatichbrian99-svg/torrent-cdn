@@ -19,12 +19,12 @@
     {
       "name": "buy test credits",
       "ok": true,
-      "detail": "$5.00 credited \u00b7 new balance $535.00"
+      "detail": "$5.00 credited \u00b7 new balance $560.00"
     },
     {
       "name": "create API key (shown once)",
       "ok": true,
-      "detail": "tcdn_ai_024l6Ygb5H\u2026"
+      "detail": "tcdn_ai_fevRJc0RbB\u2026"
     },
     {
       "name": "created key authenticates against the API",
@@ -34,7 +34,7 @@
     {
       "name": "gateway completes a chat request",
       "ok": true,
-      "detail": "job 830f29af4e8942f2829e778eef566106"
+      "detail": "job b7720fc7e900491b8be30a200a2c08a0"
     },
     {
       "name": "quickstart \"test my key\" succeeds",
