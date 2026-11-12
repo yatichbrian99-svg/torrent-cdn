@@ -174,6 +174,11 @@ export function middleware(request: NextRequest) {
   // extract the nonce and stamp it onto its inline/static scripts.
   const requestHeaders = new Headers(request.headers)
   requestHeaders.set('content-security-policy', csp)
+  // The root layout needs to know which route it is rendering so it can swap in
+  // the frozen (pre-redesign) chrome for the customer player surfaces
+  // (/embed, /share). Passing it as a request header keeps every page a server
+  // component — no client-side path sniffing.
+  requestHeaders.set('x-pathname', request.nextUrl.pathname)
 
   const response = NextResponse.next({ request: { headers: requestHeaders } })
   response.headers.set('Content-Security-Policy', csp)

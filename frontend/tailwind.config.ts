@@ -29,7 +29,11 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        // Families come from next/font/local through CSS variables, so the
+        // redesigned type scale and the legacy Tailwind classes agree.
+        sans: ['var(--font-inter)', 'Inter', 'system-ui', 'sans-serif'],
+        mono: ['var(--font-mono)', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+        serif: ['var(--font-serif)', 'Georgia', 'serif'],
       },
     },
   },

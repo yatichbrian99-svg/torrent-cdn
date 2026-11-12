@@ -4,6 +4,8 @@ import { headers } from 'next/headers'
 import localFont from 'next/font/local'
 import './globals.css'
 import Navbar from '@/components/Navbar'
+import LegacyChrome from '@/components/LegacyChrome'
+import ThemeProvider from '@/components/ThemeProvider'
 
 // Nonce-based CSP (see middleware.ts) requires per-request rendering so Next.js
 // can stamp the per-request nonce onto its scripts. Static prerendering would
@@ -19,16 +21,7 @@ export const dynamic = 'force-dynamic'
 // being reachable. The file below is the SAME latin subset Google served, so the
 // glyphs and metrics are identical; it is an OFL-1.1 licensed variable font and
 // its licence ships next to it (app/fonts/LICENSE-Inter.txt).
-//
-// No styles change: `inter.className` is still what the <body> carries, the
-// family/weights (400-700) and latin subset are the same, and `--font-inter`
-// is exposed for anything that wants the family by variable.
 const inter = localFont({
-  // One variable file, four faces with the same weights the Google loader
-  // declared. Declaring the weights individually (rather than as a
-  // "400 700" range) is what keeps the rendering pixel-identical: it is the
-  // shape of the CSS Google's API produced, and Chrome then sets the wght axis
-  // per face exactly as before.
   src: [
     { path: './fonts/inter-latin.woff2', weight: '400', style: 'normal' },
     { path: './fonts/inter-latin.woff2', weight: '500', style: 'normal' },
@@ -41,14 +34,56 @@ const inter = localFont({
   adjustFontFallback: 'Arial',
 })
 
+// Instrument Serif italic — the single display accent word in the dark hero.
+// OFL-1.1, latin subset, licence beside the file. NOT preloaded: it is one word
+// in one heading, so `font-display: swap` plus the serif fallback is enough and
+// it never competes with the hero's real (Inter) text for bandwidth.
+const serif = localFont({
+  src: [{ path: './fonts/instrument-serif-italic-latin.woff2', weight: '400', style: 'italic' }],
+  display: 'swap',
+  variable: '--font-serif',
+  preload: false,
+  fallback: ['Georgia', 'Times New Roman', 'serif'],
+})
+
+// JetBrains Mono — labels, buttons, numerals, code. OFL-1.1, latin subset,
+// variable (400–500), licence beside the file. Not preloaded: everything that
+// uses it sits below the first screen except the small nav CTA label.
+const mono = localFont({
+  src: [{ path: './fonts/jetbrains-mono-latin.woff2', weight: '400 500', style: 'normal' }],
+  display: 'swap',
+  variable: '--font-mono',
+  preload: false,
+  fallback: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+})
+
 // Pre-paint theme resolution — MUST stay inline (it runs before first paint,
 // so it cannot wait for the bundle) and unblocking (CSP: script-src allows
 // 'self' static files, but a SYNC network fetch here would delay every page).
-// Mirrors lib/theme.ts — the storage key/values are duplicated here on
-// purpose; a test asserts the two stay in agreement.
+//
+// Mirrors lib/theme.ts — the storage key/values and the resolution rule are
+// duplicated here on purpose; lib/__tests__/theme-parity.test.ts asserts the
+// two stay in agreement, and that this is rendered through next/script so the
+// per-request CSP nonce is stamped on it.
+// Frozen surfaces (/embed, /share) keep the OLD resolution rule — dark unless
+// the visitor explicitly chose light — because their appearance must not change
+// with the redesign. Same inline/CSP rules as above.
+const FROZEN_THEME_SCRIPT = `
+(function(){var d=document.documentElement;var s=null;try{s=localStorage.getItem('tcdn_theme');}catch(e){}
+var t=(s==='light')?'light':'dark';
+d.setAttribute('data-theme',t);d.setAttribute('data-theme-resolved','1');
+d.style.colorScheme=t;})();
+`
+
 const THEME_SCRIPT = `
-(function(){try{var t=localStorage.getItem('tcdn_theme')==='light'?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();
-document.documentElement.setAttribute('data-theme-resolved','1');
+(function(){var d=document.documentElement;var s=null;try{s=localStorage.getItem('tcdn_theme');}catch(e){}
+var m=window.matchMedia?window.matchMedia('(prefers-color-scheme: dark)'):null;
+var dark=false;if(m){if(m.matches){dark=true;}}
+var t=(s==='light'||s==='dark')?s:(dark?'dark':'light');
+d.setAttribute('data-theme',t);d.setAttribute('data-theme-resolved','1');
+d.style.colorScheme=t;d.classList.add('js');
+function tm(){var mc=document.querySelector('meta[name="theme-color"]');if(mc){mc.setAttribute('content',t==='dark'?'#000000':'#FEFEFD');}}
+tm();if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',tm);}})();
 `
 
 export const metadata: Metadata = {
@@ -136,16 +171,47 @@ const jsonLd = {
   },
 }
 
+/**
+ * Routes whose appearance is FROZEN by the redesign contract: the customer
+ * player surfaces. middleware.ts forwards the request path as `x-pathname` so
+ * the layout can pick them without turning every page into a client component.
+ */
+function isFrozenSurface(pathname: string): boolean {
+  return pathname === '/embed' || pathname.startsWith('/embed/') ||
+    pathname === '/share' || pathname.startsWith('/share/')
+}
+
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Explicit nonce pass-through (the Next.js CSP-guide pattern): middleware
   // puts the full CSP on the request headers; extract our nonce so the theme
   // script executes even if framework auto-stamping ever misses this tag.
-  const csp = (await headers()).get('content-security-policy') ?? ''
+  const requestHeaders = await headers()
+  const csp = requestHeaders.get('content-security-policy') ?? ''
   const nonce = csp.match(/nonce-([0-9a-zA-Z]+)/)?.[1] ?? ''
+  const pathname = requestHeaders.get('x-pathname') ?? '/'
+  const frozen = isFrozenSurface(pathname)
 
   return (
-    <html lang="en">
+    <html lang="en" {...(frozen ? { 'data-frozen-surface': 'true' } : {})}>
       <head>
+        <meta name="theme-color" content={frozen ? '#000000' : '#FEFEFD'} />
+        {/* Pre-paint theme: resolves the stored choice (or the OS preference)
+            BEFORE the browser paints anything, because it sits in <head> and
+            runs synchronously while the document is parsed.
+
+            It carries the per-request CSP nonce, which is what makes it
+            allowed under `script-src 'nonce-…' 'strict-dynamic'` — no
+            'unsafe-inline', no loosening of the policy. (The 2025 incident was
+            a raw inline script WITHOUT a nonce: the browser blocked it, the
+            theme guard never released and the site went black. Both halves of
+            that lesson are pinned: the nonce is passed explicitly here, and
+            globals.css still self-releases the guard even if this script never
+            runs.) */}
+        <script
+          id="theme-init"
+          nonce={nonce}
+          dangerouslySetInnerHTML={{ __html: frozen ? FROZEN_THEME_SCRIPT : THEME_SCRIPT }}
+        />
         <Script
           id="jsonld-org"
           type="application/ld+json"
@@ -153,24 +219,18 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c'),
           }}
         />
-        {/* No font preconnect: the font is self-hosted and preloaded by
+        {/* No font preconnect: the fonts are self-hosted and preloaded by
             next/font, so there is no Google origin to warm up. */}
       </head>
-      <body className={`${inter.className} ${inter.variable}`}>
-        {/* Pre-paint theme: resolves the persisted theme before first paint.
-            next/script (beforeInteractive) is REQUIRED here — middleware sets
-            a nonce-based CSP, so only nonce-stamped inline scripts execute.
-            The raw-tag form rendered without a nonce, the browser blocked it,
-            and combined with the old visibility:hidden theme guard that
-            blacked out the entire deployed site. The parity test pins this. */}
-        <Script
-          id="theme-init"
-          strategy="beforeInteractive"
-          nonce={nonce}
-          dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }}
-        />
-        <Navbar />
-        <main className="min-h-screen pt-12">{children}</main>
+      <body
+        className={`${inter.className} ${inter.variable} ${serif.variable} ${mono.variable}`}
+      >
+        {/* Frozen surfaces keep the old resolution rule (dark unless light was
+            chosen), so the live OS watcher must not run there — it would
+            re-apply the system preference on top of the frozen script. */}
+        {!frozen && <ThemeProvider />}
+        {frozen ? <LegacyChrome /> : <Navbar />}
+        <main className="site-main min-h-screen">{children}</main>
       </body>
     </html>
   )

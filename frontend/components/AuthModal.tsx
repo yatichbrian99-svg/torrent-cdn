@@ -76,13 +76,27 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
     setLoading(true)
     setError('')
     try {
-      const refCode = isLogin ? undefined : (sessionStorage.getItem('torrent_cdn_ref') || undefined)
+      let refCode: string | undefined
+      if (!isLogin) {
+        try {
+          refCode = sessionStorage.getItem('torrent_cdn_ref') || undefined
+        } catch {
+          // Storage blocked — sign up without a referral code.
+          refCode = undefined
+        }
+      }
       const data = isLogin
         ? await api.login(email, password)
         : await api.register(email, password, termsAccepted, refCode)
       // Referral credit is earned the moment the account is created — consume
       // the code even when the mandatory 2FA step below delays the session.
-      if (!isLogin && refCode) sessionStorage.removeItem('torrent_cdn_ref')
+      if (!isLogin && refCode) {
+        try {
+          sessionStorage.removeItem('torrent_cdn_ref')
+        } catch {
+          // ignore
+        }
+      }
       // MFA gate: the password half succeeded but this account requires a
       // second factor — switch to the code step (NO token yet). For signup
       // this IS the enrollment: the account was born MFA-on, and the modal
@@ -172,7 +186,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.8)' }}>
-      <div className="w-full max-w-sm border p-8" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-strong)' }}>
+      <div className="auth-modal w-full max-w-sm border p-8" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-strong)' }}>
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-[color:var(--text-primary)]">
             {mfaToken && mfaNeedsSetup ? 'Set up two-factor authentication' : mfaToken ? 'Two-factor verification' : (isLogin ? 'Login' : 'Create account')}
