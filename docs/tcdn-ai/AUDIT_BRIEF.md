@@ -8,7 +8,7 @@ and an explicit list of what is *not* proven.
 |---|---|
 | Repository | `github.com/yatichbrian99-svg/torrent-cdn` (public) |
 | Branch under review | `fix/tcdn-ai-redis-replay-nonce` (PR #47) — **merged** |
-| Commit | header reviewed at the state merged into `main`; this archive is **`7332b1f44dac6dff043d5cfa34a43bd0bf7059b1`** (2026-11-12T19:34:51+03:00, "Merge pull request #53 from yatichbrian99-svg/feat/ci-e2e-login-diagnostics"). `dist/torrentcdn-audit-7332b1f.zip` is `git archive` of exactly that commit, `sha256 d07bb4f3cce068e8970d5de44ab2d666ec50e82fc4ea1e5a2d1739813d2919fd` |
+| Commit | header reviewed at the state merged into `main`; this archive is **`f11902240d6a719f33bc4c1aae6ceeed1dd6be2a`** (2026-11-12T19:47:38+03:00, "Merge pull request #57 from yatichbrian99-svg/docs/audit-brief-final"). `dist/torrentcdn-audit-f119022.zip` is `git archive` of exactly that commit, `sha256 30fdfd79e77d5a77c55e7dfd729f106162b3ce38f3dda359ccf38e9e30feaa50` |
 | Product branch | `fix/product-security-hardening` (PR #46) — **merged** at `eb0976d` on 2026-11-12T04:54:11Z |
 | Default branch | `main` (`7332b1f`) — **contains both PRs**, and still does not set `ENABLE_TCDN_AI` |
 
