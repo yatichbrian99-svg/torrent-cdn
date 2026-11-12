@@ -112,7 +112,7 @@ export default function ArchitecturePage() {
       <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--text-faint)' }}>
         TorrentCDN / Architecture
       </p>
-      <h1 className="mt-2 text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">
+      <h1 className="mt-2 page-title">
         How TorrentCDN works
       </h1>
       <p className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>

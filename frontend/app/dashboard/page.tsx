@@ -277,7 +277,7 @@ export default function DashboardPage() {
 
       <div className="mb-10 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">Your Files</h1>
+          <h1 className="page-title">Your Files</h1>
         </div>
         <a href="/dashboard/upload" className="border px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80" style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)' }}>
           Upload file &rarr;

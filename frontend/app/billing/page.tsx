@@ -66,7 +66,7 @@ function BillingContent() {
         </div>
       )}
 
-      <h1 className="text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">Billing</h1>
+      <h1 className="page-title">Billing</h1>
       <div className="mt-8 grid gap-6 md:grid-cols-2">
         <div className="border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
           <p className="mb-1 text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Current Plan</p>

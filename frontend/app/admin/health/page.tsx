@@ -167,7 +167,7 @@ export default function AdminHealthPage() {
           <div className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ backgroundColor: 'rgba(74,222,128,0.1)' }}>
             <Activity size={16} style={{ color: 'var(--ok)' }} />
           </div>
-          <h1 className="text-lg sm:text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">Security & Health</h1>
+          <h1 className="text-lg sm:page-title">Security & Health</h1>
           <span className="ml-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest rounded"
             style={{ backgroundColor: 'rgba(74,222,128,0.12)', color: 'var(--ok)' }}>
             {warnCount === 0 ? 'All systems nominal' : `${warnCount} attention${warnCount === 1 ? '' : 's'}`}

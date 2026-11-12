@@ -174,7 +174,7 @@ export default function LiveChannelDetailPage() {
 
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="flex items-center gap-3 text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">
+          <h1 className="flex items-center gap-3 page-title">
             <span className="flex items-center gap-1.5 border px-2 py-1 font-mono text-[10px] uppercase tracking-widest"
                   style={{ borderColor: statusColor(status?.status || 'OFFLINE'), color: statusColor(status?.status || 'OFFLINE') }}>
               <span className="h-2 w-2" style={{ backgroundColor: statusColor(status?.status || 'OFFLINE') }} />

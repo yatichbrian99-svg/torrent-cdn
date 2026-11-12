@@ -307,7 +307,7 @@ export default function AdminPage() {
           <div className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ backgroundColor: 'rgba(168,85,247,0.12)' }}>
             <ShieldCheck size={16} style={{ color: 'var(--purple)' }} />
           </div>
-          <h1 className="text-lg sm:text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">Admin Dashboard</h1>
+          <h1 className="text-lg sm:page-title">Admin Dashboard</h1>
           <span
             className="ml-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest rounded"
             style={{ backgroundColor: 'rgba(168,85,247,0.15)', color: 'var(--purple)' }}

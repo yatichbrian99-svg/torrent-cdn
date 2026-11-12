@@ -80,7 +80,7 @@ export default function LiveChannelAnalyticsPage() {
       </Link>
 
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="flex items-center gap-2 text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">
+        <h1 className="flex items-center gap-2 page-title">
           <BarChart3 size={18} style={{ color: 'var(--text-muted)' }} /> Live analytics
           <span className="border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest"
                 style={{ borderColor: 'var(--warn)', color: 'var(--warn)' }}>Beta</span>
