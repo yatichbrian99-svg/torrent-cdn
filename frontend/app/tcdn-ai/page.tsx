@@ -19,9 +19,9 @@ import { AI_EARLY_ACCESS_MAILTO, AI_PUBLIC_BASE_URL, AI_PUBLIC_CONTACT_EMAIL, AI
  * production-readiness claims, and no numbers that were not measured.
  */
 export const metadata: Metadata = {
-  title: 'TCDN-AI — an OpenAI-compatible API on a peer-to-peer GPU network',
+  title: 'TCDN-AI — an OpenAI-compatible API built for a peer-to-peer GPU network',
   description:
-    'TCDN-AI serves an OpenAI-compatible API from a peer-to-peer network of idle GPUs. Private alpha: invite only, a small model set, standard privacy tier. Point the OpenAI SDK at the base URL and use your key.',
+    'TCDN-AI is an OpenAI-compatible API, built to be served by a peer-to-peer network of idle GPUs. Private alpha: the endpoint is enabled for invited accounts only, the first model is still being brought up, and only the standard privacy tier is offered.',
   alternates: { canonical: 'https://www.torrentcdn.store/tcdn-ai' },
 }
 
@@ -64,35 +64,42 @@ console.log(response.choices[0].message.content)`,
     "messages": [{"role": "user", "content": "Explain P2P delivery in one sentence."}],
     "max_tokens": 128
   }'`,
-  cursor: `// Cursor → Settings → Models → OpenAI API
-// Add the key as an OpenAI API key, then override the base URL:
-{
-  "openai": {
-    "apiKey": "YOUR_API_KEY",
-    "baseUrl": "${BASE_URL}"
-  }
-}
-// Then pick "${MODEL}" from the model list.`,
-  cline: `// Cline → Settings → API Provider: OpenAI Compatible
-{
-  "openAiCompatible": {
-    "baseUrl": "${BASE_URL}",
-    "apiKey": "YOUR_API_KEY",
-    "modelId": "${MODEL}"
-  }
-}`,
-  continue: `# Continue (config.yaml)
+  // Cursor has no config file for this: the key and the base URL are two fields
+  // in Settings → Models (plus a custom model id).
+  cursor: `// Cursor → Settings → Models → API Keys
+// 1. Paste your key into "OpenAI API Key" and save.
+// 2. Turn on "Override OpenAI Base URL" and enter:
+//      ${BASE_URL}
+// 3. Add the model id as a custom model: ${MODEL}
+// 4. Pick that model in a new chat.
+// The override is global while it is on: every OpenAI-family request,
+// including Cursor's own models, goes to the URL you entered.`,
+  // Cline is also UI-only: provider, base URL, key and a model id field.
+  cline: `// Cline → Settings (gear icon) → API Provider
+// 1. API Provider: "OpenAI Compatible"
+// 2. Base URL: ${BASE_URL}
+//    (include /v1 — Cline appends only /models to what you type)
+// 3. API Key: YOUR_API_KEY
+// 4. Model ID: ${MODEL}
+// 5. Save, then send a short prompt to check the connection.`,
+  continue: `# Continue — config.yaml
+name: tcdn
+version: 1.0.0
+schema: v1
 models:
   - name: TCDN-AI ${MODEL}
     provider: openai
     model: ${MODEL}
     apiBase: ${BASE_URL}
-    apiKey: YOUR_API_KEY`,
-  opencode: `// opencode.json
+    apiKey: YOUR_API_KEY
+    roles: [chat, edit, apply]`,
+  opencode: `// opencode.json ($XDG_CONFIG_HOME/opencode/opencode.json or ./opencode.json)
 {
+  "$schema": "https://opencode.ai/config.json",
   "provider": {
     "tcdn": {
       "npm": "@ai-sdk/openai-compatible",
+      "name": "TCDN-AI",
       "options": { "baseURL": "${BASE_URL}", "apiKey": "YOUR_API_KEY" },
       "models": { "${MODEL}": { "name": "${MODEL}" } }
     }
@@ -101,9 +108,9 @@ models:
 }
 
 const TODAY = [
-  'Private alpha, invite only. Access is granted by hand; signing up for TorrentCDN does not create an AI account on its own.',
-  `A small model set. ${MODEL} is the model this alpha serves. The list grows as hosts, hardware and licences allow — the console's models page is the live list.`,
-  'Standard privacy tier only. The confidential tier is built but not offered here, so every job runs on the standard tier.',
+  'Private alpha, invite only. The endpoint is enabled for invited accounts only: access is granted by hand and there is no self-serve way to get an account or a key.',
+  `A small model set, still being brought up. The first model is planned to be ${MODEL}; no worker on this deployment serves it yet, so read it as the target rather than a live choice. The console's models page is the live list once there is one. Llama 3.1 is licensed under the Meta Llama 3.1 Community License.`,
+  'Standard privacy tier only. The confidential tier is not available, so every job runs on the standard tier, where the host that runs it sees the prompt in plaintext.',
   'An OpenAI-compatible surface: /v1/chat/completions, /v1/models, streaming responses and the OpenAI error shape. The official OpenAI SDKs work unchanged.',
   'No availability promise. Hosts join and leave the network, so the alpha comes with no SLA and no uptime figure — there is no measured number to quote, so none is quoted.',
 ]
@@ -114,12 +121,12 @@ const HOW_IT_WORKS: { title: string; body: string }[] = [
     body: 'You call the OpenAI-compatible endpoint with your key, exactly as you would call any provider. The gateway checks the key, your credit balance and the model, then prices the job before it runs.',
   },
   {
-    title: 'Hosts run the model, not one datacenter',
-    body: 'The model is split into shards. Hosts that hold a shard are sent a short-lived signed ticket for the job; each host verifies it, runs its part, and returns a receipt for the tokens it produced.',
+    title: 'One host runs the model, not one datacenter',
+    body: 'The model file is split into shards and delivered peer-to-peer, so a host fetches only the pieces it needs from its peers. A host that has the model loaded takes the whole request: the coordinator sends it a short-lived signed ticket bound to that one job, the host verifies the ticket, runs the request and returns a receipt for the tokens it produced.',
   },
   {
     title: 'You get the tokens, hosts get paid',
-    body: 'The response streams back to you while the job is in flight. Token counts and cost are settled on your account from the hosts’ receipts, and the host’s share is credited from the same job.',
+    body: 'The response streams back to you while the job is in flight. Token counts are checked at the gateway, the job is settled on your account from the host’s receipt and capped at what the gateway measured, and the host’s share of that same job is credited to its account.',
   },
 ]
 
@@ -171,19 +178,19 @@ const FAQ: { q: string; a: ReactNode }[] = [
   },
   {
     q: 'How do I pay?',
-    a: 'Credit packs are bought in the console. Prices are quoted in USD and shown in Kenyan shillings at checkout, where M-Pesa is the payment channel; cards are the other option. During the alpha, purchases on this deployment run in test mode — checkout states which mode your account is in, and no card is charged in test mode.',
+    a: 'Credit packs are bought in the console. Credit is denominated in USD, and each pack is priced in Kenyan shillings with the dollar equivalent shown. Cards work today. M-Pesa is coming: it is not enabled on our payment account yet, so it cannot be selected. During the alpha, purchases on this deployment run in test mode — checkout says which mode your account is in, and nothing is charged in test mode.',
   },
   {
     q: 'Who runs the models?',
-    a: 'People and small operators running the model on their own GPUs in their own locations, which is why the network can reach beyond one datacenter’s regions. Host onboarding is not open yet — the section below is where that starts.',
+    a: 'The design is people and small operators running the model on their own GPUs in their own locations, which is why the network could reach beyond one datacenter’s regions. Host onboarding is not open yet and the host agent is still in development — the section below is where that starts.',
   },
   {
     q: 'Can I send sensitive data?',
-    a: 'Not in the alpha. Requests travel over TLS and a host only receives a job after verifying a short-lived ticket for it, but the prompt is processed in plaintext by the host that runs it, and the confidential tier is not available yet. Treat the alpha as suitable for non-sensitive work.',
+    a: 'Not in the alpha. Requests travel over TLS and a host only receives a job after verifying a short-lived ticket for it, but the prompt is processed in plaintext by the host that runs it, and the confidential tier is not available. Treat the alpha as suitable for non-sensitive work only.',
   },
   {
     q: 'What happens when a host disappears mid-job?',
-    a: 'The job fails and you are not charged for tokens the gateway did not receive. Retries are yours to make: the API returns an ordinary OpenAI-shaped error rather than silently re-running a request your client already considers failed.',
+    a: 'The request fails while it is in flight. The credit held for it is released when the job expires without a receipt, so you are not charged for tokens the gateway never received. Retrying is up to you: if the response had already started streaming it ends there, and the API does not silently re-run a request your client already treats as failed.',
   },
 ]
 
@@ -213,19 +220,21 @@ export default function TcdnAiPublicPage() {
           Private alpha · invite only
         </p>
         <h1 className="mt-3 text-3xl font-bold leading-tight tracking-[-0.03em] text-[color:var(--text-primary)] sm:text-4xl">
-          TCDN-AI: an OpenAI-compatible API served by a peer-to-peer network of idle GPUs
+          TCDN-AI: an OpenAI-compatible API built for a peer-to-peer network of idle GPUs
         </h1>
         <p className="mt-4 max-w-2xl text-base leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-          One endpoint, the OpenAI request shape you already use. Requests run on machines that people
-          and small operators have connected to the network, in whatever countries they happen to be,
-          instead of a single provider’s datacenter. You pay per million tokens in your own currency,
-          including M-Pesa in Kenya.
+          One endpoint, the OpenAI request shape you already use. Requests are built to run on machines
+          that people and small operators connect to the network, in the countries they are in, instead
+          of a single provider’s datacenter. Pricing is in USD per million tokens; the console shows the
+          shilling equivalent of each credit pack, and M-Pesa is the local channel — coming, not enabled
+          on our payment account yet.
         </p>
         <div className="mt-6">
           <EarlyAccessCta />
         </div>
         <p className="mt-3 text-xs" style={{ color: 'var(--text-muted)' }}>
-          Alpha access is granted by hand. There is no self-serve signup for the API yet.
+          The endpoint is enabled for invited accounts. Alpha access is granted by hand and there is no
+          self-serve signup for the API yet.
         </p>
       </header>
 
@@ -289,7 +298,9 @@ export default function TcdnAiPublicPage() {
 
         <h3 className="pt-4 text-sm font-bold text-[color:var(--text-primary)]">Editor and agent settings</h3>
         <p className="text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-          Each tool below takes the same base URL and key. The model id is the same string everywhere.
+          Each tool below takes the same base URL and key, and the model id is the same string
+          everywhere. The settings were checked against each tool’s own documentation, not run from
+          inside the editor: treat them as untested until you try one with an invited account.
         </p>
         <div className="space-y-4">
           <CodeBlock label="Cursor" code={SNIPPETS.cursor} />
@@ -321,10 +332,10 @@ export default function TcdnAiPublicPage() {
             Want to earn with your GPU? Hosts coming soon
           </h3>
           <p className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-            Hosts run the model on their own hardware and are credited a share of every job their GPU
-            completes, settled from the same job the customer paid for. Onboarding is not open yet: the
-            host agent, the payout ledger and the checks a host must pass are built, but there is no
-            public process to join. Ask to be told when there is.
+            The host agent is in development. When it ships, a host will run the model on its own
+            hardware and be credited a share of every job it completes, booked in the same ledger the
+            customer pays into. There is no withdrawal route for host earnings yet, and no public
+            process to join — onboarding is not open. Ask to be told when it is.
           </p>
           <div className="mt-5">
             <EarlyAccessCta />

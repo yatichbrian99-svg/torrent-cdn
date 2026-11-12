@@ -1,0 +1,15 @@
+$ ENABLE_TCDN_AI=true .venv/bin/python -m pytest tests/test_ai_openai_compat.py -q
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+15 passed, 1 warning in 3.26s
+
+$ ENABLE_TCDN_AI=true .venv/bin/python -m pytest tests/test_ai_node_billing.py -q
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+14 passed, 1 warning in 1.39s
+
+$ ENABLE_TCDN_AI=true .venv/bin/python -m pytest tests/test_ai_failure_injection.py -q
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+4 passed, 1 warning in 1.01s
+
+$ ENABLE_TCDN_AI=true .venv/bin/python -m pytest tests/test_ai_console_api.py -q
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+19 passed, 1 warning in 1.27s
