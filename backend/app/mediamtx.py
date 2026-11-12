@@ -97,12 +97,6 @@ def rtmp_publish_url(slug: str) -> str:
     return f"{base}/{app}"
 
 
-def playback_origin_base(slug: str) -> str:
-    """Origin base for viewer-side segment fetching (the same host as the HLS
-    URL). Used by the player loader as the fallback fetcher for P2P misses."""
-    return hls_url(slug).rsplit("/", 1)[0]
-
-
 # ── Control API (read-only usage) ────────────────────────────────────────────
 
 async def list_paths() -> dict[str, dict]:
@@ -131,19 +125,6 @@ async def list_paths() -> dict[str, dict]:
     except Exception as e:
         logger.debug("mediamtx paths/list failed: %s", e)
         return {}
-
-
-async def get_path(slug: str) -> dict | None:
-    paths = await list_paths()
-    path = paths.get(mediamtx_path(slug))
-    return path or None
-
-
-async def get_path_by_ingress(slug: str) -> dict | None:
-    """Resolve a channel's MediaMTX path when the publish path was
-    live/<slug> (RTMP strips the app prefix into the path name)."""
-    path, _authoritative = await resolve_ingress(slug)
-    return path
 
 
 async def resolve_ingress(slug: str) -> tuple[dict | None, bool]:

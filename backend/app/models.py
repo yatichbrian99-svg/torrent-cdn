@@ -20,15 +20,6 @@ MAX_URL_LEN = 2048         # import-by-URL: a URL is a VARCHAR-free request fiel
 MAX_FOLDER_PATH_LEN = 512  # uploads.folder_path is VARCHAR(512)
 
 
-class UserInDB(BaseModel):
-    id: UUID
-    email: str
-    password_hash: str
-    plan: str = "free"
-    stripe_customer_id: str | None = None
-    created_at: datetime
-
-
 class Upload(BaseModel):
     id: UUID
     user_id: UUID
@@ -37,22 +28,6 @@ class Upload(BaseModel):
     torrent_magnet: str
     file_size_mb: float
     created_at: datetime
-
-
-class AnalyticsEvent(BaseModel):
-    id: UUID
-    file_id: UUID
-    event_type: str
-    bytes_p2p: int = 0
-    bytes_origin: int = 0
-    created_at: datetime
-
-
-class UsageRecord(BaseModel):
-    id: UUID
-    user_id: UUID
-    month: str
-    total_gb_used: float = 0
 
 
 # Request/Response models

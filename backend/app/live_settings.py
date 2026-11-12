@@ -17,13 +17,6 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
-def _float_env(name: str, default: float) -> float:
-    try:
-        return float(os.environ.get(name, "") or default)
-    except (TypeError, ValueError):
-        return default
-
-
 @dataclass(frozen=True)
 class LiveSettings:
     # MediaMTX Control API (INTERNAL — bind to loopback / private network only)
