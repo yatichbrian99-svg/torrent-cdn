@@ -1,0 +1,2 @@
+light clean
+dark color-contrast:5

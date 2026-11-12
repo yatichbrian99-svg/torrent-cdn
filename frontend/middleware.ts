@@ -149,8 +149,8 @@ export function middleware(request: NextRequest) {
   const csp = [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
-    "style-src 'self' 'unsafe-inline' fonts.googleapis.com",
-    "font-src 'self' fonts.gstatic.com",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self'",
     // https: allows cross-origin video thumbnails served from MinIO/Supabase
     // Storage (MINIO_PUBLIC_URL) — dev also allows localhost for local MinIO.
     `img-src 'self' data: blob: https:${isProduction ? '' : ' http://localhost:*'}`,
