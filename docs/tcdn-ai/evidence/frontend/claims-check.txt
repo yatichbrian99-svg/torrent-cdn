@@ -1,0 +1,25 @@
+PASS  required: built for a peer-to-peer network
+PASS  required: The endpoint is enabled for invited accounts
+PASS  required: planned to be llama-3.1-8b-instruct
+PASS  required: Meta Llama 3.1 Community License
+PASS  required: The confidential tier is not available
+PASS  required: M-Pesa is coming
+PASS  required: The host agent is in development
+PASS  required: There is no withdrawal route for host earnings yet
+PASS  required: treat them as untested
+PASS  absent: in your own currency
+PASS  absent: is the model this alpha serves
+PASS  absent: confidential tier is built
+PASS  absent: payout ledger
+PASS  absent: split into shards. Hosts
+PASS  absent: served by a peer-to-peer
+PASS  absent: secure
+PASS  absent: audited
+PASS  absent: production ready
+PASS  absent: 99.
+PASS  absent: attested hardware
+PASS  absent: cheaper
+PASS  absent: faster than
+PASS  no horizontal overflow @375 (0px)
+
+all copy checks passed

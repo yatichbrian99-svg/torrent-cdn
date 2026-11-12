@@ -8,7 +8,9 @@
  * Values are the real ones:
  *  - the app proxies the OpenAI surface at `/v1` on its own origin, which is the
  *    base `lib/aiConsole.ts` builds for /ai/quickstart;
- *  - `llama-3.1-8b-instruct` is the model the API docs and this alpha serve;
+ *  - `llama-3.1-8b-instruct` is the model the API docs and the tests use, and the
+ *    first model the alpha is planned to serve — no worker on the public
+ *    deployment serves it yet, so the page must describe it as planned;
  *  - `support@torrentcdn.store` is the address the terms page already gives for
  *    support — no new mailbox was invented for this page.
  */
