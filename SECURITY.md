@@ -20,8 +20,8 @@ Controls which resources the browser is allowed to load. The policy is environme
 |-----------|-------------|------------|
 | `default-src` | `'self'` | `'self'` |
 | `script-src` | `'self'` | `'self'` |
-| `style-src` | `'self' 'unsafe-inline' fonts.googleapis.com` | `'self' 'unsafe-inline' fonts.googleapis.com` |
-| `font-src` | `'self' fonts.gstatic.com` | `'self' fonts.gstatic.com` |
+| `style-src` | `'self' 'unsafe-inline'` | `'self' 'unsafe-inline'` |
+| `font-src` | `'self'` | `'self'` |
 | `img-src` | `'self' data: blob:` | `'self' data: blob:` |
 | `media-src` | `'self' blob: http://localhost:9000 <APP_URL>` | `'self' blob: <APP_URL>` |
 | `connect-src` | `'self' wss://tracker.webtorrent.dev wss://tracker.openwebtorrent.com http://localhost:9000 <APP_URL>` | `'self' wss://tracker.webtorrent.dev wss://tracker.openwebtorrent.com <APP_URL>` |
