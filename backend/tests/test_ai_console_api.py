@@ -280,6 +280,20 @@ class TestUsage:
             "limit": 50,
         }
 
+    @pytest.mark.asyncio
+    async def test_unknown_status_is_refused_rather_than_empty(self, console_api):
+        """`status` is an enum: a made-up value is a 422, not a silent empty page.
+
+        This is also what keeps a path-shaped value (``usage``, ``../../etc``)
+        from ever reaching the filter, which is the shape ZAP's path-traversal
+        heuristic trips on.
+        """
+        async with client() as http:
+            for value in ("usage", "../../../../etc/passwd", "settled%00"):
+                response = await http.get(f"/api/ai/v1/console/usage?status={value}")
+                assert response.status_code == 422, value
+                assert "root:" not in response.text
+
 
 class TestBilling:
     @pytest.mark.asyncio

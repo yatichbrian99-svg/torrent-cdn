@@ -41,6 +41,7 @@ from ..config import get_settings as get_host_settings
 from ..database import get_db_pool
 from . import console
 from .config import get_ai_settings
+from .models import JobStatus
 from .pricing import MICRO_PER_CREDIT
 from .routes import get_coordinator
 from .service import Coordinator
@@ -304,7 +305,10 @@ async def console_usage(
     coordinator: Annotated[Coordinator, Depends(get_coordinator)],
     limit: int = Query(default=50, ge=1, le=200),
     model: str | None = Query(default=None, max_length=64),
-    status: str | None = Query(default=None, max_length=24),
+    # An enum, not free text: an unknown status is a client bug, and silently
+    # returning zero rows for it hides the typo. It also means this filter can
+    # never be handed an arbitrary string.
+    status: JobStatus | None = Query(default=None),
 ) -> dict[str, Any]:
     account = _account(user_id)
     # Fetch a bounded page and filter server-side: the client never receives
@@ -312,17 +316,18 @@ async def console_usage(
     jobs = await coordinator.store.list_jobs(
         account, limit=limit * 4 if (model or status) else limit
     )
+    wanted = status.value if status else None
     rows = [
         job
         for job in jobs
-        if (not model or job.model == model) and (not status or job.status == status)
+        if (not model or job.model == model) and (not wanted or job.status == wanted)
     ]
     rows = rows[:limit]
     nodes = {node.node_id: node for node in await coordinator.store.list_nodes()}
     return {
         "jobs": [console.job_view(job, nodes.get(job.node_id)) for job in rows],
         "total_micro": sum(job.total_micro for job in rows),
-        "filters": {"model": model, "status": status, "limit": limit},
+        "filters": {"model": model, "status": wanted, "limit": limit},
         "note": "Prompts and outputs are never stored, so they cannot appear here.",
     }
 
