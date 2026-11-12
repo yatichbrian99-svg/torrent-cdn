@@ -1,0 +1,50 @@
+{
+  "models": {
+    "object": "list",
+    "first": {
+      "id": "llama-3.1-8b-instruct",
+      "object": "model",
+      "owned_by": "tcdn-ai"
+    }
+  },
+  "non_streaming": {
+    "object": "chat.completion",
+    "id_prefix": "chatcmpl-",
+    "role": "assistant",
+    "content": "echo[llama-3.1-8b-instruct]: hello from the official js client",
+    "finish_reason": "stop",
+    "usage": {
+      "prompt_tokens": 8,
+      "completion_tokens": 7,
+      "total_tokens": 15
+    },
+    "tcdn": {
+      "job_id": "b0018b8c8e524d85b4a226c3e43572c5",
+      "node_id": "node_e86a2988e62f07d99c7d0b44",
+      "tier": "standard",
+      "confidentiality": "none",
+      "confidentiality_notice": "Standard tier (confidentiality: none). The host operator can in principle read prompts and outputs on their machine. Do not send confidential data.",
+      "mode": "gateway",
+      "prompt_visibility": "gateway",
+      "coordinator_key_id": "b302ecc5e028a125"
+    }
+  },
+  "streaming": {
+    "text": "echo[llama-3.1-8b-instruct]: stream js",
+    "finish": "stop",
+    "usage": {
+      "prompt_tokens": 2,
+      "completion_tokens": 3,
+      "total_tokens": 5
+    }
+  },
+  "tools_error": {
+    "status": 400,
+    "body": {
+      "message": "tools is not supported: tool calling is not enabled on this deployment",
+      "type": "invalid_request_error",
+      "param": "tools",
+      "code": "unsupported_parameter"
+    }
+  }
+}

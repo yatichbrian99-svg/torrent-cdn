@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "client": "openai (official, npm)",
+  "node": "v24.18.0",
+  "checks": 19,
+  "model": "llama-3.1-8b-instruct",
+  "completion_id": "chatcmpl-fd7f2fef6d3044bbb237b0a2a3bcf011",
+  "streamed_chars": 66
+}
+exit=0

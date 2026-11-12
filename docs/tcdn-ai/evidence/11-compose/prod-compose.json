@@ -1,0 +1,28 @@
+{
+  "row": "10.1",
+  "date": "2026-10-29",
+  "compose_file": "docker-compose.yml (the repo's prod-style stack)",
+  "config": {"command": "docker compose --env-file /tmp/prod.env config -q", "result": "valid"},
+  "services": {
+    "postgres": "running healthy",
+    "redis": "running healthy",
+    "minio": "running healthy",
+    "mediamtx": "running (no in-container healthcheck: distroless image, documented in the compose file)",
+    "backend": "running healthy (healthcheck added: python urllib probe against /health, 15s interval)"
+  },
+  "backend_image": {
+    "user_config": "appuser",
+    "id_in_container": "uid=1000(appuser) gid=1000(appuser)",
+    "command": "gunicorn app.main:app --workers ${WEB_CONCURRENCY:-1} --worker-class uvicorn.workers.UvicornWorker",
+    "health_endpoint": {"status_code": 200, "body": {"status": "healthy"}},
+    "live_endpoint": {"status_code": 200, "mediamtx_reachable": true, "redis": true, "monitor_running": true}
+  },
+  "not_started": {
+    "frontend": "not built in this run (Next.js image build is a multi-minute npm install on this network); it is not part of the AI surface",
+    "caddy": "not started, because it depends on frontend"
+  },
+  "first_run_gotchas_found": [
+    "docker compose up reused a 13-day-old torrent-cdn-backend:latest image whose pip layer predated `cryptography`; the backend crash-looped with `No module named 'cryptography'` until `docker compose build backend` rebuilt it. A stale local image can therefore hide a correct Dockerfile — `up --build` is the safe first run.",
+    "The postgres volume was initialised earlier with a different POSTGRES_PASSWORD than the env file, so startup migrations were skipped with `password authentication failed` and the app still answered /health 200 (it does not touch the DB). Aligning the role password and restarting the backend applied the migrations. First run: either a fresh volume or the same password the volume was created with."
+  ]
+}

@@ -1,0 +1,27 @@
+============================= test session starts ==============================
+platform linux -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0 -- /home/yatich/torrent-cdn/backend/.venv/bin/python
+rootdir: /home/yatich/torrent-cdn/backend
+plugins: cov-7.1.0, timeout-2.4.0, platformdirs-4.12.3, anyio-4.14.2, asyncio-1.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 11 items
+
+tests/test_ai_node_billing.py::TestGatewayBillingAuthority::test_an_overclaiming_receipt_is_billed_at_the_gateways_count 
+overclaiming worker: receipt says 3000 output tokens, gateway saw 100
+account                                      kind                amount_micro
+account:11111111-1111-4111-8111-111111111111:credits -> node:node_a7b7ea291b1859a2afd6e458:compute job_compute                  504
+account:11111111-1111-4111-8111-111111111111:credits -> pool:seeders job_seeder                    72
+account:11111111-1111-4111-8111-111111111111:credits -> platform:revenue job_platform                 144
+total billed: 720 micro (claim was 18120)
+PASSED
+tests/test_ai_node_billing.py::TestGatewayBillingAuthority::test_an_underclaiming_receipt_keeps_its_own_lower_number PASSED
+tests/test_ai_node_billing.py::TestGatewayBillingAuthority::test_a_receipt_inside_the_tolerance_is_billed_as_claimed PASSED
+tests/test_ai_node_billing.py::TestGatewayBillingAuthority::test_without_a_measurement_the_receipt_still_bills PASSED
+tests/test_ai_node_billing.py::TestGatewayBillingAuthority::test_the_two_authorities_stack_measurement_then_hold PASSED
+tests/test_ai_node_billing.py::TestNodeOverclaimReview::test_an_overclaiming_node_is_suspended_and_its_payouts_held PASSED
+tests/test_ai_node_billing.py::TestNodeOverclaimReview::test_the_threshold_needs_the_sample_floor PASSED
+tests/test_ai_node_billing.py::TestNodeOverclaimReview::test_held_payouts_are_recorded_but_not_paid PASSED
+tests/test_ai_node_billing.py::TestNodeOverclaimReview::test_a_clean_node_is_paid_normally PASSED
+tests/test_ai_node_billing.py::TestNodeOverclaimReview::test_a_suspended_node_is_not_scheduled PASSED
+tests/test_ai_node_billing.py::TestNodeOverclaimReview::test_the_same_work_from_an_honest_node_raises_no_review PASSED
+
+============================== 11 passed in 1.00s ==============================

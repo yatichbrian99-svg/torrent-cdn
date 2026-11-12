@@ -1,0 +1,47 @@
+# Build-context hygiene for the backend image.
+#
+# There was no ignore file, so `COPY . .` shipped the developer's virtualenv
+# (614 MB of Python 3.14 packages), node_modules, caches and test output into
+# the production image. The blocking Trivy scan caught it: the image's Python
+# findings were the host venv's `wheel`/`urllib3`, not anything requirements.txt
+# installs. Anything not needed at runtime stays out of the context.
+
+# Local virtualenvs and their caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Node (not part of this image)
+node_modules/
+npm-debug.log*
+
+# Secrets and local state must never be baked into a layer
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.tcdn-ai/
+
+# VCS, editor and OS noise
+.git/
+.gitignore
+.idea/
+.vscode/
+.DS_Store
+
+# Tests, docs and local artefacts
+tests/
+docs/
+*.md
+!requirements.txt
+*.log
+*.sqlite3
+*.db

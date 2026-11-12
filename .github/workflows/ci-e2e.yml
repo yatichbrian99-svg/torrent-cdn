@@ -7,8 +7,8 @@ name: "CI: E2E delivery gate (pushed frontend → production backend)"
 # own unit suite + the fullstack Docker audit). Push runs the DELIVERY-
 # CRITICAL subset (upload paths + WebTorrent playback/P2P + auth + rendering:
 # upload-direct, upload-fallback, embed-playback, auto-seed, p2p-two-peer,
-# login-flow, visual-pass); the full 11-suite sweep runs on the nightly cron
-# (covers api-key-ui, finalize-retry, mfa-flow, embed-speed) and via
+# login-flow, visual-pass); the full 12-suite sweep runs on the nightly cron
+# (covers api-key-ui, finalize-retry, mfa-flow, embed-speed, admin-noselect) and via
 # workflow_dispatch (the manual "run E2E now" button). NEVER on pull_request:
 # the batch WRITES to production (throwaway account + test uploads) and fork
 # PRs must not be able to trigger unlimited production writes.

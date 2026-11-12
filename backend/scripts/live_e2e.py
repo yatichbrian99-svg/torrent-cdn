@@ -108,24 +108,6 @@ def _hook_secret() -> str:
     return "e2e-local-hook-secret-0123456789abcdef"
 
 
-def _mediamtx_can_reach_backend() -> tuple[bool, str]:
-    """Preflight for the real publish stage.
-
-    External (compose) mode: container→container traffic on the compose network
-    is exactly the production topology — always attempt it and let the actual
-    publish decide. The MediaMTX image is distroless (no shell/wget), so a
-    docker-exec probe is impossible anyway.
-
-    Self-contained mode: MediaMTX must call OUT to a host-run backend
-    (host.docker.internal), which many CI sandboxes firewall. We cannot probe
-    it from here, so we optimistically attempt with a short timeout and treat
-    a playlist timeout as an environment limitation (handled by the caller).
-    """
-    if EXTERNAL_BACKEND:
-        return True, ""
-    return True, ""  # attempt anyway; caller handles timeouts gracefully
-
-
 def main() -> int:
     tmp = tempfile.mkdtemp(prefix="live-e2e-")
     ff = None
@@ -153,8 +135,11 @@ def main() -> int:
                        MEDIAMTX_RTMP_URL=f"rtmp://{RTMP_HOSTPORT}",
                        MEDIAMTX_HLS_URL=f"http://{RTMP_HOSTPORT.split(':')[0]}:8888",
                        APP_ENV="development")
+            # The argv is a fixed list: only the port comes from this file's
+            # constants, and the child env is built here rather than inherited.
             server = subprocess.Popen(
-                [os.path.join(BACKEND_DIR, ".venv/bin/python"), "-m", "uvicorn",
+                [  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
+                    os.path.join(BACKEND_DIR, ".venv/bin/python"), "-m", "uvicorn",
                  "app.main:app", "--host", "127.0.0.1", "--port", str(BACKEND_PORT)],
                 cwd=BACKEND_DIR, env=env,
                 stdout=open(os.path.join(tmp, "uvicorn.log"), "w"),

@@ -1,0 +1,57 @@
+$ .venv/bin/python -m pytest tests/test_ai_*.py tests/test_part3_coverage.py tests/test_authorization_matrix.py tests/test_ai_failure_injection.py -q --cov=app/ai --cov=tcdn_ai_sdk --cov-report=term-missing --cov-report=json:../docs/tcdn-ai/evidence/01-tests/ai-coverage.json
+........................................................................ [ 33%]
+.......................................xssss............................ [ 66%]
+........................................................................ [ 99%]
+.                                                                        [100%]
+=============================== warnings summary ===============================
+tests/conftest.py:12
+  /home/yatich/torrent-cdn/backend/tests/conftest.py:12: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient
+
+.venv/lib/python3.14/site-packages/_pytest/cacheprovider.py:469
+  /home/yatich/torrent-cdn/backend/.venv/lib/python3.14/site-packages/_pytest/cacheprovider.py:469: PytestCacheWarning: cache could not write path /home/yatich/torrent-cdn/backend/.pytest_cache/v/cache/nodeids: [Errno 13] Permission denied: '/home/yatich/torrent-cdn/backend/.pytest_cache/v/cache/nodeids'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.14.7-final-0 ________________
+
+Name                      Stmts   Miss  Cover   Missing
+-------------------------------------------------------
+app/ai/__init__.py            0      0   100%
+app/ai/attestation.py       111      8    93%   75, 121, 168, 199, 204, 218, 225, 227
+app/ai/burn.py               39      3    92%   62, 69, 89
+app/ai/clock.py               4      0   100%
+app/ai/config.py             91      4    96%   151-156, 161
+app/ai/crypto.py            122     15    88%   68, 72-73, 101, 113, 135-136, 148-149, 183, 222, 229, 231, 245, 256
+app/ai/errors.py             61      0   100%
+app/ai/keyring.py           211     25    88%   58, 118, 140, 159, 191, 209, 212, 214, 222, 288, 308, 312, 348-349, 368, 371, 374, 389, 392-393, 416, 426-432
+app/ai/ledger.py            185     19    90%   90, 92, 186-187, 190-191, 224, 226, 268-270, 287-290, 311, 313, 315, 392
+app/ai/models.py            233      4    98%   62, 115, 155, 216
+app/ai/payments.py           73      8    89%   63-64, 66, 82, 92-93, 104, 113
+app/ai/payouts.py            83      6    93%   51, 62, 80, 125, 139, 143
+app/ai/pricing.py            82      7    91%   40, 53, 72, 76, 111, 114, 144
+app/ai/ratelimit.py          42      4    90%   33, 46-49, 67
+app/ai/receipts.py           70      9    87%   71, 73, 76, 83-84, 87, 94, 96, 108
+app/ai/routes.py            145     32    78%   75-77, 84-94, 136-137, 161, 199-201, 223, 232, 248, 258, 288-294, 316-323, 337-349
+app/ai/scheduler.py          93      5    95%   40, 76, 80, 86, 90
+app/ai/service.py           269     41    85%   135, 215, 230, 238, 240, 254, 317-321, 420-435, 444, 446, 450, 477, 479, 487, 490, 492, 495, 506, 509, 511, 516-517, 534-537, 554, 559, 598, 689, 761-762
+app/ai/shards.py            251     39    84%   45, 48, 59, 99-100, 139, 141, 146, 159, 190-191, 193, 195, 245-249, 256, 261-263, 272, 274-282, 285, 301-304, 382, 387-389
+app/ai/ssrf.py               51     14    73%   56-61, 73, 81-82, 84, 91-92, 97-99
+app/ai/store.py             404    161    60%   271, 412, 458-465, 472, 475, 480, 505, 510, 531, 558-564, 600, 603, 606, 618, 646, 683-684, 687-688, 691-696, 709-716, 726-727, 732-769, 772-774, 777-779, 782-787, 792-793, 809-810, 823-841, 854-855, 887-889, 892-898, 901-928, 936-937, 943-956, 961-965, 968-972, 983-1059, 1062-1068, 1084-1094, 1097-1103, 1108-1109, 1125-1137, 1140-1163, 1166-1176, 1179-1183, 1186-1187, 1205-1210, 1213-1214, 1232-1233, 1243-1246, 1250
+app/ai/tickets.py            62      5    92%   54, 63, 127-128, 131
+app/ai/transcripts.py       140     19    86%   61, 67, 74, 93, 102, 110, 160, 212-217, 223-228, 252, 264
+app/ai/verification2.py     344     15    96%   300, 378, 382, 386, 404, 428, 475, 488, 672, 746-750, 805
+app/ai/verification.py       40      2    95%   47, 70
+app/ai/verifier_sign.py      71     22    69%   73, 83-97, 103, 143, 179, 183, 186-187
+app/ai/worker.py            311    124    60%   77-79, 147-151, 168-213, 230-274, 304-311, 314-319, 328, 402, 405, 407, 413, 416, 422, 424, 437, 449, 453, 487, 505-510, 537-542, 560-566, 578, 588-605, 610-634, 639-647, 658-676
+tcdn_ai_sdk/__init__.py       4      0   100%
+tcdn_ai_sdk/_crypto.py       65      8    88%   50, 64, 87, 91-92, 96-98
+tcdn_ai_sdk/client.py       310     76    75%   108, 122-125, 151, 178, 197-198, 202-205, 210, 214-230, 242, 247, 266, 272, 282, 284, 287, 304, 306, 308, 311, 349, 351, 433-453, 479-498, 545-565, 579, 582, 585, 588, 591, 623, 627, 629, 653, 657, 661, 665
+tcdn_ai_sdk/errors.py        26      3    88%   53-55
+tcdn_ai_sdk/protocol.py      62      9    85%   70, 73-74, 83, 93, 95, 113, 115, 118
+-------------------------------------------------------
+TOTAL                      4055    687    83%
+Coverage JSON written to file ../docs/tcdn-ai/evidence/01-tests/ai-coverage.json
+212 passed, 4 skipped, 1 xfailed, 2 warnings in 8.00s
+EXIT=0

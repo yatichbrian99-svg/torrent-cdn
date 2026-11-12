@@ -1,0 +1,65 @@
+.......................................sssssssssssssssssss.............. [  6%]
+.s...................................................................... [ 13%]
+...............................................ssss.sssssss......sssssss [ 20%]
+sssssss..............................sssssssss.......................... [ 27%]
+........................................................................ [ 34%]
+........................................................................ [ 41%]
+.............................sssssssss.................................. [ 48%]
+........................................................................ [ 55%]
+........................................................................ [ 62%]
+........................................................................ [ 69%]
+........................................................................ [ 76%]
+........................................................................ [ 83%]
+........................................................................ [ 90%]
+........................................................................ [ 97%]
+..........................                                               [100%]
+=============================== warnings summary ===============================
+tests/test_audit_pass2.py: 3 warnings
+tests/test_security.py: 1 warning
+tests/test_upload_chunked.py: 13 warnings
+  /home/yatich/torrent-cdn/backend/app/routes/upload.py:284: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    async for key in redis.scan_iter("chunk_session:*", count=100):
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_audit_pass2.py::TestSessionCaps::test_chunk_session_cap_enforced
+tests/test_upload_chunked.py::TestChunkedUpload::test_session_creates
+tests/test_upload_chunked.py::TestChunkedUpload::test_chunk_upload_and_finalize_end_to_end
+tests/test_upload_chunked.py::TestChunkedUpload::test_finalize_lost_response_retry_does_not_duplicate
+tests/test_upload_chunked.py::TestChunkedUpload::test_finalize_rejects_incomplete
+tests/test_upload_chunked.py::TestChunkedUpload::test_chunk_rejects_oversized_chunk
+tests/test_upload_chunked.py::TestChunkedUpload::test_chunk_rejects_invalid_index
+tests/test_upload_chunked.py::TestChunkSessionRedisSurvival::test_chunk_session_survives_worker_handoff_via_redis
+  /home/yatich/torrent-cdn/backend/app/routes/upload.py:350: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    async for key in redis.scan_iter("chunk_session:*", count=100):
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_live_state.py: 19 warnings
+  /home/yatich/torrent-cdn/backend/app/live_state.py:152: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    return None
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_live_state.py::TestLiveState::test_peer_availability_roundtrip
+  /home/yatich/torrent-cdn/backend/app/live_state.py:411: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    async for key in redis.scan_iter(match=pattern, count=100):
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_live_state.py::TestLiveState::test_clear_channel_drops_everything
+tests/test_live_state.py::TestIngestWebhook::test_shutdown_clears_state
+tests/test_live_state.py::TestReadyHooks::test_not_ready_clears_state
+  /home/yatich/torrent-cdn/backend/app/live_state.py:223: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    async for key in redis.scan_iter(match=pattern, count=100):
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_upload.py: 9 warnings
+tests/test_upload_presign.py: 1 warning
+  /home/yatich/torrent-cdn/backend/.venv/lib/python3.14/site-packages/torrentool/torrent.py:416: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    torrent.creation_date = datetime.utcnow()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+971 passed, 63 skipped, 58 warnings in 70.11s (0:01:10)
+exit=0

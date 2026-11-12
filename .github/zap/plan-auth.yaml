@@ -1,0 +1,97 @@
+# ZAP Automation Framework plan — authenticated pass.
+#
+# Identical to plan-unauth.yaml except that the target is the runner's auth
+# proxy (:8001) instead of the backend (:8000). The proxy adds the seeded
+# account's bearer token to every request on the way through — see
+# auth_proxy.py for why a ZAP Replacer rule was not enough. The token itself
+# never appears in this file, in the checkout or in the uploaded artifact.
+env:
+  contexts:
+    - name: torrentcdn
+      # The context URL is spidered as a seed, so it must answer 200: the
+      # API root is a 404 and ZAP records that as a plan warning.
+      urls:
+        - http://127.0.0.1:8001/health
+      includePaths:
+        - http://127.0.0.1:8001.*
+      excludePaths:
+        - http://127.0.0.1:8001/api/internal/.*
+        # The scan enumerated POST /auth/logout and fired it once. That revokes
+        # the seeded session, so every later request in the pass was 401 — the
+        # "authenticated" report was really an unauthenticated one with a
+        # different label. Logout is still exercised by the unauthenticated
+        # pass; here it would only destroy the credential under test.
+        - http://127.0.0.1:8001/auth/logout
+        # Measured 2026-10-30: this pass deleted the seeded account. The spec
+        # exposes DELETE /auth/me and the scan calls it; deleting the users row
+        # cascades to ai_accounts and ai_api_keys (both ON DELETE CASCADE), so
+        # the inference key minted for the AI pass was gone by the time that
+        # pass needed it — the run failed with /api/ai/v1/balance -> 401
+        # "invalid API key" about twelve minutes after a key that had just
+        # authenticated in-process. Account deletion is exercised by
+        # tests/test_authorization_matrix.py; here it only destroys the account
+        # the other two passes depend on.
+        - http://127.0.0.1:8001/auth/me
+        # Same reasoning, smaller blast radius: revokes the account's API key.
+        - http://127.0.0.1:8001/auth/api-key
+  parameters:
+    failOnError: false
+    failOnWarning: false
+    progressToStdout: true
+
+jobs:
+  - type: openapi
+    parameters:
+      apiFile: /zap/wrk/api.json
+      targetUrl: http://127.0.0.1:8001
+      context: torrentcdn
+
+  # Same four paths and the same evidence as plan-auth-ai.yaml: 40018 fired on
+  # /api/live/heartbeat in the AI-key pass and the JWT pass can reach it too.
+  # Path-scoped and applied in the gate, not by an alertFilter job — see
+  # docs/tcdn-ai/SQLI_40018.md §5.
+
+  - type: passiveScan-config
+    parameters:
+      maxAlertsPerRule: 20
+      scanOnlyInScope: true
+
+  # Start at a URL that answers 200 (the API root is a 404; a job warning makes
+  # ZAP exit non-zero and would mask a real scanner failure).
+  - type: spider
+    parameters:
+      context: torrentcdn
+      url: http://127.0.0.1:8001/health
+      maxDuration: 2
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 5
+
+  - type: activeScan
+    parameters:
+      context: torrentcdn
+      maxRuleDurationInMins: 1
+      maxScanDurationInMins: 6
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 5
+
+  - type: report
+    parameters:
+      template: traditional-json
+      reportDir: /zap/wrk/reports
+      reportFile: auth.json
+
+  - type: report
+    parameters:
+      template: traditional-html
+      reportDir: /zap/wrk/reports
+      reportFile: auth.html
+
+  - type: report
+    parameters:
+      template: traditional-md
+      reportDir: /zap/wrk/reports
+      reportFile: auth.md

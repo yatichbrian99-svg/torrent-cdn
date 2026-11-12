@@ -1,0 +1,76 @@
+PRODUCTION SMOKE — PR #46 merge
+run_utc=2026-11-12T05:09:28Z
+merged_pr=46 merge_commit=eb0976d2a93db852867864e8a9c30ff98c500b3e merged_at=2026-11-12T04:54:11Z
+P=https://www.torrentcdn.store (Vercel; /api/* -> onrender/$1)  B=https://torrent-cdn.onrender.com
+
+== 1 GET $B/health ==
+{"status":"healthy"}
+HTTP 200
+
+== 2 GET $B/api/health/live (direct is 429, latched limiter -> see finding) ==
+{"detail":"Rate limit exceeded. Try again in 10s."}
+HTTP 429
+   same route reached through Vercel second hop: $P/api/api/health/live
+{"status":"healthy","application":{"monitor_running":true,"redis":true},"media_pipeline":{"mediamtx_configured":true,"mediamtx_reachable":true,"segment_discovery_active":true},"active_channels":0,"last_error":null}
+HTTP 200
+
+== 8 control characters: /auth/login, /auth/register, /auth/forgot-password ==
+login -> HTTP 400 {"detail":"Invalid email address"}
+register -> HTTP 400 {"detail":"Invalid email address"}
+forgot-password -> HTTP 400 {"detail":"Invalid email address"}
+   proxied login:
+   /api/auth/login -> HTTP 400
+
+== 16 /api/ai/v1/status ==
+   direct (masked by 429 latched limiter):
+{"detail":"Rate limit exceeded. Try again in 10s."}
+   HTTP 429
+   backend path via Vercel second hop (real answer):
+{"detail":"Not Found"}
+   HTTP 404
+   control, a path that has never existed:
+{"detail":"Not Found"}
+   HTTP 404
+
+== 18 public pages ==
+/ -> HTTP 200
+/demo -> HTTP 200
+/docs -> HTTP 200
+/architecture -> HTTP 200
+/privacy -> HTTP 200
+/terms -> HTTP 200
+/cookies -> HTTP 200
+/dmca -> HTTP 200
+
+== headers: HTML 200 ==
+content-security-policy: default-src 'self'; script-src 'self' 'nonce-a6001972725647469c61187581f0a899' 'strict-dynamic'
+cross-origin-opener-policy: same-origin
+permissions-policy: accelerometer=(), ambient-light-sensor=(), autoplay=(), camera=(), display-capture=(), document-doma
+referrer-policy: strict-origin-when-cross-origin
+strict-transport-security: max-age=31536000; includeSubDomains; preload
+x-content-type-options: nosniff
+x-frame-options: SAMEORIGIN
+== headers: HTML 404 ==
+referrer-policy: strict-origin-when-cross-origin
+strict-transport-security: max-age=31536000; includeSubDomains; preload
+x-content-type-options: nosniff
+x-frame-options: SAMEORIGIN
+== headers: backend 404 for /api/ai/v1/status (via Vercel) ==
+cache-control: no-store
+content-security-policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' fonts.googleapis.com; f
+referrer-policy: strict-origin-when-cross-origin
+strict-transport-security: max-age=31536000; includeSubDomains; preload
+x-content-type-options: nosniff
+x-frame-options: SAMEORIGIN
+
+== FINDING (pre-existing, not caused by this merge): latched global rate-limit key ==
+Every direct request to a path the global limiter covers returns 429 with a CONSTANT Retry-After equal to the 10 s window,
+including paths that do not exist, over more than five minutes with no traffic from this egress:
+HTTP/2 429 
+retry-after: 10
+cf-ray: a59306cbefa3f347-NBO
+HTTP/2 429 
+retry-after: 10
+main's backend/app/main.py: 'retry_after = max(1, ttl) if ttl and ttl > 0 else self._window' —
+a key whose TTL was never set (ttl=-1) therefore reports the full window forever and never clears.
+The fix (treat an expiry-less key as expired) is commit 6fe1487, present on this branch only, not on main.

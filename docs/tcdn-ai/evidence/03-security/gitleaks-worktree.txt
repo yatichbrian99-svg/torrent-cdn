@@ -1,0 +1,4 @@
+$ gitleaks dir . --redact
+[90m8:47AM[0m [32mINF[0m [1mscanned ~469051717 bytes (469.05 MB) in 19.9s[0m
+[90m8:47AM[0m [33mWRN[0m [1mleaks found: 40[0m
+EXIT=1

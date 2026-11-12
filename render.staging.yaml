@@ -1,0 +1,143 @@
+# TCDN-AI STAGING — a separate, disposable deployment of the feature branch.
+#
+# What this is: one web service, its own Postgres, its own Key Value instance,
+# the AI flag ON, the *production* config gates ON (so the code path being
+# tested is the one that ships), and Paystack TEST keys only. It shares nothing
+# with production — no database, no Redis, no env vars, no domain.
+#
+# Owner steps, secret generation, health checks and rollback: docs/tcdn-ai/STAGING.md.
+#
+# Deliberately NOT here:
+#   - no keep-alive cron (staging is allowed to sleep; a pinger costs nothing but
+#     hides cold-start behaviour)
+#   - no RESEND_API_KEY (registration auto-verifies when no provider is configured,
+#     which is what the smoke test relies on for the signup-credit step)
+#   - no MINIO_* / storage (the AI surface does not need object storage; the CDN
+#     upload endpoints will refuse, which is fine on staging)
+#   - no live Paystack key anywhere, and app/config.py refuses to boot if one
+#     appears while STAGING_DEPLOYMENT is true
+
+services:
+  - type: web
+    name: torrentcdn-staging-ai
+    env: docker
+    region: oregon
+    # free = sleeps after ~15 min idle and cold-starts on the next request;
+    # switch to `starter` if a smoke run should never wait for a wake-up.
+    plan: free
+    branch: fix/tcdn-ai-redis-replay-nonce
+    autoDeploy: true
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      # This service URL (Render appends a suffix if the name is taken — then set
+      # this to the real URL from the dashboard). Drives email links and CSP.
+      - key: APP_URL
+        value: https://torrentcdn-staging-ai.onrender.com
+      - key: JWT_SECRET
+        generateValue: true
+      # Marks a deployment that runs production gates but must never move money.
+      # app/config.py fails startup if a live Paystack key is present.
+      - key: STAGING_DEPLOYMENT
+        value: "true"
+      - key: CORS_ORIGINS
+        value: ""
+      - key: TRUSTED_HOSTS
+        value: ".onrender.com,localhost"
+
+      # ── TCDN-AI ───────────────────────────────────────────────────────────
+      - key: ENABLE_TCDN_AI
+        value: "true"
+      # AI "production" mode: simulated attestation, the echo backend and the
+      # fake payment provider are all refused at startup.
+      - key: TCDN_AI_ENVIRONMENT
+        value: production
+      - key: TCDN_AI_REQUIRE_TLS
+        value: "true"
+      - key: TCDN_AI_ALLOW_SIMULATED_ATTESTATION
+        value: "false"
+      - key: TCDN_AI_ALLOW_DEV_STUB_BACKEND
+        value: "false"
+      - key: TCDN_AI_PAYMENT_PROVIDER
+        value: paystack
+      - key: TCDN_AI_SIGNUP_CREDITS
+        value: "500"
+      # Staging has no email provider, so registration auto-verifies. That is
+      # NOT proof of an inbox, so the signup credit refuses it in production —
+      # this switch is the only exception, config.py refuses to boot with it
+      # unless STAGING_DEPLOYMENT=true, and production never sets it. The proof
+      # gate itself is covered by tests/test_ai_signup_abuse.py.
+      - key: TCDN_AI_SIGNUP_ALLOW_AUTO_VERIFIED
+        value: "true"
+      # Hashes API keys. Generated once by Render and kept stable; every key
+      # issued on this deployment is only valid while it is the same value.
+      - key: TCDN_AI_API_KEY_PEPPER
+        generateValue: true
+      # Ed25519 keyring that signs tickets. Must be injected (never written to
+      # disk): generate it with scripts/ai_keyring_init.py and paste the JSON.
+      - key: TCDN_AI_COORDINATOR_KEYRING_JSON
+        sync: false
+      # Paystack TEST secret (sk_test_...). Signs credit-purchase webhooks AND
+      # is the key the provider uses to talk to us; a test key cannot charge a card.
+      - key: TCDN_AI_PAYSTACK_SECRET_KEY
+        sync: false
+
+      # ── CDN billing (kept off, test-only) ─────────────────────────────────
+      # The AI smoke test does not need the CDN's billing surface. Leave these
+      # empty, or set the *test* key if you want /billing flows on staging.
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: PAYSTACK_CURRENCY
+        value: KES
+
+      # Bootstrap only: create the first admin with
+      #   POST /auth/setup   X-Admin-Setup-Token: <token>
+      # then set ADMIN_SETUP_ENABLED=false (or delete the var) and redeploy.
+      - key: ADMIN_SETUP_ENABLED
+        value: "true"
+      - key: ADMIN_SETUP_TOKEN
+        generateValue: true
+
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: DB_POOL_MAX_SIZE
+        value: "5"
+      - key: DB_POOL_ACQUIRE_TIMEOUT
+        value: "10"
+
+      - key: DATABASE_URL
+        fromDatabase:
+          name: torrentcdn-staging-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: torrentcdn-staging-redis
+          property: connectionString
+
+  # Separate database. Never point the staging service at production's Supabase:
+  # the AI migrations are additive but the smoke test writes real ledger rows.
+  - type: postgres
+    name: torrentcdn-staging-db
+    databaseName: torrentcdn_staging
+    user: staging
+    region: oregon
+    # Render's free Postgres expires after 30 days; `basic-256mb` if this has to
+    # outlive a month of testing.
+    plan: free
+    postgresMajorVersion: "16"
+    # Closed to the internet. scripts/staging_bootstrap.py and staging_smoke.py
+    # run inside the web service (Render dashboard → Shell), where the private
+    # network is reachable and DATABASE_URL is already exported.
+    ipAllowList: []
+
+  # Separate Key Value instance. TCDN-AI *requires* Redis: ticket claims and
+  # nonce consumption fail closed without it, so AI placement stops.
+  - type: keyvalue
+    name: torrentcdn-staging-redis
+    region: oregon
+    plan: free
+    maxmemoryPolicy: volatile-lru
+    ipAllowList: []
