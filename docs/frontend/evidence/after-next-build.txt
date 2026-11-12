@@ -1,0 +1,120 @@
+npm notice run torrent-cdn-frontend@1.0.0 build
+npm notice run node scripts/ensure_webtorrent_patch.js && next build && node scripts/check_webtorrent_patch.js
+[OK] cleared stale Next.js build cache (.next/cache)
+[OK] webtorrent patches already applied
+ ⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of /home/yatich/package-lock.json as the root directory.
+ To silence this warning, set `outputFileTracingRoot` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/output#caveats for more information.
+ Detected additional lockfiles: 
+   * /home/yatich/torrent-cdn/frontend/package-lock.json
+
+   ▲ Next.js 15.5.29
+   - Environments: .env.local
+
+   Creating an optimized production build ...
+ ⚠ Compiled with warnings in 10.1s
+
+./node_modules/fs-native-extensions/binding.js
+Critical dependency: require function is used in a way in which dependencies cannot be statically extracted
+
+Import trace for requested module:
+./node_modules/fs-native-extensions/binding.js
+./node_modules/fs-native-extensions/index.js
+./node_modules/random-access-file/index.js
+./node_modules/fs-chunk-store/index.js
+./node_modules/webtorrent/lib/torrent.js
+./node_modules/webtorrent/index.js
+./lib/seeder.ts
+./app/demo/page.tsx
+
+./node_modules/require-addon/lib/node.js
+Critical dependency: require function is used in a way in which dependencies cannot be statically extracted
+
+Import trace for requested module:
+./node_modules/require-addon/lib/node.js
+./node_modules/fs-native-extensions/binding.js
+./node_modules/fs-native-extensions/index.js
+./node_modules/random-access-file/index.js
+./node_modules/fs-chunk-store/index.js
+./node_modules/webtorrent/lib/torrent.js
+./node_modules/webtorrent/index.js
+./lib/seeder.ts
+./app/demo/page.tsx
+
+./node_modules/require-addon/lib/node.js
+Critical dependency: the request of a dependency is an expression
+
+Import trace for requested module:
+./node_modules/require-addon/lib/node.js
+./node_modules/fs-native-extensions/binding.js
+./node_modules/fs-native-extensions/index.js
+./node_modules/random-access-file/index.js
+./node_modules/fs-chunk-store/index.js
+./node_modules/webtorrent/lib/torrent.js
+./node_modules/webtorrent/index.js
+./lib/seeder.ts
+./app/demo/page.tsx
+
+ ✓ Compiled successfully in 18.3s
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/5) ...
+   Generating static pages (1/5) 
+   Generating static pages (2/5) 
+   Generating static pages (3/5) 
+ ✓ Generating static pages (5/5)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                 Size  First Load JS
+┌ ƒ /                                    7.83 kB         132 kB
+├ ƒ /_not-found                          1.01 kB         104 kB
+├ ƒ /.well-known/security.txt              155 B         103 kB
+├ ƒ /admin                               7.35 kB         136 kB
+├ ƒ /admin/health                        5.39 kB         130 kB
+├ ƒ /admin/payouts                       6.79 kB         135 kB
+├ ƒ /ai                                  4.73 kB         133 kB
+├ ƒ /ai/billing                          5.45 kB         130 kB
+├ ƒ /ai/keys                             6.02 kB         130 kB
+├ ƒ /ai/models                           5.15 kB         129 kB
+├ ƒ /ai/quickstart                       6.26 kB         130 kB
+├ ƒ /ai/status                           4.82 kB         129 kB
+├ ƒ /ai/usage                            4.44 kB         133 kB
+├ ƒ /ai/usage/[jobId]                    4.32 kB         133 kB
+├ ƒ /architecture                          155 B         103 kB
+├ ƒ /aup                                   155 B         103 kB
+├ ƒ /auth/forgot-password                1.74 kB         130 kB
+├ ƒ /auth/reset-password                 2.66 kB         131 kB
+├ ƒ /billing                             3.48 kB         128 kB
+├ ƒ /cookies                               155 B         103 kB
+├ ƒ /dashboard                           8.79 kB         250 kB
+├ ƒ /dashboard/upload                    4.71 kB         129 kB
+├ ƒ /demo                                8.31 kB         243 kB
+├ ƒ /dmca                                  155 B         103 kB
+├ ƒ /docs                                6.24 kB         109 kB
+├ ƒ /embed/[file_id]                     1.61 kB         129 kB
+├ ƒ /live                                3.46 kB         132 kB
+├ ƒ /live/channels                         368 B         103 kB
+├ ƒ /live/channels/[id]                  6.19 kB         135 kB
+├ ƒ /live/channels/[id]/analytics        3.63 kB         132 kB
+├ ƒ /live/watch/[slug]                    7.9 kB         136 kB
+├ ƒ /privacy                               155 B         103 kB
+├ ○ /robots.txt                            155 B         103 kB
+├ ƒ /share/[token]                       2.71 kB         127 kB
+├ ○ /sitemap.xml                           155 B         103 kB
+├ ƒ /tcdn-ai                              2.1 kB         105 kB
+├ ƒ /terms                                 155 B         103 kB
+└ ƒ /verify-email                        2.02 kB         126 kB
++ First Load JS shared by all             103 kB
+  ├ chunks/1255-d8a1861c775d9bcc.js      46.3 kB
+  ├ chunks/4bd1b696-100b9d70ed4e49c1.js  54.2 kB
+  └ other shared chunks (total)          2.16 kB
+
+
+ƒ Middleware                             34.9 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+[OK] webtorrent patch guard: OK (patches applied, no .toHex(/.fromHex(/global.WEBTORRENT_ANNOUNCE in the bundle)
