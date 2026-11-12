@@ -54,6 +54,13 @@ PUBLIC_ROUTES: list[tuple[str, str]] = [
         "deployment liveness: counts and heartbeat ages only, no ids or secrets",
     ),
     (
+        r"^/api/ai/v1/console/status$",
+        (
+            "feature probe: flag, counts and heartbeat ages only; the console "
+            "needs it before a session exists to decide whether to render"
+        ),
+    ),
+    (
         r"^/api/ai/v1/billing/webhook$",
         "signed payment callback (signature is the auth)",
     ),

@@ -26,6 +26,23 @@ from app.ai import routes_console
 from app.auth import get_current_user_id
 from app.main import app
 
+
+def _ai_surface_enabled() -> bool:
+    """main.py mounts /api/ai/v1 (and the console under it) only when the flag is on."""
+    from app.ai.config import get_ai_settings
+    from app.config import get_settings
+
+    try:
+        return get_ai_settings().is_ai_enabled_for_host(get_settings().app_env)
+    except Exception:  # no AI config at all → the app cannot mount the routes
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _ai_surface_enabled(),
+    reason="ENABLE_TCDN_AI is off: /api/ai/v1/console is not mounted",
+)
+
 OTHER_ACCOUNT = "22222222-2222-4222-8222-222222222222"
 
 
