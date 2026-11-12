@@ -1,0 +1,85 @@
+{
+  "suite": "ai-flag-off",
+  "steps": [
+    {
+      "name": "no AI link while signed out",
+      "ok": true,
+      "detail": "TorrentCDN Docs Architecture Demo Login Sign up"
+    },
+    {
+      "name": "landing heading unchanged",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no AI link when signed in",
+      "ok": true,
+      "detail": "TorrentCDN Docs Architecture Demo Dashboard Live Billing ai-e2e-1@example.com Lo"
+    },
+    {
+      "name": "dashboard nav intact",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "AI deep link shows the unavailable panel",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "dashboard still renders",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "billing still renders",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "only the feature probe touches an AI path",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "name": "probe was issued once per page load at most",
+      "ok": true,
+      "detail": "4 probes"
+    },
+    {
+      "name": "AI routes are 404 on this deployment",
+      "ok": true,
+      "detail": "HTTP 404"
+    }
+  ],
+  "aiRequests": [
+    {
+      "path": "/api/ai/v1/console/status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/ai/v1/console/status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/ai/v1/console/status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/ai/v1/console/status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/ai/v1/console/status",
+      "method": "GET"
+    }
+  ],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "ok": true
+}

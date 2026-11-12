@@ -11,7 +11,7 @@ Nothing here is inherited from an earlier report.
 | Level | VERIFIED | PARTIAL | BUILT-UNVERIFIED | MISSING | DEFERRED | NOT VERIFIABLE HERE | Total |
 |---|---|---|---|---|---|---|---|
 | **P1** | **54** | **2** | 0 | **0** | 0 | 0 | 56 |
-| **P2** | 0 | 1 | 0 | **28** | 0 | 1 | 30 |
+| **P2** | 0 | 2 | 0 | **27** | 0 | 1 | 30 |
 | **DEFER** | 0 | 0 | 0 | 0 | 2 | 0 | 2 |
 
 Counts produced by parsing the tables in this file (not estimated). **Recounted 2026-11-01** at
@@ -40,6 +40,8 @@ flag on **1356 passed / 30 skipped / 0 failed**; the 30 real-service skips re-ru
 disposable Postgres 16.4 + Redis 7.4.2 **28 passed**; 40018's static, dynamic (12 routes /
 216 requests) and gate proofs re-run green; `pip-audit` clean; `npm audit` 3 dev-only
 moderates. Details and the ranking are in `SELF_AUDIT.md`.
+
+**Recounted 2026-11-12 (frontend pass)** on `feat/tcdn-ai-console`: row **9.2** moved from MISSING to **PARTIAL** because the developer console now exists and was exercised end to end (`evidence/frontend/`), while the host and admin consoles still do not. P2 is therefore **0 VERIFIED / 2 PARTIAL / 0 BUILT-UNVERIFIED / 27 MISSING / 0 DEFERRED / 1 NOT VERIFIABLE**. P1 is unchanged at **54 / 2 of 56** — a console does not exercise a live payment or close the gateway-only redundant-execution gap.
 
 **Level 1 ready: NO.**
 
@@ -279,7 +281,7 @@ read from the uploaded `zap-reports` artifact and the two proxy logs:
 | ID | Item | Level | Status | Evidence | Notes |
 |---|---|---|---|---|---|
 | 9.1 | Human accounts, real email verification, Argon2id, 2FA, sessions | P2 | **MISSING (AI-specific)** | the CDN has accounts/2FA; the AI surface reuses it but no verified-email gate for AI | — |
-| 9.2 | Developer / host / admin consoles | P2 | **MISSING** | — | — |
+| 9.2 | Developer / host / admin consoles | P2 | **PARTIAL (developer console built and exercised)** | `docs/tcdn-ai/FRONTEND_PLAN.md`, `docs/tcdn-ai/evidence/frontend/` (e2e flag on 17/17, flag off 10/10, axe clean, bundle check, Lighthouse) | **Developer console only**, behind the same flag: overview, credit purchase (test mode), API keys, usage/jobs, models, quickstart, public status. Exercised end to end against a local stack — login → buy test credits → create key → call the API → see the job — with a real job billed by an echo worker. **Host and admin consoles do not exist** (not built, not claimed), so the row cannot be VERIFIED; the developer console also remains untested against a browser in production because the feature is off there. |
 | 9.3 | Abuse reporting, block lists, model license registry | P2 | **MISSING** | — | — |
 
 ## 10. Operations and documentation

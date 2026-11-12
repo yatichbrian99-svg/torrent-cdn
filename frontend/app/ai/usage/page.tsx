@@ -149,8 +149,8 @@ export default function AiUsagePage() {
             }
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] border-collapse text-sm">
+          <div className="w-full max-w-full overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
               <caption className="sr-only">Jobs on your account</caption>
               <thead>
                 <tr className="border-b text-left" style={{ borderColor: 'var(--border)' }}>
@@ -158,7 +158,9 @@ export default function AiUsagePage() {
                     <th
                       key={heading}
                       scope="col"
-                      className="py-2 pr-4 text-[10px] font-bold uppercase tracking-widest"
+                      className={`py-2 pr-4 text-[10px] font-bold uppercase tracking-widest${
+                        heading === 'Created' ? ' hidden sm:table-cell' : ''
+                      }`}
                       style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}
                     >
                       {heading}
@@ -190,7 +192,7 @@ export default function AiUsagePage() {
                     <td className="py-3 pr-4 font-mono text-xs" style={{ color: 'var(--text-primary)' }}>
                       {usd(job.total_micro)}
                     </td>
-                    <td className="py-3 pr-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+                    <td className="hidden py-3 pr-4 text-xs sm:table-cell" style={{ color: 'var(--text-muted)' }}>
                       {timestamp(job.created_at)}
                     </td>
                   </tr>

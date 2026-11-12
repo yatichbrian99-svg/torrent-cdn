@@ -39,7 +39,7 @@ export default function AiGate({ children }: { children: React.ReactNode }) {
   if (state === 'checking') {
     return (
       <div
-        className="flex min-h-[40vh] items-center justify-center"
+        className="ai-console flex min-h-[40vh] items-center justify-center"
         role="status"
         aria-live="polite"
       >
@@ -51,7 +51,7 @@ export default function AiGate({ children }: { children: React.ReactNode }) {
 
   if (state === 'disabled') {
     return (
-      <div className="mx-auto max-w-xl py-16">
+      <div className="ai-console mx-auto max-w-xl py-16">
         <div
           className="border p-6"
           style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}

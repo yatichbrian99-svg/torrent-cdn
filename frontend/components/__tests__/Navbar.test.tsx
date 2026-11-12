@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@/lib/api', () => ({
+  // The Navbar pulls in lib/aiConsole for the gated AI link, which imports
+  // API_BASE from this module — a partial mock must expose it.
+  API_BASE: '',
   default: {
     getMe: mocks.getMe,
     getNotifications: mocks.getNotifications,

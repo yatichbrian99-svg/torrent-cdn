@@ -59,7 +59,9 @@ async def _cleanup(store: PostgresStore, account_id: str, source: str) -> None:
             account_credits(account_id),
             source,
         )
-        await conn.execute("DELETE FROM ai_holds WHERE account_id = $1", uuid.UUID(account_id))
+        await conn.execute(
+            "DELETE FROM ai_holds WHERE account_id = $1", uuid.UUID(account_id)
+        )
 
 
 @pytest.mark.asyncio
@@ -136,7 +138,11 @@ async def test_release_is_idempotent_and_restores_capacity(store):
     job = f"job-{account[:8]}-release"
     try:
         await store.credit(
-            account, 500, source=source, idempotency_key="release-funding", kind="credit_purchase"
+            account,
+            500,
+            source=source,
+            idempotency_key="release-funding",
+            kind="credit_purchase",
         )
         await store.place_hold(job, account, 500)
         with pytest.raises(InsufficientCredits):
@@ -158,10 +164,18 @@ async def test_every_ledger_entry_has_equal_debits_and_credits(store):
     source = "gateway:test"
     try:
         await store.credit(
-            account, 3_000, source=source, idempotency_key="inv-1", kind="credit_purchase"
+            account,
+            3_000,
+            source=source,
+            idempotency_key="inv-1",
+            kind="credit_purchase",
         )
         await store.credit(
-            account, 2_000, source=source, idempotency_key="inv-2", kind="credit_purchase"
+            account,
+            2_000,
+            source=source,
+            idempotency_key="inv-2",
+            kind="credit_purchase",
         )
         label = account_credits(account)
         async with store.pool.acquire() as conn:
@@ -215,6 +229,7 @@ async def test_startup_migrations_bootstrap_a_fresh_database():
     fresh_dsn = DSN.rsplit("/", 1)[0] + "/" + name
     pool = await _asyncpg.create_pool(fresh_dsn, min_size=1, max_size=2)
     try:
+
         async def fake_get_db_pool(*, settings=None):
             return pool
 
@@ -232,7 +247,14 @@ async def test_startup_migrations_bootstrap_a_fresh_database():
                     "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
                 )
             }
-        for required in ("users", "uploads", "analytics", "ai_accounts", "ai_jobs", "ai_ledger_entries"):
+        for required in (
+            "users",
+            "uploads",
+            "analytics",
+            "ai_accounts",
+            "ai_jobs",
+            "ai_ledger_entries",
+        ):
             assert required in tables, f"{required} missing after startup migrations"
     finally:
         await pool.close()
@@ -300,7 +322,10 @@ async def test_idempotency_reservation_is_atomic_across_connections(store):
         # Concurrent claims: exactly one wins, and it is the only one that gets
         # a None back ("you may proceed").
         claims = await asyncio.gather(
-            *(store.reserve_idempotency(account, scope, key, body_hash) for _ in range(8))
+            *(
+                store.reserve_idempotency(account, scope, key, body_hash)
+                for _ in range(8)
+            )
         )
         assert sum(claim is None for claim in claims) == 1, claims
 
@@ -358,7 +383,11 @@ async def test_expire_stale_jobs_releases_the_hold(store):
     )
     try:
         await store.credit(
-            account, 1_000, source=source, idempotency_key="expire-seed", kind="credit_purchase"
+            account,
+            1_000,
+            source=source,
+            idempotency_key="expire-seed",
+            kind="credit_purchase",
         )
         await store.create_job(job)
         await store.place_hold(job.job_id, account, 100)
@@ -450,7 +479,11 @@ async def test_console_key_listing_and_revocation_are_account_scoped(store):
         (theirs, hashes[1], "tcdn_theirprefix"),
     ):
         await store.credit(
-            account, 1, source="gateway:test", idempotency_key=f"seed-{digest}", kind="credit_purchase"
+            account,
+            1,
+            source="gateway:test",
+            idempotency_key=f"seed-{digest}",
+            kind="credit_purchase",
         )
         await store.create_api_key(
             ApiKeyRecord(account_id=account, key_hash=digest, prefix=prefix)
@@ -504,3 +537,57 @@ async def test_ledger_amount_answers_the_paid_question(store):
                 "DELETE FROM ai_ledger_entries WHERE idempotency_key = $1",
                 f"payment:fake:{reference}",
             )
+
+
+@pytest.mark.asyncio
+async def test_settled_job_timestamps_are_epoch_seconds(store):
+    """created_at/settled_at must be ints, not timestamptz objects.
+
+    The console renders these directly; a datetime that leaks through the
+    dataclass contract becomes an invalid date in the browser (it took the job
+    page down with a RangeError before this test existed).
+    """
+    from app.ai.store import JobRecord, Split
+
+    account = str(uuid.uuid4())
+    job_id = f"job-{uuid.uuid4().hex[:12]}"
+    async with store.pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO users (id, email, password_hash) VALUES ($1, $2, 'x')",
+            uuid.UUID(account),
+            f"settled-{account}@example.com",
+        )
+    try:
+        await store.create_job(
+            JobRecord(
+                job_id=job_id,
+                account_id=account,
+                node_id="node-test",
+                model="llama-3.1-8b-instruct",
+                manifest_hash="a" * 64,
+                status="placed",
+                tier="standard",
+                confidentiality="none",
+                max_tokens=8,
+                max_price_micro=1_000,
+                prompt_tokens_estimate=1,
+                hold_micro=100,
+                ticket_hash="b" * 64,
+                price_effective_from=0,
+                split=Split(compute_pct=70, seeder_pct=10, platform_pct=20),
+            )
+        )
+        # Only settle_job() stamps settled_at, so set it the same way the DB does.
+        async with store.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE ai_jobs SET status = 'settled', settled_at = NOW() WHERE job_id = $1",
+                job_id,
+            )
+        job = await store.get_job(job_id)
+        assert job is not None
+        assert isinstance(job.created_at, int) and job.created_at > 0
+        assert isinstance(job.settled_at, int) and job.settled_at > 0
+    finally:
+        async with store.pool.acquire() as conn:
+            await conn.execute("DELETE FROM ai_jobs WHERE job_id = $1", job_id)
+            await conn.execute("DELETE FROM users WHERE id = $1", uuid.UUID(account))

@@ -37,7 +37,7 @@ export function Card({
 }) {
   return (
     <section
-      className="border p-5"
+      className="min-w-0 border p-5"
       style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}
     >
       {(ear || title || action) && (

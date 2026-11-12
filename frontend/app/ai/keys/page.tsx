@@ -213,8 +213,8 @@ export default function AiKeysPage() {
             body="Create one above, then paste it into a Quickstart snippet. Keys are shown once."
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] border-collapse text-sm">
+          <div className="w-full max-w-full overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
               <caption className="sr-only">API keys on your account</caption>
               <thead>
                 <tr className="border-b text-left" style={{ borderColor: 'var(--border)' }}>
@@ -222,7 +222,9 @@ export default function AiKeysPage() {
                     <th
                       key={heading || 'actions'}
                       scope="col"
-                      className="py-2 pr-4 text-[10px] font-bold uppercase tracking-widest"
+                      className={`py-2 pr-4 text-[10px] font-bold uppercase tracking-widest${
+                        heading === 'Created' || heading === 'Last used' ? ' hidden sm:table-cell' : ''
+                      }`}
                       style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}
                     >
                       {heading || <span className="sr-only">Actions</span>}
@@ -242,10 +244,10 @@ export default function AiKeysPage() {
                     <td className="py-3 pr-4">
                       <Badge tone={key.status === 'active' ? 'ok' : 'neutral'}>{key.status}</Badge>
                     </td>
-                    <td className="py-3 pr-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+                    <td className="hidden py-3 pr-4 text-xs sm:table-cell" style={{ color: 'var(--text-muted)' }}>
                       {timestamp(key.created_at)}
                     </td>
-                    <td className="py-3 pr-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+                    <td className="hidden py-3 pr-4 text-xs sm:table-cell" style={{ color: 'var(--text-muted)' }}>
                       {key.last_used_at ? timestamp(key.last_used_at) : 'Never'}
                     </td>
                     <td className="py-3 text-right">

@@ -250,3 +250,54 @@ the same stack with `ENABLE_TCDN_AI` unset.
 - No host or admin console, no team accounts, no billing history export.
 - The e2e purchase completes through a test-only simulation endpoint that
   refuses to exist outside development/test.
+
+---
+
+## 12. Delivery record and preview instructions
+
+**Status: built and exercised on `feat/tcdn-ai-console`** (draft PR, not merged).
+Stages 0–3 are in the branch history; the measured results are in
+`evidence/frontend/README.md`, and checklist row 9.2 is now PARTIAL for exactly
+the developer-console scope below.
+
+### What shipped
+
+`app/ai/{layout,page,billing,keys,models,quickstart,status,usage,usage/[jobId]}`,
+`components/ai/{AiGate,AiShell,ui}`, `lib/aiConsole.ts`, one conditional nav link,
+the console API in `backend/app/ai/{console.py,routes_console.py}` plus
+`list_api_keys` / `revoke_api_key` / `ledger_amount` in the stores, and prefix-
+preserving proxy rules for `/api/ai/*` and `/v1/*` (mirroring `/api/live/*`).
+
+Two defects were found and fixed by building this: `settled_at` leaked a
+`timestamptz` through `JobRecord` (the job page crashed on it), and `/v1/*` was
+not proxied at all, so the documented `base_url` could not work through the app
+origin.
+
+### Deploying a Vercel preview against staging
+
+1. Deploy the staging backend with the AI flag on and the console reachable:
+   `ENABLE_TCDN_AI=true`, `TCDN_AI_PAYMENTS_LIVE` **unset**, and
+   `TCDN_AI_FAKE_CHECKOUT` **unset** unless you want the simulated checkout
+   (it only exists outside production). Set `APP_ENV=staging` so the simulated
+   seam stays available for a dry run.
+2. In Vercel, create a preview deployment from `feat/tcdn-ai-console`.
+   Environment variables to set on that preview only (names, no values here):
+   - `NEXT_PUBLIC_API_URL` → `https://<staging-backend-host>` (the preview is a
+     different origin, so `lib/api.ts` uses this in non-production builds),
+   - `BACKEND_ORIGIN` → the same staging backend host,
+   - `EDGE_PROXY_AUTH` → only if the staging backend sets it; otherwise leave unset.
+3. Open the preview, sign in with a staging account, and check, in order:
+   `/ai` (balance + checklist), `/ai/billing` (packs, test-mode banner),
+   `/ai/keys` (create → key shown once → revoke), `/ai/quickstart`
+   (copy a snippet, "Test my key"), `/ai/usage` (the job from that test),
+   `/ai/models`, `/ai/status`.
+4. To prove the flag-off path on the same preview, unset `ENABLE_TCDN_AI` on the
+   staging backend and reload: the AI nav entry disappears and `/ai` shows the
+   unavailable panel.
+
+### Known limits of this delivery
+
+- Credit purchase is test-mode only by construction; a live purchase still needs
+  the owner action behind `TCDN_AI_PAYMENTS_LIVE`.
+- No host or admin console. No team accounts.
+- The shared navbar's colour contrast remains below AA on every page (pre-existing).

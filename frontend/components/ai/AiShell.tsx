@@ -29,7 +29,7 @@ export default function AiShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || '/ai'
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+    <div className="ai-console mx-auto max-w-6xl px-4 py-8 sm:px-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p

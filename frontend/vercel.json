@@ -21,6 +21,10 @@
       "destination": "https://torrent-cdn.onrender.com/$1"
     },
     {
+      "source": "/v1/:path*",
+      "destination": "https://torrent-cdn.onrender.com/v1/:path*"
+    },
+    {
       "source": "/auth/(.*)",
       "destination": "https://torrent-cdn.onrender.com/auth/$1"
     },

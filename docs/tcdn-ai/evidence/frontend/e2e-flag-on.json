@@ -1,0 +1,147 @@
+{
+  "suite": "ai-console",
+  "steps": [
+    {
+      "name": "login through the form",
+      "ok": true,
+      "detail": "ai-e2e-1@example.com"
+    },
+    {
+      "name": "AI nav link visible with the flag on",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "overview renders balance and checklist",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "buy test credits",
+      "ok": true,
+      "detail": "$5.00 credited \u00b7 new balance $535.00"
+    },
+    {
+      "name": "create API key (shown once)",
+      "ok": true,
+      "detail": "tcdn_ai_024l6Ygb5H\u2026"
+    },
+    {
+      "name": "created key authenticates against the API",
+      "ok": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "gateway completes a chat request",
+      "ok": true,
+      "detail": "job 830f29af4e8942f2829e778eef566106"
+    },
+    {
+      "name": "quickstart \"test my key\" succeeds",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "job appears in usage",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "job detail renders verification and cost",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "axe: no serious/critical violations \u2014 overview",
+      "ok": true,
+      "detail": "clean"
+    },
+    {
+      "name": "axe: no serious/critical violations \u2014 keys",
+      "ok": true,
+      "detail": "clean"
+    },
+    {
+      "name": "axe: no serious/critical violations \u2014 usage",
+      "ok": true,
+      "detail": "clean"
+    },
+    {
+      "name": "axe: no serious/critical violations \u2014 models",
+      "ok": true,
+      "detail": "clean"
+    },
+    {
+      "name": "axe: no serious/critical violations \u2014 quickstart",
+      "ok": true,
+      "detail": "clean"
+    },
+    {
+      "name": "axe: no serious/critical violations \u2014 billing",
+      "ok": true,
+      "detail": "clean"
+    },
+    {
+      "name": "axe: no serious/critical violations \u2014 status",
+      "ok": true,
+      "detail": "clean"
+    }
+  ],
+  "axe": [
+    {
+      "page": "/ai",
+      "violations": []
+    },
+    {
+      "page": "/ai/keys",
+      "violations": []
+    },
+    {
+      "page": "/ai/usage",
+      "violations": []
+    },
+    {
+      "page": "/ai/models",
+      "violations": []
+    },
+    {
+      "page": "/ai/quickstart",
+      "violations": []
+    },
+    {
+      "page": "/ai/billing",
+      "violations": []
+    },
+    {
+      "page": "/ai/status",
+      "violations": []
+    }
+  ],
+  "shots": [
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-overview-mobile.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-keys-mobile.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-usage-mobile.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-models-mobile.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-quickstart-mobile.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-billing-mobile.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-status-mobile.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-overview-tablet.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-keys-tablet.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-usage-tablet.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-models-tablet.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-quickstart-tablet.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-billing-tablet.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-status-tablet.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-overview-desktop.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-keys-desktop.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-usage-desktop.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-models-desktop.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-quickstart-desktop.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-billing-desktop.png",
+    "/home/yatich/torrent-cdn/frontend/e2e/screenshots/ai-status-desktop.png"
+  ],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "ok": true,
+  "registeredEmail": null
+}

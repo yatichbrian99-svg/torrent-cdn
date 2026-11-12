@@ -84,7 +84,7 @@ export default function AiOverviewPage() {
             </>
           }
         />
-        <Stat label="Jobs (latest page)" value={usage.jobs} hint={usage.jobs ? `Spent ${usd(usage.spend_micro)}` : 'No jobs yet'} />
+        <Stat label="Jobs (latest page)" value={usage.jobs} hint={usage.jobs ? `Spent ${usd(usage.spend_micro, usage.spend_micro >= 10_000 ? 2 : 4)}` : 'No jobs yet'} />
         <Stat
           label="Active API keys"
           value={summary.keys.active}

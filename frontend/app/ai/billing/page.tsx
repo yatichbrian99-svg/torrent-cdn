@@ -214,7 +214,11 @@ function BillingContent() {
           value={`${catalogue.currency.kes_per_usd} KES / $1`}
           hint="Approximate — the pack price is fixed, the rate is not a quote"
         />
-        <Stat label="Credits never expire" value="—" hint="Usage is billed at the published per-token price" />
+        <Stat
+          label="Price basis"
+          value="Per token"
+          hint="Usage is billed per million tokens at the published rate"
+        />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

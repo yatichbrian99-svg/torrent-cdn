@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Check, Copy } from 'lucide-react'
-import { aiConsole, testApiKey, type AiModel } from '@/lib/aiConsole'
+import { AI_OPENAI_BASE, aiConsole, testApiKey, type AiModel } from '@/lib/aiConsole'
 import { apiErrorMessage } from '@/lib/api'
 import { isLoggedIn } from '@/lib/auth'
 import { Badge, Button, Card, ErrorState, Skeleton } from '@/components/ai/ui'
@@ -151,9 +151,13 @@ export default function AiQuickstartPage() {
     load()
   }, [load, router])
 
+  // Same-origin `/v1` in production (proxied), the dev backend otherwise — the
+  // exact base an unmodified OpenAI client should be pointed at.
   const baseUrl = useMemo(() => {
-    if (typeof window === 'undefined') return '/api/ai/v1'
-    return `${window.location.origin}/api/ai/v1`
+    if (typeof window === 'undefined') return '/v1'
+    return AI_OPENAI_BASE.startsWith('http')
+      ? AI_OPENAI_BASE
+      : `${window.location.origin}${AI_OPENAI_BASE}`
   }, [])
 
   const model = models?.[0]?.model_id ?? 'your-model-id'

@@ -1262,7 +1262,14 @@ def _row_to_job(row: Any) -> JobRecord:
         created_at=(
             int(row["created_at"].timestamp()) if row["created_at"] is not None else 0
         ),
-        settled_at=row["settled_at"],
+        # Same conversion as created_at, and for the same reason: the dataclass
+        # says epoch seconds, so a raw timestamptz here leaks a datetime into
+        # every consumer (the console rendered it as an invalid date).
+        settled_at=(
+            int(row["settled_at"].timestamp())
+            if row["settled_at"] is not None
+            else None
+        ),
         dispute_reason=row["dispute_reason"],
     )
 

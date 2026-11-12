@@ -15,10 +15,20 @@
  * here ever writes a key to localStorage, sessionStorage, a cookie, a URL or a
  * log — see `docs/tcdn-ai/FRONTEND_PLAN.md` §6.
  */
-import api from './api'
+import api, { API_BASE } from './api'
 
 /** Prefix kept through both dev (direct backend) and the production proxy. */
 export const AI_CONSOLE_BASE = '/api/ai/v1/console'
+
+/**
+ * Base URL an OpenAI client should use.
+ *
+ * The backend mounts the OpenAI-compatible surface at `/v1` (not under
+ * `/api/ai/v1`), and the app proxies `/v1/*` same-origin, so this is
+ * `<origin>/v1` in production and the dev backend URL otherwise. `API_BASE`
+ * already encodes that rule for the rest of the app.
+ */
+export const AI_OPENAI_BASE = `${API_BASE}/v1`
 
 export interface AiBalance {
   micro: number
@@ -229,7 +239,7 @@ export const aiConsole = {
 
 /** One minimal chat completion, used by "test my key". Never stores the key. */
 export async function testApiKey(key: string, model: string) {
-  const response = await fetch('/api/ai/v1/chat/completions', {
+  const response = await fetch(`${AI_OPENAI_BASE}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -262,9 +272,15 @@ export function perMtok(micro: number): string {
   return `$${(micro / 1_000_000).toFixed(2)} / Mtok`
 }
 
-export function timestamp(unix: number | null): string {
-  if (!unix) return '—'
-  return new Date(unix * 1000).toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
+export function timestamp(unix: number | string | null | undefined): string {
+  // The API sends epoch seconds, but this is a network boundary: a string or a
+  // missing field must render as a dash, not throw a RangeError and take the
+  // whole page down (the job detail page did exactly that).
+  if (unix === null || unix === undefined || unix === '') return '—'
+  const numeric = typeof unix === 'number' ? unix : Number(unix)
+  const date = Number.isFinite(numeric) ? new Date(numeric * 1000) : new Date(unix)
+  if (Number.isNaN(date.getTime())) return '—'
+  return date.toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
 }
 
 export function relativeAge(seconds: number | null | undefined): string {
