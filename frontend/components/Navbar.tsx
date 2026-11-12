@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Bell } from 'lucide-react'
 import { isLoggedIn, removeToken } from '@/lib/auth'
+import { aiFeatureEnabled } from '@/lib/aiConsole'
 import api from '@/lib/api'
 import AuthModal from './AuthModal'
 import ThemeToggle from './ThemeToggle'
@@ -21,6 +22,7 @@ export default function Navbar() {
   const [showAuth, setShowAuth] = useState(false)
   const [user, setUser] = useState<{ email: string; plan: string; is_admin?: boolean } | null>(null)
   const [loggedIn, setLoggedIn] = useState(false)
+  const [aiEnabled, setAiEnabled] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [showNotifs, setShowNotifs] = useState(false)
   const notifRef = useRef<HTMLDivElement>(null)
@@ -28,6 +30,24 @@ export default function Navbar() {
   useEffect(() => {
     setLoggedIn(isLoggedIn())
   }, [])
+
+  // The AI link appears only when this deployment actually serves the AI
+  // surface: the probe is a single status call (404 == flag off), memoised for
+  // a minute in lib/aiConsole. Signed-out visitors never probe — the console is
+  // account-scoped, so there is nothing for them to reach.
+  useEffect(() => {
+    if (!loggedIn) {
+      setAiEnabled(false)
+      return
+    }
+    let cancelled = false
+    aiFeatureEnabled().then((enabled) => {
+      if (!cancelled) setAiEnabled(enabled)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [loggedIn])
 
   useEffect(() => {
     if (loggedIn && !user) {
@@ -92,6 +112,9 @@ export default function Navbar() {
                 <a href="/dashboard" className="text-sm" style={{ color: 'var(--text-muted)' }}>Dashboard</a>
                 <a href="/live" className="text-sm" style={{ color: 'var(--text-muted)' }}>Live</a>
                 <a href="/billing" className="text-sm" style={{ color: 'var(--text-muted)' }}>Billing</a>
+                {aiEnabled && (
+                  <a href="/ai" className="text-sm" style={{ color: 'var(--text-muted)' }}>AI</a>
+                )}
                 {user?.is_admin && (
                   <a href="/admin" className="text-sm" style={{ color: 'var(--text-muted)' }}>Admin</a>
                 )}

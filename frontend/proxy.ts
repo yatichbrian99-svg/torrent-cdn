@@ -81,11 +81,16 @@ export function proxyToBackend(request: NextRequest): NextResponse | null {
   // Destination parity with the old vercel.json rewrites:
   //   /api/live/*  → backend /api/live/*  (prefix KEPT — live routes are
   //                  mounted at /api/live on the backend)
+  //   /api/ai/*    → backend /api/ai/*    (prefix KEPT — the TCDN-AI routes are
+  //                  mounted at /api/ai/v1 on the backend, and the AI console
+  //                  calls them through this proxy like any other API)
   //   /api/*       → backend /*           (prefix STRIPPED — backend routes
   //                  are mounted without /api, e.g. /api/auth/login → /auth/login)
   //   everything else → unchanged
+  const keepsApiPrefix =
+    pathname.startsWith('/api/live/') || pathname.startsWith('/api/ai/')
   let destPath = pathname
-  if (pathname.startsWith('/api/') && !pathname.startsWith('/api/live/')) {
+  if (pathname.startsWith('/api/') && !keepsApiPrefix) {
     destPath = pathname.slice(4) // strip '/api'
   } else if (pathname === '/api') {
     destPath = '/'

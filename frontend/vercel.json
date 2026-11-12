@@ -13,6 +13,10 @@
       "destination": "https://torrent-cdn.onrender.com/api/live/:path*"
     },
     {
+      "source": "/api/ai/:path*",
+      "destination": "https://torrent-cdn.onrender.com/api/ai/:path*"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "https://torrent-cdn.onrender.com/$1"
     },
