@@ -56,3 +56,7 @@ clips/
 frontend/__debug_sdk.mjs
 frontend/__sdk_debug.mjs
 
+
+# Local marketing page draft kept on disk but never committed: it is a working
+# copy of an older integration page, not a deliverable (checklist 1.6).
+frontend/torrentcdn-integration.html
