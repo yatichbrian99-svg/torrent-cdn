@@ -1,0 +1,53 @@
+# npm run build && node scripts/ai_bundle_report.mjs
+
+route                          first-load JS
+/_not-found/page                   346.3 kB
+/.well-known/security.txt/route     343.9 kB
+/admin/health/page                 419.8 kB
+/admin/page                        440.4 kB
+/admin/payouts/page                440.5 kB
+/ai/billing/page                   416.9 kB
+/ai/keys/page                      419.4 kB
+/ai/layout                         418.8 kB
+/ai/models/page                    416.4 kB
+/ai/page                           425.4 kB
+/ai/quickstart/page                419.5 kB
+/ai/status/page                    416.1 kB
+/ai/usage/[jobId]/page             424.2 kB
+/ai/usage/page                     425.3 kB
+/architecture/page                 343.9 kB
+/aup/page                          343.9 kB
+/auth/forgot-password/page         416.0 kB
+/auth/reset-password/page          420.8 kB
+/billing/page                      411.4 kB
+/cookies/page                      343.9 kB
+/dashboard/page                    828.8 kB
+/dashboard/upload/page             416.2 kB
+/demo/page                         801.3 kB
+/dmca/page                         343.9 kB
+/docs/page                         366.2 kB
+/embed/[file_id]/page              412.3 kB
+/error                             345.3 kB
+/global-error                      345.4 kB
+/layout                            485.4 kB
+/live/channels/[id]/analytics/page     423.3 kB
+/live/channels/[id]/page           433.2 kB
+/live/channels/page                344.4 kB
+/live/page                         422.8 kB
+/live/watch/[slug]/page            435.3 kB
+/page                              416.7 kB
+/privacy/page                      343.9 kB
+/robots.txt/route                  343.9 kB
+/share/[token]/page                408.5 kB
+/sitemap.xml/route                 343.9 kB
+/tcdn-ai/page                      348.4 kB
+/terms/page                        343.9 kB
+/verify-email/page                 406.5 kB
+
+console routes: 9, 3782.0 kB total
+chunks unique to the console: 10
+existing route /billing/page      411.4 kB
+existing route /dashboard/page    828.8 kB
+existing route /page              416.7 kB
+
+[OK] no existing page loads a console-only chunk
