@@ -1,0 +1,101 @@
+PRODUCTION SMOKE after the console deploy — 2026-11-12T12:24Z
+Production frontend serves the a26292e build (the redeploy): GET /ai now returns 200 (it was 404 before the deploy).
+ENABLE_TCDN_AI is not set in production; nothing below authenticates or writes.
+
+### HTTP half (docs/tcdn-ai/evidence/04-e2e/production-smoke-after-50.py)
+PRODUCTION SMOKE (non-authenticated) — 2026-11-12T12:23:39Z
+ENABLE_TCDN_AI is not set in production; nothing below authenticates.
+
+== 1. health ==
+[PASS] GET /health — [200] {"status":"healthy"}
+[PASS] GET /api/health/live — [200] {"status":"healthy","application":{"monitor_running":true,"redis":true},"media_pipeline":{"mediamtx_configured":true,"me
+
+== 2. NUL-byte input is still a 400, not a 500 ==
+[PASS] POST /auth/login (NUL email) — [400] {"detail":"Invalid email address"}
+[PASS] POST /auth/register (NUL email) — [400] {"detail":"Invalid email address"}
+[PASS] POST /auth/forgot-password (NUL email) — [400] {"detail":"Invalid email address"}
+
+== 3. the AI surface must not exist ==
+[PASS] GET torrent-cdn.onrender.com/api/ai/v1/status — [404]
+[PASS] GET torrent-cdn.onrender.com/api/ai/v1/models — [404]
+[PASS] GET torrent-cdn.onrender.com/api/ai/v1/never-existed — [404]
+[PASS] through the app origin: /api/ai/v1/status — [404]
+[PASS] through the app origin: /api/ai/v1/never-existed — [404]
+[PASS] through the app origin: /api/api/ai/v1/status — [404]
+[PASS] OpenAI surface flag-off: GET /v1/chat/completions — [404] {"detail":"Not Found"}
+[PASS] OpenAI surface flag-off: GET /v1/models — [404] {"detail":"Not Found"}
+
+== 4. public pages ==
+[PASS] GET / — [200] want 200
+[PASS] GET /demo — [200] want 200
+[PASS] GET /docs — [200] want 200
+[PASS] GET /architecture — [200] want 200
+[PASS] GET /pricing — [404] want 404
+[PASS] GET /privacy — [200] want 200
+[PASS] GET /terms — [200] want 200
+[PASS] GET /cookies — [200] want 200
+[PASS] GET /dmca — [200] want 200
+
+== 5. /ai exists but is gated, and no page links to it ==
+[PASS] GET /ai serves the gated shell — [200] shell present=True
+[PASS] no AI nav link on / — href="/ai" absent
+[PASS] no AI nav link on /demo — href="/ai" absent
+[PASS] no AI nav link on /docs — href="/ai" absent
+[PASS] no AI nav link on /architecture — href="/ai" absent
+[PASS] no AI nav link on /privacy — href="/ai" absent
+
+== 6. auth endpoints behave as before ==
+[PASS] POST /auth/login (bad credentials) — [401] {"detail":"Invalid email or password"}
+[PASS] GET /auth/me (no token) — [401] {"detail":"Not authenticated"}
+[PASS] POST through the app origin: /api/auth/login (bad credentials) — [401]
+
+== 7. live routes keep their prefix (unchanged proxy behaviour) ==
+[PASS] GET /api/live/channels reaches the backend — [401] {"detail":"Not authenticated"}
+[PASS] GET /api/live/never-existed — [404]
+
+== 8. headers (HTML 200) ==
+[PASS] security headers on HTML 200 — missing=none
+[PASS] no x-powered-by — x-powered-by=absent
+
+== 9. headers (backend 404) ==
+[PASS] security headers on backend 404 — missing=none
+
+============================================================
+36/36 checks passed
+done 2026-11-12T12:24:10Z
+
+### Browser half (docs/tcdn-ai/evidence/04-e2e/production-smoke-after-50-browser.mjs)
+[PASS] /ai shows the unavailable panel — "TCDN-AI is not available on this deployment\n\nThis deployment runs with the AI feature swit"
+[PASS] /ai makes no AI request except the flag probe — /api/ai/v1/console/status
+[PASS] /ai probe answered 404 (flag off) — 1 console error(s)
+[PASS] no AI nav link on / — TorrentCDN | Docs | Architecture | Demo | Login | Sign up
+[PASS] no AI request from / — none
+[PASS] no AI nav link on /demo — TorrentCDN | Docs | Architecture | Demo | Login | Sign up
+[PASS] no AI request from /demo — none
+[PASS] no AI nav link on /docs — TorrentCDN | Docs | Architecture | Demo | Login | Sign up
+[PASS] no AI request from /docs — none
+[PASS] no AI nav link on /architecture — TorrentCDN | Docs | Architecture | Demo | Login | Sign up
+[PASS] no AI request from /architecture — none
+[PASS] no AI nav link on /privacy — TorrentCDN | Docs | Architecture | Demo | Login | Sign up
+[PASS] no AI request from /privacy — none
+
+13/13 browser checks passed
+
+### First run of the script, and why three checks changed
+The first run scored 33/36. All three failures were wrong expectations in the
+script, not deploy defects, and each was verified before changing the script:
+
+1. "GET /ai — unavailable panel present=False": the panel is rendered client-side
+   after the flag probe 404s, so the server HTML only contains the console shell.
+   Confirmed in a real browser: the page reads "TCDN-AI is not available on this
+   deployment ... feature flag ENABLE_TCDN_AI is off on this server." The shell
+   check stays in the HTTP half; the panel text is now asserted by the browser
+   half.
+2. "POST /auth/refresh — 404": no /auth/refresh route exists in the backend
+   (`grep auth/refresh backend/app` finds nothing), so 404 is the correct answer
+   for a route that was never there. Replaced with GET /auth/me without a token,
+   which must be 401.
+3. "security headers on backend 404 — missing cross-origin-opener-policy": the
+   backend never sent COOP on API responses; the earlier production smoke
+   (production-smoke-after-47-2026-11-12.txt) shows the same header set without
+   it. The check now requires the backend's own header list, not the edge's.
