@@ -71,7 +71,12 @@ from .models import (
     WorkerRegistrationPayload,
     parse_signed_payload,
 )
-from .payments import PaymentEvent, PaymentProvider, get_payment_provider
+from .payments import (
+    CREDIT_PACK_PURPOSE,
+    PaymentEvent,
+    PaymentProvider,
+    get_payment_provider,
+)
 from .pricing import MICRO_PER_MTOK, ModelPrice, PriceTable, ceil_div, micro_to_credits
 from .receipts import (
     RECEIPT_DOMAIN,
@@ -1776,6 +1781,8 @@ class Coordinator:
                 "payment event account is not a valid identifier",
                 code="invalid_payment_event",
             ) from exc
+        if event.purpose == CREDIT_PACK_PURPOSE:
+            return await self._handle_credit_pack_purchase(event)
         # A provider retries a webhook it did not see acknowledged. That is a
         # replay of work already done, not a new purchase: answering it before
         # the caps means a retry can neither be refused (which would keep the
@@ -1814,6 +1821,181 @@ class Coordinator:
             "amount_micro": event.amount_micro,
             "balance_micro": await self.store.balance_micro(event.account_id),
         }
+
+    async def _handle_credit_pack_purchase(self, event: PaymentEvent) -> dict:
+        """Credit the pack the customer paid for — the pack, not the event.
+
+        The console sells packs priced in KES. The amount that reaches the
+        ledger is the pack's own ``credit_micro`` from the server-side table; the
+        event's currency and minor amount only have to *match* it. Two gates run
+        before any write:
+
+        1. the pack table (currency and ``kes_minor`` must match exactly), and
+        2. Paystack's verify API by reference (a signed body proves the sender,
+           not the amount). A mismatch or an error is refused and recorded as
+           ``billing.credit_purchase_needs_review`` — the customer's money is
+           not lost silently, and no credit is granted on an unproven charge.
+
+        Idempotency is unchanged: the provider reference is the ledger key.
+        """
+        from . import console  # local: console imports store, not the service
+
+        pack = console.pack(event.pack_id or "")
+        key = f"payment:{event.provider}:{event.reference}"
+        if pack is None:
+            await self._record_rejected_purchase(event, "unknown_pack")
+            raise ValidationError(
+                "credit-pack payment names a pack the server does not sell",
+                code="unknown_credit_pack",
+            )
+        credited_micro = int(pack["credit_micro"])
+        if await self.store.ledger_has_entry(key):
+            logger.info(
+                "pack purchase replay acknowledged reference=%s pack=%s",
+                event.reference,
+                pack["id"],
+            )
+            return {
+                "status": "credited",
+                "reference": event.reference,
+                "pack_id": pack["id"],
+                "amount_micro": credited_micro,
+                "balance_micro": await self.store.balance_micro(event.account_id),
+                "duplicate": True,
+            }
+        if event.currency != pack["currency"]:
+            await self._record_rejected_purchase(
+                event,
+                "currency_mismatch",
+                pack=pack,
+                detail={"expected_currency": pack["currency"]},
+            )
+            raise ValidationError(
+                "payment currency does not match the pack's currency",
+                code="payment_currency_mismatch",
+            )
+        if event.amount_minor != pack["kes_minor"]:
+            await self._record_rejected_purchase(
+                event,
+                "amount_mismatch",
+                pack=pack,
+                detail={"expected_amount_minor": pack["kes_minor"]},
+            )
+            raise ValidationError(
+                "payment amount does not match the pack's price",
+                code="payment_amount_mismatch",
+            )
+        await self._verify_pack_transaction(event, pack)
+        await self._authorise_live_payment(event, amount_micro=credited_micro)
+        await self.store.credit(
+            event.account_id,
+            credited_micro,
+            source=f"gateway:{event.provider}:clearing",
+            idempotency_key=key,
+            kind="credit_purchase",
+        )
+        await self.store.audit(
+            "billing.credit_purchase",
+            actor=event.account_id,
+            subject=event.reference,
+            detail={
+                "micro": credited_micro,
+                "provider": event.provider,
+                "pack_id": pack["id"],
+                "currency": pack["currency"],
+                "amount_minor": event.amount_minor,
+            },
+        )
+        return {
+            "status": "credited",
+            "reference": event.reference,
+            "pack_id": pack["id"],
+            "amount_micro": credited_micro,
+            "balance_micro": await self.store.balance_micro(event.account_id),
+        }
+
+    async def _verify_pack_transaction(self, event: PaymentEvent, pack: dict) -> None:
+        """Fail closed unless Paystack confirms this reference, amount and pack."""
+        if event.provider != "paystack":
+            # The development fake provider has no verify API; it cannot
+            # produce a real charge either.
+            return
+        verify = getattr(self.payment_provider, "verify_transaction", None)
+        if verify is None:
+            await self._record_rejected_purchase(event, "verify_unavailable", pack=pack)
+            raise ValidationError(
+                "the provider cannot verify this transaction",
+                code="payment_needs_review",
+            )
+        try:
+            verified = await verify(event.reference)
+        except Exception as exc:
+            logger.error(
+                "paystack verify failed reference=%s pack=%s: %s",
+                event.reference,
+                pack["id"],
+                exc,
+            )
+            await self._record_rejected_purchase(
+                event, "verify_error", pack=pack, detail={"error": str(exc)[:200]}
+            )
+            raise ValidationError(
+                "could not confirm the payment with the provider",
+                code="payment_needs_review",
+            ) from exc
+
+        reason = ""
+        if str(verified.get("status", "")) != "success":
+            reason = "verify_status_not_success"
+        elif str(verified.get("currency", "")).upper() != pack["currency"]:
+            reason = "verify_currency_mismatch"
+        elif verified.get("amount") != pack["kes_minor"]:
+            reason = "verify_amount_mismatch"
+        else:
+            metadata = verified.get("metadata") or {}
+            if str(metadata.get("account_id") or "") != event.account_id:
+                reason = "verify_account_mismatch"
+            elif str(metadata.get("pack_id") or "") != pack["id"]:
+                reason = "verify_pack_mismatch"
+        if reason:
+            await self._record_rejected_purchase(
+                event,
+                reason,
+                pack=pack,
+                detail={
+                    "verified_amount": verified.get("amount"),
+                    "verified_currency": verified.get("currency"),
+                    "verified_status": verified.get("status"),
+                },
+            )
+            raise ValidationError(
+                "the provider's records do not match this purchase; it needs review",
+                code="payment_needs_review",
+            )
+
+    async def _record_rejected_purchase(
+        self,
+        event: PaymentEvent,
+        reason: str,
+        *,
+        pack: dict | None = None,
+        detail: dict | None = None,
+    ) -> None:
+        """Audit a refused purchase. The customer's money is never discarded silently."""
+        await self.store.audit(
+            "billing.credit_purchase_needs_review",
+            actor=event.account_id,
+            subject=event.reference,
+            detail={
+                "reason": reason,
+                "provider": event.provider,
+                "pack_id": event.pack_id,
+                "currency": event.currency,
+                "amount_minor": event.amount_minor,
+                "expected_micro": int(pack["credit_micro"]) if pack else 0,
+                **(detail or {}),
+            },
+        )
 
     async def refund_credits(
         self, *, account_id: str, amount_micro: int, reason: str, reference: str
@@ -1943,7 +2125,9 @@ class Coordinator:
             "daily_cap_micro": self.settings.payments_live_daily_cap_micro,
         }
 
-    async def _authorise_live_payment(self, event: PaymentEvent) -> None:
+    async def _authorise_live_payment(
+        self, event: PaymentEvent, *, amount_micro: int | None = None
+    ) -> None:
         """Refuse a verified provider event before it can touch the ledger.
 
         Order matters: the kill switch and the feature flag are checked before
@@ -1956,6 +2140,9 @@ class Coordinator:
         """
         if event.provider != "paystack":
             return
+        # A pack purchase credits its own USD-cent value, not the KES amount, so
+        # the caps are applied to the credit that will actually be written.
+        effective_micro = event.amount_micro if amount_micro is None else amount_micro
         await self._refuse_when_payments_are_paused()
         if not self.settings.payments_live:
             raise UnavailableError(
@@ -1967,7 +2154,7 @@ class Coordinator:
                 "account is not on the live-purchase allowlist",
                 code="payments_account_not_allowlisted",
             )
-        if event.amount_micro > self.settings.payments_live_max_purchase_micro:
+        if effective_micro > self.settings.payments_live_max_purchase_micro:
             raise ValidationError(
                 "purchase exceeds the per-transaction cap",
                 code="payment_above_cap",
@@ -1977,7 +2164,7 @@ class Coordinator:
         since = now - (now % 86_400)
         credited_today = await self.store.credited_purchases_since(since)
         if (
-            credited_today + event.amount_micro
+            credited_today + effective_micro
             > self.settings.payments_live_daily_cap_micro
         ):
             raise LimitExceeded(
