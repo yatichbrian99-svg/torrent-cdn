@@ -132,9 +132,9 @@ export default function LandingPage() {
           </p>
 
           <h1 className="hero-title h-display hero-rise" style={{ '--rise-delay': '120ms' } as React.CSSProperties}>
-            The crowd is your capacity.{' '}
-            <span className="hero-word-accent">Cheaper</span> as you{' '}
-            <span className="hero-word-serif">scale</span>.
+            Smarter routing. Crowd-powered{' '}
+            <span className="hero-word-serif">scale</span>.{' '}
+            <span className="hero-word-accent">90% lower bills.</span>
           </h1>
 
           <p className="hero-sub hero-rise" style={{ '--rise-delay': '200ms' } as React.CSSProperties}>

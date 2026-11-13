@@ -22,7 +22,7 @@ Status meanings:
 
 | Claim (verbatim) | Where | Status | Evidence / note |
 | --- | --- | --- | --- |
-| "The crowd is your capacity. Cheaper as you scale." | H1 | PARTIAL | The capacity half is real: viewers serve shards (`lib/seeder.ts`, `VideoPlayer.tsx`) and hosts serve inference (`app/ai/worker.py`). The **cheaper-as-you-scale** half is a positioning claim with no cost curve, invoice or measurement in the repo. |
+| "Smarter routing. Crowd-powered scale. 90% lower bills." | H1 | PARTIAL — **90% UNVERIFIED** | Owner-set headline. "Smarter routing" is real (`backend/app/services/router.py`, peer-first with origin fallback) and "crowd-powered scale" is the peer model (`lib/seeder.ts`, `VideoPlayer.tsx`). The **90% lower bills** figure is not measured: the nearest artefact is `docs/LIVE_PITCH.md:66` — "~90% offload" from a *simulated* 3-viewer run. Promote to VERIFIED only with a production invoice or benchmark. |
 | "Stream on it, go live on it, run models on it." | hero subtext | VERIFIED | `routes/files.py`, `routes/live.py`, `app/ai/routes_openai.py` — the three surfaces exist. |
 | "Viewers carry the delivery, idle GPUs carry the inference…" | hero subtext | PARTIAL | Delivery by peers is proven; GPU hosting of inference exists but is a private alpha, so the "idle GPUs" pool is not open yet. The sentence describes the model, not current supply. |
 | "…our origin picks up whatever the crowd cannot." | hero subtext | VERIFIED | `VideoPlayer.tsx` falls back to direct origin within 5 s (`DIRECT_BILL_MS`). |
