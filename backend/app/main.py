@@ -98,6 +98,16 @@ async def run_startup_migrations():
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN DEFAULT FALSE;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_backup_codes TEXT;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS security_stamp TIMESTAMP WITH TIME ZONE;
+                -- Logout revocation without Redis: one row per revoked token id.
+                -- Bounded by token lifetime, not by a cron — every write deletes
+                -- the rows whose tokens have already expired, and the index on
+                -- expires_at makes that a cheap range delete.
+                CREATE TABLE IF NOT EXISTS revoked_tokens (
+                    jti TEXT PRIMARY KEY,
+                    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+                );
+                CREATE INDEX IF NOT EXISTS idx_revoked_tokens_expiry ON revoked_tokens(expires_at);
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_used TEXT;
                 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS thumbnail_url TEXT;
                 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS idempotency_key TEXT;

@@ -27,6 +27,7 @@ from ..auth import (
     get_mfa_setup_user,
     hash_api_key,
     hash_password,
+    revoke_token_jti_db,
     revoke_user_sessions,
     verify_password,
 )
@@ -1013,21 +1014,30 @@ async def get_referral(user_id: UUID = Depends(get_current_user_id)):
 
 @router.post("/logout")
 async def logout(request: Request, user_id: UUID = Depends(get_current_user_id)):
-    """Invalidate the current session token (JWT blocklist via Redis).
+    """Invalidate the current session token.
 
-    The token's remaining lifetime is bounded by jwt_expire_minutes (24h).
-    Without Redis the endpoint is a no-op — the token stays valid until
-    expiry, but the password-change marker still covers the revoke-on-compromise
-    case. Logs the event for the admin security feed.
+    Two stores, because they answer different failures: Redis is the fast path
+    (a GET per request), and the ``revoked_tokens`` table is the durable one
+    used when Redis is absent — production runs without Redis, where this
+    endpoint used to be a pure no-op and the token stayed valid until it
+    expired. Either write alone is enough to invalidate the token.
+
+    The token's remaining lifetime is bounded by jwt_expire_minutes (24h), and
+    the password-change marker still covers the revoke-on-compromise case. Logs
+    the event for the admin security feed.
     """
     # Extract the jti from the raw Authorization header to build the blocklist key.
     auth_header = request.headers.get("authorization", "")
     token = auth_header.replace("Bearer ", "") if auth_header.startswith("Bearer ") else ""
     if token:
+        payload = None
         try:
             payload = decode_access_token(token)
-            jti = payload.get("jti") if payload else None
-            if jti:
+        except Exception:
+            payload = None
+        jti = payload.get("jti") if payload else None
+        if jti:
+            try:
                 redis = await get_redis()
                 if redis is not None:
                     # Blocklist for the token's remaining lifetime (max 24h).
@@ -1035,8 +1045,15 @@ async def logout(request: Request, user_id: UUID = Depends(get_current_user_id))
                         f"token_block:{jti}", "1",
                         ex=get_settings().jwt_expire_minutes * 60,
                     )
-        except Exception:
-            pass  # Best-effort — don't fail the logout on a blocklist error
+            except Exception as e:
+                logger.warning("logout: Redis blocklist write failed for %s: %s", jti, e)
+            # Durable fallback. Its own failure is logged, never raised: a
+            # logout must not fail because a store is down.
+            expires_at = int(payload.get("exp") or (time.time() + 86400))
+            try:
+                await revoke_token_jti_db(jti, expires_at)
+            except Exception as e:
+                logger.warning("logout: DB blocklist write failed for %s: %s", jti, e)
     logger.info("User %s logged out", user_id)
     record_event("logout", detail=str(user_id))
     return {"detail": "Logged out successfully."}
