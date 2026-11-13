@@ -267,6 +267,15 @@ export default function TcdnAiPublicPage() {
             </li>
           ))}
         </ol>
+        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+          <a
+            href="/tcdn-ai/architecture"
+            className="underline transition-colors hover:text-[color:var(--text-primary)]"
+          >
+            Read the full architecture
+          </a>{' '}
+          — components, the seven-step job lifecycle, settlement and the gaps this build does not close.
+        </p>
       </Section>
 
       <Section id="how-to-use" n="03" title="How to use it">
