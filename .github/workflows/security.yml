@@ -557,7 +557,8 @@ jobs:
   # reason beside them (a pentest harness that forges tokens on purpose, two
   # local subprocess launchers whose argv is a fixed list, and the
   # anti-enumeration dummy bcrypt hash). A suppression without a justification
-  # is a review finding in its own right, and there are exactly four.
+  # is a review finding in its own right; there are six, and the SARIF step
+  # below prints each one it drops, so the log is the audit trail.
   #
   # Always-on (no `changes` gate): it is fast, and a workflow/script edit is
   # precisely where a supply-chain rule should re-run.
@@ -598,6 +599,45 @@ jobs:
             --output semgrep.sarif \
             app scripts tcdn_ai_sdk
 
+      # Semgrep's SARIF keeps findings it suppressed with `nosemgrep`, tagged
+      # `suppressions: [{kind: inSource}]` — the console/CI result set is clean,
+      # but the upload is not. GitHub Code Scanning does not treat an in-source
+      # suppression as a dismissal, so those six deliberate findings reappeared
+      # as open ERROR alerts on every scan (alerts 13-18) while the blocking gate
+      # stayed green. Strip them from the copy we upload: a suppressed finding is
+      # one a human already accepted in review, and re-raising it as an open
+      # alert is noise that trains people to ignore the Security tab.
+      - name: Strip suppressed findings from the SARIF upload
+        if: always()
+        run: |
+          test -f semgrep.sarif || { echo "no SARIF — the scan did not get to write one"; exit 0; }
+          python - <<'PY'
+          import json, pathlib
+
+          src = pathlib.Path("semgrep.sarif")
+          sarif = json.loads(src.read_text())
+          kept = dropped = 0
+          for run in sarif.get("runs", []):
+              results = run.get("results", [])
+              keep = []
+              for result in results:
+                  if result.get("suppressions"):
+                      dropped += 1
+                      where = result["locations"][0]["physicalLocation"]
+                      print(
+                          "suppressed:",
+                          where["artifactLocation"]["uri"],
+                          where["region"]["startLine"],
+                          result["ruleId"],
+                      )
+                  else:
+                      keep.append(result)
+                      kept += 1
+              run["results"] = keep
+          pathlib.Path("semgrep.upload.sarif").write_text(json.dumps(sarif))
+          print(f"SARIF upload: {kept} finding(s), {dropped} suppressed in source")
+          PY
+
       # Findings land in the Security tab too. continue-on-error: Code Scanning
       # is not available on every private plan; the scan above is the gate.
       - name: Upload SARIF to Code Scanning
@@ -605,7 +645,7 @@ jobs:
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@v4
         with:
-          sarif_file: backend/semgrep.sarif
+          sarif_file: backend/semgrep.upload.sarif
 
   # ── Fuzz budget (checklist 5.5) ──
   # Deterministic mutation fuzzing of every untrusted-input parser: tickets,
