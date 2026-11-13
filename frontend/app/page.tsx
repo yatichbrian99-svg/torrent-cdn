@@ -24,7 +24,9 @@ const STEPS = [
 const STATS = [
   { big: '90%', label: 'bandwidth reduction', raw: '90% bandwidth reduction' },
   { big: '< 5ms', label: 'peer discovery', raw: '< 5ms peer discovery' },
-  { big: 'Works in any browser', label: '', raw: 'Works in any browser' },
+  // No caption exists for this one in the copy, so it is typeset as a mono
+  // label on the numerals' baseline instead of a headline-sized value.
+  { big: 'Works in any browser', label: '', raw: 'Works in any browser', mono: true },
 ]
 
 const FAQ = [
@@ -83,7 +85,13 @@ export default function LandingPage() {
     <div className="landing">
       {/* ---------------------------------------------------------------- Hero */}
       <section className="hero">
-        <DarkHeroArt />
+        {/* One backdrop layer: the light halftone mesh or the dark glow +
+            network sits behind the copy, bleeding to the section edges.
+            Both are decorative and pause off-screen (see each component). */}
+        <div className="hero-art">
+          <DarkHeroArt />
+          <LightHeroArt />
+        </div>
         <span className="hero-wordmark" aria-hidden="true">TorrentCDN</span>
 
         <div className="wrap hero-inner">
@@ -119,13 +127,13 @@ export default function LandingPage() {
           </p>
         </div>
 
-        <LightHeroArt />
-
         <div className="wrap hero-stats-wrap">
           <ul className="hero-stats">
             {STATS.map((stat, i) => (
               <li key={stat.raw} className="hero-stat" style={{ '--reveal-delay': `${120 + i * 80}ms` } as React.CSSProperties}>
-                <span className="hero-stat-big num">{stat.big}</span>
+                <span className="hero-stat-value">
+                  <span className={stat.mono ? 'hero-stat-mono' : 'hero-stat-big num'}>{stat.big}</span>
+                </span>
                 {stat.label ? <span className="hero-stat-label label">{stat.label}</span> : null}
               </li>
             ))}

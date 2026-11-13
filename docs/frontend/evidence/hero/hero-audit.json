@@ -1,0 +1,1095 @@
+{
+  "base": "http://localhost:3000",
+  "capturedAt": "2026-11-13T04:28:39.718Z",
+  "method": "text colour vs every background pixel inside the element box, worst frame",
+  "runs": [
+    {
+      "theme": "light",
+      "width": 375,
+      "texts": [
+        {
+          "label": "eyebrow",
+          "color": {
+            "r": 91,
+            "g": 98,
+            "b": 112
+          },
+          "box": {
+            "x": 24,
+            "y": 84,
+            "w": 338.984375,
+            "h": 9.59375
+          },
+          "fontSize": 9.6,
+          "worst": {
+            "ratio": 6.07,
+            "pixel": [
+              254,
+              254,
+              253
+            ],
+            "frame": 0,
+            "at": [
+              24,
+              84
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "headline",
+          "color": {
+            "r": 8,
+            "g": 8,
+            "b": 8
+          },
+          "box": {
+            "x": 24,
+            "y": 113.59375,
+            "w": 327,
+            "h": 201.5625
+          },
+          "fontSize": 48,
+          "worst": {
+            "ratio": 19.85,
+            "pixel": [
+              254,
+              254,
+              253
+            ],
+            "frame": 2,
+            "at": [
+              350,
+              315
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "accent-word",
+          "color": {
+            "r": 21,
+            "g": 78,
+            "b": 205
+          },
+          "box": {
+            "x": 24,
+            "y": 209.375,
+            "w": 182.921875,
+            "h": 59
+          },
+          "fontSize": 48,
+          "worst": {
+            "ratio": 6.93,
+            "pixel": [
+              254,
+              254,
+              253
+            ],
+            "frame": 2,
+            "at": [
+              206,
+              268
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "subtext",
+          "color": {
+            "r": 91,
+            "g": 98,
+            "b": 112
+          },
+          "box": {
+            "x": 24,
+            "y": 335.15625,
+            "w": 327,
+            "h": 79.171875
+          },
+          "fontSize": 16,
+          "worst": {
+            "ratio": 6.07,
+            "pixel": [
+              254,
+              254,
+              253
+            ],
+            "frame": 0,
+            "at": [
+              24,
+              335
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "microcopy",
+          "color": {
+            "r": 91,
+            "g": 98,
+            "b": 112
+          },
+          "box": {
+            "x": 24,
+            "y": 507.515625,
+            "w": 277,
+            "h": 20.796875
+          },
+          "fontSize": 13,
+          "worst": {
+            "ratio": 5.97,
+            "pixel": [
+              252,
+              252,
+              252
+            ],
+            "frame": 2,
+            "at": [
+              117,
+              528
+            ]
+          },
+          "pass": true
+        }
+      ],
+      "stats": {
+        "heights": [
+          71.4,
+          71.4,
+          54.4
+        ],
+        "cardWidths": [
+          327,
+          327,
+          327
+        ],
+        "baselines": [
+          658.7,
+          740.1,
+          822
+        ],
+        "valueTops": [
+          641.7,
+          723.1,
+          811.7
+        ],
+        "viewport": "",
+        "heightSpread": 17.000000000000007,
+        "baselineSpread": 163.29999999999995,
+        "sideBySide": false
+      },
+      "overflowX": 0,
+      "shots": [
+        "/home/yatich/torrent-cdn/docs/frontend/evidence/hero/hero-light-375.png"
+      ]
+    },
+    {
+      "theme": "light",
+      "width": 768,
+      "texts": [
+        {
+          "label": "eyebrow",
+          "color": {
+            "r": 91,
+            "g": 98,
+            "b": 112
+          },
+          "box": {
+            "x": 40,
+            "y": 69.109375,
+            "w": 380.140625,
+            "h": 11
+          },
+          "fontSize": 11,
+          "worst": {
+            "ratio": 6.01,
+            "pixel": [
+              252,
+              253,
+              252
+            ],
+            "frame": 0,
+            "at": [
+              419,
+              72
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "headline",
+          "color": {
+            "r": 8,
+            "g": 8,
+            "b": 8
+          },
+          "box": {
+            "x": 40,
+            "y": 103.140625,
+            "w": 672,
+            "h": 129
+          },
+          "fontSize": 61.44,
+          "worst": {
+            "ratio": 8.75,
+            "pixel": [
+              144,
+              171,
+              232
+            ],
+            "frame": 2,
+            "at": [
+              697,
+              118
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "accent-word",
+          "color": {
+            "r": 21,
+            "g": 78,
+            "b": 205
+          },
+          "box": {
+            "x": 40,
+            "y": 161.640625,
+            "w": 235.109375,
+            "h": 75
+          },
+          "fontSize": 61.44,
+          "worst": {
+            "ratio": 6.93,
+            "pixel": [
+              254,
+              254,
+              253
+            ],
+            "frame": 2,
+            "at": [
+              275,
+              236
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "subtext",
+          "color": {
+            "r": 91,
+            "g": 98,
+            "b": 112
+          },
+          "box": {
+            "x": 40,
+            "y": 252.140625,
+            "w": 450,
+            "h": 52.78125
+          },
+          "fontSize": 16,
+          "worst": {
+            "ratio": 5.32,
+            "pixel": [
+              234,
+              239,
+              249
+            ],
+            "frame": 1,
+            "at": [
+              488,
+              282
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "microcopy",
+          "color": {
+            "r": 91,
+            "g": 98,
+            "b": 112
+          },
+          "box": {
+            "x": 40,
+            "y": 398.109375,
+            "w": 277,
+            "h": 20.796875
+          },
+          "fontSize": 13,
+          "worst": {
+            "ratio": 6.07,
+            "pixel": [
+              254,
+              254,
+              253
+            ],
+            "frame": 0,
+            "at": [
+              40,
+              398
+            ]
+          },
+          "pass": true
+        }
+      ],
+      "stats": {
+        "heights": [
+          71.4,
+          71.4,
+          71.4
+        ],
+        "cardWidths": [
+          220,
+          220,
+          220
+        ],
+        "baselines": [
+          551.7,
+          551.7,
+          552.2
+        ],
+        "valueTops": [
+          534.7,
+          534.7,
+          541.9
+        ],
+        "viewport": "",
+        "heightSpread": 0,
+        "baselineSpread": 0.5,
+        "sideBySide": true
+      },
+      "overflowX": 0,
+      "shots": [
+        "/home/yatich/torrent-cdn/docs/frontend/evidence/hero/hero-light-768.png"
+      ]
+    },
+    {
+      "theme": "light",
+      "width": 1280,
+      "texts": [
+        {
+          "label": "eyebrow",
+          "color": {
+            "r": 91,
+            "g": 98,
+            "b": 112
+          },
+          "box": {
+            "x": 90,
+            "y": 104,
+            "w": 380.140625,
+            "h": 11
+          },
+          "fontSize": 11,
+          "worst": {
+            "ratio": 6.07,
+            "pixel": [
+              254,
+              254,
+              253
+            ],
+            "frame": 0,
+            "at": [
+              90,
+              104
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "headline",
+          "color": {
+            "r": 8,
+            "g": 8,
+            "b": 8
+          },
+          "box": {
+            "x": 90,
+            "y": 145,
+            "w": 1100,
+            "h": 322.546875
+          },
+          "fontSize": 102.4,
+          "worst": {
+            "ratio": 5.26,
+            "pixel": [
+              87,
+              128,
+              219
+            ],
+            "frame": 1,
+            "at": [
+              1134,
+              396
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "accent-word",
+          "color": {
+            "r": 21,
+            "g": 78,
+            "b": 205
+          },
+          "box": {
+            "x": 522.296875,
+            "y": 243.515625,
+            "w": 388.5,
+            "h": 124
+          },
+          "fontSize": 102.4,
+          "worst": {
+            "ratio": 5.18,
+            "pixel": [
+              212,
+              222,
+              244
+            ],
+            "frame": 1,
+            "at": [
+              908,
+              295
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "subtext",
+          "color": {
+            "r": 91,
+            "g": 98,
+            "b": 112
+          },
+          "box": {
+            "x": 90,
+            "y": 495.546875,
+            "w": 450,
+            "h": 52.78125
+          },
+          "fontSize": 16,
+          "worst": {
+            "ratio": 6.07,
+            "pixel": [
+              254,
+              254,
+              253
+            ],
+            "frame": 0,
+            "at": [
+              90,
+              495
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "microcopy",
+          "color": {
+            "r": 91,
+            "g": 98,
+            "b": 112
+          },
+          "box": {
+            "x": 90,
+            "y": 651.515625,
+            "w": 277,
+            "h": 20.796875
+          },
+          "fontSize": 13,
+          "worst": {
+            "ratio": 6.07,
+            "pixel": [
+              254,
+              254,
+              253
+            ],
+            "frame": 0,
+            "at": [
+              90,
+              651
+            ]
+          },
+          "pass": true
+        }
+      ],
+      "stats": {
+        "heights": [
+          77.1,
+          77.1,
+          77.1
+        ],
+        "cardWidths": [
+          357,
+          357,
+          357
+        ],
+        "baselines": [
+          790.6,
+          790.6,
+          791
+        ],
+        "valueTops": [
+          768.8,
+          768.8,
+          778.1
+        ],
+        "viewport": "",
+        "heightSpread": 0,
+        "baselineSpread": 0.39999999999997726,
+        "sideBySide": true
+      },
+      "overflowX": 0,
+      "shots": [
+        "/home/yatich/torrent-cdn/docs/frontend/evidence/hero/hero-light-1280.png"
+      ]
+    },
+    {
+      "theme": "dark",
+      "width": 375,
+      "texts": [
+        {
+          "label": "eyebrow",
+          "color": {
+            "r": 201,
+            "g": 189,
+            "b": 182
+          },
+          "box": {
+            "x": 18.015625,
+            "y": 84,
+            "w": 338.984375,
+            "h": 9.59375
+          },
+          "fontSize": 9.6,
+          "worst": {
+            "ratio": 5.5,
+            "pixel": [
+              118,
+              40,
+              9
+            ],
+            "frame": 2,
+            "at": [
+              355,
+              90
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "headline",
+          "color": {
+            "r": 254,
+            "g": 255,
+            "b": 250
+          },
+          "box": {
+            "x": 24,
+            "y": 113.59375,
+            "w": 327,
+            "h": 202.5625
+          },
+          "fontSize": 48,
+          "worst": {
+            "ratio": 8.38,
+            "pixel": [
+              135,
+              50,
+              18
+            ],
+            "frame": 2,
+            "at": [
+              350,
+              278
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "accent-word",
+          "color": {
+            "r": 254,
+            "g": 255,
+            "b": 250
+          },
+          "box": {
+            "x": 64.6875,
+            "y": 209.375,
+            "w": 182.921875,
+            "h": 59
+          },
+          "fontSize": 48,
+          "worst": {
+            "ratio": 15.85,
+            "pixel": [
+              60,
+              23,
+              9
+            ],
+            "frame": 2,
+            "at": [
+              240,
+              228
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "subtext",
+          "color": {
+            "r": 201,
+            "g": 189,
+            "b": 182
+          },
+          "box": {
+            "x": 24,
+            "y": 336.15625,
+            "w": 327,
+            "h": 79.171875
+          },
+          "fontSize": 16,
+          "worst": {
+            "ratio": 4.77,
+            "pixel": [
+              130,
+              49,
+              17
+            ],
+            "frame": 2,
+            "at": [
+              350,
+              336
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "microcopy",
+          "color": {
+            "r": 163,
+            "g": 154,
+            "b": 148
+          },
+          "box": {
+            "x": 49,
+            "y": 568.515625,
+            "w": 277,
+            "h": 20.796875
+          },
+          "fontSize": 13,
+          "worst": {
+            "ratio": 6.16,
+            "pixel": [
+              52,
+              18,
+              5
+            ],
+            "frame": 2,
+            "at": [
+              324,
+              569
+            ]
+          },
+          "pass": true
+        }
+      ],
+      "stats": {
+        "heights": [
+          90,
+          90,
+          71
+        ],
+        "cardWidths": [
+          327,
+          327,
+          327
+        ],
+        "baselines": [
+          673.1,
+          773.1,
+          872.9
+        ],
+        "valueTops": [
+          646.9,
+          746.9,
+          863.4
+        ],
+        "viewport": "",
+        "heightSpread": 19,
+        "baselineSpread": 199.79999999999995,
+        "sideBySide": false
+      },
+      "overflowX": 0,
+      "shots": [
+        "/home/yatich/torrent-cdn/docs/frontend/evidence/hero/hero-dark-375.png"
+      ]
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "texts": [
+        {
+          "label": "eyebrow",
+          "color": {
+            "r": 201,
+            "g": 189,
+            "b": 182
+          },
+          "box": {
+            "x": 193.921875,
+            "y": 69.109375,
+            "w": 380.140625,
+            "h": 11
+          },
+          "fontSize": 11,
+          "worst": {
+            "ratio": 11.44,
+            "pixel": [
+              0,
+              0,
+              0
+            ],
+            "frame": 2,
+            "at": [
+              574,
+              80
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "headline",
+          "color": {
+            "r": 254,
+            "g": 255,
+            "b": 250
+          },
+          "box": {
+            "x": 40,
+            "y": 103.140625,
+            "w": 688,
+            "h": 130
+          },
+          "fontSize": 61.44,
+          "worst": {
+            "ratio": 9.88,
+            "pixel": [
+              115,
+              45,
+              20
+            ],
+            "frame": 2,
+            "at": [
+              720,
+              145
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "accent-word",
+          "color": {
+            "r": 254,
+            "g": 255,
+            "b": 250
+          },
+          "box": {
+            "x": 100.75,
+            "y": 161.640625,
+            "w": 235.109375,
+            "h": 75
+          },
+          "fontSize": 61.44,
+          "worst": {
+            "ratio": 19.96,
+            "pixel": [
+              7,
+              8,
+              8
+            ],
+            "frame": 2,
+            "at": [
+              120,
+              161
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "subtext",
+          "color": {
+            "r": 201,
+            "g": 189,
+            "b": 182
+          },
+          "box": {
+            "x": 159,
+            "y": 253.140625,
+            "w": 450,
+            "h": 52.78125
+          },
+          "fontSize": 16,
+          "worst": {
+            "ratio": 4.94,
+            "pixel": [
+              86,
+              69,
+              61
+            ],
+            "frame": 0,
+            "at": [
+              190,
+              304
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "microcopy",
+          "color": {
+            "r": 163,
+            "g": 154,
+            "b": 148
+          },
+          "box": {
+            "x": 245.5,
+            "y": 399.109375,
+            "w": 277,
+            "h": 20.796875
+          },
+          "fontSize": 13,
+          "worst": {
+            "ratio": 6.96,
+            "pixel": [
+              27,
+              10,
+              5
+            ],
+            "frame": 0,
+            "at": [
+              267,
+              419
+            ]
+          },
+          "pass": true
+        }
+      ],
+      "stats": {
+        "heights": [
+          90,
+          90,
+          90
+        ],
+        "cardWidths": [
+          220,
+          220,
+          220
+        ],
+        "baselines": [
+          590.1,
+          590.1,
+          589.9
+        ],
+        "valueTops": [
+          563.9,
+          563.9,
+          580.4
+        ],
+        "viewport": "",
+        "heightSpread": 0,
+        "baselineSpread": 0.20000000000004547,
+        "sideBySide": true
+      },
+      "overflowX": 0,
+      "shots": [
+        "/home/yatich/torrent-cdn/docs/frontend/evidence/hero/hero-dark-768.png"
+      ]
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "texts": [
+        {
+          "label": "eyebrow",
+          "color": {
+            "r": 201,
+            "g": 189,
+            "b": 182
+          },
+          "box": {
+            "x": 449.921875,
+            "y": 104,
+            "w": 380.140625,
+            "h": 11
+          },
+          "fontSize": 11,
+          "worst": {
+            "ratio": 9.83,
+            "pixel": [
+              42,
+              14,
+              4
+            ],
+            "frame": 2,
+            "at": [
+              828,
+              106
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "headline",
+          "color": {
+            "r": 254,
+            "g": 255,
+            "b": 250
+          },
+          "box": {
+            "x": 90,
+            "y": 145,
+            "w": 1100,
+            "h": 324.546875
+          },
+          "fontSize": 102.4,
+          "worst": {
+            "ratio": 7.42,
+            "pixel": [
+              149,
+              54,
+              19
+            ],
+            "frame": 2,
+            "at": [
+              1189,
+              208
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "accent-word",
+          "color": {
+            "r": 254,
+            "g": 255,
+            "b": 250
+          },
+          "box": {
+            "x": 661.890625,
+            "y": 243.515625,
+            "w": 388.5,
+            "h": 124
+          },
+          "fontSize": 102.4,
+          "worst": {
+            "ratio": 13.65,
+            "pixel": [
+              80,
+              30,
+              10
+            ],
+            "frame": 2,
+            "at": [
+              1049,
+              248
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "subtext",
+          "color": {
+            "r": 201,
+            "g": 189,
+            "b": 182
+          },
+          "box": {
+            "x": 415,
+            "y": 497.546875,
+            "w": 450,
+            "h": 52.78125
+          },
+          "fontSize": 16,
+          "worst": {
+            "ratio": 7.47,
+            "pixel": [
+              81,
+              29,
+              11
+            ],
+            "frame": 2,
+            "at": [
+              854,
+              497
+            ]
+          },
+          "pass": true
+        },
+        {
+          "label": "microcopy",
+          "color": {
+            "r": 163,
+            "g": 154,
+            "b": 148
+          },
+          "box": {
+            "x": 501.5,
+            "y": 653.515625,
+            "w": 277,
+            "h": 20.796875
+          },
+          "fontSize": 13,
+          "worst": {
+            "ratio": 7.03,
+            "pixel": [
+              25,
+              9,
+              3
+            ],
+            "frame": 2,
+            "at": [
+              778,
+              654
+            ]
+          },
+          "pass": true
+        }
+      ],
+      "stats": {
+        "heights": [
+          98.2,
+          98.2,
+          98.2
+        ],
+        "cardWidths": [
+          357,
+          357,
+          357
+        ],
+        "baselines": [
+          792.8,
+          792.8,
+          792.8
+        ],
+        "valueTops": [
+          760.1,
+          760.1,
+          780.9
+        ],
+        "viewport": "",
+        "heightSpread": 0,
+        "baselineSpread": 0,
+        "sideBySide": true
+      },
+      "overflowX": 0,
+      "shots": [
+        "/home/yatich/torrent-cdn/docs/frontend/evidence/hero/hero-dark-1280.png"
+      ]
+    }
+  ],
+  "failures": 0,
+  "pass": true
+}

@@ -644,23 +644,44 @@
   color: var(--muted);
 }
 
-/* Light hero plate (halftone peer mesh) */
-.hero-plate {
-  position: relative;
-  /* The plate is decorative and (on phones) below the fold: skip its render
-     work until it approaches the viewport. */
-  content-visibility: auto;
-  contain-intrinsic-size: auto 520px;
-  z-index: 1;
-  margin: clamp(44px, 6vw, 76px) auto 0;
-  width: min(100% - 48px, 1040px);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
+/* The hero's single decorative backdrop layer: full-bleed, behind the copy. */
+.hero-art {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
   overflow: hidden;
+  pointer-events: none;
 }
-.hero-plate-inner { padding: 10px; }
-.hero-plate-svg { display: block; width: 100%; height: auto; }
+
+/* Light hero backdrop (halftone peer mesh). The copy is left-aligned, so the
+   dot field fades to nothing toward the top-left (under the headline) and is
+   strongest toward the bottom-right, where the blue is saturated. */
+.hero-plate {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  /* The copy owns the left column, so the field is held out of it entirely and
+     blooms toward the right edge. The blue gradient underneath already runs
+     pale → saturated toward the bottom right. */
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    transparent 54%,
+    rgba(0, 0, 0, 0.16) 68%,
+    rgba(0, 0, 0, 0.6) 84%,
+    #000 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    transparent 54%,
+    rgba(0, 0, 0, 0.16) 68%,
+    rgba(0, 0, 0, 0.6) 84%,
+    #000 100%
+  );
+}
+.hero-plate-inner { position: absolute; inset: 0; }
+.hero-plate-svg { display: block; width: 100%; height: 100%; }
 
 /* Dark hero backdrop (glow, network, grid, grain) */
 .hero-dark-art,
@@ -680,6 +701,10 @@
   .hero-stats { grid-template-columns: repeat(3, 1fr); gap: 14px; }
 }
 .hero-stat {
+  /* Numerals and the third card's mono label share this size, which is what
+     keeps their baselines on one line. */
+  --stat-value-size: clamp(1.25rem, 2vw, 1.6rem);
+  --stat-value-row: calc(var(--stat-value-size) * 1.02);
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface-2);
@@ -688,13 +713,29 @@
   flex-direction: column;
   gap: 6px;
 }
+.hero-stat-value {
+  display: flex;
+  align-items: flex-end;
+  min-height: var(--stat-value-row);
+}
 .hero-stat-big {
-  font-size: clamp(1.25rem, 2vw, 1.6rem);
+  font-size: var(--stat-value-size);
+  line-height: 1;
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--text);
 }
-.hero-stat:last-child .hero-stat-big { font-size: clamp(1rem, 1.3vw, 1.15rem); }
+/* "Works in any browser" has no caption of its own, so it is typeset as a
+   mono label on the numerals' baseline rather than as a shrunken headline.
+   The padding-bottom compensates the smaller font's shorter descender. */
+.hero-stat-mono {
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: calc(var(--stat-value-size) * 0.58);
+  line-height: 1;
+  padding-bottom: 0.1em;
+  letter-spacing: 0.01em;
+  color: var(--text);
+}
 .hero-stat-label { color: var(--muted); }
 
 /* --- Sections ----------------------------------------------------------- */
@@ -982,6 +1023,23 @@
 [data-theme='dark'] .hero { background: #000; }
 [data-theme='dark'] .hero-dark-art { display: block; position: absolute; inset: 0; overflow: hidden; }
 [data-theme='dark'] .hero-plate { display: none; }
+/* The glow and the trails stay behind the copy, but a soft vignette sits
+   between them and the text so the brightest part of the spotlight is never
+   the ground the headline is measured against. */
+[data-theme='dark'] .hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 78% 64% at 50% 40%,
+    rgba(0, 0, 0, 0.74) 0%,
+    rgba(0, 0, 0, 0.5) 48%,
+    rgba(0, 0, 0, 0.12) 72%,
+    rgba(0, 0, 0, 0) 88%
+  );
+}
 [data-theme='dark'] .hero-inner { align-items: center; text-align: center; }
 [data-theme='dark'] .hero-eyebrow { color: #C9BDB6; }
 [data-theme='dark'] .hero-title { max-width: 20ch; }
@@ -1019,6 +1077,7 @@
 
 /* Glass stat cards: orange-tinted translucent surface over the glow. */
 [data-theme='dark'] .hero-stat {
+  --stat-value-size: clamp(1.9rem, 3vw, 2.5rem);
   background: rgba(210, 58, 0, 0.09);
   border-color: rgba(240, 74, 10, 0.26);
   border-radius: 16px;
@@ -1028,14 +1087,15 @@
   gap: 8px;
 }
 [data-theme='dark'] .hero-stat-big {
-  font-size: clamp(1.9rem, 3vw, 2.5rem);
   font-weight: 500;
   letter-spacing: -0.03em;
 }
-[data-theme='dark'] .hero-stat:last-child .hero-stat-big {
-  font-size: clamp(1.05rem, 1.6vw, 1.35rem);
-  font-weight: 500;
-  letter-spacing: -0.01em;
+[data-theme='dark'] .hero-stat-mono {
+  font-size: calc(var(--stat-value-size) * 0.36);
+  /* Measured against the numerals' baseline at 768/1280 (hero_audit.mjs). */
+  padding-bottom: 0.27em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 [data-theme='dark'] .hero-stat-label { color: #C9BDB6; }
 [data-theme='dark'] .hero::after {
@@ -1075,6 +1135,29 @@
     font-size: 0.6rem;
     letter-spacing: 0.16em;
   }
+  /* Phones: the copy spans the full width, so the field is dimmed, thinned to
+     every other dot, and held out of the headline band entirely. */
+  .hero-plate {
+    opacity: 0.55;
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0%,
+      transparent 56%,
+      rgba(0, 0, 0, 0.3) 70%,
+      rgba(0, 0, 0, 0.8) 86%,
+      #000 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0%,
+      transparent 56%,
+      rgba(0, 0, 0, 0.3) 70%,
+      rgba(0, 0, 0, 0.8) 86%,
+      #000 100%
+    );
+  }
+  .hero-plate .dots-alt { display: none; }
+  [data-theme='dark'] .hero-plate { display: none; }
 }
 
 .hero-glow {
@@ -1093,10 +1176,10 @@
 .hero-grid-lines { position: absolute; inset: 0; opacity: 0.9; }
 .hero-network {
   position: absolute;
-  inset: auto 0 0 0;
+  inset: 0;
   width: 100%;
-  height: 92%;
-  opacity: 0.75;
+  height: 100%;
+  opacity: 0.8;
 }
 
 /* No-JS dark fallback for the hero (script normally sets data-theme). */
@@ -1648,6 +1731,14 @@ html:not([data-frozen-surface]) h4 {
 }
 .trail { animation: trail-flow 9s linear infinite; }
 
+/* Light mesh: a short dash travels the length of each link and fades out at
+   the end, so the field reads as live traffic rather than a static diagram. */
+@keyframes mesh-flow {
+  from { stroke-dashoffset: 460; }
+  to { stroke-dashoffset: 0; }
+}
+.mesh-pulse { animation: mesh-flow 7s linear infinite; }
+
 @keyframes node-pulse {
   0%, 100% { opacity: 0.35; r: 3; }
   50% { opacity: 1; r: 4.2; }
@@ -1687,6 +1778,7 @@ html:not([data-frozen-surface]) h4 {
   .art-drift { animation: none; }
   .glow-breathe { animation: none; }
   .trail { animation: none; stroke-dashoffset: 0; }
+  .mesh-pulse { animation: none; stroke-dashoffset: 0; opacity: 0.35; }
   .node-pulse { animation: none; opacity: 1; }
   .js .hero-rise { animation: none; }
   .js .reveal { opacity: 1; transform: none; transition: none; }
