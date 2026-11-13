@@ -389,16 +389,42 @@ class TestLogoutTokenRevocation:
         resp = client.get(self.ME_URL, headers=auth_headers)
         assert resp.status_code == 200
 
-    def test_redis_failure_fails_open(self, client, auth_headers, mock_conn, monkeypatch):
+    def test_redis_failure_falls_open_when_the_db_also_answers(self, client, auth_headers, mock_conn, monkeypatch):
         """A Redis outage must not lock users out — fail open, expiry is the backstop.
 
         This is the behaviour the broad except existed to provide; the fix must
-        keep it while letting the deliberate 401 escape.
+        keep it while letting the deliberate 401 escape. Without Redis the
+        durable ``revoked_tokens`` table is consulted, so "fail open" now means
+        "the table has no row for this jti".
         """
         async def _boom():
             raise ConnectionError("redis down")
 
+        async def _not_revoked(jti):
+            return False
+
         monkeypatch.setattr("app.auth.get_redis", _boom)
+        monkeypatch.setattr("app.auth.is_token_jti_revoked_in_db", _not_revoked)
+        mock_conn.fetchrow.return_value = {
+            "id": UUID("11111111-1111-4111-8111-111111111111"),
+            "email": "user@example.com",
+            "plan": "free",
+            "created_at": "2026-01-01T00:00:00Z",
+        }
+
+        resp = client.get(self.ME_URL, headers=auth_headers)
+        assert resp.status_code == 200
+
+    def test_redis_and_db_failure_fails_open(self, client, auth_headers, mock_conn, monkeypatch):
+        """Both revocation stores down: accept the token, expiry is the backstop."""
+        async def _boom():
+            raise ConnectionError("redis down")
+
+        async def _db_boom(jti):
+            raise ConnectionError("postgres down")
+
+        monkeypatch.setattr("app.auth.get_redis", _boom)
+        monkeypatch.setattr("app.auth.is_token_jti_revoked_in_db", _db_boom)
         mock_conn.fetchrow.return_value = {
             "id": UUID("11111111-1111-4111-8111-111111111111"),
             "email": "user@example.com",

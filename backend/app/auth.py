@@ -216,6 +216,48 @@ async def revoke_user_sessions(user_id) -> None:
         logger.warning("pw_change marker failed for %s: %s", uid, e)
 
 
+async def revoke_token_jti_db(jti: str, expires_at: int) -> None:
+    """Record a revoked token id in Postgres — the Redis-free fallback.
+
+    The Redis blocklist is the fast path, but production runs without Redis
+    today, and there the logout endpoint used to be a no-op: the token stayed
+    valid until it expired. This row is the durable answer, checked only when
+    Redis is unavailable or says nothing.
+    """
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO revoked_tokens (jti, expires_at) "
+            "VALUES ($1, to_timestamp($2)) ON CONFLICT (jti) DO NOTHING",
+            jti,
+            expires_at,
+        )
+        # The table is bounded by token lifetime, not by a cron: every write
+        # also drops the rows whose tokens can no longer be presented (an
+        # expired JWT is rejected by signature/exp before this check runs).
+        await conn.execute(
+            "DELETE FROM revoked_tokens WHERE expires_at < NOW()"
+        )
+
+
+async def is_token_jti_revoked_in_db(jti: str) -> bool:
+    """Is this token id in the durable revocation table?
+
+    Separate helper so tests can stub exactly this read (like
+    ``get_user_security_stamp``).
+    """
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        # fetchval, not fetchrow: this is a yes/no lookup, and it must stay
+        # independent of whatever a caller's connection mock returns for row
+        # reads.
+        return bool(
+            await conn.fetchval(
+                "SELECT 1 FROM revoked_tokens WHERE jti = $1", jti
+            )
+        )
+
+
 async def get_user_security_stamp(user_id) -> datetime | None:
     """Return the user's session-revocation stamp (None if never changed).
 
@@ -385,11 +427,24 @@ async def get_current_user_id(
     # fail-open wrapping on the redis call only, and raise after it.
     jti = payload.get("jti")
     if jti:
+        blocked = False
+        redis_unavailable = False
         try:
             r = await get_redis()
-            blocked = r is not None and bool(await r.get(f"token_block:{jti}"))
+            if r is None:
+                redis_unavailable = True
+            else:
+                blocked = bool(await r.get(f"token_block:{jti}"))
         except Exception:
-            blocked = False  # Redis down — fail open (token expiry is the backstop)
+            redis_unavailable = True
+        # No Redis (the production posture) used to mean "logout is a no-op".
+        # Fall back to the durable table; only if that also fails do we fail
+        # open, with token expiry as the backstop.
+        if not blocked and redis_unavailable:
+            try:
+                blocked = await is_token_jti_revoked_in_db(jti)
+            except Exception as e:
+                logger.warning("jti revocation DB lookup failed for %s: %s", jti, e)
         if blocked:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
