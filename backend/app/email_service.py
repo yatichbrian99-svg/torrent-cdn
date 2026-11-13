@@ -198,6 +198,85 @@ def build_mfa_enabled_email_html(email: str, dashboard_url: str) -> str:
 </html>"""
 
 
+def build_plan_downgrade_email_html(
+    email: str, *, from_plan: str, to_plan: str, dashboard_url: str
+) -> str:
+    """Build the email sent when a paid plan lapses at the end of its period.
+
+    The address is escaped for the same reason as the MFA email: it is
+    attacker-influenced and lands inside the markup.
+    """
+    safe_email = html.escape(email, quote=True)
+    safe_from = html.escape(from_plan.title(), quote=True)
+    safe_to = html.escape(to_plan.title(), quote=True)
+    return f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background-color:#000;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#000">
+<tr><td align="center" style="padding:40px 20px">
+<table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background-color:#111;border:1px solid #222;border-radius:0">
+<tr><td style="padding:40px 40px 20px">
+<h1 style="margin:0 0 8px;font-size:18px;font-weight:700;color:#fff;letter-spacing:-0.02em">Your {safe_from} plan has ended</h1>
+<p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#888">The paid period on <strong style="color:#fff">{safe_from}</strong> for <strong style="color:#fff">{safe_email}</strong> has finished, so your account is now on the <strong style="color:#fff">{safe_to}</strong> plan.</p>
+<p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#888">Your files stay where they are. The {safe_to} plan has a smaller storage limit, so uploads above it will be refused until you upgrade or free space.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:24px">
+<tr><td align="center" style="background-color:#fff;border-radius:0">
+<a href="{dashboard_url}" target="_blank" style="display:inline-block;padding:12px 32px;font-size:14px;font-weight:600;color:#000;text-decoration:none">Review your plan &rarr;</a>
+</td></tr></table>
+<p style="margin:24px 0 0;font-size:12px;line-height:1.5;color:#555">You are receiving this because a subscription on your account ended. It is not marketing.</p>
+</td></tr>
+<tr><td style="padding:0 40px 20px;border-top:1px solid #222">
+<p style="margin:20px 0 0;font-size:11px;color:#444">TorrentCDN &mdash; P2P video delivery</p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>"""
+
+
+async def send_plan_downgrade_email(
+    email: str, *, from_plan: str, to_plan: str
+) -> bool:
+    """Tell the customer their plan lapsed. Non-fatal, like the MFA notice."""
+    resend = _get_resend()
+    if resend is None:
+        if settings.app_env != "production":
+            logger.info(
+                "Resend not configured — plan-downgrade notification for %s skipped",
+                email,
+            )
+        else:
+            # Warning in production: a plan change the user did not see is a
+            # billing complaint waiting to happen.
+            logger.warning(
+                "Resend not configured — plan-downgrade notification for %s NOT sent",
+                email,
+            )
+        return False
+
+    dashboard_url = settings.app_url.rstrip("/") + "/billing"
+    body = build_plan_downgrade_email_html(
+        email, from_plan=from_plan, to_plan=to_plan, dashboard_url=dashboard_url
+    )
+    try:
+        await asyncio.to_thread(
+            resend.Emails.send,
+            {
+                "from": transactional_from_address(),
+                "to": [email],
+                "subject": f"Your {from_plan.title()} plan has ended",
+                "html": body,
+            },
+        )
+        logger.info("Plan-downgrade notification emailed to %s", email)
+        return True
+    except Exception as e:
+        logger.error("Failed to send plan-downgrade notification to %s: %s", email, e)
+        return False
+
+
 def build_verification_email_html(email: str, verify_url: str) -> str:
     """Build a styled HTML email for email verification."""
     safe_email = html.escape(email, quote=True)

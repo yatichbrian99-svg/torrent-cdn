@@ -98,6 +98,23 @@ async def run_startup_migrations():
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN DEFAULT FALSE;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_backup_codes TEXT;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS security_stamp TIMESTAMP WITH TIME ZONE;
+                -- Plan lifecycle: a lapsed subscription keeps the paid plan
+                -- until plan_expires_at, then falls back to pending_plan. Both
+                -- are NULL for an account that is not scheduled to downgrade.
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_expires_at TIMESTAMP WITH TIME ZONE;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_plan VARCHAR(50);
+                -- Durable billing audit. The in-memory security feed is for a
+                -- dashboard; a plan change a customer can see needs a record
+                -- that survives a restart and a log outage.
+                CREATE TABLE IF NOT EXISTS billing_audit_log (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+                    event TEXT NOT NULL,
+                    detail JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+                );
+                CREATE INDEX IF NOT EXISTS idx_billing_audit_user ON billing_audit_log(user_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_users_plan_expiry ON users(plan_expires_at) WHERE plan_expires_at IS NOT NULL;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_used TEXT;
                 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS thumbnail_url TEXT;
                 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
