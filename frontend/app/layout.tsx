@@ -93,7 +93,7 @@ export const metadata: Metadata = {
     template: '%s | TorrentCDN',
   },
   description:
-    'TorrentCDN turns viewers into a peer network. Deliver video and audio for less, run live streams on the same model, and use an OpenAI-compatible inference API in private alpha. Start free with 100GB bandwidth.',
+    'Stream, go live, run models — and let the crowd carry the load. TorrentCDN turns viewers and idle GPUs into capacity, keeping the origin for whatever they cannot serve. Start free with 100GB bandwidth.',
   keywords: [
     'P2P CDN',
     'peer-assisted delivery',
@@ -128,7 +128,7 @@ export const metadata: Metadata = {
     siteName: 'TorrentCDN',
     title: 'TorrentCDN — Peer-Assisted Delivery for Media, Live and AI',
     description:
-      'Deliver video and audio for less, run live streams on the same peer network, and use an OpenAI-compatible inference API in private alpha.',
+      'Stream, go live, run models — the crowd carries the load and the origin picks up what is left.',
     images: [
       {
         // Absolute URL — required by Twitter/X, LinkedIn, Slack, Discord,
@@ -146,7 +146,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'TorrentCDN — Peer-Assisted Delivery for Media, Live and AI',
     description:
-      'Media, live and AI on one peer network. TorrentCDN uses WebTorrent to turn viewers into delivery capacity.',
+      'Your viewers are the CDN. TorrentCDN turns the crowd into delivery and inference capacity.',
     images: ['https://www.torrentcdn.store/og-image.png'],
     creator: '@torrentcdn',
   },

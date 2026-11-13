@@ -27,22 +27,22 @@ const STEPS = [
 const CAPABILITIES = [
   {
     kicker: 'Available today',
-    title: 'Video and audio delivery',
-    desc: 'Upload MP4, WebM, MKV, MOV, AVI, MP3, WAV, OGG or M4A. Viewers stream from each other over WebRTC and fall back to the origin when no peer can serve.',
+    title: 'Ship video. Skip the bill spike.',
+    desc: 'Upload MP4, WebM, MKV, MOV, AVI, MP3, WAV, OGG or M4A, paste one line, and your viewers serve each other. Peers first, origin when the swarm is thin — so the popular file is the cheap one.',
     href: '/architecture',
     cta: 'How delivery works',
   },
   {
     kicker: 'Engineering MVP',
-    title: 'Live streaming',
-    desc: 'HLS live channels on the same origin-plus-peers model, with the viewer count and rate limits handled per channel. Running with design partners while it is hardened.',
+    title: 'Go live without a second stack.',
+    desc: 'HLS channels where viewers share the segments instead of hammering the origin, on the same network and the same billing. Running with design partners while it is hardened.',
     href: '/live',
     cta: 'See live channels',
   },
   {
     kicker: 'Private alpha',
-    title: 'TCDN-AI inference',
-    desc: 'An OpenAI-compatible /v1 API served by GPUs that people connect to the network. Invite only: access is granted by hand and only the standard privacy tier is offered.',
+    title: 'Run AI on idle GPUs.',
+    desc: 'An OpenAI-compatible endpoint served by machines people plug in. Point any SDK at it and the network handles placement, tickets and receipts. Invite only, standard tier only.',
     href: '/tcdn-ai',
     cta: 'TCDN-AI overview',
   },
@@ -133,15 +133,14 @@ export default function LandingPage() {
           </p>
 
           <h1 className="hero-title h-display hero-rise" style={{ '--rise-delay': '120ms' } as React.CSSProperties}>
-            One network for media, live and AI —{' '}
-            <span className="hero-word-accent">cheaper</span> as you{' '}
+            The crowd is your capacity.{' '}
+            <span className="hero-word-accent">Cheaper</span> as you{' '}
             <span className="hero-word-serif">scale</span>.
           </h1>
 
           <p className="hero-sub hero-rise" style={{ '--rise-delay': '200ms' } as React.CSSProperties}>
-            TorrentCDN turns viewers into a peer network for video and audio, runs live streams on the same
-            model, and serves an OpenAI-compatible inference API in alpha. The more people use it, the less
-            you pay.
+            Stream on it, go live on it, run models on it. Viewers carry the delivery, idle GPUs carry the
+            inference, and our origin picks up whatever the crowd cannot.
           </p>
 
           <div className="hero-ctas hero-rise" style={{ '--rise-delay': '280ms' } as React.CSSProperties}>
@@ -177,10 +176,9 @@ export default function LandingPage() {
       <section className="section" id="capabilities">
         <div className="wrap">
           <Reveal>
-            <h2 className="h-section">More than on-demand video</h2>
+            <h2 className="h-section">One network. Three jobs.</h2>
             <p className="section-sub">
-              The same peer-assisted model carries three products. They are at different stages, and each
-              card says which.
+              Different stages, same trick: put the load on the crowd and keep the origin for the leftovers.
             </p>
           </Reveal>
           <div className="mt-8 grid gap-4 sm:grid-cols-3">
