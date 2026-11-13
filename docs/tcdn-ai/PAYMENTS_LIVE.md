@@ -7,7 +7,23 @@ live test, and how to stop it.
 
 Nothing here is a substitute for the code: the gate is
 `Coordinator._authorise_live_payment` in `backend/app/ai/service.py`, and the
-tests are `backend/tests/test_ai_payments_live.py`.
+tests are `backend/tests/test_ai_payments_live.py` and
+`backend/tests/test_billing_webhook_dispatch.py`.
+
+## The one webhook URL to set
+
+Paystack allows a single webhook URL per mode. Configure exactly:
+
+```
+https://<your-domain>/billing/webhook
+```
+
+That router receives every event and dispatches after one signature check:
+`metadata.purpose == "ai_credits"` goes to the AI coordinator (pack-priced
+credits, reference-keyed idempotency), subscription and transfer events take
+their existing paths, and anything else is acknowledged so Paystack stops
+redelivering it. Do not configure `/api/ai/v1/billing/webhook` in the dashboard
+as well — only one URL is delivered to.
 
 ---
 
@@ -57,10 +73,18 @@ the provider round trip, not to sell anything.
    `GET /api/ai/v1/admin/payments-live` reports `enabled: true`,
    `allowlist_size: 1`, `paused: false`.
 3. **Charge the minimum the provider allows** in test mode. Expect
-   `200 {"status": "credited"}` and the balance to move by exactly
-   `amount_minor × 1,000,000`. Confirm the From/amount in the Paystack dashboard
-   matches the ledger row (`SELECT * FROM ai_ledger_entries WHERE
-   idempotency_key = 'payment:paystack:<reference>'`).
+   `200 {"status": "credited"}`. What the balance moves by depends on how the
+   checkout was started:
+   - **pack purchase** (`metadata.purpose = "ai_credits"`, the console's
+     `/api/ai/v1/billing/checkout`): exactly the pack's `credit_micro`
+     (`starter` = 5,000,000). The KES amount is never converted — the event's
+     currency and amount must match the pack, and the reference is re-checked
+     against Paystack's verify API first.
+   - **any other charge**: `amount_minor × 1,000,000` (legacy USD conversion).
+
+   Confirm the From/amount in the Paystack dashboard matches the ledger row
+   (`SELECT * FROM ai_ledger_entries WHERE idempotency_key =
+   'payment:paystack:<reference>'`).
 4. **Replay the webhook** (Paystack dashboard → resend, or re-POST the same body
    and signature). Expect `200` with `"duplicate": true` and **no** second
    ledger row.

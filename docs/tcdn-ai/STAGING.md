@@ -102,8 +102,23 @@ To check a keyring without printing it (what a pipeline should do):
 A test key cannot charge a real card, and the account in test mode is not the
 production account. Do **not** copy the production key.
 
-Webhook URL for test-mode credit purchases (optional, only if you want to click
-through a purchase): `https://<staging-url>/api/ai/v1/billing/webhook`.
+**Webhook URL (set this one, once):**
+
+```
+https://<staging-url>/billing/webhook
+```
+
+Paystack allows **one** webhook URL per mode, so this single endpoint receives
+every event: subscription charges, transfers, and credit-pack purchases. The
+router verifies the signature once and dispatches — events whose
+`metadata.purpose` is `ai_credits` go to the AI console's coordinator, everything
+else keeps the subscription/transfer handling. Do **not** also point Paystack at
+`/api/ai/v1/billing/webhook`: only one URL is delivered to, and if that one is
+the AI endpoint then subscription upgrades silently stop arriving.
+
+(`/api/ai/v1/billing/webhook` still exists and works for the AI console's own
+signed traffic and its tests; it is just not the URL you configure in the
+Paystack dashboard.)
 
 ### 3.3 Pepper
 
