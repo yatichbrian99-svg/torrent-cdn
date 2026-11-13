@@ -28,7 +28,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from ..auth import get_current_user_id
 from ..config import get_settings
 from ..database import get_db_pool, get_redis
+from ..email_service import send_plan_downgrade_email
 from ..models import BillingStatus, CheckoutRequest, CheckoutResponse
+from ..plan_lifecycle import (
+    apply_due_downgrade,
+    parse_period_end,
+    schedule_downgrade,
+)
 
 VALID_PLANS = {"free", "pro", "business"}
 
@@ -62,6 +68,18 @@ PLAN_CODE_TO_TIER = {
     p["plan_code"]: tier for tier, p in PLANS.items() if p["plan_code"]
 }
 
+#: Subscription lifecycle events that mean "this plan is no longer being paid
+#: for". Each one schedules the downgrade at the end of the paid period (or now,
+#: when the period has already ended). Paystack's dashboard must deliver these
+#: four for the lifecycle to work: subscription.disable, subscription.not_renew,
+#: subscription.expiry and invoice.payment_failed.
+DOWNGRADE_EVENTS = {
+    "subscription.disable",
+    "subscription.not_renew",
+    "subscription.expiry",
+    "invoice.payment_failed",
+}
+
 _PAYSTACK_HEADERS = {
     "Authorization": f"Bearer {settings.paystack_secret_key}",
     "Content-Type": "application/json",
@@ -72,6 +90,13 @@ _PAYSTACK_HEADERS = {
 async def get_billing_status(user_id: UUID = Depends(get_current_user_id)):
     pool = await get_db_pool()
     async with pool.acquire() as conn:
+        # A scheduled downgrade has no cron here: it is applied the first time
+        # the account is read after the period ends, and every client reads
+        # this endpoint. Doing it here keeps the enforcement where the data is,
+        # with no extra moving part to deploy or forget.
+        applied = await apply_due_downgrade(conn, user_id)
+        if applied:
+            await _notify_downgrade(applied)
         user = await conn.fetchrow(
             "SELECT plan FROM users WHERE id = $1", user_id
         )
@@ -169,6 +194,65 @@ async def create_checkout(
         )
 
 
+def _as_uuid(value) -> UUID | None:
+    try:
+        return UUID(str(value))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def _period_end(data: dict) -> datetime | None:
+    """When the current paid period ends, from whichever field Paystack used.
+
+    Subscription events carry ``next_payment_date``; invoice events nest the
+    subscription object. Missing/unparseable means "effective now" — never
+    "give them the plan forever".
+    """
+    candidates = [
+        data.get("next_payment_date"),
+        (data.get("subscription") or {}).get("next_payment_date"),
+        (data.get("plan") or {}).get("next_payment_date"),
+        data.get("current_period_end"),
+    ]
+    for candidate in candidates:
+        parsed = parse_period_end(candidate)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+async def _resolve_billing_user(conn, data: dict):
+    """The account a subscription/lifecycle event belongs to.
+
+    ``metadata.user_id`` is ours and authoritative; subscription events that
+    outlive it (Paystack sends only ``customer.email``) fall back to the email
+    on the charge. Anything else is ignored rather than guessed.
+    """
+    metadata = data.get("metadata") or {}
+    user_id = _as_uuid(metadata.get("user_id")) if isinstance(metadata, dict) else None
+    if user_id is not None:
+        return await conn.fetchrow("SELECT id, email FROM users WHERE id = $1", user_id)
+    email = (data.get("customer") or {}).get("email") or data.get("email")
+    if not email:
+        return None
+    return await conn.fetchrow(
+        "SELECT id, email FROM users WHERE lower(email) = lower($1)", str(email)
+    )
+
+
+async def _notify_downgrade(applied: dict) -> None:
+    """Tell the customer their plan changed. Never fatal: the change is done."""
+    email = applied.get("email") or ""
+    if not email:
+        return
+    try:
+        await send_plan_downgrade_email(
+            email, from_plan=applied["from_plan"], to_plan=applied["to_plan"]
+        )
+    except Exception:
+        logger.exception("plan downgrade email failed for %s", email)
+
+
 @router.post("/webhook")
 async def paystack_webhook(request: Request):
     """Handle Paystack webhook events.
@@ -255,6 +339,36 @@ async def paystack_webhook(request: Request):
                     "UPDATE users SET plan = $1 WHERE id = $2",
                     tier, parsed_user_id,
                 )
+            await mark_processed()
+            return {"detail": "Webhook received"}
+
+        # Subscription lifecycle: cancel, non-renewal, expiry and a failed
+        # renewal charge all mean the plan stops being paid for. It is NOT cut
+        # off now — the customer keeps what they paid for until the period ends
+        # — but it must eventually fall back to free. Before this branch
+        # existed, nothing ever downgraded a plan.
+        if event_type in DOWNGRADE_EVENTS:
+            pool = await get_db_pool()
+            async with pool.acquire() as conn:
+                user_row = await _resolve_billing_user(conn, data)
+                if user_row is None:
+                    await mark_processed()
+                    return {"detail": "Unknown subscriber, ignoring"}
+                user_id = _as_uuid(user_row["id"])
+                if user_id is None:
+                    await mark_processed()
+                    return {"detail": "Unknown subscriber, ignoring"}
+                await schedule_downgrade(
+                    conn,
+                    user_id,
+                    period_end=_period_end(data),
+                    reason=event_type,
+                    event=event_type,
+                    payload_reference=str(data.get("subscription_code") or ""),
+                )
+                applied = await apply_due_downgrade(conn, user_id)
+            if applied:
+                await _notify_downgrade(applied)
             await mark_processed()
             return {"detail": "Webhook received"}
 

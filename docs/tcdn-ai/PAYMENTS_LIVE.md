@@ -25,6 +25,40 @@ tests are `backend/tests/test_ai_payments_live.py`.
 Caps are in **micro-credits**: 1 credit = 1,000,000 micro = $0.01 at the peg.
 $50 = 5,000,000,000.
 
+## Paystack events to enable
+
+A webhook URL receives every event type the account is configured to send, so
+no per-event subscription is needed on the endpoint — but the dashboard's event
+list must not filter these out, or the product silently stops reacting:
+
+| Event | What this app does with it |
+| --- | --- |
+| `charge.success` (with a `plan`) | upgrades the account to the paid tier |
+| `charge.success` (`metadata.purpose = ai_credits`) | credits the purchased pack |
+| `subscription.disable` | schedules the downgrade at the end of the paid period |
+| `subscription.not_renew` | schedules the downgrade at the end of the paid period |
+| `subscription.expiry` | downgrades now (the plan is already unpaid) |
+| `invoice.payment_failed` | schedules the downgrade at the end of the paid period (dunning, not an instant cut) |
+| `transfer.success`, `transfer.failed`, `transfer.reversed`, `transfer.otp` | syncs a payout's status |
+
+Anything else is acknowledged and ignored, so an unrecognised event never
+causes a retry storm.
+
+### How a downgrade happens
+
+There is no cron in this app. A lifecycle event records `plan_expires_at` and
+`pending_plan = 'free'` on the user; the downgrade is applied the first time the
+account is read after that instant (`GET /billing/status` and the webhook itself
+do it). Both the scheduling and the application write a row to
+`billing_audit_log` (`billing.plan_downgrade_scheduled`,
+`billing.plan_downgraded`), and the applied downgrade also writes an in-app
+notification and emails the customer.
+
+A later event with an **earlier** end date wins (`LEAST`), so a duplicate or an
+out-of-order delivery cannot extend a paid plan. A missing or unparseable
+`next_payment_date` is treated as "effective now" — never as "keep the plan
+forever".
+
 ## What a refusal looks like
 
 All refusals happen after signature verification and before the ledger write, so
