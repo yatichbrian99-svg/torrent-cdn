@@ -9,7 +9,6 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import (
-    get_current_user_id,
     get_current_user_id_jwt_only,
     revoke_user_sessions,
 )
@@ -39,15 +38,6 @@ async def _assert_admin(user_id: UUID) -> UUID:
     return user_id
 
 
-async def require_admin(user_id: UUID = Depends(get_current_user_id)) -> UUID:
-    """Dependency that ensures the user is an admin.
-
-    Accepts whatever ``get_current_user_id`` accepts — a session JWT or a
-    ``tcdn_`` API key. Use :func:`require_admin_jwt` for anything that moves
-    money or changes platform-wide controls (audit F-6)."""
-    return await _assert_admin(user_id)
-
-
 async def require_admin_jwt(
     user_id: UUID = Depends(get_current_user_id_jwt_only),
 ) -> UUID:
@@ -60,7 +50,7 @@ async def require_admin_jwt(
 
 
 @router.get("/stats")
-async def admin_stats(_: UUID = Depends(require_admin)):
+async def admin_stats(_: UUID = Depends(require_admin_jwt)):
     """Platform-wide stats for the admin dashboard."""
     pool = await get_db_pool()
     async with pool.acquire() as conn:
@@ -108,7 +98,7 @@ async def admin_stats(_: UUID = Depends(require_admin)):
 async def admin_list_users(
     page: int = 1,
     limit: int = 20,
-    _: UUID = Depends(require_admin),
+    _: UUID = Depends(require_admin_jwt),
 ):
     """List users with their usage stats. Paginated envelope: {users, total, page, pages}."""
     page = max(1, page)
@@ -161,7 +151,7 @@ async def admin_list_users(
 
 
 @router.get("/users/{user_id}", response_model=UserAdminResponse)
-async def admin_get_user(user_id: UUID, _: UUID = Depends(require_admin)):
+async def admin_get_user(user_id: UUID, _: UUID = Depends(require_admin_jwt)):
     """Get a single user's details."""
     pool = await get_db_pool()
     async with pool.acquire() as conn:
@@ -212,7 +202,7 @@ async def _admin_update_plan(user_id: UUID, data: UpdateUserPlanRequest):
 async def admin_update_plan(
     user_id: UUID,
     data: UpdateUserPlanRequest,
-    admin_id: UUID = Depends(require_admin),
+    admin_id: UUID = Depends(require_admin_jwt),
 ):
     """Update a user's subscription plan."""
     result = await _admin_update_plan(user_id, data)
@@ -225,7 +215,7 @@ async def admin_update_plan(
 async def admin_update_plan_post(
     user_id: UUID,
     data: UpdateUserPlanRequest,
-    admin_id: UUID = Depends(require_admin),
+    admin_id: UUID = Depends(require_admin_jwt),
 ):
     """Update a user's subscription plan (POST alias)."""
     result = await _admin_update_plan(user_id, data)
@@ -237,7 +227,7 @@ async def admin_update_plan_post(
 @router.post("/users/{user_id}/toggle-admin")
 async def admin_toggle_admin(
     user_id: UUID,
-    admin_id: UUID = Depends(require_admin),
+    admin_id: UUID = Depends(require_admin_jwt),
 ):
     """Toggle a user's admin flag."""
     pool = await get_db_pool()
@@ -282,7 +272,7 @@ async def admin_toggle_admin(
 
 
 @router.delete("/users/{user_id}")
-async def admin_delete_user(user_id: UUID, admin_id: UUID = Depends(require_admin)):
+async def admin_delete_user(user_id: UUID, admin_id: UUID = Depends(require_admin_jwt)):
     """Delete a user and all their data. Admin accounts cannot be deleted."""
     from ..routes.upload import get_minio_client
     pool = await get_db_pool()
@@ -336,7 +326,7 @@ async def admin_delete_user(user_id: UUID, admin_id: UUID = Depends(require_admi
 
 
 @router.post("/users/{user_id}/verify")
-async def admin_verify_user(user_id: UUID, admin_id: UUID = Depends(require_admin)):
+async def admin_verify_user(user_id: UUID, admin_id: UUID = Depends(require_admin_jwt)):
     """Manually verify a user's email. Admin-only."""
     pool = await get_db_pool()
     async with pool.acquire() as conn:
@@ -358,7 +348,7 @@ async def admin_verify_user(user_id: UUID, admin_id: UUID = Depends(require_admi
 
 
 @router.get("/analytics", response_model=AdminAnalyticsResponse)
-async def admin_analytics(_: UUID = Depends(require_admin)):
+async def admin_analytics(_: UUID = Depends(require_admin_jwt)):
     """Get platform-wide analytics."""
     pool = await get_db_pool()
     async with pool.acquire() as conn:
@@ -467,7 +457,7 @@ async def _malware_alert_count() -> str:
 
 @router.get("/health")
 @router.get("/health/status")
-async def admin_health(_: UUID = Depends(require_admin)):
+async def admin_health(_: UUID = Depends(require_admin_jwt)):
     """Security + infrastructure health dashboard payload.
 
     Live checks (DB / Redis / storage), config-driven security posture, a WAF

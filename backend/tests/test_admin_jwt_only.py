@@ -175,6 +175,84 @@ def test_a_non_admin_session_is_still_refused(client, mock_conn, auth_headers):
     assert response.status_code == 403
 
 
+#: Every read on the admin surface and the payout surface. The audit's finding 4
+#: is wider than the money writes: a GET tells an attacker the balance, the
+#: recipients, the user list — the reconnaissance that makes the write useful.
+ADMIN_READ_ROUTES: list[tuple[str, str]] = [
+    ("GET", "/admin/stats"),
+    ("GET", "/admin/users"),
+    ("GET", "/admin/analytics"),
+    ("GET", "/admin/health"),
+    ("GET", "/billing/payouts/balance"),
+    ("GET", "/billing/payouts/recipients"),
+    ("GET", "/billing/payouts"),
+]
+
+
+@pytest.mark.parametrize("method,path", ADMIN_READ_ROUTES)
+def test_an_admin_api_key_cannot_read_the_admin_surface(
+    client, mock_conn, admin_user_id, method, path
+):
+    """A tcdn_ key must not see balances, recipients or the user list either."""
+    mock_conn.fetchrow.return_value = {"user_id": admin_user_id, "is_admin": True}
+    mock_conn.fetch.return_value = []
+    response = client.request(method, path, headers=API_KEY_HEADERS)
+    assert response.status_code == 403, response.text
+    assert "session token" in response.json()["detail"]
+
+
+def test_every_admin_and_payout_route_requires_the_jwt_only_guard():
+    """Route-dependency walk: no /admin or /billing/payouts route may accept an
+    API key — reads included, and including routes added later."""
+
+    def _dependency_names(dependant) -> set[str]:
+        names: set[str] = set()
+        stack = [dependant]
+        while stack:
+            node = stack.pop()
+            for dependency in node.dependencies:
+                names.add(getattr(dependency.call, "__name__", ""))
+                stack.append(dependency)
+        return names
+
+    def _flatten(routes):
+        from fastapi.routing import APIRoute
+
+        found = []
+        for route in routes:
+            if isinstance(route, APIRoute):
+                found.append(route)
+            elif getattr(route, "original_router", None) is not None:
+                found.extend(_flatten(route.original_router.routes))
+        return found
+
+    in_scope = [
+        route
+        for route in _flatten(app.routes)
+        if route.path == "/admin"
+        or route.path.startswith("/admin/")
+        or route.path == "/billing/payouts"
+        or route.path.startswith("/billing/payouts/")
+    ]
+
+    # Sanity: the walk must actually find the surface, or it proves nothing.
+    assert len(in_scope) >= len(ADMIN_READ_ROUTES)
+
+    offenders = []
+    for route in in_scope:
+        names = _dependency_names(route.dependant)
+        if "require_admin_jwt" not in names:
+            offenders.append((sorted(route.methods - {"HEAD", "OPTIONS"}), route.path))
+    assert not offenders, f"routes reachable with an API key: {offenders}"
+
+
+def test_the_api_key_capable_admin_dependency_is_gone():
+    """Leaving ``require_admin`` around invites a new route onto it."""
+    import app.routes.admin as admin_module
+
+    assert not hasattr(admin_module, "require_admin")
+
+
 def test_no_money_route_is_left_on_the_api_key_capable_dependency():
     """Structural sweep: every money route's dependency tree contains the
     JWT-only guard, so a route added later cannot quietly keep the old one."""
