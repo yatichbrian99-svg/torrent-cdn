@@ -16,9 +16,36 @@ import DarkHeroArt from '@/components/hero/DarkHeroArt'
 // different one), the FAQ becoming an accordion, and the footer moving into
 // SiteFooter. Every figure below also appears in docs/frontend/COPY_CLAIMS.md.
 const STEPS = [
-  { num: '01', title: 'Upload your file', desc: 'Drop any video or audio file. We store it and generate a magnet link.' },
+  { num: '01', title: 'Upload your media', desc: 'Drop a video or audio file. We store it and generate a magnet link.' },
   { num: '02', title: 'Paste one line of code', desc: '' },
   { num: '03', title: 'Viewers share bandwidth', desc: 'Every viewer becomes a peer. Your costs stay flat while your audience grows.' },
+]
+
+// The three things that run on the network. Live and AI are deliberately
+// labelled by maturity, not sold as equal to the shipping delivery product:
+// live is an MVP, TCDN-AI is an invite-only alpha.
+const CAPABILITIES = [
+  {
+    kicker: 'Available today',
+    title: 'Ship video. Skip the bill spike.',
+    desc: 'Upload MP4, WebM, MKV, MOV, AVI, MP3, WAV, OGG or M4A, paste one line, and your viewers serve each other. Peers first, origin when the swarm is thin — so the popular file is the cheap one.',
+    href: '/architecture',
+    cta: 'How delivery works',
+  },
+  {
+    kicker: 'Engineering MVP',
+    title: 'Go live without a second stack.',
+    desc: 'HLS channels where viewers share the segments instead of hammering the origin, on the same network and the same billing. Running with design partners while it is hardened.',
+    href: '/live',
+    cta: 'See live channels',
+  },
+  {
+    kicker: 'Private alpha',
+    title: 'Run AI on idle GPUs.',
+    desc: 'An OpenAI-compatible endpoint served by machines people plug in. Point any SDK at it and the network handles placement, tickets and receipts. Invite only, standard tier only.',
+    href: '/tcdn-ai',
+    cta: 'TCDN-AI overview',
+  },
 ]
 
 const STATS = [
@@ -40,7 +67,7 @@ const FAQ = [
   },
   {
     q: 'What file types are supported?',
-    a: 'We support MP4, WebM, MKV, MOV, AVI for video and MP3, WAV, OGG, M4A for audio.',
+    a: 'Uploads accept MP4, WebM, MKV, MOV, AVI for video and MP3, WAV, OGG, M4A for audio. Those are the formats enabled today — other file types are not accepted by the upload endpoint, even though the torrent layer underneath is not media-specific.',
   },
   {
     q: 'What is the maximum file size?',
@@ -98,18 +125,20 @@ export default function LandingPage() {
           {/* Not wrapped in the fade-up: this line is the mobile LCP element,
               and an element that starts at opacity 0 does not count as painted,
               so animating it pushes LCP out by the animation delay. */}
+          {/* `.hero-eyebrow` is nowrap on phones, so this line is length-checked
+              at 390px (0px horizontal overflow) rather than allowed to wrap. */}
           <p className="label hero-eyebrow">
-            Built for high concurrency video delivery
+            Media &middot; Live &middot; AI
           </p>
 
           <h1 className="hero-title h-display hero-rise" style={{ '--rise-delay': '120ms' } as React.CSSProperties}>
-            Video delivery that gets{' '}
-            <span className="hero-word-accent">cheaper</span> as you{' '}
-            <span className="hero-word-serif">scale</span>.
+            Powering the <span className="hero-word-accent">distributed</span>{' '}
+            <span className="hero-word-serif">internet</span>.
           </h1>
 
           <p className="hero-sub hero-rise" style={{ '--rise-delay': '200ms' } as React.CSSProperties}>
-            TorrentCDN uses WebTorrent to turn your viewers into a P2P network. The more people watch, the less you pay.
+            Your viewers are the CDN. Peers carry the delivery, idle GPUs carry the inference, and the
+            origin only picks up what the crowd cannot.
           </p>
 
           <div className="hero-ctas hero-rise" style={{ '--rise-delay': '280ms' } as React.CSSProperties}>
@@ -138,6 +167,42 @@ export default function LandingPage() {
               </li>
             ))}
           </ul>
+        </div>
+      </section>
+
+      {/* ---------------------------------------------------------- Capabilities */}
+      <section className="section" id="capabilities">
+        <div className="wrap">
+          <Reveal>
+            <h2 className="h-section">One network. Three jobs.</h2>
+            <p className="section-sub">
+              Different stages, same trick: put the load on the crowd and keep the origin for the leftovers.
+            </p>
+          </Reveal>
+          <div className="mt-8 grid gap-4 sm:grid-cols-3">
+            {CAPABILITIES.map((cap, i) => (
+              <Reveal key={cap.title} delay={i * 80}>
+                <div className="panel flex h-full flex-col p-6">
+                  <p className="label" style={{ color: 'var(--accent)' }}>
+                    {cap.kicker}
+                  </p>
+                  <h3 className="mt-2 text-base font-semibold" style={{ color: 'var(--text)' }}>
+                    {cap.title}
+                  </h3>
+                  <p className="mt-2 flex-1 text-sm leading-relaxed" style={{ color: 'var(--muted)' }}>
+                    {cap.desc}
+                  </p>
+                  <a
+                    href={cap.href}
+                    className="mt-4 text-sm underline transition-colors hover:text-[color:var(--text)]"
+                    style={{ color: 'var(--muted)' }}
+                  >
+                    {cap.cta} &rarr;
+                  </a>
+                </div>
+              </Reveal>
+            ))}
+          </div>
         </div>
       </section>
 

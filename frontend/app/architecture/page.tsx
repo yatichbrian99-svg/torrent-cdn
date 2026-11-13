@@ -117,8 +117,18 @@ export default function ArchitecturePage() {
       </h1>
       <p className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>
         TorrentCDN is a <span className="font-bold text-[color:var(--text-primary)]">peer-assisted delivery layer</span>{' '}
-        for video and other static media. It is not a conventional PoP-based CDN: it runs alongside origin and edge
-        infrastructure, adding a second delivery path in which viewers exchange content directly with each other.
+        for media — video and audio — and the same model now carries live streams and GPU inference. It is not a
+        conventional PoP-based CDN: it runs alongside origin and edge infrastructure, adding a second delivery path in
+        which viewers exchange content directly with each other.
+      </p>
+      <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--text-faint)' }}>
+        This page describes the delivery path, which is the shipping product. Live streaming and the inference API run on
+        the same origin-plus-peers idea and are covered on{' '}
+        <a href="/live" className="underline transition-colors hover:text-[color:var(--text-primary)]">/live</a> and{' '}
+        <a href="/tcdn-ai/architecture" className="underline transition-colors hover:text-[color:var(--text-primary)]">
+          the TCDN-AI architecture page
+        </a>
+        , with their own maturity labels.
       </p>
 
       {/* ── 1 ─────────────────────────────────────────────────────────────── */}

@@ -89,18 +89,20 @@ tm();if(document.readyState==='loading'){document.addEventListener('DOMContentLo
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.torrentcdn.store'),
   title: {
-    default: 'TorrentCDN — P2P Video Delivery That Gets Cheaper As You Scale',
+    default: 'TorrentCDN — Powering the Distributed Internet',
     template: '%s | TorrentCDN',
   },
   description:
-    'TorrentCDN uses WebTorrent P2P technology to deliver video at a fraction of traditional CDN costs. The more people watch, the less you pay. Start free with 100GB bandwidth.',
+    'Powering the distributed internet. Stream, go live, run models — TorrentCDN turns viewers and idle GPUs into capacity, keeping the origin for whatever they cannot serve. Start free with 100GB bandwidth.',
   keywords: [
     'P2P CDN',
-    'video delivery',
+    'peer-assisted delivery',
     'WebTorrent',
     'peer to peer CDN',
-    'cheap video streaming',
-    'video hosting',
+    'video delivery',
+    'live streaming',
+    'AI inference API',
+    'OpenAI-compatible API',
     'TorrentCDN',
     'P2P streaming',
     'cost effective CDN',
@@ -124,9 +126,9 @@ export const metadata: Metadata = {
     locale: 'en_US',
     url: 'https://www.torrentcdn.store',
     siteName: 'TorrentCDN',
-    title: 'TorrentCDN — P2P Video Delivery That Gets Cheaper As You Scale',
+    title: 'TorrentCDN — Powering the Distributed Internet',
     description:
-      'TorrentCDN uses WebTorrent P2P technology to deliver video at a fraction of traditional CDN costs. The more people watch, the less you pay.',
+      'Powering the distributed internet. Stream, go live, run models — the crowd carries the load and the origin picks up what is left.',
     images: [
       {
         // Absolute URL — required by Twitter/X, LinkedIn, Slack, Discord,
@@ -136,15 +138,15 @@ export const metadata: Metadata = {
         url: 'https://www.torrentcdn.store/og-image.png',
         width: 1200,
         height: 630,
-        alt: 'TorrentCDN — P2P Video Delivery',
+        alt: 'TorrentCDN — peer-assisted media, live and AI',
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'TorrentCDN — P2P Video Delivery That Gets Cheaper As You Scale',
+    title: 'TorrentCDN — Powering the Distributed Internet',
     description:
-      'Deliver video cheaper as you scale. TorrentCDN uses WebTorrent P2P technology.',
+      'Your viewers are the CDN. TorrentCDN turns the crowd into delivery and inference capacity.',
     images: ['https://www.torrentcdn.store/og-image.png'],
     creator: '@torrentcdn',
   },
@@ -161,7 +163,7 @@ const jsonLd = {
   applicationCategory: 'Multimedia',
   operatingSystem: 'Web',
   description:
-    'P2P video delivery platform that uses WebTorrent to reduce CDN costs. The more people watch, the less you pay.',
+    'Powering the distributed internet: peer-assisted video and audio delivery over WebTorrent, live streaming on the same model, and an OpenAI-compatible inference API in private alpha.',
   url: 'https://www.torrentcdn.store',
   offers: {
     '@type': 'Offer',
