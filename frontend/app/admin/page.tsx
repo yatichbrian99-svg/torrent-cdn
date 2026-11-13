@@ -307,7 +307,7 @@ export default function AdminPage() {
           <div className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ backgroundColor: 'rgba(168,85,247,0.12)' }}>
             <ShieldCheck size={16} style={{ color: 'var(--purple)' }} />
           </div>
-          <h1 className="text-lg sm:text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">Admin Dashboard</h1>
+          <h1 className="text-lg sm:page-title">Admin Dashboard</h1>
           <span
             className="ml-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest rounded"
             style={{ backgroundColor: 'rgba(168,85,247,0.15)', color: 'var(--purple)' }}
@@ -623,6 +623,7 @@ export default function AdminPage() {
                             <Loader2 size={12} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
                           ) : (
                             <select
+                              aria-label={`Plan for ${user.email}`}
                               value={user.plan}
                               onChange={(e) => updatePlan(user.id, e.target.value)}
                               className="border px-2 py-1 text-[11px] text-[color:var(--text-primary)] outline-none cursor-pointer transition-colors hover:border-white/20"

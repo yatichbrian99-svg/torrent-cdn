@@ -1,0 +1,9 @@
+PASS  first visible frame is light with no flash — data-theme=light bg=rgb(254, 254, 253) resolved=1 after 135ms
+PASS  first visible frame is dark with no flash — data-theme=dark bg=rgb(0, 0, 0) resolved=1 after 128ms
+PASS  no CSP violations (light load + toggle) — none
+PASS  no CSP violations (dark load + toggle) — none
+PASS  storage blocked: follows the OS, toggle still switches — dark → light
+PASS  no choice: OS change applies live — light → dark
+PASS  after a choice, the OS is ignored and the choice is stored — chosen=light afterOSflip=light stored=light
+PASS  prefers-reduced-motion: entrance, drift and reveal disabled — {"heroAnim":"none","artAnim":"none","revealOpacity":1}
+PASS  toggle: keyboard operable, aria-pressed and label update — focus=true theme=dark false→true

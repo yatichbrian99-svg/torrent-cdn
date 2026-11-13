@@ -165,7 +165,7 @@ export default function UploadForm() {
         <div onDragOver={(e) => { e.preventDefault(); setDragOver(true) }} onDragLeave={() => setDragOver(false)} onDrop={onDrop}
           className="relative cursor-pointer border-2 border-dashed p-16 text-center transition-colors"
           style={{ borderColor: dragOver ? 'var(--text-primary)' : 'var(--border-strong)', backgroundColor: dragOver ? 'var(--bg-secondary)' : 'var(--bg-card)' }}>
-          <input type="file" accept="video/*,audio/*" onChange={handleInputChange} className="absolute inset-0 cursor-pointer opacity-0" />
+          <input type="file" accept="video/*,audio/*" aria-label="Choose a video or audio file to upload" onChange={handleInputChange} className="absolute inset-0 cursor-pointer opacity-0" />
           {selectedFile && !uploading ? (
             <div className="flex items-center justify-center gap-3">
               <File size={20} style={{ color: 'var(--text-muted)' }} />

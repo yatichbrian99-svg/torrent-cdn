@@ -73,7 +73,7 @@ export default function LiveIndexPage() {
     <div className="mx-auto max-w-5xl px-6 py-10 select-none">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="flex items-center gap-2 text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">
+          <h1 className="flex items-center gap-2 page-title">
             <Radio size={18} style={{ color: 'var(--text-muted)' }} /> Live Streaming
             <span className="border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest"
                   style={{ borderColor: 'var(--warn)', color: 'var(--warn)' }}>Beta</span>

@@ -243,6 +243,7 @@ export default function AiQuickstartPage() {
               <CopyButton value={body} />
             </div>
             <pre
+              tabIndex={0}
               className="mt-3 overflow-x-auto border p-4 font-mono text-[11px] leading-relaxed"
               style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-soft)' }}
             >

@@ -31,6 +31,7 @@ const out = {
   pages: [],
   consoleErrors: [],
   pageErrors: [],
+  failedRequests: [],
   skipped: !ADMIN_TOKEN,
 }
 const browser = await chromium.launch({ headless: true })

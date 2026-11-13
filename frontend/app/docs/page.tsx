@@ -26,7 +26,12 @@ function CodeBlock({ code }: { code: string }) {
           {copied ? 'copied' : 'copy'}
         </button>
       </div>
-      <pre className="overflow-x-auto text-sm leading-relaxed text-[color:var(--text-primary)]" style={{ fontFamily: 'monospace' }}>
+      <pre
+        className="overflow-x-auto text-sm leading-relaxed text-[color:var(--text-primary)]"
+        style={{ fontFamily: 'monospace' }}
+        tabIndex={0}
+        aria-label="Code sample"
+      >
         <code>{code}</code>
       </pre>
     </div>
@@ -86,7 +91,7 @@ function SectionTitle({ children }: { children: ReactNode }) {
 export default function DocsPage() {
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
-      <h1 className="text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">API Reference</h1>
+      <h1 className="page-title">API Reference</h1>
       <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>
         Programmatic access to upload, manage, and analyze your media.
       </p>

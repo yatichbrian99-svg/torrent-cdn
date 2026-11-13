@@ -2,40 +2,71 @@
 
 import { useEffect, useState } from 'react'
 import { Moon, Sun } from 'lucide-react'
-import { applyTheme, persistTheme, readStoredTheme, toggleTheme, type Theme } from '@/lib/theme'
+import {
+  applyTheme,
+  persistTheme,
+  readStoredTheme,
+  resolveTheme,
+  toggleTheme,
+  type Theme,
+} from '@/lib/theme'
 
 /**
- * Light/dark toggle for the navbar.
+ * Light/dark toggle.
  *
- * Renders the dark icon on the server and during the first client render
- * (theme comes from localStorage, which the server cannot read), then syncs to
- * the real persisted theme in an effect. The pre-paint script in layout.tsx
- * has already set `<html data-theme>` before this hydrates, so the PAGE never
- * flashes — only this tiny icon settles within the first effect tick.
+ * The icon is CSS-driven (both glyphs are in the DOM and `[data-theme]` picks
+ * which one is visible), so it is correct on the very first painted frame —
+ * no hydration flash, and no dependence on state that the server cannot know.
+ *
+ * The accessible name and `aria-pressed` are set in an effect because they
+ * describe the *resolved* theme, which only exists in the browser.
+ *
+ * Choosing a theme stores it, which stops the OS from overriding it
+ * (ThemeProvider listens for OS changes only while nothing is stored).
  */
 export default function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>('dark')
+  const [theme, setTheme] = useState<Theme>('light')
 
   useEffect(() => {
-    setTheme(readStoredTheme(window.localStorage))
+    const stored = readStoredTheme(window.localStorage)
+    const prefersDark =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches
+    setTheme(resolveTheme(window.localStorage, prefersDark) ?? stored ?? 'light')
   }, [])
 
   const switchTheme = () => {
-    const next = toggleTheme(theme)
-    setTheme(next)
+    const root = document.documentElement
+    // Read the live attribute rather than React state: the provider may have
+    // just flipped it (OS change) and state lags a tick behind.
+    const live = (root.getAttribute('data-theme') as Theme | null) ?? theme
+    const next = toggleTheme(live)
+
+    // Ease the colour change, unless the visitor asked for reduced motion.
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (!reduce) {
+      root.classList.add('theme-changing')
+      window.setTimeout(() => root.classList.remove('theme-changing'), 260)
+    }
+
     applyTheme(next)
     persistTheme(next, window.localStorage)
+    setTheme(next)
   }
+
+  const label = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'
 
   return (
     <button
+      type="button"
       onClick={switchTheme}
-      className="p-1 transition-opacity hover:opacity-80"
-      style={{ color: 'var(--text-muted)' }}
-      aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+      className="theme-toggle"
+      aria-label={label}
+      aria-pressed={theme === 'dark'}
       title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
     >
-      {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+      <Sun className="theme-toggle-sun" size={16} aria-hidden="true" />
+      <Moon className="theme-toggle-moon" size={16} aria-hidden="true" />
     </button>
   )
 }

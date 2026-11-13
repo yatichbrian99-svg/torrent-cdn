@@ -1,43 +1,86 @@
 /**
  * Theme preference handling — light/dark mode.
  *
- * Pure logic lives here so the coverage gate (vitest counts every file under
- * lib/) keeps applying. The DOM effects (setting data-theme, persisting to
- * localStorage) are split out so tests can verify the decision logic without
- * a real document, and the pre-paint script in layout.tsx can inline its own
- * copy (it must run before first paint, so it cannot import modules).
+ * Contract (redesign, 2026-11):
+ *   1. No stored choice  → follow the OS (`prefers-color-scheme`), live.
+ *   2. A stored choice   → that theme, and stop following the OS.
+ *   3. Storage blocked   → behave exactly like "no stored choice"; the toggle
+ *                          still switches for the session, it just cannot be
+ *                          remembered.
  *
- * Storage key is shared with the inline pre-paint script — keep in sync:
- *   STORable key = 'tcdn_theme', values 'light' | 'dark' (anything else → dark).
+ * Pure logic lives here so the coverage gate (vitest counts every file under
+ * lib/) keeps applying, and so the pre-paint script in layout.tsx — which
+ * cannot import modules because it must run before first paint — has a single
+ * source of truth to mirror. That mirror is asserted by
+ * lib/__tests__/theme-parity.test.ts; change one without the other and CI
+ * fails.
+ *
+ * Storage key is shared with the inline pre-paint script:
+ *   key `tcdn_theme`, values 'light' | 'dark' — and NO KEY AT ALL means
+ *   "no choice yet". (The old build stored a theme on first paint, which is
+ *   why the toggle could never follow the OS.)
  */
 
 export const THEME_KEY = 'tcdn_theme'
 
 export type Theme = 'light' | 'dark'
 
-/** Read the persisted theme from a localStorage-like store. Defaults dark. */
-export function readStoredTheme(store: Pick<Storage, 'getItem'> | null | undefined): Theme {
+/** A stored value, or null when the visitor has not chosen. */
+export function readStoredTheme(
+  store: Pick<Storage, 'getItem'> | null | undefined,
+): Theme | null {
   try {
-    return store?.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'
+    const value = store?.getItem(THEME_KEY)
+    return value === 'light' || value === 'dark' ? value : null
   } catch {
-    // Privacy mode / blocked storage — fall back to the dark default.
-    return 'dark'
+    // Privacy mode / blocked storage — treat as "no choice".
+    return null
   }
 }
 
-/** Apply the theme to the document root (`<html data-theme="...">`). */
-export function applyTheme(theme: Theme): void {
-  if (typeof document !== 'undefined') {
-    document.documentElement.setAttribute('data-theme', theme)
-  }
+/** The OS preference as a theme (`prefers-color-scheme: dark` → dark). */
+export function systemTheme(prefersDark: boolean): Theme {
+  return prefersDark ? 'dark' : 'light'
 }
 
-/** Persist the choice (never throws — storage can be unavailable). */
-export function persistTheme(theme: Theme, store: Storage | null | undefined): void {
+/**
+ * Resolve the theme to paint: explicit choice first, then the OS, then light
+ * (the light theme is the paper base; it needs no extra contrast work).
+ */
+export function resolveTheme(
+  store: Pick<Storage, 'getItem'> | null | undefined,
+  prefersDark: boolean,
+): Theme {
+  return readStoredTheme(store) ?? systemTheme(prefersDark)
+}
+
+/** Apply the theme to the document root and keep `color-scheme` in sync. */
+export function applyTheme(theme: Theme, doc: Document | null | undefined = typeof document !== 'undefined' ? document : null): void {
+  if (!doc) return
+  const root = doc.documentElement
+  root.setAttribute('data-theme', theme)
+  // Native widgets (scrollbars, form controls, the URL bar on mobile) follow
+  // color-scheme; the <meta name="theme-color"> is updated separately because
+  // it is per-document metadata, not a style.
+  root.style.colorScheme = theme
+  const meta = doc.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+  if (meta) meta.content = theme === 'dark' ? '#000000' : '#FEFEFD'
+}
+
+/**
+ * Persist a choice (never throws — storage can be unavailable). Passing null
+ * clears the choice, which hands control back to the OS.
+ */
+export function persistTheme(
+  theme: Theme | null,
+  store: Storage | null | undefined,
+): void {
   try {
-    store?.setItem(THEME_KEY, theme)
+    if (!store) return
+    if (theme === null) store.removeItem(THEME_KEY)
+    else store.setItem(THEME_KEY, theme)
   } catch {
-    // Ignore — the toggle still works, the choice just won't survive reload.
+    // Ignore — the toggle still works, the choice just won't survive a reload.
   }
 }
 

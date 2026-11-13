@@ -65,7 +65,7 @@ export default function AiModelsPage() {
             body="This deployment has the AI flag on but no model is serveable. The catalogue fills in once an operator allowlists a model."
           />
         ) : (
-          <div className="w-full max-w-full overflow-x-auto">
+          <div className="w-full max-w-full overflow-x-auto" role="region" aria-label="Available models" tabIndex={0}>
             <table className="w-full min-w-[720px] border-collapse text-sm">
               <caption className="sr-only">Available models with prices and hardware tiers</caption>
               <thead>

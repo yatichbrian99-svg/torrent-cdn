@@ -22,8 +22,8 @@ interface HealthPayload {
 type Status = 'pass' | 'warn' | 'ok' | 'absent' | 'error' | 'unknown'
 
 const statusColor: Record<Status, { text: string; bg: string; border: string }> = {
-  pass: { text: 'var(--ok)', bg: 'rgba(74,222,128,0.08)', border: 'rgba(74,222,128,0.25)' },
-  ok: { text: 'var(--ok)', bg: 'rgba(74,222,128,0.08)', border: 'rgba(74,222,128,0.25)' },
+  pass: { text: 'var(--ok-chip-text)', bg: 'var(--ok-chip-bg)', border: 'var(--ok-chip-border)' },
+  ok: { text: 'var(--ok-chip-text)', bg: 'var(--ok-chip-bg)', border: 'var(--ok-chip-border)' },
   warn: { text: 'var(--warn)', bg: 'rgba(251,191,36,0.08)', border: 'rgba(251,191,36,0.25)' },
   absent: { text: 'var(--text-faint)', bg: 'rgba(148,163,184,0.08)', border: 'rgba(148,163,184,0.25)' },
   error: { text: 'var(--err-bright)', bg: 'rgba(255,107,107,0.08)', border: 'rgba(255,107,107,0.25)' },
@@ -161,13 +161,13 @@ export default function AdminHealthPage() {
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-1">
-          <button onClick={() => router.push('/admin')} className="p-1.5 border transition-colors hover:border-white/20" style={{ borderColor: 'var(--border)' }}>
+          <button onClick={() => router.push('/admin')} aria-label="Back to admin" className="p-1.5 border transition-colors hover:border-white/20" style={{ borderColor: 'var(--border)' }}>
             <ArrowLeft size={14} style={{ color: 'var(--text-muted)' }} />
           </button>
           <div className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ backgroundColor: 'rgba(74,222,128,0.1)' }}>
             <Activity size={16} style={{ color: 'var(--ok)' }} />
           </div>
-          <h1 className="text-lg sm:text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">Security & Health</h1>
+          <h1 className="text-lg sm:page-title">Security & Health</h1>
           <span className="ml-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest rounded"
             style={{ backgroundColor: 'rgba(74,222,128,0.12)', color: 'var(--ok)' }}>
             {warnCount === 0 ? 'All systems nominal' : `${warnCount} attention${warnCount === 1 ? '' : 's'}`}

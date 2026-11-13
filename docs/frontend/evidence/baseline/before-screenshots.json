@@ -1,0 +1,486 @@
+{
+  "base": "http://localhost:3100",
+  "capturedAt": "2026-11-12T17:36:22.772Z",
+  "shots": [
+    {
+      "route": "/",
+      "theme": "light",
+      "width": 375,
+      "file": "../docs/frontend/evidence/baseline/before-landing-light-375.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 5185,
+      "ok": true
+    },
+    {
+      "route": "/docs",
+      "theme": "light",
+      "width": 375,
+      "file": "../docs/frontend/evidence/baseline/before-docs-light-375.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 10824,
+      "ok": true
+    },
+    {
+      "route": "/architecture",
+      "theme": "light",
+      "width": 375,
+      "file": "../docs/frontend/evidence/baseline/before-architecture-light-375.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 6965,
+      "ok": true
+    },
+    {
+      "route": "/demo",
+      "theme": "light",
+      "width": 375,
+      "file": "../docs/frontend/evidence/baseline/before-demo-light-375.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 3129,
+      "ok": true
+    },
+    {
+      "route": "/tcdn-ai",
+      "theme": "light",
+      "width": 375,
+      "file": "../docs/frontend/evidence/baseline/before-tcdn-ai-light-375.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 7043,
+      "ok": true
+    },
+    {
+      "route": "/terms",
+      "theme": "light",
+      "width": 375,
+      "file": "../docs/frontend/evidence/baseline/before-terms-light-375.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 6046,
+      "ok": true
+    },
+    {
+      "route": "/auth/forgot-password",
+      "theme": "light",
+      "width": 375,
+      "file": "../docs/frontend/evidence/baseline/before-auth_forgot-password-light-375.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 900,
+      "ok": true
+    },
+    {
+      "route": "/embed/demo",
+      "theme": "light",
+      "width": 375,
+      "file": "../docs/frontend/evidence/baseline/before-embed_demo-light-375.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 948,
+      "ok": true
+    },
+    {
+      "route": "/",
+      "theme": "light",
+      "width": 768,
+      "file": "../docs/frontend/evidence/baseline/before-landing-light-768.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 3792,
+      "ok": true
+    },
+    {
+      "route": "/docs",
+      "theme": "light",
+      "width": 768,
+      "file": "../docs/frontend/evidence/baseline/before-docs-light-768.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 9071,
+      "ok": true
+    },
+    {
+      "route": "/architecture",
+      "theme": "light",
+      "width": 768,
+      "file": "../docs/frontend/evidence/baseline/before-architecture-light-768.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 4430,
+      "ok": true
+    },
+    {
+      "route": "/demo",
+      "theme": "light",
+      "width": 768,
+      "file": "../docs/frontend/evidence/baseline/before-demo-light-768.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 2869,
+      "ok": true
+    },
+    {
+      "route": "/tcdn-ai",
+      "theme": "light",
+      "width": 768,
+      "file": "../docs/frontend/evidence/baseline/before-tcdn-ai-light-768.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 5285,
+      "ok": true
+    },
+    {
+      "route": "/terms",
+      "theme": "light",
+      "width": 768,
+      "file": "../docs/frontend/evidence/baseline/before-terms-light-768.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 3713,
+      "ok": true
+    },
+    {
+      "route": "/auth/forgot-password",
+      "theme": "light",
+      "width": 768,
+      "file": "../docs/frontend/evidence/baseline/before-auth_forgot-password-light-768.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 900,
+      "ok": true
+    },
+    {
+      "route": "/embed/demo",
+      "theme": "light",
+      "width": 768,
+      "file": "../docs/frontend/evidence/baseline/before-embed_demo-light-768.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 948,
+      "ok": true
+    },
+    {
+      "route": "/",
+      "theme": "light",
+      "width": 1280,
+      "file": "../docs/frontend/evidence/baseline/before-landing-light-1280.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 3639,
+      "ok": true
+    },
+    {
+      "route": "/docs",
+      "theme": "light",
+      "width": 1280,
+      "file": "../docs/frontend/evidence/baseline/before-docs-light-1280.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 9071,
+      "ok": true
+    },
+    {
+      "route": "/architecture",
+      "theme": "light",
+      "width": 1280,
+      "file": "../docs/frontend/evidence/baseline/before-architecture-light-1280.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 4430,
+      "ok": true
+    },
+    {
+      "route": "/demo",
+      "theme": "light",
+      "width": 1280,
+      "file": "../docs/frontend/evidence/baseline/before-demo-light-1280.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 2531,
+      "ok": true
+    },
+    {
+      "route": "/tcdn-ai",
+      "theme": "light",
+      "width": 1280,
+      "file": "../docs/frontend/evidence/baseline/before-tcdn-ai-light-1280.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 5155,
+      "ok": true
+    },
+    {
+      "route": "/terms",
+      "theme": "light",
+      "width": 1280,
+      "file": "../docs/frontend/evidence/baseline/before-terms-light-1280.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 3713,
+      "ok": true
+    },
+    {
+      "route": "/auth/forgot-password",
+      "theme": "light",
+      "width": 1280,
+      "file": "../docs/frontend/evidence/baseline/before-auth_forgot-password-light-1280.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 900,
+      "ok": true
+    },
+    {
+      "route": "/embed/demo",
+      "theme": "light",
+      "width": 1280,
+      "file": "../docs/frontend/evidence/baseline/before-embed_demo-light-1280.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 948,
+      "ok": true
+    },
+    {
+      "route": "/",
+      "theme": "dark",
+      "width": 375,
+      "file": "../docs/frontend/evidence/baseline/before-landing-dark-375.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 5185,
+      "ok": true
+    },
+    {
+      "route": "/docs",
+      "theme": "dark",
+      "width": 375,
+      "file": "../docs/frontend/evidence/baseline/before-docs-dark-375.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 10824,
+      "ok": true
+    },
+    {
+      "route": "/architecture",
+      "theme": "dark",
+      "width": 375,
+      "file": "../docs/frontend/evidence/baseline/before-architecture-dark-375.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 6965,
+      "ok": true
+    },
+    {
+      "route": "/demo",
+      "theme": "dark",
+      "width": 375,
+      "file": "../docs/frontend/evidence/baseline/before-demo-dark-375.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 3129,
+      "ok": true
+    },
+    {
+      "route": "/tcdn-ai",
+      "theme": "dark",
+      "width": 375,
+      "file": "../docs/frontend/evidence/baseline/before-tcdn-ai-dark-375.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 7043,
+      "ok": true
+    },
+    {
+      "route": "/terms",
+      "theme": "dark",
+      "width": 375,
+      "file": "../docs/frontend/evidence/baseline/before-terms-dark-375.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 6046,
+      "ok": true
+    },
+    {
+      "route": "/auth/forgot-password",
+      "theme": "dark",
+      "width": 375,
+      "file": "../docs/frontend/evidence/baseline/before-auth_forgot-password-dark-375.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 900,
+      "ok": true
+    },
+    {
+      "route": "/embed/demo",
+      "theme": "dark",
+      "width": 375,
+      "file": "../docs/frontend/evidence/baseline/before-embed_demo-dark-375.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 948,
+      "ok": true
+    },
+    {
+      "route": "/",
+      "theme": "dark",
+      "width": 768,
+      "file": "../docs/frontend/evidence/baseline/before-landing-dark-768.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 3792,
+      "ok": true
+    },
+    {
+      "route": "/docs",
+      "theme": "dark",
+      "width": 768,
+      "file": "../docs/frontend/evidence/baseline/before-docs-dark-768.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 9071,
+      "ok": true
+    },
+    {
+      "route": "/architecture",
+      "theme": "dark",
+      "width": 768,
+      "file": "../docs/frontend/evidence/baseline/before-architecture-dark-768.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 4430,
+      "ok": true
+    },
+    {
+      "route": "/demo",
+      "theme": "dark",
+      "width": 768,
+      "file": "../docs/frontend/evidence/baseline/before-demo-dark-768.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 2869,
+      "ok": true
+    },
+    {
+      "route": "/tcdn-ai",
+      "theme": "dark",
+      "width": 768,
+      "file": "../docs/frontend/evidence/baseline/before-tcdn-ai-dark-768.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 5285,
+      "ok": true
+    },
+    {
+      "route": "/terms",
+      "theme": "dark",
+      "width": 768,
+      "file": "../docs/frontend/evidence/baseline/before-terms-dark-768.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 3713,
+      "ok": true
+    },
+    {
+      "route": "/auth/forgot-password",
+      "theme": "dark",
+      "width": 768,
+      "file": "../docs/frontend/evidence/baseline/before-auth_forgot-password-dark-768.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 900,
+      "ok": true
+    },
+    {
+      "route": "/embed/demo",
+      "theme": "dark",
+      "width": 768,
+      "file": "../docs/frontend/evidence/baseline/before-embed_demo-dark-768.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 948,
+      "ok": true
+    },
+    {
+      "route": "/",
+      "theme": "dark",
+      "width": 1280,
+      "file": "../docs/frontend/evidence/baseline/before-landing-dark-1280.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 3639,
+      "ok": true
+    },
+    {
+      "route": "/docs",
+      "theme": "dark",
+      "width": 1280,
+      "file": "../docs/frontend/evidence/baseline/before-docs-dark-1280.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 9071,
+      "ok": true
+    },
+    {
+      "route": "/architecture",
+      "theme": "dark",
+      "width": 1280,
+      "file": "../docs/frontend/evidence/baseline/before-architecture-dark-1280.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 4430,
+      "ok": true
+    },
+    {
+      "route": "/demo",
+      "theme": "dark",
+      "width": 1280,
+      "file": "../docs/frontend/evidence/baseline/before-demo-dark-1280.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 2531,
+      "ok": true
+    },
+    {
+      "route": "/tcdn-ai",
+      "theme": "dark",
+      "width": 1280,
+      "file": "../docs/frontend/evidence/baseline/before-tcdn-ai-dark-1280.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 5155,
+      "ok": true
+    },
+    {
+      "route": "/terms",
+      "theme": "dark",
+      "width": 1280,
+      "file": "../docs/frontend/evidence/baseline/before-terms-dark-1280.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 3713,
+      "ok": true
+    },
+    {
+      "route": "/auth/forgot-password",
+      "theme": "dark",
+      "width": 1280,
+      "file": "../docs/frontend/evidence/baseline/before-auth_forgot-password-dark-1280.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 900,
+      "ok": true
+    },
+    {
+      "route": "/embed/demo",
+      "theme": "dark",
+      "width": 1280,
+      "file": "../docs/frontend/evidence/baseline/before-embed_demo-dark-1280.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 948,
+      "ok": true
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Check, Loader2 } from 'lucide-react'
 import api from '@/lib/api'
 import { isSafeHttpsUrl } from '@/lib/security'
 
@@ -43,41 +43,47 @@ export default function PricingTable({ currentPlan }: { currentPlan?: string }) 
   return (
     <div>
       {error && (
-        <p className="mb-4 text-center text-sm" style={{ color: 'var(--err-bright)' }}>{error}</p>
+        <p className="mb-4 text-center text-sm" style={{ color: 'var(--err-bright)' }} role="alert">{error}</p>
       )}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="pricing-grid">
         {TIERS.map((tier) => {
           const isCurrent = currentPlan === tier.plan
           return (
-            <div key={tier.plan} className="relative border p-6" style={{ borderColor: tier.popular ? 'var(--text-primary)' : 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
-              {tier.popular && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 border px-3 py-0.5 text-[10px] font-bold uppercase tracking-widest" style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)', fontFamily: 'monospace' }}>
-                  Most popular
-                </div>
-              )}
-              <h3 className="text-sm font-bold uppercase tracking-wide text-[color:var(--text-primary)]">{tier.name}</h3>
-              <div className="my-4">
-                <span className="text-3xl font-bold text-[color:var(--text-primary)]">{tier.price}</span>
-                <span className="text-sm" style={{ color: 'var(--text-muted)' }}>{tier.period}</span>
+            <div
+              key={tier.plan}
+              className={`price-card${tier.popular ? ' price-card-popular' : ''}`}
+            >
+              {tier.popular && <span className="price-badge">Most popular</span>}
+              <h3 className="price-name">{tier.name}</h3>
+              <div className="price-row">
+                <span className="price-amount">{tier.price}</span>
+                <span className="price-period">{tier.period}</span>
               </div>
-              <p className="mb-4 text-sm" style={{ color: 'var(--text-muted)' }}>{tier.limit}</p>
-              <ul className="mb-6 space-y-2">
+              <p className="price-limit">{tier.limit}</p>
+              <ul className="price-features">
                 {tier.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-sm" style={{ color: 'var(--text-muted)' }}><span className="text-[color:var(--text-primary)]">&ndash;</span> {f}</li>
+                  <li key={f} className="price-feature">
+                    <Check size={14} className="price-check" aria-hidden="true" />
+                    <span>{f}</span>
+                  </li>
                 ))}
               </ul>
-              <button
-                onClick={() => handleClick(tier.plan)}
-                disabled={isCurrent || loading === tier.plan}
-                className="w-full border py-2 text-sm font-medium transition-opacity hover:opacity-80 disabled:opacity-40"
-                style={{
-                  borderColor: isCurrent ? 'var(--border-strong)' : 'var(--text-primary)',
-                  backgroundColor: isCurrent ? 'transparent' : tier.popular ? 'var(--inverse-bg)' : 'transparent',
-                  color: isCurrent ? 'var(--text-muted)' : tier.popular ? 'var(--bg-primary)' : 'var(--text-primary)',
-                }}
-              >
-                {loading === tier.plan ? <Loader2 size={14} className="mx-auto animate-spin" /> : isCurrent ? 'Current plan' : 'Get started'}
-              </button>
+              <div className="price-action">
+                <button
+                  onClick={() => handleClick(tier.plan)}
+                  disabled={isCurrent || loading === tier.plan}
+                  className={`btn w-full ${tier.popular ? 'btn-primary' : 'btn-secondary'}`}
+                  style={isCurrent ? { borderColor: 'var(--border-strong)', color: 'var(--muted)', background: 'transparent' } : undefined}
+                >
+                  {loading === tier.plan ? (
+                    <Loader2 size={14} className="animate-spin" aria-label="Loading" />
+                  ) : isCurrent ? (
+                    'Current plan'
+                  ) : (
+                    'Get started'
+                  )}
+                </button>
+              </div>
             </div>
           )
         })}

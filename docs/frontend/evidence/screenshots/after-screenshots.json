@@ -1,0 +1,66 @@
+{
+  "base": "http://localhost:3000",
+  "capturedAt": "2026-11-13T04:37:08.719Z",
+  "shots": [
+    {
+      "route": "/embed/demo",
+      "theme": "light",
+      "width": 375,
+      "file": "../docs/frontend/evidence/screenshots/after-embed_demo-light-375.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 948,
+      "ok": true
+    },
+    {
+      "route": "/embed/demo",
+      "theme": "light",
+      "width": 768,
+      "file": "../docs/frontend/evidence/screenshots/after-embed_demo-light-768.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 948,
+      "ok": true
+    },
+    {
+      "route": "/embed/demo",
+      "theme": "light",
+      "width": 1280,
+      "file": "../docs/frontend/evidence/screenshots/after-embed_demo-light-1280.png",
+      "overflowX": 0,
+      "themeApplied": "light",
+      "height": 948,
+      "ok": true
+    },
+    {
+      "route": "/embed/demo",
+      "theme": "dark",
+      "width": 375,
+      "file": "../docs/frontend/evidence/screenshots/after-embed_demo-dark-375.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 948,
+      "ok": true
+    },
+    {
+      "route": "/embed/demo",
+      "theme": "dark",
+      "width": 768,
+      "file": "../docs/frontend/evidence/screenshots/after-embed_demo-dark-768.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 948,
+      "ok": true
+    },
+    {
+      "route": "/embed/demo",
+      "theme": "dark",
+      "width": 1280,
+      "file": "../docs/frontend/evidence/screenshots/after-embed_demo-dark-1280.png",
+      "overflowX": 0,
+      "themeApplied": "dark",
+      "height": 948,
+      "ok": true
+    }
+  ]
+}

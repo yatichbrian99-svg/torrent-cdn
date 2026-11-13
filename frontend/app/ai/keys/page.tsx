@@ -213,7 +213,7 @@ export default function AiKeysPage() {
             body="Create one above, then paste it into a Quickstart snippet. Keys are shown once."
           />
         ) : (
-          <div className="w-full max-w-full overflow-x-auto">
+          <div className="w-full max-w-full overflow-x-auto" role="region" aria-label="API keys" tabIndex={0}>
             <table className="w-full border-collapse text-sm">
               <caption className="sr-only">API keys on your account</caption>
               <thead>

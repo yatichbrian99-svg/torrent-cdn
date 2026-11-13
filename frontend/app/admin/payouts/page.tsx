@@ -363,7 +363,7 @@ export default function AdminPayoutsPage() {
           <div className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ backgroundColor: 'rgba(251,191,36,0.12)' }}>
             <Wallet size={16} style={{ color: 'var(--warn)' }} />
           </div>
-          <h1 className="text-lg sm:text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">Payouts</h1>
+          <h1 className="text-lg sm:page-title">Payouts</h1>
           <span className="ml-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest rounded" style={{ backgroundColor: 'rgba(251,191,36,0.15)', color: 'var(--warn)' }}>
             M-PESA
           </span>
@@ -427,6 +427,7 @@ export default function AdminPayoutsPage() {
               <div className="relative">
                 <Users size={12} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-faint)' }} />
                 <select
+                  aria-label="Recipient (M-PESA)"
                   value={selRecipient}
                   onChange={(e) => setSelRecipient(e.target.value)}
                   className="w-full border px-8 py-2 text-xs outline-none transition-colors focus:border-white/20 appearance-none"
@@ -539,7 +540,7 @@ export default function AdminPayoutsPage() {
             <button
               onClick={createRecipient}
               disabled={creatingRcp}
-              className="w-full px-4 py-2.5 text-xs font-semibold text-[color:var(--text-primary)] transition-opacity hover:opacity-80 disabled:opacity-50"
+              className="w-full px-4 py-2.5 text-xs font-semibold text-[color:var(--inverse-fg)] transition-opacity hover:opacity-80 disabled:opacity-50"
               style={{ backgroundColor: 'var(--purple)' }}
             >
               {creatingRcp ? (

@@ -493,6 +493,7 @@ export default function DemoPage() {
                   <span className="flex items-center gap-1 text-[color:var(--text-primary)]">
                     <input
                       type="number"
+                      aria-label="Viewers"
                       value={draftOrValue(scenarioViewersDraft, scenarioViewers)}
                       min={SCENARIO_VIEWERS_RANGE.min}
                       max={SCENARIO_VIEWERS_RANGE.max}
@@ -506,6 +507,7 @@ export default function DemoPage() {
                 </div>
                 <input
                   type="range"
+                  aria-label="Viewers"
                   min={SCENARIO_VIEWERS_RANGE.min}
                   max={SCENARIO_VIEWERS_RANGE.max}
                   step={SCENARIO_VIEWERS_RANGE.step}
@@ -525,6 +527,7 @@ export default function DemoPage() {
                   <span className="flex items-center gap-1 text-[color:var(--text-primary)]">
                     <input
                       type="number"
+                      aria-label="Video size in megabytes"
                       value={draftOrValue(scenarioVideoMbDraft, scenarioVideoMb)}
                       min={SCENARIO_VIDEO_MB_RANGE.min}
                       max={SCENARIO_VIDEO_MB_RANGE.max}
@@ -539,6 +542,7 @@ export default function DemoPage() {
                 </div>
                 <input
                   type="range"
+                  aria-label="Video size in megabytes"
                   min={SCENARIO_VIDEO_MB_RANGE.min}
                   max={SCENARIO_VIDEO_MB_RANGE.max}
                   step={SCENARIO_VIDEO_MB_RANGE.step}
@@ -558,6 +562,7 @@ export default function DemoPage() {
                   <span className="flex items-center gap-1 text-[color:var(--text-primary)]">
                     <input
                       type="number"
+                      aria-label="Average watch percentage"
                       value={draftOrValue(scenarioWatchPctDraft, scenarioWatchPct)}
                       min={SCENARIO_WATCH_RANGE.min}
                       max={SCENARIO_WATCH_RANGE.max}
@@ -572,6 +577,7 @@ export default function DemoPage() {
                 </div>
                 <input
                   type="range"
+                  aria-label="Average watch percentage"
                   min={SCENARIO_WATCH_RANGE.min}
                   max={SCENARIO_WATCH_RANGE.max}
                   step={SCENARIO_WATCH_RANGE.step}
@@ -591,6 +597,7 @@ export default function DemoPage() {
                   <span className="flex items-center gap-1 text-[color:var(--text-primary)]">
                     <input
                       type="number"
+                      aria-label="P2P offload percentage"
                       value={draftOrValue(scenarioP2pDraft, scenarioP2pPct)}
                       min={SCENARIO_P2P_RANGE.min}
                       max={SCENARIO_P2P_RANGE.max}
@@ -618,6 +625,7 @@ export default function DemoPage() {
                 </div>
                 <input
                   type="range"
+                  aria-label="P2P offload percentage"
                   min={SCENARIO_P2P_RANGE.min}
                   max={SCENARIO_P2P_RANGE.max}
                   step={SCENARIO_P2P_RANGE.step}
@@ -665,7 +673,7 @@ export default function DemoPage() {
                   >
                     <span
                       className="bandwidth-label truncate px-1 font-mono text-[9px]"
-                      style={{ color: 'var(--err-soft)', opacity: scenarioGbOrigin / scenarioGbDelivered >= 0.12 ? 1 : 0 }}
+                      style={{ color: '#ffffff', opacity: scenarioGbOrigin / scenarioGbDelivered >= 0.12 ? 1 : 0 }}
                     >
                       {scenarioGbOrigin.toFixed(0)} GB origin
                     </span>
@@ -680,7 +688,7 @@ export default function DemoPage() {
                   >
                     <span
                       className="bandwidth-label truncate px-1 font-mono text-[9px]"
-                      style={{ color: 'var(--ok-chip-text)', opacity: scenarioGbSaved / scenarioGbDelivered >= 0.12 ? 1 : 0 }}
+                      style={{ color: '#ffffff', opacity: scenarioGbSaved / scenarioGbDelivered >= 0.12 ? 1 : 0 }}
                     >
                       {scenarioGbSaved.toFixed(0)} GB P2P
                     </span>
@@ -744,7 +752,7 @@ export default function DemoPage() {
 
       {/* CTA */}
       <section className="border p-10 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
-        <h2 className="text-xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">Want this for your platform?</h2>
+        <h2 className="page-title">Want this for your platform?</h2>
         <p className="mx-auto mt-2 max-w-md text-sm" style={{ color: 'var(--text-muted)' }}>
           Upload a video, paste one line of code, and your viewers start sharing bandwidth immediately.
         </p>

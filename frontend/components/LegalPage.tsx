@@ -39,9 +39,9 @@ export default function LegalPage({
 }) {
   return (
     <div className="mx-auto max-w-3xl px-6 py-16">
-      <h1 className="text-2xl font-bold tracking-[-0.02em] text-[color:var(--text-primary)]">{title}</h1>
-      <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>Last updated: {updated}</p>
-      <div className="mt-10 space-y-8 text-sm leading-relaxed" style={{ color: 'var(--text-soft)' }}>
+      <h1 className="page-title">{title}</h1>
+      <p className="mt-3 text-sm" style={{ color: 'var(--text-muted)' }}>Last updated: {updated}</p>
+      <div className="mt-12 space-y-9 text-sm leading-relaxed" style={{ color: 'var(--text-soft)' }}>
         {children}
       </div>
     </div>

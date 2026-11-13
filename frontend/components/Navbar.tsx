@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Bell } from 'lucide-react'
+import { Bell, Menu, X } from 'lucide-react'
 import { isLoggedIn, removeToken } from '@/lib/auth'
 import { aiFeatureEnabled } from '@/lib/aiConsole'
 import api from '@/lib/api'
@@ -25,7 +25,10 @@ export default function Navbar() {
   const [aiEnabled, setAiEnabled] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [showNotifs, setShowNotifs] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const notifRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const burgerRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     setLoggedIn(isLoggedIn())
@@ -78,6 +81,49 @@ export default function Navbar() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  // Mobile menu: scroll lock while open, Escape closes, Tab is trapped inside
+  // the panel, and focus returns to the trigger on close.
+  useEffect(() => {
+    if (!menuOpen) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setMenuOpen(false)
+        burgerRef.current?.focus()
+        return
+      }
+      if (event.key !== 'Tab' || !menuRef.current) return
+      const focusables = menuRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusables.length === 0) return
+      const first = focusables[0]
+      const last = focusables[focusables.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown)
+    // Move focus into the panel for keyboard users.
+    const timer = window.setTimeout(() => {
+      menuRef.current?.querySelector<HTMLElement>('a[href], button')?.focus()
+    }, 20)
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', onKeyDown)
+      window.clearTimeout(timer)
+    }
+  }, [menuOpen])
+
   const unreadCount = notifications.filter((n) => !n.read).length
 
   const handleLogout = () => {
@@ -96,60 +142,93 @@ export default function Navbar() {
     }
   }
 
+  const closeMenu = useCallback(() => setMenuOpen(false), [])
+
+  const openAuth = () => {
+    setMenuOpen(false)
+    setShowAuth(true)
+  }
+
+  const primaryLinks = [
+    { href: '/docs', label: 'Docs' },
+    { href: '/architecture', label: 'Architecture' },
+    { href: '/demo', label: 'Demo' },
+    { href: '/tcdn-ai', label: 'TCDN-AI', desktopOnly: true },
+  ]
+
+  const accountLinks = loggedIn
+    ? [
+        { href: '/dashboard', label: 'Dashboard' },
+        { href: '/live', label: 'Live' },
+        { href: '/billing', label: 'Billing' },
+        ...(aiEnabled ? [{ href: '/ai', label: 'AI' }] : []),
+        ...(user?.is_admin ? [{ href: '/admin', label: 'Admin' }] : []),
+      ]
+    : []
+
   return (
     <>
-      <nav className="fixed top-0 z-50 flex h-12 w-full items-center border-b" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-primary)' }}>
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4">
-          <a href="/" className="font-mono text-sm font-medium text-[color:var(--text-primary)]">TorrentCDN</a>
+      <header className="nav-shell">
+        <nav className="nav-inner" aria-label="Main">
+          <a href="/" className="nav-logo" aria-label="TorrentCDN home">
+            <span className="nav-logo-mark" aria-hidden="true" />
+            TorrentCDN
+          </a>
 
-          <div className="flex items-center gap-4">
+          <div className="nav-links">
+            {primaryLinks.map((link) => (
+              <a
+                key={link.href}
+                href={link.href}
+                className={`nav-link${link.desktopOnly ? ' nav-link-desktop' : ''}`}
+              >
+                {link.label}
+              </a>
+            ))}
+            {accountLinks.map((link) => (
+              <a key={link.href} href={link.href} className="nav-link">
+                {link.label}
+              </a>
+            ))}
+          </div>
+
+          <div className="nav-actions">
             <ThemeToggle />
-            <a href="/docs" className="text-sm transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-muted)' }}>Docs</a>
-            <a href="/architecture" className="text-sm transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-muted)' }}>Architecture</a>
-            <a href="/demo" className="text-sm transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-muted)' }}>Demo</a>
-            {/* Public page, not the console: it renders with the flag on or off,
-                so the link is not gated like the AI link below. Hidden below sm
-                only because the nav already overflows a 375px viewport; the
-                footer link covers phones. */}
-            <a href="/tcdn-ai" className="hidden text-sm transition-colors hover:text-[color:var(--text-primary)] sm:inline" style={{ color: 'var(--text-muted)' }}>TCDN-AI</a>
-            {loggedIn && (
+            {loggedIn ? (
               <>
-                <a href="/dashboard" className="text-sm" style={{ color: 'var(--text-muted)' }}>Dashboard</a>
-                <a href="/live" className="text-sm" style={{ color: 'var(--text-muted)' }}>Live</a>
-                <a href="/billing" className="text-sm" style={{ color: 'var(--text-muted)' }}>Billing</a>
-                {aiEnabled && (
-                  <a href="/ai" className="text-sm" style={{ color: 'var(--text-muted)' }}>AI</a>
-                )}
-                {user?.is_admin && (
-                  <a href="/admin" className="text-sm" style={{ color: 'var(--text-muted)' }}>Admin</a>
-                )}
                 <div className="relative" ref={notifRef}>
-                  <button onClick={() => setShowNotifs((s) => !s)} className="relative p-1 transition-opacity hover:opacity-80" aria-label="Notifications">
-                    <Bell size={16} style={{ color: 'var(--text-muted)' }} />
-                    {unreadCount > 0 && (
-                      <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full" style={{ backgroundColor: 'var(--err)' }} />
-                    )}
+                  <button
+                    onClick={() => setShowNotifs((s) => !s)}
+                    className="nav-icon-btn"
+                    aria-label="Notifications"
+                    aria-expanded={showNotifs}
+                  >
+                    <Bell size={16} aria-hidden="true" />
+                    {unreadCount > 0 && <span className="nav-dot" aria-hidden="true" />}
                   </button>
                   {showNotifs && (
-                    <div className="absolute right-0 top-8 z-50 max-h-96 w-80 overflow-y-auto border" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
-                      <div className="border-b px-4 py-2" style={{ borderColor: 'var(--border)' }}>
-                        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>Notifications</p>
+                    <div className="nav-notifs">
+                      <div className="nav-notifs-head">
+                        <p className="label">Notifications</p>
                       </div>
                       {notifications.length === 0 ? (
-                        <p className="px-4 py-6 text-center text-xs" style={{ color: 'var(--text-muted)' }}>No notifications</p>
+                        <p className="nav-notifs-empty">No notifications</p>
                       ) : (
                         notifications.map((n) => (
-                          <div key={n.id} className="border-b px-4 py-3" style={{ borderColor: 'var(--border)' }}>
-                            <p className={`text-xs leading-relaxed ${n.read ? '' : 'font-medium text-[color:var(--text-primary)]'}`} style={n.read ? { color: 'var(--text-dim)' } : {}}>
+                          <div key={n.id} className="nav-notif">
+                            <p className={n.read ? 'nav-notif-read' : 'nav-notif-unread'}>
                               {n.message}
                             </p>
-                            <div className="mt-2 flex items-center gap-3">
+                            <div className="nav-notif-actions">
                               {!n.read && (
-                                <button onClick={() => handleMarkRead(n.id)} className="text-[10px] uppercase tracking-widest transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--text-soft)', fontFamily: 'monospace' }}>
+                                <button
+                                  onClick={() => handleMarkRead(n.id)}
+                                  className="nav-notif-action"
+                                >
                                   Mark read
                                 </button>
                               )}
-                              <a href="/billing" className="text-[10px] uppercase tracking-widest transition-colors hover:text-[color:var(--text-primary)]" style={{ color: 'var(--ok)', fontFamily: 'monospace' }}>
+                              <a href="/billing" className="nav-notif-action nav-notif-upgrade">
                                 Upgrade →
                               </a>
                             </div>
@@ -159,19 +238,95 @@ export default function Navbar() {
                     </div>
                   )}
                 </div>
-                <span className="text-sm" style={{ color: 'var(--text-muted)' }}>{user?.email}</span>
-                <button onClick={handleLogout} className="border px-3 py-1 text-sm" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>Logout</button>
+                {user?.email && (
+                  <span className="nav-email" title={user.email}>{user.email}</span>
+                )}
+                <button onClick={handleLogout} className="nav-cta nav-cta-ghost">
+                  Logout
+                </button>
               </>
-            )}
-            {!loggedIn && (
+            ) : (
               <>
-                <button onClick={() => setShowAuth(true)} className="text-sm" style={{ color: 'var(--text-muted)' }}>Login</button>
-                <button onClick={() => setShowAuth(true)} className="border px-3 py-1 text-sm font-medium" style={{ backgroundColor: 'var(--inverse-bg)', borderColor: 'var(--inverse-bg)', color: 'var(--bg-primary)' }}>Sign up</button>
+                <button onClick={() => setShowAuth(true)} className="nav-link nav-login">
+                  Login
+                </button>
+                <button onClick={() => setShowAuth(true)} className="nav-cta">
+                  Sign up
+                </button>
               </>
             )}
+            <button
+              ref={burgerRef}
+              type="button"
+              className="nav-burger"
+              aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={menuOpen}
+              aria-controls="nav-mobile-panel"
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              {menuOpen ? <X size={18} aria-hidden="true" /> : <Menu size={18} aria-hidden="true" />}
+            </button>
           </div>
+        </nav>
+      </header>
+
+      {menuOpen && (
+        <div className="nav-scrim" onClick={closeMenu} aria-hidden="true" />
+      )}
+      <div
+        id="nav-mobile-panel"
+        ref={menuRef}
+        className={`nav-mobile${menuOpen ? ' is-open' : ''}`}
+        hidden={!menuOpen}
+        aria-label="Mobile navigation"
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="nav-mobile-head">
+          <span className="nav-logo">
+            <span className="nav-logo-mark" aria-hidden="true" />
+            TorrentCDN
+          </span>
+          <button type="button" className="nav-icon-btn" onClick={closeMenu} aria-label="Close menu">
+            <X size={18} aria-hidden="true" />
+          </button>
         </div>
-      </nav>
+        <div className="nav-mobile-links">
+          {primaryLinks.map((link) => (
+            <a key={link.href} href={link.href} className="nav-mobile-link" onClick={closeMenu}>
+              {link.label}
+            </a>
+          ))}
+          {accountLinks.map((link) => (
+            <a key={link.href} href={link.href} className="nav-mobile-link" onClick={closeMenu}>
+              {link.label}
+            </a>
+          ))}
+        </div>
+        <div className="nav-mobile-foot">
+          {loggedIn ? (
+            <>
+              {user?.email && (
+                <p className="nav-mobile-email" title={user.email}>
+                  {user.email}
+                </p>
+              )}
+              <button onClick={handleLogout} className="btn btn-secondary w-full">
+                Logout
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => { closeMenu(); setShowAuth(true) }} className="btn btn-secondary w-full">
+                Login
+              </button>
+              <button onClick={openAuth} className="btn btn-primary w-full">
+                Sign up
+              </button>
+            </>
+          )}
+        </div>
+      </div>
 
       {showAuth && (
         <AuthModal onClose={() => { setShowAuth(false); api.getMe().then(setUser).catch(() => {}) }} />
