@@ -10,6 +10,7 @@ MediaMTX external auth contract (v1.x, authMethod: http) — POST JSON:
 2xx allows; anything else rejects. Empty user/password is normal (RTSP/RTMP
 challenge flow) — we answer 401 so MediaMTX re-asks with credentials.
 """
+import hmac
 import logging
 import os
 import re
@@ -41,6 +42,36 @@ router = APIRouter(prefix="/api/internal/mediamtx", tags=["live-internal"])
 # /not-ready. Dev/docker keeps it optional (network isolation covers it).
 _HOOK_SECRET = None
 _HOOK_WARNED = False
+_QUERY_SECRET_WARNED = False
+
+
+def _query_secret_allowed() -> bool:
+    """Is the deprecated ``?secret=`` fallback still accepted?
+
+    Default: ON everywhere except production, OFF in production unless the
+    operator explicitly opts in with ``MEDIAMTX_ALLOW_QUERY_SECRET=1``. The
+    auth hook is the only caller that cannot send ``X-Hook-Secret`` (stock
+    MediaMTX ≤1.11 has no header option for authHTTPAddress), so a production
+    edge that has not been fronted by a header-injecting proxy needs the
+    opt-in; everything else must use the header.
+    """
+    raw = os.environ.get("MEDIAMTX_ALLOW_QUERY_SECRET")
+    if raw is None:
+        return os.environ.get("APP_ENV") != "production"
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _warn_query_secret_once() -> None:
+    global _QUERY_SECRET_WARNED
+    if _QUERY_SECRET_WARNED:
+        return
+    _QUERY_SECRET_WARNED = True
+    logger.warning(
+        "MediaMTX hook secret arrived as a URL query parameter (?secret=). This "
+        "is deprecated: URLs end up in access logs, proxy logs and Referer "
+        "headers. Send X-Hook-Secret instead and set "
+        "MEDIAMTX_ALLOW_QUERY_SECRET=0 (default in production)."
+    )
 
 
 def _hook_secret() -> str:
@@ -129,9 +160,23 @@ def _check_hook_secret(request: Request) -> None:
             raise HTTPException(status_code=503, detail="hook not configured")
         return  # dev/docker — network isolation (compose-internal) covers it
     presented = request.headers.get("x-hook-secret") or ""
-    if not presented:
-        presented = (request.query_params.get("secret") or "")
-    if presented == secret:
+    if not presented and _query_secret_allowed():
+        # DEPRECATED: stock MediaMTX (≤1.11) can only put the shared secret in
+        # authHTTPAddress, so the auth hook still arrives as ?secret=. A URL is
+        # copied into access logs, proxy logs and Referer headers, which is why
+        # this is a transitional path rather than the interface: the header is
+        # the real one, and an operator who fronts the edge with a proxy that
+        # injects X-Hook-Secret sets MEDIAMTX_ALLOW_QUERY_SECRET=0.
+        query_secret = request.query_params.get("secret") or ""
+        if query_secret:
+            _warn_query_secret_once()
+            presented = query_secret
+    # Bytes: compare_digest raises TypeError on str containing non-ASCII, and a
+    # header value is attacker-controlled — a non-ASCII secret attempt must be
+    # a plain rejection, not a 500.
+    if presented and hmac.compare_digest(
+        presented.encode("utf-8", "replace"), secret.encode("utf-8")
+    ):
         return
     # Wrong/missing secret: tightly rate-limit INSTEAD of failing instantly on
     # the first bad attempt. MediaMTX retries its auth hook aggressively on

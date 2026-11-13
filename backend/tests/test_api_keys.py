@@ -118,32 +118,13 @@ class TestApiKeyEndpoints:
         assert len(deletes) == 1
         assert "WHERE user_id = $1" in deletes[0]
 
-    def test_optional_auth_resolves_api_key(self, mock_conn, test_user_id):
-        """get_optional_user_id (embed/analytics) accepts a valid tcdn_ key too."""
-        import asyncio
+    def test_the_optional_auth_dependency_is_gone(self):
+        """get_optional_user_id had no callers but resolved API keys to their
+        owner, so any route mounted on it would accept a long-lived key.
+        Deleted rather than left as a trap; a test keeps it deleted."""
+        import app.auth as auth_module
 
-        from app.auth import API_KEY_PREFIX, get_optional_user_id
-
-        mock_conn.fetchrow.return_value = {"user_id": str(test_user_id)}
-
-        class FakeCredentials:
-            credentials = f"{API_KEY_PREFIX}validoptional123"
-
-        result = asyncio.run(get_optional_user_id(FakeCredentials()))
-        assert result == test_user_id
-
-    def test_optional_auth_rejects_unknown_key(self, mock_conn):
-        """An unknown tcdn_ key resolves to None in the optional dependency."""
-        import asyncio
-
-        from app.auth import API_KEY_PREFIX, get_optional_user_id
-
-        mock_conn.fetchrow.return_value = None
-
-        class FakeCredentials:
-            credentials = f"{API_KEY_PREFIX}unknownoptional"
-
-        assert asyncio.run(get_optional_user_id(FakeCredentials())) is None
+        assert not hasattr(auth_module, "get_optional_user_id")
 
     def test_endpoints_require_auth(self, client):
         for method in ("GET", "POST", "DELETE"):

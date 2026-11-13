@@ -19,6 +19,8 @@ KEYS = ("PAYSTACK_SECRET_KEY", "TCDN_AI_PAYSTACK_SECRET_KEY")
 def _fresh_settings(monkeypatch, **env: str):
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("JWT_SECRET", GOOD_JWT)
+    # A production boot requires it (config guard, unrelated to this file).
+    monkeypatch.setenv("TRUSTED_PROXIES", "198.51.100.0/24")
     for name, value in env.items():
         monkeypatch.setenv(name, value)
 

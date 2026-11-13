@@ -172,8 +172,7 @@ def decode_access_token(token: str) -> dict | None:
     # this signing secret, so it would otherwise pass signature/exp here and
     # authenticate as a full session token WITHOUT a TOTP/backup code. The
     # mfa_pending claim must never be accepted by the session path — reject it
-    # at this single point so get_current_user_id / get_optional_user_id can't
-    # be tricked. (decode_mfa_token in app/mfa.py uses jwt.decode directly and
+    # at this single point so no session-carrying dependency can be tricked. (decode_mfa_token in app/mfa.py uses jwt.decode directly and
     # is unaffected.)
     if payload.get("mfa_pending"):
         return None
@@ -430,26 +429,6 @@ async def get_current_user_id_jwt_only(
             detail="This endpoint requires a session token, not an API key",
         )
     return await get_current_user_id(request, credentials)
-
-
-async def get_optional_user_id(
-    credentials: HTTPAuthorizationCredentials | None = Depends(
-        HTTPBearer(auto_error=False)
-    ),
-) -> UUID | None:
-    """Optional auth dependency — returns None if no token provided.
-
-    API keys work here too: a valid tcdn_ key resolves to its owner, an invalid
-    one resolves to None (optional — never an error)."""
-    if credentials is None:
-        return None
-    token = credentials.credentials
-    if token.startswith(API_KEY_PREFIX):
-        return await _resolve_api_key_user(token)
-    payload = decode_access_token(token)
-    if payload is None or "sub" not in payload:
-        return None
-    return UUID(payload["sub"])
 
 
 async def get_mfa_setup_user(
