@@ -125,11 +125,10 @@ export default function LandingPage() {
           {/* Not wrapped in the fade-up: this line is the mobile LCP element,
               and an element that starts at opacity 0 does not count as painted,
               so animating it pushes LCP out by the animation delay. */}
-          {/* Kept short on purpose: `.hero-eyebrow` is nowrap on phones, so a
-              longer line ("media delivery · live streaming · AI inference")
-              overflowed the viewport instead of wrapping. */}
+          {/* `.hero-eyebrow` is nowrap on phones, so this line is length-checked
+              at 390px (0px horizontal overflow) rather than allowed to wrap. */}
           <p className="label hero-eyebrow">
-            Media &middot; Live &middot; AI
+            Powering the distributed internet
           </p>
 
           <h1 className="hero-title h-display hero-rise" style={{ '--rise-delay': '120ms' } as React.CSSProperties}>

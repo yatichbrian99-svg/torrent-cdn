@@ -89,11 +89,11 @@ tm();if(document.readyState==='loading'){document.addEventListener('DOMContentLo
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.torrentcdn.store'),
   title: {
-    default: 'TorrentCDN — Peer-Assisted Delivery for Media, Live and AI',
+    default: 'TorrentCDN — Powering the Distributed Internet',
     template: '%s | TorrentCDN',
   },
   description:
-    'Stream, go live, run models — and let the crowd carry the load. TorrentCDN turns viewers and idle GPUs into capacity, keeping the origin for whatever they cannot serve. Start free with 100GB bandwidth.',
+    'Powering the distributed internet. Stream, go live, run models — TorrentCDN turns viewers and idle GPUs into capacity, keeping the origin for whatever they cannot serve. Start free with 100GB bandwidth.',
   keywords: [
     'P2P CDN',
     'peer-assisted delivery',
@@ -126,9 +126,9 @@ export const metadata: Metadata = {
     locale: 'en_US',
     url: 'https://www.torrentcdn.store',
     siteName: 'TorrentCDN',
-    title: 'TorrentCDN — Peer-Assisted Delivery for Media, Live and AI',
+    title: 'TorrentCDN — Powering the Distributed Internet',
     description:
-      'Stream, go live, run models — the crowd carries the load and the origin picks up what is left.',
+      'Powering the distributed internet. Stream, go live, run models — the crowd carries the load and the origin picks up what is left.',
     images: [
       {
         // Absolute URL — required by Twitter/X, LinkedIn, Slack, Discord,
@@ -144,7 +144,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'TorrentCDN — Peer-Assisted Delivery for Media, Live and AI',
+    title: 'TorrentCDN — Powering the Distributed Internet',
     description:
       'Your viewers are the CDN. TorrentCDN turns the crowd into delivery and inference capacity.',
     images: ['https://www.torrentcdn.store/og-image.png'],
@@ -163,7 +163,7 @@ const jsonLd = {
   applicationCategory: 'Multimedia',
   operatingSystem: 'Web',
   description:
-    'Peer-assisted delivery platform: video and audio delivery over WebTorrent, live streaming on the same model, and an OpenAI-compatible inference API in private alpha.',
+    'Powering the distributed internet: peer-assisted video and audio delivery over WebTorrent, live streaming on the same model, and an OpenAI-compatible inference API in private alpha.',
   url: 'https://www.torrentcdn.store',
   offers: {
     '@type': 'Offer',
