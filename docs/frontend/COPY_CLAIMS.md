@@ -29,7 +29,7 @@ Status meanings:
 | "The more people use it, the less you pay." | hero subtext | UNVERIFIED | Same as the H1's second half — no measured relationship between audience size and billed amount. |
 | "No credit card required" | hero microcopy | VERIFIED | `backend/app/routes/billing.py:43` — the free plan has `amount: 0`; signup does not create a payment method. |
 | "100GB free forever" | hero microcopy | PARTIAL | 100 GB is real (`billing.py:43` `limit_gb: 100`, `routes/upload.py:589`). "Forever" is a promise the repo cannot prove. |
-| "Media delivery · live streaming · AI inference" | hero eyebrow | VERIFIED | The three product surfaces that exist in the repo (`routes/files.py`, `routes/live.py`, `app/ai/`). No concurrency or performance figure is claimed any more. |
+| "Media · Live · AI" | hero eyebrow | VERIFIED | The three product surfaces that exist in the repo (`routes/files.py`, `routes/live.py`, `app/ai/`). Short by necessity: the eyebrow is `white-space: nowrap` on phones. No concurrency or performance figure is claimed any more. |
 | "More than on-demand video" + three capability cards (delivery / live / TCDN-AI) | capabilities section | PARTIAL | Each card labels its own maturity ("Available today" / "Engineering MVP" / "Private alpha"), matching the code's state. Live and AI are not claimed as generally available. |
 | "90%" / "bandwidth reduction" | hero stat card | UNVERIFIED (owner must substantiate) | The only related artefact is `docs/LIVE_PITCH.md:66` — "~90% offload" from a *simulated* 3-viewer run. That is not a production measurement. |
 | "< 5ms" / "peer discovery" | hero stat card | UNVERIFIED (owner must substantiate) | No latency measurement for peer discovery anywhere in the repo. |
