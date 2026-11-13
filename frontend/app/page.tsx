@@ -128,18 +128,17 @@ export default function LandingPage() {
           {/* `.hero-eyebrow` is nowrap on phones, so this line is length-checked
               at 390px (0px horizontal overflow) rather than allowed to wrap. */}
           <p className="label hero-eyebrow">
-            Powering the distributed internet
+            Media &middot; Live &middot; AI
           </p>
 
           <h1 className="hero-title h-display hero-rise" style={{ '--rise-delay': '120ms' } as React.CSSProperties}>
-            Smarter routing. Crowd-powered{' '}
-            <span className="hero-word-serif">scale</span>.{' '}
-            <span className="hero-word-accent">90% lower bills.</span>
+            Powering the <span className="hero-word-accent">distributed</span>{' '}
+            <span className="hero-word-serif">internet</span>.
           </h1>
 
           <p className="hero-sub hero-rise" style={{ '--rise-delay': '200ms' } as React.CSSProperties}>
-            Stream on it, go live on it, run models on it. Viewers carry the delivery, idle GPUs carry the
-            inference, and our origin picks up whatever the crowd cannot.
+            Your viewers are the CDN. Peers carry the delivery, idle GPUs carry the inference, and the
+            origin only picks up what the crowd cannot.
           </p>
 
           <div className="hero-ctas hero-rise" style={{ '--rise-delay': '280ms' } as React.CSSProperties}>

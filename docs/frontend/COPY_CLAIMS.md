@@ -22,13 +22,13 @@ Status meanings:
 
 | Claim (verbatim) | Where | Status | Evidence / note |
 | --- | --- | --- | --- |
-| "Smarter routing. Crowd-powered scale. 90% lower bills." | H1 | PARTIAL — **90% UNVERIFIED** | Owner-set headline. "Smarter routing" is real (`backend/app/services/router.py`, peer-first with origin fallback) and "crowd-powered scale" is the peer model (`lib/seeder.ts`, `VideoPlayer.tsx`). The **90% lower bills** figure is not measured: the nearest artefact is `docs/LIVE_PITCH.md:66` — "~90% offload" from a *simulated* 3-viewer run. Promote to VERIFIED only with a production invoice or benchmark. |
-| "Stream on it, go live on it, run models on it." | hero subtext | VERIFIED | `routes/files.py`, `routes/live.py`, `app/ai/routes_openai.py` — the three surfaces exist. |
-| "Viewers carry the delivery, idle GPUs carry the inference…" | hero subtext | PARTIAL | Delivery by peers is proven; GPU hosting of inference exists but is a private alpha, so the "idle GPUs" pool is not open yet. The sentence describes the model, not current supply. |
+| "Your viewers are the CDN." | hero subtext | VERIFIED | `frontend/lib/seeder.ts` + `components/VideoPlayer.tsx` — viewers seed the shards they have watched. |
+| "Peers carry the delivery, idle GPUs carry the inference…" | hero subtext | PARTIAL | Delivery by peers is proven; GPU hosting of inference exists but is a private alpha, so the "idle GPUs" pool is not open yet. The sentence describes the model, not current supply. |
 | "…our origin picks up whatever the crowd cannot." | hero subtext | VERIFIED | `VideoPlayer.tsx` falls back to direct origin within 5 s (`DIRECT_BILL_MS`). |
 | "No credit card required" | hero microcopy | VERIFIED | `backend/app/routes/billing.py:43` — the free plan has `amount: 0`; signup does not create a payment method. |
 | "100GB free forever" | hero microcopy | PARTIAL | 100 GB is real (`billing.py:43` `limit_gb: 100`, `routes/upload.py:589`). "Forever" is a promise the repo cannot prove. |
-| "Powering the distributed internet" | hero eyebrow | N/A (positioning) | Brand line set by the owner; it makes no measurable claim, so there is nothing to verify. Length-checked at 390px because the eyebrow is `white-space: nowrap`. The three product surfaces it stands for are listed in the capabilities section below it. |
+| "Powering the distributed internet" | H1 | N/A (positioning) | Brand line set by the owner; it makes no measurable claim, so there is nothing to verify. |
+| "Media · Live · AI" | hero eyebrow | VERIFIED | The three product surfaces in the repo (`routes/files.py`, `routes/live.py`, `app/ai/`). Length-checked at 390px because the eyebrow is `white-space: nowrap`. |
 | "One network. Three jobs." + "Ship video. Skip the bill spike." / "Go live without a second stack." / "Run AI on idle GPUs." | capabilities section | PARTIAL | Each card carries its maturity kicker ("Available today" / "Engineering MVP" / "Private alpha"), matching the code's state. The three product claims are real; the implied savings are not measured. Live and AI are not claimed as generally available. |
 | "90%" / "bandwidth reduction" | hero stat card | UNVERIFIED (owner must substantiate) | The only related artefact is `docs/LIVE_PITCH.md:66` — "~90% offload" from a *simulated* 3-viewer run. That is not a production measurement. |
 | "< 5ms" / "peer discovery" | hero stat card | UNVERIFIED (owner must substantiate) | No latency measurement for peer discovery anywhere in the repo. |
