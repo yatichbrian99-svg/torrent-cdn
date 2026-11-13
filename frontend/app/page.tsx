@@ -16,9 +16,36 @@ import DarkHeroArt from '@/components/hero/DarkHeroArt'
 // different one), the FAQ becoming an accordion, and the footer moving into
 // SiteFooter. Every figure below also appears in docs/frontend/COPY_CLAIMS.md.
 const STEPS = [
-  { num: '01', title: 'Upload your file', desc: 'Drop any video or audio file. We store it and generate a magnet link.' },
+  { num: '01', title: 'Upload your media', desc: 'Drop a video or audio file. We store it and generate a magnet link.' },
   { num: '02', title: 'Paste one line of code', desc: '' },
   { num: '03', title: 'Viewers share bandwidth', desc: 'Every viewer becomes a peer. Your costs stay flat while your audience grows.' },
+]
+
+// The three things that run on the network. Live and AI are deliberately
+// labelled by maturity, not sold as equal to the shipping delivery product:
+// live is an MVP, TCDN-AI is an invite-only alpha.
+const CAPABILITIES = [
+  {
+    kicker: 'Available today',
+    title: 'Video and audio delivery',
+    desc: 'Upload MP4, WebM, MKV, MOV, AVI, MP3, WAV, OGG or M4A. Viewers stream from each other over WebRTC and fall back to the origin when no peer can serve.',
+    href: '/architecture',
+    cta: 'How delivery works',
+  },
+  {
+    kicker: 'Engineering MVP',
+    title: 'Live streaming',
+    desc: 'HLS live channels on the same origin-plus-peers model, with the viewer count and rate limits handled per channel. Running with design partners while it is hardened.',
+    href: '/live',
+    cta: 'See live channels',
+  },
+  {
+    kicker: 'Private alpha',
+    title: 'TCDN-AI inference',
+    desc: 'An OpenAI-compatible /v1 API served by GPUs that people connect to the network. Invite only: access is granted by hand and only the standard privacy tier is offered.',
+    href: '/tcdn-ai',
+    cta: 'TCDN-AI overview',
+  },
 ]
 
 const STATS = [
@@ -40,7 +67,7 @@ const FAQ = [
   },
   {
     q: 'What file types are supported?',
-    a: 'We support MP4, WebM, MKV, MOV, AVI for video and MP3, WAV, OGG, M4A for audio.',
+    a: 'Uploads accept MP4, WebM, MKV, MOV, AVI for video and MP3, WAV, OGG, M4A for audio. Those are the formats enabled today — other file types are not accepted by the upload endpoint, even though the torrent layer underneath is not media-specific.',
   },
   {
     q: 'What is the maximum file size?',
@@ -99,17 +126,19 @@ export default function LandingPage() {
               and an element that starts at opacity 0 does not count as painted,
               so animating it pushes LCP out by the animation delay. */}
           <p className="label hero-eyebrow">
-            Built for high concurrency video delivery
+            Media delivery &middot; live streaming &middot; AI inference
           </p>
 
           <h1 className="hero-title h-display hero-rise" style={{ '--rise-delay': '120ms' } as React.CSSProperties}>
-            Video delivery that gets{' '}
+            One network for media, live and AI —{' '}
             <span className="hero-word-accent">cheaper</span> as you{' '}
             <span className="hero-word-serif">scale</span>.
           </h1>
 
           <p className="hero-sub hero-rise" style={{ '--rise-delay': '200ms' } as React.CSSProperties}>
-            TorrentCDN uses WebTorrent to turn your viewers into a P2P network. The more people watch, the less you pay.
+            TorrentCDN turns viewers into a peer network for video and audio, runs live streams on the same
+            model, and serves an OpenAI-compatible inference API in alpha. The more people use it, the less
+            you pay.
           </p>
 
           <div className="hero-ctas hero-rise" style={{ '--rise-delay': '280ms' } as React.CSSProperties}>
@@ -138,6 +167,43 @@ export default function LandingPage() {
               </li>
             ))}
           </ul>
+        </div>
+      </section>
+
+      {/* ---------------------------------------------------------- Capabilities */}
+      <section className="section" id="capabilities">
+        <div className="wrap">
+          <Reveal>
+            <h2 className="h-section">More than on-demand video</h2>
+            <p className="section-sub">
+              The same peer-assisted model carries three products. They are at different stages, and each
+              card says which.
+            </p>
+          </Reveal>
+          <div className="mt-8 grid gap-4 sm:grid-cols-3">
+            {CAPABILITIES.map((cap, i) => (
+              <Reveal key={cap.title} delay={i * 80}>
+                <div className="panel flex h-full flex-col p-6">
+                  <p className="label" style={{ color: 'var(--accent)' }}>
+                    {cap.kicker}
+                  </p>
+                  <h3 className="mt-2 text-base font-semibold" style={{ color: 'var(--text)' }}>
+                    {cap.title}
+                  </h3>
+                  <p className="mt-2 flex-1 text-sm leading-relaxed" style={{ color: 'var(--muted)' }}>
+                    {cap.desc}
+                  </p>
+                  <a
+                    href={cap.href}
+                    className="mt-4 text-sm underline transition-colors hover:text-[color:var(--text)]"
+                    style={{ color: 'var(--muted)' }}
+                  >
+                    {cap.cta} &rarr;
+                  </a>
+                </div>
+              </Reveal>
+            ))}
+          </div>
         </div>
       </section>
 

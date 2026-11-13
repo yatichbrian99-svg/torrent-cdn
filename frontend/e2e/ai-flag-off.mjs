@@ -54,7 +54,7 @@ try {
         .find((p) => p === '/ai' || p.startsWith('/ai/')),
     )
   step('no AI console link while signed out', !consoleLink, consoleLink || navText.replace(/\s+/g, ' ').slice(0, 80))
-  step('landing heading unchanged', await page.getByText(/video delivery that gets cheaper/i).first().isVisible())
+  step('landing heading present', await page.getByText(/one network for media, live and ai/i).first().isVisible())
 
   // Sign in: the link is gated per-user too, and still absent with the flag off.
   if (process.env.E2E_EMAIL) {
