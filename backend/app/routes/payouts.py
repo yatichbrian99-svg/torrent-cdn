@@ -2,11 +2,12 @@
 
 Receiving money (plans) is handled in billing.py; this module is the other half
 of the Paystack integration: moving money OUT of the Paystack balance to an
-M-PESA wallet. Because payouts move real money, every endpoint is gated behind
-``require_admin``, and the three endpoints that move money or bank details
-(create/deactivate a recipient, initiate a transfer) are gated behind
-``require_admin_jwt`` — a long-lived ``tcdn_`` API key must not be able to send
-money, the same rule audit F-6 applied to the AI admin routes. Every transfer
+M-PESA wallet. Because payouts move real money, **every** endpoint — reads
+included — is gated behind ``require_admin_jwt``: a long-lived ``tcdn_`` API key
+must not be able to read the balance, list recipients or send money, the same
+rule audit F-6 applied to the AI admin routes. (The reads matter: the recipient
+list and balance are the reconnaissance for a transfer, and an API key that can
+list them is an admin oracle.) Every transfer
 also references a recipient that was first created (and stored) through this
 module — an admin can never pay an arbitrary recipient code they typed by hand.
 
@@ -47,7 +48,7 @@ from ..models import (
 )
 from ..security import contains_control_chars
 from ..security_events import record as record_event
-from .admin import require_admin, require_admin_jwt
+from .admin import require_admin_jwt
 
 # Same secret key + API base as the payment side (billing.py) — one source of
 # truth; billing does not import this module, so there is no import cycle.
@@ -98,7 +99,7 @@ def _payout_from_row(row) -> PayoutResponse:
 
 
 @router.get("/balance", response_model=PayoutBalanceResponse)
-async def payout_balance(_: UUID = Depends(require_admin)):
+async def payout_balance(_: UUID = Depends(require_admin_jwt)):
     """Available Paystack balance for the configured currency (KES)."""
     try:
         async with httpx.AsyncClient(
@@ -126,7 +127,7 @@ async def payout_balance(_: UUID = Depends(require_admin)):
 
 
 @router.get("/recipients", response_model=list[PayoutRecipientResponse])
-async def list_recipients(_: UUID = Depends(require_admin)):
+async def list_recipients(_: UUID = Depends(require_admin_jwt)):
     """All stored transfer recipients (active and deactivated)."""
     pool = await get_db_pool()
     async with pool.acquire() as conn:
@@ -299,7 +300,7 @@ async def deactivate_recipient(
 
 
 @router.get("", response_model=list[PayoutResponse])
-async def list_payouts(_: UUID = Depends(require_admin)):
+async def list_payouts(_: UUID = Depends(require_admin_jwt)):
     """Recent payouts, newest first."""
     pool = await get_db_pool()
     async with pool.acquire() as conn:
@@ -458,7 +459,7 @@ async def initiate_payout(
 @router.get("/{transfer_code}", response_model=PayoutResponse)
 async def fetch_payout(
     transfer_code: str,
-    _: UUID = Depends(require_admin),
+    _: UUID = Depends(require_admin_jwt),
 ):
     """Fetch a transfer from Paystack and refresh the local status.
 
