@@ -3,7 +3,9 @@
  *
  * Three things are asserted, all of them observable:
  *
- * 1. the navigation shows no AI entry anywhere;
+ * 1. the navigation has no link into the AI console (/ai, /ai/*) anywhere —
+ *    the public marketing page /tcdn-ai is deliberately flag-independent
+ *    (commit 2965c3a) and is allowed;
  * 2. /ai renders the "not available" panel rather than a broken console;
  * 3. the only AI-shaped request any page makes is the single feature probe
  *    (which 404s), and no other /api/ai or /v1 call is issued;
@@ -42,7 +44,16 @@ try {
   // Signed out: the landing page must be untouched.
   await page.goto(`${BASE}/`, { waitUntil: 'networkidle' })
   const navText = await page.locator('nav').first().innerText()
-  step('no AI link while signed out', !/\bAI\b/.test(navText), navText.replace(/\s+/g, ' ').slice(0, 80))
+  // The public /tcdn-ai marketing page is not flag-gated (2965c3a), so the
+  // contract is "no route into the console", not "no AI-ish text".
+  const consoleLink = await page
+    .locator('nav a')
+    .evaluateAll((links) =>
+      links
+        .map((a) => new URL(a.href, location.href).pathname)
+        .find((p) => p === '/ai' || p.startsWith('/ai/')),
+    )
+  step('no AI console link while signed out', !consoleLink, consoleLink || navText.replace(/\s+/g, ' ').slice(0, 80))
   step('landing heading unchanged', await page.getByText(/video delivery that gets cheaper/i).first().isVisible())
 
   // Sign in: the link is gated per-user too, and still absent with the flag off.
@@ -54,7 +65,14 @@ try {
     await page.getByRole('button', { name: /logout/i }).waitFor({ timeout: 20_000 })
 
     const signedInNav = await page.locator('nav').first().innerText()
-    step('no AI link when signed in', !/\bAI\b/.test(signedInNav), signedInNav.replace(/\s+/g, ' ').slice(0, 80))
+    const signedInConsoleLink = await page
+      .locator('nav a')
+      .evaluateAll((links) =>
+        links
+          .map((a) => new URL(a.href, location.href).pathname)
+          .find((p) => p === '/ai' || p.startsWith('/ai/')),
+      )
+    step('no AI console link when signed in', !signedInConsoleLink, signedInConsoleLink || signedInNav.replace(/\s+/g, ' ').slice(0, 80))
     step('dashboard nav intact', /Dashboard/.test(signedInNav) && /Billing/.test(signedInNav))
 
     // The page itself: an honest panel, not a half-built console or a redirect.

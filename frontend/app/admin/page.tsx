@@ -623,6 +623,7 @@ export default function AdminPage() {
                             <Loader2 size={12} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
                           ) : (
                             <select
+                              aria-label={`Plan for ${user.email}`}
                               value={user.plan}
                               onChange={(e) => updatePlan(user.id, e.target.value)}
                               className="border px-2 py-1 text-[11px] text-[color:var(--text-primary)] outline-none cursor-pointer transition-colors hover:border-white/20"

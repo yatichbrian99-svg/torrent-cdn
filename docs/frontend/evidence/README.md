@@ -22,6 +22,8 @@ The plan, token map and the list of judgement calls live one level up in
 | `theme-audit.txt` | 9/9 behavioural checks: system default, stored choice wins, storage-blocked fallback, live OS change, no flash, `aria-pressed`/label, keyboard toggle, `color-scheme`, `theme-color`. |
 | `bundle.md` | First-load JS per route, before vs after, against a ≤ 30 kB growth budget. Worst route growth is +1.0 kB. |
 | `after/` | Lighthouse JSON (all four categories) for landing + docs, mobile and desktop. |
+| `hero/` | The hero rework: `hero-audit.json` (worst-case contrast of every hero text element against the art behind it, plus the stat-card baseline check), six hero screenshots, and `lighthouse-{mobile,desktop}.json` from the build that shipped the final hero. |
+| `gated/` | The authenticated / backend-gated routes the public pass cannot reach: `/dashboard`, `/dashboard/upload`, `/admin`, `/admin/health`, `/admin/payouts`, `/live` and the seven `/ai/*` console pages. 78 runs (13 routes × 3 widths × 2 themes) with screenshots, axe at 375 and 1280, a keyboard walk at 1280 and an overflow check. `gated-audit.json` is the machine-readable result. |
 | `baseline-next-build.txt`, `after-next-build.txt` | Full build logs (route table, bundle sizes) the budget table is parsed from. |
 
 ## Measured results
@@ -73,19 +75,57 @@ can be wired into CI as-is. `shot_pages.mjs` waits for hydration and scrolls
 every `.reveal` into view before capturing, and fails the run if a page overflows
 horizontally.
 
+## Full-local verification pass (backend + frontend on this machine)
+
+Run against a local production build (`next build` + `next start`), a local
+Postgres/Redis/MinIO stack, the backend at `:8000` (AI flag on) and `:8001`
+(flag off), and `e2e/local-proxy.mjs` reproducing the production same-origin
+proxy contract.
+
+| Check | Result |
+| --- | --- |
+| `scripts/a11y_audit.mjs` (7 restyled routes × 2 themes) | 0 axe violations, 14 runs |
+| Keyboard walk, landing page | 24 focus stops, all with a visible indicator; mobile menu open/Escape/return pass |
+| `scripts/gated_pages_audit.mjs` (13 gated routes × 3 widths × 2 themes) | 78 runs, 0 problems: no redirects, 0 px overflow, 0 axe violations at 375 and 1280, every keyboard stop (1280) shown |
+| `scripts/hero_audit.mjs` | All hero text ≥ 4.5:1 against the art behind it at 375/768/1280 in both themes; stat cards equal height and on one baseline ≥ 768; 0 px overflow |
+| `scripts/diff_screenshots.mjs --prefix embed` | Frozen surfaces pixel-identical |
+| Lighthouse, landing (this build) | mobile perf 94 · a11y 100 · LCP 1.04 s · CLS 0; desktop perf 100 · a11y 100 · LCP 0.66 s · CLS 0 |
+| `e2e/ai-console.mjs` (flag on) | 17/17 |
+| `e2e/ai-flag-off.mjs` (flag off, `:3002`) | 10/10 |
+| `e2e/admin-noselect.mjs`, `visual-pass.mjs`, `login-flow.mjs`, `api-key-ui.mjs`, `embed-speed.mjs`, `upload-fallback.mjs` | pass |
+
+Two test files were touched, each for a stated reason: `e2e/ai-flag-off.mjs`
+asserted that no nav text matches `\bAI\b`, which became false when commit
+`2965c3a` deliberately added a flag-independent public `/tcdn-ai` page; it now
+asserts the actual contract — no link into the gated console (`/ai`, `/ai/*`) —
+which is stricter about what the flag protects. `e2e/admin-noselect.mjs` was
+missing the `failedRequests` array that `attachDiagnostics()` writes to and
+crashed before its first assertion; the array was added (no assertion changed).
+
+Accessibility fixes made on gated pages (found by this pass, none introduced by
+the redesign): `aria-label`s on the admin plan selects, the payout recipient
+select, the admin back button and the upload file input; the payout
+"Add recipient" button now uses `--inverse-fg` (white-on-purple failed AA at
+2.81:1); the health status chips use the existing `--ok-chip-*` tokens (4.39:1
+before); the five scrollable table/pre containers in the AI console are
+keyboard-reachable regions.
+
 ## Limitations
 
 These are real gaps, not caveats to be waved through:
 
 1. **`/share` is not pixel-proven.** It needs a live token, so only
    `/embed/demo` is in the frozen diff. The mechanism is shared with `/embed`.
-2. **Authed pages are not Lighthouse/axe audited.** `/dashboard`, `/admin`,
-   `/live`, the AI console and upload pages require a backend login, and no
-   production calls were permitted. They appear in the screenshot set, the
-   contrast matrix and the bundle budget only.
-3. **Playwright e2e was not run.** Those suites hit a live backend. The test
-   numbers above are `tsc` + vitest + build, not e2e. No test was edited,
-   skipped or weakened.
+2. **Authed pages have no Lighthouse run.** They were screenshotted, contrast-
+   checked, axe'd and keyboard-walked against a local backend (`gated/`), but
+   Lighthouse scores are landing + docs only.
+3. **Storage-dependent e2e suites cannot pass on this machine.** Uploads that
+   stream from MinIO over plain http are blocked by the shipped CSP
+   (`media-src 'self' blob: https:` and a `connect-src` that only allow-lists
+   localhost for dev): `upload-direct`, `finalize-retry`, `embed-playback`,
+   `auto-seed` and `p2p-two-peer` fail with a CSP refusal, not a product bug.
+   `mfa-flow` needs `APP_ENV=production` policy (`mfa_required`), which this
+   local stack does not run. The suites that do not need storage playback pass.
 4. **Lighthouse is single-run local.** Not a field measurement, not CI, and the
    mobile landing score moves 3 points between runs.
 5. **Preview build is local only.** Nothing was deployed and no production

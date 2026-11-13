@@ -427,6 +427,7 @@ export default function AdminPayoutsPage() {
               <div className="relative">
                 <Users size={12} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-faint)' }} />
                 <select
+                  aria-label="Recipient (M-PESA)"
                   value={selRecipient}
                   onChange={(e) => setSelRecipient(e.target.value)}
                   className="w-full border px-8 py-2 text-xs outline-none transition-colors focus:border-white/20 appearance-none"
@@ -539,7 +540,7 @@ export default function AdminPayoutsPage() {
             <button
               onClick={createRecipient}
               disabled={creatingRcp}
-              className="w-full px-4 py-2.5 text-xs font-semibold text-[color:var(--text-primary)] transition-opacity hover:opacity-80 disabled:opacity-50"
+              className="w-full px-4 py-2.5 text-xs font-semibold text-[color:var(--inverse-fg)] transition-opacity hover:opacity-80 disabled:opacity-50"
               style={{ backgroundColor: 'var(--purple)' }}
             >
               {creatingRcp ? (

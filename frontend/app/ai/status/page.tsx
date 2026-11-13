@@ -108,7 +108,7 @@ export default function AiStatusPage() {
             body="No compute node has registered with this deployment. Jobs will queue until one does."
           />
         ) : (
-          <div className="w-full max-w-full overflow-x-auto">
+          <div className="w-full max-w-full overflow-x-auto" role="region" aria-label="Worker status by region" tabIndex={0}>
             <table className="w-full min-w-[520px] border-collapse text-sm">
               <caption className="sr-only">Worker counts and heartbeat ages per region</caption>
               <thead>
