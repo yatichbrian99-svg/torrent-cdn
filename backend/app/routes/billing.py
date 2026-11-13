@@ -12,6 +12,13 @@ in Kenya. The flows mirror the old Stripe integration one-for-one:
     (``charge.success`` whose payload carries a ``plan`` object) upgrades the
     user's plan — a failed charge or a one-time payment never grants a plan.
 
+    Paystack allows one webhook URL per mode, so this endpoint is also the
+dispatcher for the AI console's credit-pack purchases: a signature-verified
+    event whose ``metadata.purpose`` is ``ai_credits`` is handed, unmodified and
+    already authenticated, to the AI coordinator. Subscription and transfer
+    events take exactly the path they always did; anything else is still
+    acknowledged so Paystack stops delivering it.
+
 Paystack amounts are in the currency's smallest unit (KES cents), so a KES
 4,000/month plan is ``amount=400000``.
 """
@@ -61,6 +68,26 @@ PLANS = {
 PLAN_CODE_TO_TIER = {
     p["plan_code"]: tier for tier, p in PLANS.items() if p["plan_code"]
 }
+
+#: ``metadata.purpose`` the AI console sets on a credit-pack checkout. It is the
+#: only marker that routes an event to the AI coordinator; everything else keeps
+#: the subscription/transfer handling below.
+AI_CREDITS_PURPOSE = "ai_credits"
+
+#: Refusals the coordinator can produce that a retry cannot change (the pack
+#: price is wrong, the charge already needs review, the pack does not exist). The
+#: event is acknowledged so Paystack stops redelivering it for a day, and the
+#: coordinator has already audited the refusal. Everything else stays a 5xx so
+#: the retry can actually succeed.
+_AI_REFUSALS_THAT_ARE_FINAL = frozenset(
+    {
+        "payment_needs_review",
+        "payment_currency_mismatch",
+        "payment_amount_mismatch",
+        "unknown_credit_pack",
+        "invalid_payment_event",
+    }
+)
 
 _PAYSTACK_HEADERS = {
     "Authorization": f"Bearer {settings.paystack_secret_key}",
@@ -169,6 +196,43 @@ async def create_checkout(
         )
 
 
+async def _dispatch_ai_credits(payload: bytes, signature: str) -> dict:
+    """Hand a verified credit-pack event to the AI coordinator.
+
+    The coordinator re-verifies the signature itself, so a bug in this router
+    cannot smuggle in an unauthenticated event. Its refusals are already audited
+    (``billing.credit_purchase_needs_review``); the ones a retry cannot fix are
+    acknowledged here, the rest propagate as 5xx so Paystack retries.
+    """
+    from ..ai import routes as ai_routes
+    from ..ai.errors import AIError, ValidationError
+
+    try:
+        coordinator = await ai_routes.get_coordinator()
+    except Exception:
+        logger.exception("ai_credits webhook: coordinator unavailable; ignoring")
+        return {"detail": "AI console is not available on this deployment, ignoring"}
+    try:
+        return await coordinator.handle_payment_webhook(payload, signature)
+    except ValidationError as exc:
+        if exc.code in _AI_REFUSALS_THAT_ARE_FINAL:
+            logger.warning(
+                "ai_credits webhook refused (code=%s); acknowledged without credit",
+                exc.code,
+            )
+            return {"detail": f"credit purchase refused: {exc.code}"}
+        logger.error("ai_credits webhook failed (code=%s); asking for a retry", exc.code)
+        raise HTTPException(status_code=500, detail="Webhook processing failed") from exc
+    except AIError as exc:
+        # Gates (paused payments, allowlist, caps) and provider errors: not
+        # final, so let Paystack retry.
+        logger.error("ai_credits webhook blocked (code=%s); asking for a retry", exc.code)
+        raise HTTPException(status_code=500, detail="Webhook processing failed") from exc
+    except Exception as exc:
+        logger.exception("ai_credits webhook crashed; asking for a retry")
+        raise HTTPException(status_code=500, detail="Webhook processing failed") from exc
+
+
 @router.post("/webhook")
 async def paystack_webhook(request: Request):
     """Handle Paystack webhook events.
@@ -213,6 +277,16 @@ async def paystack_webhook(request: Request):
             return {"detail": "Already processed"}
 
     event_type = event.get("event")
+
+    # One Paystack webhook URL per mode, so credit-pack purchases arrive here
+    # too. Signature and JSON are already verified above; the raw body goes to
+    # the coordinator unchanged, which keeps its own signature check, pack
+    # validation and reference-keyed idempotency in one place.
+    metadata = data.get("metadata") if isinstance(data, dict) else None
+    if isinstance(metadata, dict) and metadata.get("purpose") == AI_CREDITS_PURPOSE:
+        result = await _dispatch_ai_credits(payload, sig_header)
+        await mark_processed()
+        return result
 
     try:
         if event_type == "charge.success":
