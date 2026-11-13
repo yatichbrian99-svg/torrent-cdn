@@ -511,20 +511,30 @@ class TestFailClosedConfig:
         assert settings.jwt_reset_secret == "custom-reset-secret"
         get_settings.cache_clear()
 
-    def test_prod_admin_setup_without_token_logs_error(self, monkeypatch, caplog):
+    def test_prod_admin_setup_without_token_refuses_to_start(self, monkeypatch):
         """Production with ADMIN_SETUP_ENABLED=true but no ADMIN_SETUP_TOKEN must
-        fail loudly at startup (an open admin-promotion door)."""
-        import logging
+        refuse to boot, not log: a logged warning left the app serving with an
+        open admin-promotion door."""
+        import pytest
 
         get_settings = self._fresh_settings(monkeypatch, jwt_secret=self.GOOD_SECRET)
         monkeypatch.setenv("APP_ENV", "production")
         monkeypatch.setenv("APP_URL", "https://www.torrentcdn.store")
+        monkeypatch.setenv("TRUSTED_PROXIES", "198.51.100.0/24")
         monkeypatch.delenv("EMAIL_VERIFICATION_REQUIRED", raising=False)
         monkeypatch.setenv("ADMIN_SETUP_ENABLED", "true")
         monkeypatch.delenv("ADMIN_SETUP_TOKEN", raising=False)
-        with caplog.at_level(logging.ERROR, logger="app.config"):
+        with pytest.raises(ValueError, match="ADMIN_SETUP_ENABLED=true requires ADMIN_SETUP_TOKEN"):
             get_settings()
-        assert any("ADMIN_SETUP_ENABLED=true without ADMIN_SETUP_TOKEN" in r.message for r in caplog.records)
+        get_settings.cache_clear()
+
+    def test_admin_setup_without_token_is_fine_outside_production(self, monkeypatch):
+        """Dev/docker keeps the bootstrap door open by design."""
+        get_settings = self._fresh_settings(monkeypatch, jwt_secret=self.GOOD_SECRET)
+        monkeypatch.setenv("APP_ENV", "development")
+        monkeypatch.setenv("ADMIN_SETUP_ENABLED", "true")
+        monkeypatch.delenv("ADMIN_SETUP_TOKEN", raising=False)
+        assert get_settings().admin_setup_enabled is True
         get_settings.cache_clear()
 
     def test_prod_admin_setup_with_token_no_error(self, monkeypatch, caplog):
@@ -534,6 +544,7 @@ class TestFailClosedConfig:
         get_settings = self._fresh_settings(monkeypatch, jwt_secret=self.GOOD_SECRET)
         monkeypatch.setenv("APP_ENV", "production")
         monkeypatch.setenv("APP_URL", "https://www.torrentcdn.store")
+        monkeypatch.setenv("TRUSTED_PROXIES", "198.51.100.0/24")
         monkeypatch.delenv("EMAIL_VERIFICATION_REQUIRED", raising=False)
         monkeypatch.setenv("ADMIN_SETUP_ENABLED", "true")
         monkeypatch.setenv("ADMIN_SETUP_TOKEN", "super-secret-bootstrap")
@@ -555,6 +566,8 @@ class TestProductionAppUrlGuard:
         monkeypatch.setenv("APP_ENV", "production")
         monkeypatch.setenv("JWT_SECRET", TestProductionAppUrlGuard.GOOD_SECRET)
         monkeypatch.setenv("APP_URL", app_url)
+        # Unrelated to the URL guard, but a production boot now requires it.
+        monkeypatch.setenv("TRUSTED_PROXIES", "198.51.100.0/24")
         monkeypatch.delenv("JWT_VERIFY_SECRET", raising=False)
         monkeypatch.delenv("JWT_RESET_SECRET", raising=False)
         monkeypatch.delenv("EMAIL_VERIFICATION_REQUIRED", raising=False)
@@ -681,7 +694,7 @@ class TestProductionAppUrlGuard:
 
 
 class TestTrustedProxiesConfigGuard:
-    """In production, an unset TRUSTED_PROXIES must warn loudly: per-IP rate
+    """In production, an unset TRUSTED_PROXIES must stop the boot: per-IP rate
     limits keep trusting the first X-Forwarded-For entry from ANY peer, so a
     direct connection to the backend can forge the header to rotate past
     login/register/upload limits until the proxy CIDRs are configured."""
@@ -702,13 +715,14 @@ class TestTrustedProxiesConfigGuard:
         get_settings.cache_clear()
         return get_settings
 
-    def test_unset_trusted_proxies_logs_warning(self, monkeypatch, caplog):
-        import logging
+    def test_unset_trusted_proxies_refuses_to_start(self, monkeypatch):
+        """Unset, XFF is trusted from any peer and per-IP limits are forgeable.
+        That must stop the deployment, not appear in a log."""
+        import pytest
 
         get_settings = self._fresh_prod_settings(monkeypatch)
-        with caplog.at_level(logging.WARNING, logger="app.config"):
+        with pytest.raises(ValueError, match="TRUSTED_PROXIES must be set"):
             get_settings()
-        assert any("TRUSTED_PROXIES is unset" in r.message for r in caplog.records)
         get_settings.cache_clear()
 
     def test_configured_trusted_proxies_no_warning(self, monkeypatch, caplog):

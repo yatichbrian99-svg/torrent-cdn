@@ -46,6 +46,12 @@ services:
         value: ""
       - key: TRUSTED_HOSTS
         value: ".onrender.com,localhost"
+      # APP_ENV=production refuses to boot without it: unset, the first
+      # X-Forwarded-For entry is trusted from any peer, so direct clients could
+      # forge it past per-IP limits. Staging is reached directly (no CDN edge),
+      # so trust only loopback — stricter than the old implicit "trust everyone".
+      - key: TRUSTED_PROXIES
+        value: "127.0.0.1/32"
 
       # ── TCDN-AI ───────────────────────────────────────────────────────────
       - key: ENABLE_TCDN_AI

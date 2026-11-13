@@ -309,26 +309,30 @@ def get_settings() -> Settings:
         # the request arrived from a TRUSTED proxy (TRUSTED_PROXIES). Unset,
         # the first XFF entry is trusted from ANY peer — a client hitting this
         # backend directly (Render exposes the onrender.com URL publicly) can
-        # forge the header to rotate past login/register/upload limits. Fail
-        # loudly so an operator who forgot it sees the warning before an
-        # attacker does; Vercel's current edge CIDRs are published at
+        # forge the header to rotate past login/register/upload limits.
+        #
+        # FAIL, don't warn. A warning is a line in a log nobody reads; the app
+        # keeps serving with a forgeable rate-limit key, which is the same as
+        # having no per-IP limit at all. Vercel's edge CIDRs are published at
         # https://vercel.com/docs/edge-network/regions#ip-ranges.
         if not settings.trusted_proxies:
-            logger.warning(
-                "TRUSTED_PROXIES is unset — X-Forwarded-For is trusted from any peer "
-                "(spoofable by direct connections to this backend). Set it to your "
-                "proxy's CIDRs to make per-IP rate limits forgery-resistant."
+            raise ValueError(
+                "TRUSTED_PROXIES must be set when APP_ENV=production: unset, the "
+                "first X-Forwarded-For entry is trusted from ANY peer, so any "
+                "direct client can forge it and evade per-IP rate limits. Set it "
+                "to your proxy's CIDRs (e.g. Vercel's edge ranges)."
             )
         # Admin bootstrap without a token is an open admin-promotion door: any
         # authenticated user can promote themselves (or anyone) while the flag
-        # is up. Fail loudly at startup so an operator who forgot to set
-        # ADMIN_SETUP_TOKEN (or forgot to disable the flag) sees it before an
-        # attacker does.
+        # is up. A warning was not enough — the deployment then runs with the
+        # door open. Refuse to start instead; the operator either sets the
+        # token or turns the flag off.
         if settings.admin_setup_enabled and not settings.admin_setup_token:
-            logger.error(
-                "ADMIN_SETUP_ENABLED=true without ADMIN_SETUP_TOKEN — POST /auth/setup is "
-                "open to ANY authenticated user. Set ADMIN_SETUP_TOKEN, or better: "
-                "disable ADMIN_SETUP_ENABLED now that the first admin exists."
+            raise ValueError(
+                "ADMIN_SETUP_ENABLED=true requires ADMIN_SETUP_TOKEN when "
+                "APP_ENV=production — otherwise POST /auth/setup promotes ANY "
+                "authenticated user to admin. Set ADMIN_SETUP_TOKEN, or disable "
+                "ADMIN_SETUP_ENABLED now that the first admin exists."
             )
 
         # APP_URL drives every user-facing link the backend emits (email

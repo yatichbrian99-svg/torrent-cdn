@@ -44,7 +44,8 @@ services:
       # Ranges below: Cloudflare's published lists (https://www.cloudflare.com/
       # ips-v4 and ips-v6, refreshed 2026-09-06) + Vercel's ARIN-registered
       # netblocks (76.76.21.0/24 etc., refreshed 2026-09-06). Refresh Cloudflare
-      # from the URLs above if the startup warning returns; Vercel's ranges
+      # from the URLs above if startup fails with "TRUSTED_PROXIES must be set"
+      # (a production boot now refuses to run without it); Vercel's ranges
       # change rarely.
       - key: TRUSTED_PROXIES
         value: "173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,162.158.0.0/15,104.16.0.0/13,104.24.0.0/14,172.64.0.0/13,131.0.72.0/22,2400:cb00::/32,2606:4700::/32,2803:f800::/32,2405:b500::/32,2405:8100::/32,2a06:98c0::/29,2c0f:f248::/32,143.13.0.0/16,155.121.0.0/16,198.169.1.0/24,198.169.2.0/24,216.150.1.0/24,216.150.16.0/24,216.198.79.0/24,216.230.84.0/24,216.230.86.0/24,64.239.109.0/24,64.239.123.0/24,64.29.17.0/24,66.33.60.0/24,76.76.21.0/24,2607:db00::/32"

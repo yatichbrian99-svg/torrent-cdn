@@ -72,7 +72,10 @@ services:
     environment:
       # MediaMTX reads overrides from MTX_-prefixed env vars (it does NOT
       # interpolate ${VAR} inside its YAML). The shared secret travels in the
-      # URL; MediaMTX → backend is container-to-container, never public.
+      # URL because stock MediaMTX has no header option for authHTTPAddress;
+      # the backend accepts the query form only outside production (or with
+      # MEDIAMTX_ALLOW_QUERY_SECRET=1). MediaMTX → backend is
+      # container-to-container, never public.
       # MEDIAMTX_BACKEND_HOST lets a host-run backend receive hooks in dev
       # (e.g. host.docker.internal); the compose service name is the default.
       MTX_AUTHHTTPADDRESS: http://${MEDIAMTX_BACKEND_HOST:-backend}:8000/api/internal/mediamtx/auth?secret=${MEDIAMTX_HOOK_SECRET:?MEDIAMTX_HOOK_SECRET must be set}
