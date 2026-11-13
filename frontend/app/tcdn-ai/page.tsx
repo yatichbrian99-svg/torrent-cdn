@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
+import { ArrowUpRight } from 'lucide-react'
 import CodeBlock from '@/components/ai/CodeBlock'
 import EarlyAccessCta from '@/components/ai/EarlyAccessCta'
 import { AI_EARLY_ACCESS_MAILTO, AI_PUBLIC_BASE_URL, AI_PUBLIC_CONTACT_EMAIL, AI_PUBLIC_MODEL } from '@/lib/aiPublic'
@@ -229,8 +230,19 @@ export default function TcdnAiPublicPage() {
           shilling equivalent of each credit pack, and M-Pesa is the local channel — coming, not enabled
           on our payment account yet.
         </p>
-        <div className="mt-6">
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
           <EarlyAccessCta />
+          {/* The full architecture page is otherwise reachable only from one
+              inline sentence at the end of §02, which reads as "there is
+              nowhere to click" for a visitor who wants the design detail. */}
+          <a
+            href="/tcdn-ai/architecture"
+            className="inline-flex items-center justify-center gap-1 border px-4 py-2 text-sm font-semibold transition-colors hover:border-[color:var(--border-strong)]"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+          >
+            Architecture
+            <ArrowUpRight size={14} aria-hidden="true" />
+          </a>
         </div>
         <p className="mt-3 text-xs" style={{ color: 'var(--text-muted)' }}>
           The endpoint is enabled for invited accounts. Alpha access is granted by hand and there is no
