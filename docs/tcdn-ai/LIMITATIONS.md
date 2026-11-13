@@ -126,6 +126,37 @@ can bill up to the tolerance above it, and an engine whose own tokenisation
 differs from the estimate is flagged as an under-claim rather than corrected.
 The fix is a real tokenizer at the gateway, which is the same work as row 2.8.
 
+19. **Signup farming is still possible; the monthly budget is the only ceiling.**
+    Free-credit claims require a *verified* address, one grant per account, a
+    per-IP cap and a monthly budget (gap 12), and none of those is an identity
+    check. Email verification proves control of an inbox, not a person:
+    disposable and catch-all domains are free, the per-IP cap is keyed on an IP
+    the claimant chooses (residential proxies, mobile carriers, any cloud
+    provider), and every new account is a fresh `users.id`. So a farm of N
+    verified addresses on N IPs still collects N grants until the platform
+    budget stops it. What is missing is a signal that is
+    expensive to multiply — a payment-method fingerprint, phone verification, a
+    device/browser signal, or a proof-of-work/humanity gate. This is a known,
+    accepted exposure, not a bug: the budget is what bounds it today, and raising
+    the budget raises the exposure with it. Nothing in the billing or AI credit
+    code should be read as "one free grant per human".
+
+20. **Session tokens live in browser storage, so an XSS is a session.**
+    `frontend/lib/auth.ts` keeps the JWT in `sessionStorage` for a normal login
+    and in `localStorage` for "keep me logged in" (14 days). Both are readable by
+    any script running in the page's origin, so a single XSS — ours, a dependency's,
+    or a compromised third-party script — takes the token, not just the DOM. The
+    mitigations in place are a strict CSP, no `dangerouslySetInnerHTML` on
+    user-controlled content, and the fact that the token is a short-lived bearer
+    credential the server can revoke (per-token `jti` revocation, and the
+    `security_stamp` marker that kills every session on password/MFA change) —
+    those bound the damage, they do not prevent theft. There is no `HttpOnly`
+    cookie option, no refresh-token rotation, and no per-session binding to a
+    device or IP; a stolen token is usable from anywhere until it expires or is
+    revoked. The fix (a BFF that holds the token server-side and hands the browser
+    an `HttpOnly`, `SameSite` cookie) is a frontend/backend architecture change,
+    not a patch, and it is not done here.
+
 ## Result verification is probabilistic — read this before trusting a result
 
 Verification of inferenced output is **probabilistic, not a proof**. What the
